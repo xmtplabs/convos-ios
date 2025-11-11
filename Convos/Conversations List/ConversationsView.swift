@@ -159,6 +159,7 @@ struct ConversationsView: View {
         .focusEffectDisabled()
         .sheet(isPresented: $presentingAppSettings) {
             AppSettingsView(
+                viewModel: viewModel.appSettingsViewModel,
                 quicknameViewModel: quicknameViewModel,
                 onDeleteAllData: viewModel.deleteAllData
             )
@@ -168,6 +169,7 @@ struct ConversationsView: View {
                     in: namespace
                 )
             )
+            .interactiveDismissDisabled(viewModel.appSettingsViewModel.isDeleting)
         }
         .fullScreenCover(item: $viewModel.newConversationViewModel) { newConvoViewModel in
             NewConversationView(

@@ -82,6 +82,10 @@ final class MessagingService: MessagingServiceProtocol {
         await authorizationOperation.stopAndDelete()
     }
 
+    func waitForDeletionComplete() async {
+        await inboxStateManager.waitForDeletionComplete()
+    }
+
     // MARK: My Profile
 
     func myProfileWriter() -> any MyProfileWriterProtocol {

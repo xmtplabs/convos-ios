@@ -293,6 +293,24 @@ public actor InboxStateMachine {
         enqueueAction(.delete)
     }
 
+    /// Wait for the deletion process to complete
+    /// Returns when the state machine reaches .idle or .stopping state after deletion
+    public func waitForDeletionComplete() async {
+        for await state in stateSequence {
+            switch state {
+            case .idle, .stopping:
+                // Deletion complete
+                return
+            case .error:
+                // Deletion failed, but still complete
+                return
+            default:
+                // Still processing, continue waiting
+                continue
+            }
+        }
+    }
+
     // MARK: - Private
 
     private func enqueueAction(_ action: Action) {
