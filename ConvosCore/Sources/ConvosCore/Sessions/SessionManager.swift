@@ -284,27 +284,58 @@ public final class SessionManager: SessionManagerProtocol {
     }
 
     public func deleteAllInboxes() async throws {
-        // Always clear device registration state, even if deletion fails
-        defer { DeviceRegistrationManager.clearRegistrationState() }
+        // Non-progress version
+        for try await _ in deleteAllInboxesWithProgress() {}
+    }
 
-        let services = serviceQueue.sync(flags: .barrier) {
-            let copy = Array(messagingServices.values)
-            messagingServices.removeAll()
-            return copy
-        }
+    public func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error> {
+        AsyncThrowingStream { continuation in
+            Task {
+                do {
+                    // Always clear device registration state, even if deletion fails
+                    defer { DeviceRegistrationManager.clearRegistrationState() }
 
-        await withTaskGroup(of: Void.self) { group in
-            for messagingService in services {
-                group.addTask {
-                    await messagingService.stopAndDelete()
+                    continuation.yield(.clearingDeviceRegistration)
+
+                    let services = serviceQueue.sync(flags: .barrier) {
+                        let copy = Array(messagingServices.values)
+                        messagingServices.removeAll()
+                        return copy
+                    }
+
+                    let totalServices = services.count
+                    var completedServices = 0
+
+                    await withTaskGroup(of: Void.self) { group in
+                        for messagingService in services {
+                            group.addTask {
+                                // Start the deletion
+                                await messagingService.stopAndDelete()
+
+                                // Wait for the deletion to actually complete
+                                await messagingService.waitForDeletionComplete()
+                            }
+                        }
+
+                        for await _ in group {
+                            completedServices += 1
+                            continuation.yield(.stoppingServices(completed: completedServices, total: totalServices))
+                        }
+                    }
+
+                    // Delete all from database
+                    continuation.yield(.deletingFromDatabase)
+                    let inboxWriter = InboxWriter(dbWriter: databaseWriter)
+                    Log.info("Deleting all inboxes from database")
+                    try await inboxWriter.deleteAll()
+
+                    continuation.yield(.completed)
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
                 }
             }
         }
-
-        // Delete all from database
-        let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-        Log.info("Deleting all inboxes from database")
-        try await inboxWriter.deleteAll()
     }
 
     // MARK: - Messaging Services
