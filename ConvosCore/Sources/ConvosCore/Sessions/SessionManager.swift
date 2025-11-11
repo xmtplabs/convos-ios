@@ -290,7 +290,7 @@ public final class SessionManager: SessionManagerProtocol {
 
     public func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error> {
         AsyncThrowingStream { continuation in
-            Task {
+            let task = Task {
                 do {
                     // Always clear device registration state, even if deletion fails
                     defer { DeviceRegistrationManager.clearRegistrationState() }
@@ -335,6 +335,7 @@ public final class SessionManager: SessionManagerProtocol {
                     continuation.finish(throwing: error)
                 }
             }
+            continuation.onTermination = { _ in task.cancel() }
         }
     }
 
