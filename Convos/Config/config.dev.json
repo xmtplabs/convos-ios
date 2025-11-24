@@ -1,6 +1,6 @@
 {
   "environment": "dev",
-  "backendUrl": "https://api.dev.convos.xyz/api/",
+  "backendUrl": "https://api.dev.convos.xyz/api",
   "assetsCdnUrl": "https://d32k96dpvyy43a.cloudfront.net",
   "xmtpNetwork": "dev",
   "bundleId": "org.convos.ios-preview",
