@@ -2,14 +2,6 @@ import Combine
 import ConvosCore
 import SwiftUI
 
-@MainActor
-protocol NewConversationsViewModelDelegate: AnyObject {
-    func newConversationsViewModel(
-        _ viewModel: NewConversationViewModel,
-        attemptedJoiningExistingConversationWithId conversationId: String
-    )
-}
-
 // MARK: - Error Types
 
 struct IdentifiableError: Identifiable {
@@ -33,7 +25,6 @@ class NewConversationViewModel: Identifiable {
     let session: any SessionManagerProtocol
     let conversationViewModel: ConversationViewModel
     let qrScannerViewModel: QRScannerViewModel
-    private weak var delegate: NewConversationsViewModelDelegate?
     private(set) var messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem = .scan
     private(set) var messagesTopBarTrailingItemEnabled: Bool = false
     private(set) var messagesTextFieldEnabled: Bool = false
@@ -78,7 +69,6 @@ class NewConversationViewModel: Identifiable {
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
-        delegate: NewConversationsViewModelDelegate? = nil
     ) async -> NewConversationViewModel {
         let messagingService = await session.addInbox()
         return NewConversationViewModel(
@@ -87,7 +77,6 @@ class NewConversationViewModel: Identifiable {
             autoCreateConversation: autoCreateConversation,
             showingFullScreenScanner: showingFullScreenScanner,
             allowsDismissingScanner: allowsDismissingScanner,
-            delegate: delegate
         )
     }
 
@@ -98,7 +87,6 @@ class NewConversationViewModel: Identifiable {
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
-        delegate: NewConversationsViewModelDelegate? = nil
     ) {
         self.session = session
         self.qrScannerViewModel = QRScannerViewModel()
@@ -106,7 +94,6 @@ class NewConversationViewModel: Identifiable {
         self.startedWithFullscreenScanner = showingFullScreenScanner
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
-        self.delegate = delegate
 
         let conversationStateManager = messagingService.conversationStateManager()
         self.conversationStateManager = conversationStateManager
