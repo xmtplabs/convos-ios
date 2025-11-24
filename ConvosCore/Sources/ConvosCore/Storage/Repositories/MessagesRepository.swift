@@ -41,12 +41,17 @@ extension MessagesRepositoryProtocol {
 /// Note: Currently, when loading previous messages, all messages up to the new limit
 /// are re-composed. This could be optimized in the future to only compose new messages.
 class MessagesRepository: MessagesRepositoryProtocol {
+    /// Thread-safe snapshot of the repository's loading state
+    private struct LoadingState {
+        let seenIds: Set<String>
+        let isInitial: Bool
+        let isPaginating: Bool
+    }
     private let dbReader: any DatabaseReader
     private var conversationId: String {
         conversationIdSubject.value
     }
     private let conversationIdSubject: CurrentValueSubject<String, Never>
-    private let messages: [AnyMessage] = []
     private var conversationIdCancellable: AnyCancellable?
 
     // Pagination properties
@@ -57,21 +62,39 @@ class MessagesRepository: MessagesRepositoryProtocol {
         set { currentLimitSubject.send(newValue) }
     }
 
+    // Thread-safe synchronization queue for mutable state
+    private let stateQueue: DispatchQueue = DispatchQueue(label: "com.convos.MessagesRepository.stateQueue")
+
     /// Indicates if there are more messages to load
-    private(set) var hasMoreMessages: Bool = true
+    private var _hasMoreMessages: Bool = true
+    var hasMoreMessages: Bool {
+        stateQueue.sync { _hasMoreMessages }
+    }
 
     /// Tracks message IDs that have been seen (existing messages)
     /// Any new message not in this set is considered "inserted"
     /// When messages are loaded again, previously inserted messages become existing
-    private var seenMessageIds: Set<String> = []
+    private var _seenMessageIds: Set<String> = []
+    private var seenMessageIds: Set<String> {
+        get { stateQueue.sync { _seenMessageIds } }
+        set { stateQueue.sync(flags: .barrier) { self._seenMessageIds = newValue } }
+    }
 
     /// Tracks whether we've completed the initial load
     /// Used to differentiate between initial/pagination loads vs new message insertions
-    private var hasCompletedInitialLoad: Bool = false
+    private var _hasCompletedInitialLoad: Bool = false
+    private var hasCompletedInitialLoad: Bool {
+        get { stateQueue.sync { _hasCompletedInitialLoad } }
+        set { stateQueue.sync(flags: .barrier) { self._hasCompletedInitialLoad = newValue } }
+    }
 
     /// Tracks whether we're currently loading via fetchPrevious
     /// Used to ensure paginated messages are marked as .existing
-    private var isLoadingPrevious: Bool = false
+    private var _isLoadingPrevious: Bool = false
+    private var isLoadingPrevious: Bool {
+        get { stateQueue.sync { _isLoadingPrevious } }
+        set { stateQueue.sync(flags: .barrier) { self._isLoadingPrevious = newValue } }
+    }
 
     init(dbReader: any DatabaseReader, conversationId: String, pageSize: Int = 150) {
         self.dbReader = dbReader
@@ -91,16 +114,16 @@ class MessagesRepository: MessagesRepositoryProtocol {
         conversationIdCancellable = conversationIdPublisher.sink { [weak self] conversationId in
             guard let self else { return }
             Log.info("Sending updated conversation id: \(conversationId), resetting pagination")
-            // Reset pagination and origin tracking when conversation changes
-            seenMessageIds.removeAll()
-            isLoadingPrevious = false
+
+            // Emit the new conversationId first
+            self.conversationIdSubject.send(conversationId)
+
+            // Now perform the initial read, which will reset state properly
             do {
-                _ = try fetchInitial()
+                _ = try self.fetchInitial()
             } catch {
                 Log.error("Failed fetching initial messages after conversation change: \(error.localizedDescription)")
             }
-
-            conversationIdSubject.send(conversationId)
         }
     }
 
@@ -109,27 +132,39 @@ class MessagesRepository: MessagesRepositoryProtocol {
     }
 
     func fetchInitial() throws -> [AnyMessage] {
-        // Reset to initial page size and assume more messages are available
+        // Reset all state synchronously before performing the read
+        stateQueue.sync(flags: .barrier) {
+            self._hasMoreMessages = true
+            self._seenMessageIds.removeAll()
+            self._hasCompletedInitialLoad = false
+        }
+
+        // Reset to initial page size synchronously
         currentLimit = pageSize
-        hasMoreMessages = true
-        // Clear seenMessageIds for fresh start
-        seenMessageIds.removeAll()
-        hasCompletedInitialLoad = false
 
         return try dbReader.read { [weak self] db in
             guard let self else { return [] }
+
+            // Get current state safely (should be empty after reset)
+            let currentSeenIds = self.stateQueue.sync { self._seenMessageIds }
+
             // Pass isInitialLoad = true to mark all messages as .existing
-            let (messages, updatedSeenIds) = try db.composeMessages(for: conversationId, limit: currentLimit, seenMessageIds: seenMessageIds, isInitialLoad: true, isPaginating: false)
+            let (messages, updatedSeenIds) = try db.composeMessages(
+                for: self.conversationId,
+                limit: self.currentLimit,
+                seenMessageIds: currentSeenIds,
+                isInitialLoad: true,
+                isPaginating: false
+            )
 
-            // Update seen IDs
-            self.seenMessageIds = updatedSeenIds
-
-            // Mark initial load as complete
-            hasCompletedInitialLoad = true
-
-            // Check if we got fewer messages than the page size
-            if messages.count < pageSize {
-                hasMoreMessages = false
+            // Update state atomically
+            self.stateQueue.sync(flags: .barrier) {
+                self._seenMessageIds = updatedSeenIds
+                self._hasCompletedInitialLoad = true
+                // Check if we got fewer messages than the page size
+                if messages.count < self.pageSize {
+                    self._hasMoreMessages = false
+                }
             }
 
             return messages
@@ -137,33 +172,56 @@ class MessagesRepository: MessagesRepositoryProtocol {
     }
 
     func fetchPrevious() throws {
-        // Don't fetch if we already know there are no more messages
-        guard hasMoreMessages else { return }
+        // Capture the current conversation ID and calculate target limit before any async operations
+        // This prevents race conditions with conversation changes
+        let capturedConversationId = conversationId
+        let targetLimit = currentLimit + pageSize
 
-        // Set flag to indicate we're loading previous messages
-        isLoadingPrevious = true
+        // Synchronously check and acquire the pagination lock
+        // This ensures only one pagination operation can proceed at a time
+        let shouldProceed = stateQueue.sync { () -> Bool in
+            // Check if we can proceed with pagination
+            guard !_isLoadingPrevious && _hasMoreMessages else {
+                return false
+            }
+            // Atomically set the loading flag before any state changes
+            _isLoadingPrevious = true
+            return true
+        }
 
-        // Increase the limit by pageSize to load more messages
-        currentLimit += pageSize
+        // Early return if we shouldn't proceed (already loading or no more messages)
+        guard shouldProceed else { return }
+
+        // Ensure we always reset the loading flag, even if the read throws
+        defer {
+            stateQueue.sync(flags: .barrier) {
+                self._isLoadingPrevious = false
+            }
+        }
+
+        // Increment the limit
+        currentLimit = targetLimit
 
         // The publisher will automatically update with the new messages
-        // Check if we need to update hasMoreMessages
         try dbReader.read { [weak self] db in
             guard let self else { return }
 
             let totalCount = try DBMessage
-                .filter(DBMessage.Columns.conversationId == conversationId)
+                .filter(DBMessage.Columns.conversationId == capturedConversationId)
                 .fetchCount(db)
 
-            if totalCount <= currentLimit {
-                hasMoreMessages = false
-            }
-        }
+            self.stateQueue.sync(flags: .barrier) {
+                // Verify the conversation hasn't changed before updating state
+                // If it has changed, abort without updating state as this pagination
+                // was for the previous conversation
+                guard self.conversationId == capturedConversationId else {
+                    return
+                }
 
-        // Reset the flag after triggering the update
-        // The publisher will pick up the flag value before we reset it
-        DispatchQueue.main.async { [weak self] in
-            self?.isLoadingPrevious = false
+                if totalCount <= targetLimit {
+                    self._hasMoreMessages = false
+                }
+            }
         }
     }
 
@@ -182,17 +240,28 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 .tracking { [weak self] db in
                     guard let self else { return [] }
                     do {
-                        // Determine the context of this load
-                        let isInitialLoad = !self.hasCompletedInitialLoad
-                        let isPaginating = self.isLoadingPrevious
+                        // Get current state safely
+                        let currentState = self.stateQueue.sync { () -> LoadingState in
+                            LoadingState(
+                                seenIds: self._seenMessageIds,
+                                isInitial: !self._hasCompletedInitialLoad,
+                                isPaginating: self._isLoadingPrevious
+                            )
+                        }
+
                         let (messages, updatedSeenIds) = try db.composeMessages(
                             for: conversationId,
                             limit: limit,
-                            seenMessageIds: self.seenMessageIds,
-                            isInitialLoad: isInitialLoad,
-                            isPaginating: isPaginating
+                            seenMessageIds: currentState.seenIds,
+                            isInitialLoad: currentState.isInitial,
+                            isPaginating: currentState.isPaginating
                         )
-                        self.seenMessageIds = updatedSeenIds
+
+                        // Update seenMessageIds atomically
+                        self.stateQueue.sync(flags: .barrier) {
+                            self._seenMessageIds = updatedSeenIds
+                        }
+
                         return messages
                     } catch {
                         Log.error("Error in messages publisher: \(error)")

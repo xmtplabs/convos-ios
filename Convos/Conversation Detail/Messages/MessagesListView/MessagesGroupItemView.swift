@@ -91,15 +91,12 @@ struct MessagesGroupItemView: View {
                 EmptyView()
             }
 
-            if showsSentStatus {
+            if showingSentStatus {
                 HStack(spacing: DesignConstants.Spacing.stepHalf) {
                     Text("Sent")
                     Image(systemName: "checkmark")
                 }
-//                .transition(.blurReplace)
-                .opacity(showingSentStatus ? 1.0 : 0.0)
-                .blur(radius: showingSentStatus ? 0.0 : 10.0)
-                .scaleEffect(showingSentStatus ? 1.0 : 0.8)
+                .transition(.blurReplace)
                 .padding(.vertical, DesignConstants.Spacing.stepX)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
@@ -108,11 +105,9 @@ struct MessagesGroupItemView: View {
             }
         }
         .onChange(of: showsSentStatus, initial: true) {
-            withAnimation(animates ? .spring(response: 0.35, dampingFraction: 0.8) : .none) {
-                showingSentStatus = showsSentStatus
-            }
+            showingSentStatus = showsSentStatus
         }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showsSentStatus)
+        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showingSentStatus)
         .id("messages-group-item-view-\(message.base.id)")
         .transition(
             .asymmetric(

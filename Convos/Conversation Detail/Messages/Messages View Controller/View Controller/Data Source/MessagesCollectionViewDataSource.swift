@@ -42,7 +42,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = sections[indexPath.section].cells[indexPath.item]
-        return CellFactory.createCell(in: collectionView, for: indexPath, with: item) { [weak self] in
+        return CellFactory.createCell(in: collectionView, for: indexPath, with: item) { [weak self] _ in
             self?.onTapAvatar?(indexPath)
         }
     }

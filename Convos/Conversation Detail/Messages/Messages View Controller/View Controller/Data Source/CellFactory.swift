@@ -7,7 +7,7 @@ final class CellFactory {
     static func createCell(in collectionView: UICollectionView,
                            for indexPath: IndexPath,
                            with item: MessagesListItemType,
-                           onTapAvatar: @escaping () -> Void) -> UICollectionViewCell {
+                           onTapAvatar: @escaping (AnyMessage) -> Void) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessagesListItemTypeCell.reuseIdentifier,
                                                       for: indexPath) as! MessagesListItemTypeCell
         cell.setup(item: item, onTapAvatar: onTapAvatar)

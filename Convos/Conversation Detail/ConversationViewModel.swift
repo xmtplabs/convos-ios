@@ -366,9 +366,6 @@ class ConversationViewModel {
         myProfileViewModel.update(using: profile, profileImage: profileImage, conversationId: conversation.id)
     }
 
-    func onTapMessage(_ message: AnyMessage) {
-    }
-
     func onTapAvatar(_ member: ConversationMember) {
         presentingProfileForMember = member
     }

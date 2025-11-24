@@ -69,7 +69,7 @@ struct MessagesGroupView: View {
                         onTapMessage: onTapMessage,
                         onTapAvatar: onTapAvatar
                     )
-                    .id("messages-group-item-\(group.id)")
+                    .id("messages-group-item-\(message.differenceIdentifier)")
                     .transition(
                         .asymmetric(
                             insertion: .identity,      // no transition on insert

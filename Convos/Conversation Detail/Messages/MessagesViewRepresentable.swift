@@ -7,7 +7,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let invite: Invite
     let scrollViewWillBeginDragging: () -> Void
     let hasLoadedAllMessages: Bool
-    let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (ConversationMember) -> Void
     let onLoadPreviousMessages: () -> Void
     let bottomBarHeight: CGFloat
@@ -19,7 +18,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
         messagesViewController.scrollViewWillBeginDragging = scrollViewWillBeginDragging
         messagesViewController.bottomBarHeight = bottomBarHeight
-        messagesViewController.onTapMessage = onTapMessage
         messagesViewController.onTapAvatar = onTapAvatar
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.state = .init(
@@ -42,7 +40,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         invite: invite,
         scrollViewWillBeginDragging: {},
         hasLoadedAllMessages: false,
-        onTapMessage: { _ in },
         onTapAvatar: { _ in },
         onLoadPreviousMessages: {},
         bottomBarHeight: bottomBarHeight

@@ -117,7 +117,6 @@ final class MessagesViewController: UIViewController {
         super.init(nibName: nil, bundle: nil)
     }
 
-    var onTapMessage: ((AnyMessage) -> Void)?
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onLoadPreviousMessages: (() -> Void)?
 
@@ -460,13 +459,6 @@ extension MessagesViewController {
 extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate {
     func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
         scrollViewWillBeginDragging?()
-    }
-
-    func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-        let cell = dataSource.sections[indexPath.section].cells[indexPath.item]
-        if case .message(let message) = cell {
-//            onTapMessage?(message)
-        }
     }
 
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {

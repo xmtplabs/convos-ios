@@ -33,7 +33,7 @@ struct ConversationInfoPreview: View {
                 .multilineTextAlignment(.center)
                 .padding(DesignConstants.Spacing.step6x)
             }
-            .frame(maxWidth: .infinity)
+            .frame(maxWidth: 294.0)
             .background(.colorFillMinimal)
             .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarger))
 

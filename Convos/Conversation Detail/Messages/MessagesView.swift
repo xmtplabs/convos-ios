@@ -8,7 +8,7 @@ enum MessagesViewTopBarTrailingItem {
 
 struct MessagesView<BottomBarContent: View>: View {
     let conversation: Conversation
-    @Binding var messages: [MessagesListItemType]
+    let messages: [MessagesListItemType]
     let invite: Invite
     let hasLoadedAllMessages: Bool
     let profile: Profile
@@ -27,7 +27,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let scrollViewWillBeginDragging: () -> Void
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
-    let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (ConversationMember) -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
@@ -43,7 +42,6 @@ struct MessagesView<BottomBarContent: View>: View {
                 invite: invite,
                 scrollViewWillBeginDragging: scrollViewWillBeginDragging,
                 hasLoadedAllMessages: hasLoadedAllMessages,
-                onTapMessage: onTapMessage,
                 onTapAvatar: onTapAvatar,
                 onLoadPreviousMessages: onLoadPreviousMessages,
                 bottomBarHeight: bottomBarHeight

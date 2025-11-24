@@ -19,7 +19,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         MessagesView(
             conversation: viewModel.conversation,
-            messages: $viewModel.messages,
+            messages: viewModel.messages,
             invite: viewModel.invite,
             hasLoadedAllMessages: viewModel.hasLoadedAllMessages,
             profile: viewModel.profile,
@@ -46,7 +46,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendMessage: {
                 viewModel.onSendMessage(focusCoordinator: focusCoordinator)
             },
-            onTapMessage: viewModel.onTapMessage(_:),
             onTapAvatar: viewModel.onTapAvatar(_:),
             onDisplayNameEndedEditing: {
                 viewModel.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
