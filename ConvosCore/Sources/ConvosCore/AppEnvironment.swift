@@ -90,7 +90,7 @@ public enum AppEnvironment: Sendable {
             Log.info("Using API URL from local config: \(config.apiBaseURL)")
             return config.apiBaseURL
         case .tests:
-            return "http://localhost:4000/api/"
+            return "http://localhost:4000/api"
         case .dev(let config):
             Log.info("Using API URL from dev config: \(config.apiBaseURL)")
             return config.apiBaseURL
@@ -148,6 +148,15 @@ public enum AppEnvironment: Sendable {
         switch self {
         case .local(config: let config), .dev(config: let config), .production(config: let config):
             return config.gatewayUrl
+        case .tests:
+            return nil
+        }
+    }
+
+    public var assetsCdnUrl: String? {
+        switch self {
+        case .local(config: let config), .dev(config: let config), .production(config: let config):
+            return config.assetsCdnUrl
         case .tests:
             return nil
         }
