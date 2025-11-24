@@ -187,8 +187,20 @@ extension MockMessagingService: MessagesRepositoryProtocol {
         messagesSubject.eraseToAnyPublisher()
     }
 
-    public func fetchAll() throws -> [AnyMessage] {
-        messages
+    public func fetchInitial() throws -> [AnyMessage] {
+        // Return the last 25 messages (or all if less than 25) to match default page size
+        let pageSize = 25
+        return Array(messages.suffix(pageSize))
+    }
+
+    public func fetchPrevious() throws {
+        // For mock, results are delivered through the publisher
+        // No action needed as messages are already available
+    }
+
+    public var hasMoreMessages: Bool {
+        // For mock, return false since we don't have real pagination
+        false
     }
 
     public var conversationMessagesPublisher: AnyPublisher<ConversationMessages, Never> {
@@ -390,15 +402,17 @@ extension MockMessagingService: MessageSender {
     public func prepare(text: String) async throws -> String {
         guard let conversation = currentConversation else { return "" }
         let message: AnyMessage = .message(
-            .init(id: UUID().uuidString,
-                  conversation: conversation,
-                  sender: ConversationMember(profile: currentUser.profile, role: .member, isCurrentUser: true),
-                  source: .outgoing,
-                  status: .published,
-                  content: .text(text),
-                  date: Date(),
-                  reactions: []
-                 )
+            .init(
+                id: UUID().uuidString,
+                conversation: conversation,
+                sender: ConversationMember(profile: currentUser.profile, role: .member, isCurrentUser: true),
+                source: .outgoing,
+                status: .published,
+                content: .text(text),
+                date: Date(),
+                reactions: []
+            ),
+            .inserted
         )
         unpublishedMessages.append(message)
         return message.base.id
@@ -524,7 +538,7 @@ extension MockMessagingService {
             date: Date(),
             reactions: []
         )
-        let anyMessage = AnyMessage.message(message)
+        let anyMessage = AnyMessage.message(message, .inserted)
         messages.append(anyMessage)
         messagesSubject.send(messages)
     }
@@ -546,7 +560,7 @@ extension MockMessagingService {
                 date: Date(),
                 reactions: []
             )
-            return AnyMessage.message(message)
+            return AnyMessage.message(message, .existing)
         }
     }
 }

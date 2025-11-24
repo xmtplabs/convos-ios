@@ -13,7 +13,7 @@ protocol MessagesLayoutDelegate: AnyObject {
                      at indexPath: IndexPath) -> ItemSize
     func alignmentForItem(_ messagesLayout: MessagesCollectionLayout,
                           of kind: ItemKind,
-                          at indexPath: IndexPath) -> MessagesCollectionCell.Alignment
+                          at indexPath: IndexPath) -> MessagesListItemAlignment
     func initialLayoutAttributesForInsertedItem(_ messagesLayout: MessagesCollectionLayout,
                                                 of kind: ItemKind,
                                                 at indexPath: IndexPath,
@@ -48,7 +48,7 @@ extension MessagesLayoutDelegate {
 
     func alignmentForItem(_ messagesLayout: MessagesCollectionLayout,
                           of kind: ItemKind,
-                          at indexPath: IndexPath) -> MessagesCollectionCell.Alignment {
+                          at indexPath: IndexPath) -> MessagesListItemAlignment {
         .fullWidth
     }
 

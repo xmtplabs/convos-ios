@@ -2,8 +2,6 @@ import Foundation
 import SwiftUI
 import UIKit
 
-// swiftlint:disable force_cast
-
 final class MessagesCollectionViewDataSource: NSObject {
     var sections: [MessagesCollectionSection] = [] {
         didSet {
@@ -18,27 +16,11 @@ final class MessagesCollectionViewDataSource: NSObject {
                                                                                                    oldSections: [])
 
     private func registerCells(in collectionView: UICollectionView) {
-        collectionView.register(ConversationInfoCell.self,
-                                forCellWithReuseIdentifier: ConversationInfoCell.reuseIdentifier)
-        collectionView.register(TextMessageCollectionCell.self,
-                                forCellWithReuseIdentifier: TextMessageCollectionCell.reuseIdentifier)
-        collectionView.register(ImageCollectionCell.self,
-                                forCellWithReuseIdentifier: ImageCollectionCell.reuseIdentifier)
-        collectionView.register(InviteCell.self, forCellWithReuseIdentifier: InviteCell.reuseIdentifier)
+        collectionView.register(MessagesListItemTypeCell.self,
+                                forCellWithReuseIdentifier: MessagesListItemTypeCell.reuseIdentifier)
 
-        collectionView.register(UserTitleCollectionCell.self,
-                                forCellWithReuseIdentifier: UserTitleCollectionCell.reuseIdentifier)
         collectionView.register(TypingIndicatorCollectionCell.self,
                                 forCellWithReuseIdentifier: TypingIndicatorCollectionCell.reuseIdentifier)
-        collectionView.register(TextTitleCell.self,
-                                forCellWithReuseIdentifier: TextTitleCell.reuseIdentifier)
-
-        collectionView.register(TextTitleView.self,
-                                forSupplementaryViewOfKind: UICollectionView.elementKindSectionHeader,
-                                withReuseIdentifier: TextTitleView.reuseIdentifier)
-        collectionView.register(TextTitleView.self,
-                                forSupplementaryViewOfKind: UICollectionView.elementKindSectionFooter,
-                                withReuseIdentifier: TextTitleView.reuseIdentifier)
     }
 }
 
@@ -64,18 +46,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             self?.onTapAvatar?(indexPath)
         }
     }
-
-    func collectionView(_ collectionView: UICollectionView,
-                        viewForSupplementaryElementOfKind kind: String,
-                        at indexPath: IndexPath) -> UICollectionReusableView {
-        let view = collectionView.dequeueReusableSupplementaryView(
-            ofKind: kind,
-            withReuseIdentifier: TextTitleView.reuseIdentifier,
-            for: indexPath
-        ) as! TextTitleView
-        view.setup(title: sections[indexPath.section].title)
-        return view
-    }
 }
 
 extension MessagesCollectionViewDataSource: MessagesLayoutDelegate {
@@ -95,7 +65,7 @@ extension MessagesCollectionViewDataSource: MessagesLayoutDelegate {
 
     func alignmentForItem(_ messagesLayout: MessagesCollectionLayout,
                           of kind: ItemKind,
-                          at indexPath: IndexPath) -> MessagesCollectionCell.Alignment {
+                          at indexPath: IndexPath) -> MessagesListItemAlignment {
         layoutDelegate.alignmentForItem(messagesLayout, of: kind, at: indexPath)
     }
 
@@ -132,5 +102,3 @@ extension MessagesCollectionViewDataSource: MessagesLayoutDelegate {
         layoutDelegate.interSectionSpacing(messagesLayout, after: sectionIndex)
     }
 }
-
-// swiftlint:enable force_cast

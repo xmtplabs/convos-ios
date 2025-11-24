@@ -2,21 +2,21 @@ import SwiftUI
 
 // MARK: - Link Detecting Text View
 struct LinkDetectingTextView: View {
-    let text: String
     let linkColor: Color?
+    private let attributedText: AttributedString
 
     init(_ text: String, linkColor: Color? = nil) {
-        self.text = text
         self.linkColor = linkColor
+        self.attributedText = Self.makeAttributedString(from: text)
     }
 
     var body: some View {
-        Text(makeAttributedString())
+        Text(attributedText)
             .tint(linkColor)
             .textSelection(.enabled) // Allow text selection
     }
 
-    private func makeAttributedString() -> AttributedString {
+    private static func makeAttributedString(from text: String) -> AttributedString {
         // Create a mutable attributed string
         var result = AttributedString()
 

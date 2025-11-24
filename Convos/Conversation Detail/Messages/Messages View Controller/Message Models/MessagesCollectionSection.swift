@@ -4,7 +4,7 @@ import Foundation
 struct MessagesCollectionSection: Hashable {
     var id: Int
     var title: String
-    var cells: [MessagesCollectionCell]
+    var cells: [MessagesListItemType]
 }
 
 extension MessagesCollectionSection: DifferentiableSection {
@@ -16,13 +16,13 @@ extension MessagesCollectionSection: DifferentiableSection {
         id == source.id
     }
 
-    var elements: [MessagesCollectionCell] {
+    var elements: [MessagesListItemType] {
         cells
     }
 
     init<C: Swift.Collection>(
         source: MessagesCollectionSection,
-        elements: C) where C.Element == MessagesCollectionCell {
+        elements: C) where C.Element == MessagesListItemType {
         self.init(id: source.id, title: source.title, cells: Array(elements))
     }
 }

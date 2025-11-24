@@ -8,8 +8,9 @@ import UIKit
 final class MessagesViewController: UIViewController {
     struct MessagesState {
         let conversation: Conversation
-        let messages: [AnyMessage]
+        let messages: [MessagesListItemType]
         let invite: Invite
+        let hasLoadedAllMessages: Bool
     }
 
     private enum ReactionTypes {
@@ -62,6 +63,7 @@ final class MessagesViewController: UIViewController {
                     for: .empty(),
                     with: [],
                     invite: .empty,
+                    hasLoadedAllMessages: false,
                     animated: true,
                     requiresIsolatedProcess: false) {}
                 return
@@ -72,8 +74,9 @@ final class MessagesViewController: UIViewController {
                 for: state.conversation,
                 with: state.messages,
                 invite: state.invite,
+                hasLoadedAllMessages: state.hasLoadedAllMessages,
                 animated: animated,
-                requiresIsolatedProcess: !isFirstStateUpdate) { [currentControllerActions, isFirstStateUpdate] in
+                requiresIsolatedProcess: true) { [currentControllerActions, isFirstStateUpdate] in
                     if isFirstStateUpdate {
                         currentControllerActions.options.remove(.loadingInitialMessages)
                         UIView.performWithoutAnimation {
@@ -115,7 +118,8 @@ final class MessagesViewController: UIViewController {
     }
 
     var onTapMessage: ((AnyMessage) -> Void)?
-    var onTapAvatar: ((AnyMessage) -> Void)?
+    var onTapAvatar: ((ConversationMember) -> Void)?
+    var onLoadPreviousMessages: (() -> Void)?
 
     deinit {
         KeyboardListener.shared.remove(delegate: self)
@@ -168,9 +172,14 @@ final class MessagesViewController: UIViewController {
     }
 
     private func configureMessagesLayout() {
-        messagesLayout.settings.interItemSpacing = 8
-        messagesLayout.settings.interSectionSpacing = 8
-        messagesLayout.settings.additionalInsets = UIEdgeInsets(top: 8, left: 5, bottom: 8.0, right: 5)
+        messagesLayout.settings.interItemSpacing = 0.0
+        messagesLayout.settings.interSectionSpacing = 0.0
+        messagesLayout.settings.additionalInsets = UIEdgeInsets(
+            top: 0.0,
+            left: DesignConstants.Spacing.step4x,
+            bottom: 0.0,
+            right: DesignConstants.Spacing.step4x
+        )
         messagesLayout.keepContentOffsetAtBottomOnBatchUpdates = true
         messagesLayout.processOnlyVisibleItemsOnAnimatedBatchUpdates = true
     }
@@ -209,9 +218,12 @@ final class MessagesViewController: UIViewController {
 
         dataSource.onTapAvatar = { [weak self] indexPath in
             guard let self = self else { return }
-            let cell = self.dataSource.sections[indexPath.section].cells[indexPath.item]
-            if case .message(let message, _) = cell {
-                self.onTapAvatar?(message)
+            let item = self.dataSource.sections[indexPath.section].cells[indexPath.item]
+            switch item {
+            case .messages(let group):
+                self.onTapAvatar?(group.sender)
+            default:
+                break
             }
         }
     }
@@ -239,14 +251,9 @@ final class MessagesViewController: UIViewController {
     // MARK: - Scrolling Methods
 
     private func loadPreviousMessages() {
-        //        currentControllerActions.options.insert(.loadingPreviousMessages)
-        //        Task {
-        //            let sections = await messagesStore.loadPreviousMessages()
-        //            let animated = !isUserInitiatedScrolling
-        //            processUpdates(with: sections, animated: animated, requiresIsolatedProcess: true) {
-        //                self.currentControllerActions.options.remove(.loadingPreviousMessages)
-        //            }
-        //        }
+        guard let onLoadPreviousMessages = onLoadPreviousMessages else { return }
+        currentControllerActions.options.insert(.loadingPreviousMessages)
+        onLoadPreviousMessages()
     }
 
     func scrollToBottom(completion: (() -> Void)? = nil) {
@@ -314,68 +321,28 @@ final class MessagesViewController: UIViewController {
 
 extension MessagesViewController {
     private func processUpdates(for conversation: Conversation,
-                                with messages: [AnyMessage],
+                                with messages: [MessagesListItemType],
                                 invite: Invite,
+                                hasLoadedAllMessages: Bool,
                                 animated: Bool = true,
                                 requiresIsolatedProcess: Bool,
                                 completion: (() -> Void)? = nil) {
         Log.info("Processing updates with \(messages.count) messages")
-        let visibleMessages = messages.filter { message in
-            message.base.content.showsInMessagesList
-        }
-        var cells: [MessagesCollectionCell] = visibleMessages
-            .enumerated()
-            .flatMap { index, message in
-            var cells: [MessagesCollectionCell] = []
 
-            let senderTitleCell = MessagesCollectionCell.messageGroup(
-                .init(
-                    id: message.base.sender.id,
-                    title: message.base.sender.profile.displayName,
-                    source: message.base.source
-                )
-            )
-
-            if index > 0 {
-                let previousMessage = visibleMessages[index - 1]
-                let timeDifference = message.base.date.timeIntervalSince(previousMessage.base.date)
-                if timeDifference > 3600 { // 1 hour in seconds
-                    cells.append(MessagesCollectionCell.date(.init(date: message.base.date)))
-                }
-                if previousMessage.base.sender.id != message.base.sender.id ||
-                    message.base.sender.id == previousMessage.base.sender.id &&
-                    previousMessage.base.content.isUpdate,
-                   message.base.source.isIncoming,
-                   message.base.content.showsSender {
-                    cells.append(senderTitleCell)
-                }
-            } else {
-                cells.append(MessagesCollectionCell.date(.init(date: message.base.date)))
-                if message.base.source.isIncoming,
-                   message.base.content.showsSender {
-                    cells.append(senderTitleCell)
-                }
-            }
-
-            let bubbleType: MessagesCollectionCell.BubbleType
-            if index < visibleMessages.count - 1 {
-                let nextMessage = visibleMessages[index + 1]
-                let timeDifference = nextMessage.base.date.timeIntervalSince(message.base.date)
-                let willShowTimestamp = timeDifference > 3600
-                let nextMessageIsNotUpdate = !nextMessage.base.content.isUpdate
-                let nextMessageIsSameSender = message.base.sender.id == nextMessage.base.sender.id
-                bubbleType = nextMessageIsSameSender && nextMessageIsNotUpdate && !willShowTimestamp ? .normal : .tailed
-            } else {
-                bubbleType = .tailed
-            }
-            cells.append(MessagesCollectionCell.message(message, bubbleType: bubbleType))
-            return cells
+        if currentControllerActions.options.contains(.loadingPreviousMessages),
+           messages.contains(where: { $0.origin == .paginated }) {
+            currentControllerActions.options.remove(.loadingPreviousMessages)
         }
 
-        if conversation.creator.isCurrentUser {
-            cells.insert(.invite(invite), at: 0)
-        } else {
-            cells.insert(.conversationInfo(conversation), at: 0)
+        var cells: [MessagesListItemType] = messages
+
+        // Add invite or conversation info at the beginning if all messages are loaded
+        if hasLoadedAllMessages {
+            if conversation.creator.isCurrentUser {
+                cells.insert(.invite(invite), at: 0)
+            } else {
+                cells.insert(.conversationInfo(conversation), at: 0)
+            }
         }
 
         let sections: [MessagesCollectionSection] = [
@@ -392,6 +359,7 @@ extension MessagesViewController {
             scheduleDelayedUpdate(for: conversation,
                                   with: messages,
                                   invite: invite,
+                                  hasLoadedAllMessages: hasLoadedAllMessages,
                                   animated: animated,
                                   requiresIsolatedProcess: requiresIsolatedProcess,
                                   completion: completion)
@@ -404,9 +372,11 @@ extension MessagesViewController {
                       completion: completion)
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func scheduleDelayedUpdate(for conversation: Conversation,
-                                       with messages: [AnyMessage],
+                                       with messages: [MessagesListItemType],
                                        invite: Invite,
+                                       hasLoadedAllMessages: Bool,
                                        animated: Bool,
                                        requiresIsolatedProcess: Bool,
                                        completion: (() -> Void)?) {
@@ -419,6 +389,7 @@ extension MessagesViewController {
                 processUpdates(for: conversation,
                                with: messages,
                                invite: invite,
+                               hasLoadedAllMessages: hasLoadedAllMessages,
                                animated: animated,
                                requiresIsolatedProcess: requiresIsolatedProcess,
                                completion: completion)
@@ -493,8 +464,8 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         let cell = dataSource.sections[indexPath.section].cells[indexPath.item]
-        if case .message(let message, _) = cell {
-            onTapMessage?(message)
+        if case .message(let message) = cell {
+//            onTapMessage?(message)
         }
     }
 

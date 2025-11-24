@@ -2,6 +2,19 @@ import Foundation
 import GRDB
 import XMTPiOS
 
+extension Character {
+    var isEmoji: Bool {
+        guard let scalar = unicodeScalars.first else { return false }
+        return scalar.properties.isEmojiPresentation || scalar.properties.isEmoji
+    }
+}
+
+extension String {
+    var allCharactersEmoji: Bool {
+        allSatisfy { $0.isEmoji }
+    }
+}
+
 extension XMTPiOS.DecodedMessage {
     enum DecodedMessageDBRepresentationError: Error {
         case mismatchedContentType, unsupportedContentType
@@ -64,13 +77,14 @@ extension XMTPiOS.DecodedMessage {
         guard let contentString = content as? String else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
+        let isContentEmoji = contentString.allCharactersEmoji
         return DBMessageComponents(
             messageType: .original,
-            contentType: .text,
+            contentType: isContentEmoji ? .emoji : .text,
             sourceMessageId: nil,
-            emoji: nil,
+            emoji: isContentEmoji ? contentString : nil,
             attachmentUrls: [],
-            text: contentString,
+            text: isContentEmoji ? nil : contentString,
             update: nil
         )
     }

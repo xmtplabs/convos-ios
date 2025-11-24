@@ -4,11 +4,9 @@ import Foundation
 import UIKit
 
 struct DateGroup: Hashable {
-    var date: Date
     var value: String
 
     init(date: Date) {
-        self.date = date
         self.value = MessagesDateFormatter.shared.string(from: date)
     }
 }

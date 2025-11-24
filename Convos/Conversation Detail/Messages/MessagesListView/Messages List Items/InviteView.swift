@@ -1,20 +1,5 @@
 import ConvosCore
 import SwiftUI
-import UIKit
-
-class InviteCell: UICollectionViewCell {
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-    }
-
-    func prepare(with invite: Invite) {
-        contentConfiguration = UIHostingConfiguration {
-            InviteView(invite: invite)
-        }
-        .margins(.vertical, 0.0)
-    }
-}
 
 struct InviteView: View {
     let invite: Invite
@@ -36,6 +21,7 @@ struct InviteView: View {
             .background(.colorFillMinimal)
             .mask(RoundedRectangle(cornerRadius: 38.0))
         }
+        .id(invite.differenceIdentifier)
     }
 }
 

@@ -182,7 +182,7 @@ final class FocusCoordinator {
 
         if newFocus == nil && currentFocus != nil {
             // User manually dismissed keyboard
-            handleManualDismissal()
+            handleManualDismissal(viewIsAlreadyAt: newFocus)
         } else if newFocus != currentFocus {
             // User manually changed focus (tapped a different field)
             Log.info("User initiated focus change to: \(String(describing: newFocus))")
@@ -248,7 +248,7 @@ final class FocusCoordinator {
     }
 
     /// Called when user manually dismisses keyboard - should return to default or stay nil
-    func handleManualDismissal() {
+    func handleManualDismissal(viewIsAlreadyAt viewFocus: MessagesViewInputFocus? = nil) {
         // Ignore if we're in the middle of ANY transition
         // This prevents false positives when SwiftUI temporarily sets focus to nil
         // while transitioning between text fields
@@ -261,8 +261,14 @@ final class FocusCoordinator {
 
         // If there's a default focus (iPad with hardware keyboard), go back to it
         // Otherwise, stay at nil (allow dismissal on iPhone/iPad without hardware keyboard)
-        beginProgrammaticTransition(to: defaultFocus)
         currentFocus = defaultFocus
+
+        // Only begin a transition if we're not already at the target
+        // This prevents stuck transitions when dismissing to nil (which is already the view state)
+        if defaultFocus != viewFocus && defaultFocus != nil {
+            // We have a default focus that's different from the current view state
+            beginProgrammaticTransition(to: defaultFocus)
+        }
     }
 
     // MARK: - Private Methods
@@ -381,6 +387,11 @@ final class FocusCoordinator {
 
         let previousKeyboardType = keyboardType
         keyboardType = newKeyboardType
+
+        guard !isProgrammaticTransition && !isSwiftUITransition else {
+            Log.info("Skipping keyboard type changed focus sync, in transition...")
+            return
+        }
 
         // If keyboard type changed, update current focus to match new default
         // Only do this if we're currently at nil

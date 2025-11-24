@@ -53,6 +53,7 @@ class OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         try await databaseWriter.write { [weak self] db in
             guard let self else { return }
 
+            let isContentEmoji = text.allCharactersEmoji
             let localMessage = DBMessage(
                 id: clientMessageId,
                 clientMessageId: clientMessageId,
@@ -62,9 +63,9 @@ class OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 date: date,
                 status: .unpublished,
                 messageType: .original,
-                contentType: .text,
-                text: text,
-                emoji: nil,
+                contentType: isContentEmoji ? .emoji : .text,
+                text: isContentEmoji ? nil : text,
+                emoji: isContentEmoji ? text : nil,
                 sourceMessageId: nil,
                 attachmentUrls: [],
                 update: nil

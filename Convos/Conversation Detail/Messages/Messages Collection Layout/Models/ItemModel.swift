@@ -3,7 +3,7 @@ import UIKit
 
 struct ItemModel {
     struct Configuration {
-        let alignment: MessagesCollectionCell.Alignment
+        let alignment: MessagesListItemAlignment
         let preferredSize: CGSize
         let calculatedSize: CGSize?
         let interItemSpacing: CGFloat
@@ -14,7 +14,7 @@ struct ItemModel {
     var offsetY: CGFloat = .zero
     var calculatedSize: CGSize?
     var calculatedOnce: Bool = false
-    var alignment: MessagesCollectionCell.Alignment
+    var alignment: MessagesListItemAlignment
     var interItemSpacing: CGFloat
 
     var size: CGSize {

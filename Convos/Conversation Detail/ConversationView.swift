@@ -19,8 +19,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         MessagesView(
             conversation: viewModel.conversation,
-            messages: viewModel.messages,
+            messages: $viewModel.messages,
             invite: viewModel.invite,
+            hasLoadedAllMessages: viewModel.hasLoadedAllMessages,
             profile: viewModel.profile,
             untitledConversationPlaceholder: viewModel.untitledConversationPlaceholder,
             conversationNamePlaceholder: viewModel.conversationNamePlaceholder,
@@ -51,6 +52,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
             },
             onProfileSettings: viewModel.onProfileSettings,
+            onLoadPreviousMessages: viewModel.loadPreviousMessages,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()

@@ -20,7 +20,6 @@ struct AvatarView: View {
                     .aspectRatio(contentMode: .fill)
             } else {
                 MonogramView(name: fallbackName)
-                    .opacity(isLoading ? 0.7 : 1.0)
             }
         }
         .aspectRatio(1.0, contentMode: .fit)

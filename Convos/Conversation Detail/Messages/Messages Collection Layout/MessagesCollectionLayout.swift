@@ -998,7 +998,7 @@ extension MessagesCollectionLayout {
         return interItemSpacing
     }
 
-    private func alignment(for element: ItemKind, at indexPath: IndexPath) -> MessagesCollectionCell.Alignment {
+    private func alignment(for element: ItemKind, at indexPath: IndexPath) -> MessagesListItemAlignment {
         guard let delegate else {
             return .fullWidth
         }

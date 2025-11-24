@@ -14,7 +14,7 @@ class ConversationViewModel {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
-    private let messagesRepository: any MessagesRepositoryProtocol
+    private let messagesListRepository: any MessagesListRepositoryProtocol
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
@@ -35,7 +35,7 @@ class ConversationViewModel {
             }
         }
     }
-    var messages: [AnyMessage]
+    var messages: [MessagesListItemType] = []
     var invite: Invite {
         conversation.invite ?? .empty
     }
@@ -140,7 +140,9 @@ class ConversationViewModel {
             inboxId: conversation.inboxId,
             clientId: conversation.clientId
         )
-        self.messagesRepository = session.messagesRepository(for: conversation.id)
+
+        let messagesRepository = session.messagesRepository(for: conversation.id)
+        self.messagesListRepository = MessagesListRepository(messagesRepository: messagesRepository)
 
         let messagingService = session.messagingService(
             for: conversation.clientId,
@@ -160,7 +162,7 @@ class ConversationViewModel {
         )
 
         do {
-            self.messages = try messagesRepository.fetchAll()
+            self.messages = try messagesListRepository.fetchInitial()
             self.conversation = try conversationRepository.fetchConversation() ?? conversation
         } catch {
             Log.error("Error fetching messages or conversation: \(error.localizedDescription)")
@@ -191,7 +193,8 @@ class ConversationViewModel {
 
         // Extract dependencies from conversation state manager
         self.conversationRepository = conversationStateManager.draftConversationRepository
-        self.messagesRepository = conversationStateManager.draftConversationRepository.messagesRepository
+        let messagesRepository = conversationStateManager.draftConversationRepository.messagesRepository
+        self.messagesListRepository = MessagesListRepository(messagesRepository: messagesRepository)
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -206,7 +209,7 @@ class ConversationViewModel {
         )
 
         do {
-            self.messages = try messagesRepository.fetchAll()
+            self.messages = try messagesListRepository.fetchInitial()
             self.conversation = try conversationRepository.fetchConversation() ?? conversation
         } catch {
             Log.error("Error fetching messages or conversation: \(error.localizedDescription)")
@@ -224,7 +227,7 @@ class ConversationViewModel {
     // MARK: - Private
 
     private func observe() {
-        messagesRepository.messagesPublisher
+        messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
@@ -366,8 +369,8 @@ class ConversationViewModel {
     func onTapMessage(_ message: AnyMessage) {
     }
 
-    func onTapAvatar(_ message: AnyMessage) {
-        presentingProfileForMember = message.base.sender
+    func onTapAvatar(_ member: ConversationMember) {
+        presentingProfileForMember = member
     }
 
     func dismissQuickEditor() {
@@ -452,6 +455,34 @@ class ConversationViewModel {
                 Log.error("Error exploding convo: \(error.localizedDescription)")
             }
         }
+    }
+
+    // MARK: - Pagination Support
+
+    /// Loads previous (older) messages
+    func loadPreviousMessages() {
+        guard hasMoreMessages else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try messagesListRepository.fetchPrevious()
+                // Messages will be delivered through the publisher
+                Log.info("Fetching previous messages")
+            } catch {
+                Log.error("Error loading previous messages: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Checks if there are more messages to load
+    var hasMoreMessages: Bool {
+        return messagesListRepository.hasMoreMessages
+    }
+
+    /// Indicates if all available messages have been loaded
+    var hasLoadedAllMessages: Bool {
+        return !messagesListRepository.hasMoreMessages
     }
 
     @MainActor

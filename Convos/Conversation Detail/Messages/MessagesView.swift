@@ -1,5 +1,6 @@
 import ConvosCore
 import SwiftUI
+import SwiftUIIntrospect
 
 enum MessagesViewTopBarTrailingItem {
     case share, scan
@@ -7,8 +8,9 @@ enum MessagesViewTopBarTrailingItem {
 
 struct MessagesView<BottomBarContent: View>: View {
     let conversation: Conversation
-    let messages: [AnyMessage]
+    @Binding var messages: [MessagesListItemType]
     let invite: Invite
+    let hasLoadedAllMessages: Bool
     let profile: Profile
     let untitledConversationPlaceholder: String
     let conversationNamePlaceholder: String
@@ -26,9 +28,10 @@ struct MessagesView<BottomBarContent: View>: View {
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onTapMessage: (AnyMessage) -> Void
-    let onTapAvatar: (AnyMessage) -> Void
+    let onTapAvatar: (ConversationMember) -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
+    let onLoadPreviousMessages: () -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -39,8 +42,10 @@ struct MessagesView<BottomBarContent: View>: View {
                 messages: messages,
                 invite: invite,
                 scrollViewWillBeginDragging: scrollViewWillBeginDragging,
+                hasLoadedAllMessages: hasLoadedAllMessages,
                 onTapMessage: onTapMessage,
                 onTapAvatar: onTapAvatar,
+                onLoadPreviousMessages: onLoadPreviousMessages,
                 bottomBarHeight: bottomBarHeight
             )
             .ignoresSafeArea()

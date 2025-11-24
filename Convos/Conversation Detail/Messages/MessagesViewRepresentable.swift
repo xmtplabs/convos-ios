@@ -3,11 +3,13 @@ import SwiftUI
 
 struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let conversation: Conversation
-    let messages: [AnyMessage]
+    let messages: [MessagesListItemType]
     let invite: Invite
     let scrollViewWillBeginDragging: () -> Void
+    let hasLoadedAllMessages: Bool
     let onTapMessage: (AnyMessage) -> Void
-    let onTapAvatar: (AnyMessage) -> Void
+    let onTapAvatar: (ConversationMember) -> Void
+    let onLoadPreviousMessages: () -> Void
     let bottomBarHeight: CGFloat
 
     func makeUIViewController(context: Context) -> MessagesViewController {
@@ -19,17 +21,19 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.bottomBarHeight = bottomBarHeight
         messagesViewController.onTapMessage = onTapMessage
         messagesViewController.onTapAvatar = onTapAvatar
+        messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,
-            invite: invite
+            invite: invite,
+            hasLoadedAllMessages: hasLoadedAllMessages
         )
     }
 }
 
 #Preview {
     @Previewable @State var bottomBarHeight: CGFloat = 0.0
-    let messages: [AnyMessage] = []
+    let messages: [MessagesListItemType] = []
     let invite: Invite = .empty
 
     MessagesViewRepresentable(
@@ -37,8 +41,10 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messages: messages,
         invite: invite,
         scrollViewWillBeginDragging: {},
+        hasLoadedAllMessages: false,
         onTapMessage: { _ in },
         onTapAvatar: { _ in },
+        onLoadPreviousMessages: {},
         bottomBarHeight: bottomBarHeight
     )
     .ignoresSafeArea()

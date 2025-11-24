@@ -1,19 +1,15 @@
 import SwiftUI
 
-struct MessageContainer<Content: View, AvatarView: View>: View {
-    let style: MessagesCollectionCell.BubbleType
+struct MessageContainer<Content: View>: View {
+    let style: MessageBubbleType
     let isOutgoing: Bool
     let cornerRadius: CGFloat = Constant.bubbleCornerRadius
     let content: () -> Content
-    let avatarView: () -> AvatarView
-    let onTapAvatar: (() -> Void)?
 
     var spacer: some View {
-        Group {
-            Spacer()
-            Spacer()
-                .frame(maxWidth: 50.0)
-        }
+        Spacer()
+            .frame(minWidth: 50.0)
+            .layoutPriority(-1)
     }
 
     var mask: UnevenRoundedRectangle {
@@ -41,38 +37,29 @@ struct MessageContainer<Content: View, AvatarView: View>: View {
                     topTrailingRadius: cornerRadius
                 )
             }
+        case .none:
+            return .rect(cornerRadii: .init())
         }
-    }
-
-    var avatar: some View {
-        avatarView()
-            .frame(width: DesignConstants.ImageSizes.smallAvatar,
-                   height: DesignConstants.ImageSizes.smallAvatar)
-            .onTapGesture {
-                onTapAvatar?()
-            }
-            .hoverEffect(.lift)
     }
 
     var body: some View {
         HStack(alignment: .bottom, spacing: 0.0) {
             if isOutgoing {
                 spacer
-            } else {
-                avatar
-                    .padding(.trailing, DesignConstants.Spacing.step2x)
             }
 
-            content()
-                .background(isOutgoing ? Color.colorBubble : Color.colorBubbleIncoming)
-                .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
-                .mask(mask)
+            if style == .none {
+                content()
+                    .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
+            } else {
+                content()
+                    .background(isOutgoing ? Color.colorBubble : Color.colorBubbleIncoming)
+                    .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
+                    .mask(mask)
+            }
 
             if !isOutgoing {
                 spacer
-            } else {
-                avatar
-                    .padding(.leading, DesignConstants.Spacing.step2x)
             }
         }
     }

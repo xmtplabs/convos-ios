@@ -11,14 +11,28 @@ public protocol MessageType: Sendable {
 }
 
 public enum AnyMessage: Hashable, Codable, Sendable {
-    case message(Message),
-         reply(MessageReply)
+    public enum Origin: Hashable, Codable, Sendable {
+        case existing // message was loaded initially or was previously seen (inserted/paginated)
+        case paginated // message was loaded via pagination for the first time
+        case inserted // new message that arrived after initialization
+    }
+
+    case message(Message, Origin),
+         reply(MessageReply, Origin)
+
+    public var origin: Origin {
+        switch self {
+        case .message(_, let origin),
+                .reply(_, let origin):
+            return origin
+        }
+    }
 
     public var base: MessageType {
         switch self {
-        case .message(let message):
+        case .message(let message, _):
             return message
-        case .reply(let reply):
+        case .reply(let reply, _):
             return reply
         }
     }
@@ -43,6 +57,15 @@ public enum MessageContent: Hashable, Codable, Sendable {
     public var isUpdate: Bool {
         switch self {
         case .update:
+            true
+        default:
+            false
+        }
+    }
+
+    public var isEmoji: Bool {
+        switch self {
+        case .emoji:
             true
         default:
             false
