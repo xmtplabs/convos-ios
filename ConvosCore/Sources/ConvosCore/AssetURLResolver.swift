@@ -9,10 +9,10 @@ import Foundation
 /// - Stored key: `a75e060a-1694-41de-8e6d-ca28a12fc62f.jpeg`
 /// - Full URL: `https://d32k96dpvyy43a.cloudfront.net/a75e060a-1694-41de-8e6d-ca28a12fc62f.jpeg`
 public final class AssetURLResolver: @unchecked Sendable {
-    public static let shared = AssetURLResolver()
+    public static let shared: AssetURLResolver = AssetURLResolver()
 
     private var cdnBaseURL: String?
-    private let lock = NSLock()
+    private let lock: NSLock = NSLock()
 
     private init() {}
 
@@ -104,4 +104,3 @@ public final class AssetURLResolver: @unchecked Sendable {
         return nil
     }
 }
-
