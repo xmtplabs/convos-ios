@@ -342,7 +342,9 @@ extension MessagesViewController {
                 if timeDifference > 3600 { // 1 hour in seconds
                     cells.append(MessagesCollectionCell.date(.init(date: message.base.date)))
                 }
-                if previousMessage.base.sender.id != message.base.sender.id,
+                if previousMessage.base.sender.id != message.base.sender.id ||
+                    message.base.sender.id == previousMessage.base.sender.id &&
+                    previousMessage.base.content.isUpdate,
                    message.base.source.isIncoming,
                    message.base.content.showsSender {
                     cells.append(senderTitleCell)
@@ -360,7 +362,9 @@ extension MessagesViewController {
                 let nextMessage = visibleMessages[index + 1]
                 let timeDifference = nextMessage.base.date.timeIntervalSince(message.base.date)
                 let willShowTimestamp = timeDifference > 3600
-                bubbleType = message.base.sender.id == nextMessage.base.sender.id && !willShowTimestamp ? .normal : .tailed
+                let nextMessageIsNotUpdate = !nextMessage.base.content.isUpdate
+                let nextMessageIsSameSender = message.base.sender.id == nextMessage.base.sender.id
+                bubbleType = nextMessageIsSameSender && nextMessageIsNotUpdate && !willShowTimestamp ? .normal : .tailed
             } else {
                 bubbleType = .tailed
             }

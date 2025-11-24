@@ -1,4 +1,3 @@
-import ConvosCore
 import SwiftUI
 
 struct ConvosToolbarButton: View {

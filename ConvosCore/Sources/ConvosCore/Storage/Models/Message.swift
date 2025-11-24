@@ -40,6 +40,15 @@ public enum MessageContent: Hashable, Codable, Sendable {
         }
     }
 
+    public var isUpdate: Bool {
+        switch self {
+        case .update:
+            true
+        default:
+            false
+        }
+    }
+
     public var showsSender: Bool {
         switch self {
         case .update:

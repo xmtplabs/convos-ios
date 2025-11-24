@@ -31,8 +31,8 @@ struct ConvosApp: App {
         // Run migration to wipe app data (must be done synchronously before app starts)
         Self.runDataWipeMigrationSync(environment: environment)
 
-        // Configure Firebase BEFORE creating ConvosClient
-        // This prevents a race condition where SessionManager tries to use AppCheck before it's configured
+        // Configure Firebase before creating ConvosClient
+        // This prevents SessionManager trying to use AppCheck before it's configured
         switch environment {
         case .tests:
             Log.info("Running in test environment, skipping Firebase config...")
