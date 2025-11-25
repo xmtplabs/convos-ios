@@ -46,7 +46,7 @@ extension PhotosPickerItem {
 
 struct ImagePickerButton: View {
     @Binding var currentImage: UIImage?
-    var isPickerPresented: Binding<Bool>?
+    @Binding var isPickerPresented: Bool
     @State var showsCurrentImage: Bool = true
     @State var imageState: ImagePickerImage.State = .empty
     @State var symbolSize: CGFloat = 24.0
@@ -54,11 +54,8 @@ struct ImagePickerButton: View {
     @State private var imageSelection: PhotosPickerItem?
 
     var body: some View {
-        PhotosPicker(
-            selection: $imageSelection,
-            matching: .images,
-            photoLibrary: .shared()
-        ) {
+        let action = { isPickerPresented = true }
+        Button(action: action) {
             if imageState.isEmpty || !showsCurrentImage {
                 if let currentImage = currentImage, showsCurrentImage {
                     Image(uiImage: currentImage)
@@ -96,11 +93,12 @@ struct ImagePickerButton: View {
                 }
             }
         }
-        .simultaneousGesture(TapGesture().onEnded {
-            isPickerPresented?.wrappedValue = true
-        })
+        .photosPicker(
+            isPresented: $isPickerPresented,
+            selection: $imageSelection,
+            matching: .images
+        )
         .onChange(of: imageSelection) { _, newValue in
-            isPickerPresented?.wrappedValue = false
             if let imageSelection = newValue {
                 imageLoadingTask?.cancel()
                 imageLoadingTask = Task {
@@ -125,11 +123,12 @@ struct ImagePickerButton: View {
 
 #Preview {
     @Previewable @State var image: UIImage?
+    @Previewable @State var isPickerPresented: Bool = false
     VStack {
-        ImagePickerButton(currentImage: $image)
+        ImagePickerButton(currentImage: $image, isPickerPresented: $isPickerPresented)
             .frame(width: 52.0, height: 52.0)
 
-        ImagePickerButton(currentImage: $image, showsCurrentImage: false)
+        ImagePickerButton(currentImage: $image, isPickerPresented: $isPickerPresented, showsCurrentImage: false)
             .frame(width: 52.0, height: 52.0)
     }
 }

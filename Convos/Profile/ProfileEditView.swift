@@ -16,6 +16,7 @@ struct ProfileEditView: View {
     let onConfirm: () -> Void
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var isImagePickerPresented: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -32,6 +33,7 @@ struct ProfileEditView: View {
 
                             ImagePickerButton(
                                 currentImage: $profileImage,
+                                isPickerPresented: $isImagePickerPresented,
                                 showsCurrentImage: false,
                                 symbolSize: 20.0
                             )
