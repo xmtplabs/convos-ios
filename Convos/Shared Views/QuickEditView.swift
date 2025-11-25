@@ -15,6 +15,7 @@ struct QuickEditView: View {
     let placeholderText: String
     @Binding var text: String
     @Binding var image: UIImage?
+    @Binding var isImagePickerPresented: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focused: MessagesViewInputFocus
     let onSubmit: () -> Void
@@ -24,7 +25,7 @@ struct QuickEditView: View {
 
     var body: some View {
         HStack {
-            ImagePickerButton(currentImage: $image)
+            ImagePickerButton(currentImage: $image, isPickerPresented: $isImagePickerPresented)
                 .frame(width: 52.0, height: 52.0)
 
             TextField(
@@ -74,14 +75,16 @@ struct QuickEditView: View {
 #Preview {
     @Previewable @State var text: String = ""
     @Previewable @State var image: UIImage?
+    @Previewable @State var isImagePickerPresented: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     QuickEditView(
         placeholderText: "New convo",
         text: $text,
         image: $image,
+        isImagePickerPresented: $isImagePickerPresented,
         focusState: $focusState,
         focused: .displayName,
-    ) {
-    } onSettings: {
-    }
+        onSubmit: {},
+        onSettings: {}
+    )
 }

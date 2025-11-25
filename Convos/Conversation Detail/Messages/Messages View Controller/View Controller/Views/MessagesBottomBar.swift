@@ -22,6 +22,7 @@ struct MessagesBottomBar: View {
     let onProfileSettings: () -> Void
 
     @State private var isExpanded: Bool = false
+    @State private var isImagePickerPresented: Bool = false
     @Namespace private var namespace: Namespace.ID
 
     var body: some View {
@@ -53,6 +54,7 @@ struct MessagesBottomBar: View {
                         placeholderText: "\(emptyDisplayNamePlaceholder)...",
                         text: $displayName,
                         image: $profileImage,
+                        isImagePickerPresented: $isImagePickerPresented,
                         focusState: $focusState,
                         focused: .displayName,
                         onSubmit: onDisplayNameEndedEditing,
@@ -70,6 +72,8 @@ struct MessagesBottomBar: View {
         .padding(.horizontal, 10.0)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .onChange(of: focusCoordinator.currentFocus) { _, newValue in
+            guard !isImagePickerPresented else { return }
+
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isExpanded = newValue == .displayName ? true : false
             }
