@@ -100,6 +100,10 @@ extension MockMessagingService: InboxStateManagerProtocol {
 
     public func delete() async throws {}
 
+    public func waitForDeletionComplete() async {
+        // Mock implementation - returns immediately
+    }
+
     public func addObserver(_ observer: any InboxStateObserver) {
     }
 
