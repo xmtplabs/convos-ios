@@ -134,6 +134,7 @@ struct PrimarySecondaryContainerView<PrimaryContent: View,
     @Previewable @State var text: String = ""
     @Previewable @State var topProgress: CGFloat = 0.0
     @Previewable @State var bottomProgress: CGFloat = 0.0
+    @Previewable @State var isImagePickerPresented: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     let conversation: Conversation = .mock()
 
@@ -190,11 +191,12 @@ struct PrimarySecondaryContainerView<PrimaryContent: View,
                     placeholderText: "The Convo",
                     text: $text,
                     image: $image,
+                    isImagePickerPresented: $isImagePickerPresented,
                     focusState: $focusState,
                     focused: .conversationName,
-                    onSubmit: {
-                    }, onSettings: {
-                    })
+                    onSubmit: {},
+                    onSettings: {}
+                )
             }
 
             Spacer()
@@ -241,11 +243,12 @@ struct PrimarySecondaryContainerView<PrimaryContent: View,
                     placeholderText: "Somebody...",
                     text: $text,
                     image: $image,
+                    isImagePickerPresented: $isImagePickerPresented,
                     focusState: $focusState,
                     focused: .displayName,
-                    onSubmit: {
-                    }, onSettings: {
-                    })
+                    onSubmit: {},
+                    onSettings: {}
+                )
                 .padding(.horizontal, 16.0)
             }
         }

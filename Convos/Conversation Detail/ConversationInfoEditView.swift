@@ -7,6 +7,7 @@ struct ConversationInfoEditView: View {
     let focusCoordinator: FocusCoordinator
 
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @State private var isImagePickerPresented: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -23,6 +24,7 @@ struct ConversationInfoEditView: View {
 
                             ImagePickerButton(
                                 currentImage: $viewModel.conversationImage,
+                                isPickerPresented: $isImagePickerPresented,
                                 showsCurrentImage: false,
                                 symbolSize: 20.0
                             )

@@ -46,6 +46,7 @@ extension PhotosPickerItem {
 
 struct ImagePickerButton: View {
     @Binding var currentImage: UIImage?
+    @Binding var isPickerPresented: Bool
     @State var showsCurrentImage: Bool = true
     @State var imageState: ImagePickerImage.State = .empty
     @State var symbolSize: CGFloat = 24.0
@@ -53,50 +54,51 @@ struct ImagePickerButton: View {
     @State private var imageSelection: PhotosPickerItem?
 
     var body: some View {
-        Group {
-            PhotosPicker(
-                selection: $imageSelection,
-                matching: .images,
-                photoLibrary: .shared()
-            ) {
-                if imageState.isEmpty || !showsCurrentImage {
-                    if let currentImage = currentImage, showsCurrentImage {
-                        Image(uiImage: currentImage)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .clipShape(Circle())
-                    } else {
-                        ZStack {
-                            Circle()
-                                .fill(.black)
-                            Image(systemName: "photo.on.rectangle.angled")
-                                .font(.system(size: symbolSize))
-                                .foregroundColor(.white)
-                        }
-                    }
+        Button {
+            isPickerPresented = true
+        } label: {
+            if imageState.isEmpty || !showsCurrentImage {
+                if let currentImage = currentImage, showsCurrentImage {
+                    Image(uiImage: currentImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .clipShape(Circle())
                 } else {
-                    switch imageState {
-                    case .loading:
-                        ProgressView()
-                    case .failure:
-                        VStack {
-                            Image(systemName: "exclamationmark.triangle")
-                                .foregroundColor(.red)
-                            Text("Error loading image")
-                                .font(.caption)
-                                .foregroundColor(.red)
-                        }
-                    case let .success(image):
-                        Image(uiImage: image)
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .clipShape(Circle())
-                    case .empty:
-                        EmptyView()
+                    ZStack {
+                        Circle()
+                            .fill(.black)
+                        Image(systemName: "photo.on.rectangle.angled")
+                            .font(.system(size: symbolSize))
+                            .foregroundColor(.white)
                     }
+                }
+            } else {
+                switch imageState {
+                case .loading:
+                    ProgressView()
+                case .failure:
+                    VStack {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundColor(.red)
+                        Text("Error loading image")
+                            .font(.caption)
+                            .foregroundColor(.red)
+                    }
+                case let .success(image):
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .clipShape(Circle())
+                case .empty:
+                    EmptyView()
                 }
             }
         }
+        .photosPicker(
+            isPresented: $isPickerPresented,
+            selection: $imageSelection,
+            matching: .images
+        )
         .onChange(of: imageSelection) { _, newValue in
             if let imageSelection = newValue {
                 imageLoadingTask?.cancel()
@@ -106,8 +108,6 @@ struct ImagePickerButton: View {
             }
         }
     }
-
-    // MARK: -
 
     private func loadSelectedImage(_ imageSelection: PhotosPickerItem) async {
         let imageState = await imageSelection.loadImage()
@@ -124,11 +124,12 @@ struct ImagePickerButton: View {
 
 #Preview {
     @Previewable @State var image: UIImage?
+    @Previewable @State var isPickerPresented: Bool = false
     VStack {
-        ImagePickerButton(currentImage: $image)
+        ImagePickerButton(currentImage: $image, isPickerPresented: $isPickerPresented)
             .frame(width: 52.0, height: 52.0)
 
-        ImagePickerButton(currentImage: $image, showsCurrentImage: false)
+        ImagePickerButton(currentImage: $image, isPickerPresented: $isPickerPresented, showsCurrentImage: false)
             .frame(width: 52.0, height: 52.0)
     }
 }

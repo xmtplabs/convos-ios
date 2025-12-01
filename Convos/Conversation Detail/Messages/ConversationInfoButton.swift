@@ -20,6 +20,7 @@ struct ConversationInfoButton<InfoView: View>: View {
 
     @State private var isExpanded: Bool = false
     @State private var showingExplodeConfirmation: Bool = false
+    @State private var isImagePickerPresented: Bool = false
     @Namespace private var namespace: Namespace.ID
 
     var body: some View {
@@ -47,6 +48,7 @@ struct ConversationInfoButton<InfoView: View>: View {
                             placeholderText: conversationName.isEmpty ? placeholderName : conversationName,
                             text: $conversationName,
                             image: $conversationImage,
+                            isImagePickerPresented: $isImagePickerPresented,
                             focusState: $focusState,
                             focused: .conversationName,
                             onSubmit: onConversationNameEndedEditing,
@@ -97,6 +99,8 @@ struct ConversationInfoButton<InfoView: View>: View {
                 )
         }
         .onChange(of: focusCoordinator?.currentFocus) { _, newValue in
+            guard !isImagePickerPresented else { return }
+
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isExpanded = newValue == .conversationName ? true : false
             }
