@@ -54,8 +54,9 @@ struct ImagePickerButton: View {
     @State private var imageSelection: PhotosPickerItem?
 
     var body: some View {
-        let action = { isPickerPresented = true }
-        Button(action: action) {
+        Button {
+            isPickerPresented = true
+        } label: {
             if imageState.isEmpty || !showsCurrentImage {
                 if let currentImage = currentImage, showsCurrentImage {
                     Image(uiImage: currentImage)
