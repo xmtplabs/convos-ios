@@ -105,6 +105,12 @@ struct ConversationInfoButton<InfoView: View>: View {
                 isExpanded = newValue == .conversationName ? true : false
             }
         }
+        .onChange(of: isImagePickerPresented) { _, newValue in
+            guard newValue == false else { return }
+            withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                isExpanded = (focusCoordinator?.currentFocus == .conversationName)
+            }
+        }
     }
 }
 
