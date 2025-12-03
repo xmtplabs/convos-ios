@@ -963,6 +963,9 @@ public actor InboxStateMachine {
 
         case .connecting:
             Log.info("Network connecting...")
+
+        case .unknown:
+            Log.info("Network status unknown...")
         }
     }
 
