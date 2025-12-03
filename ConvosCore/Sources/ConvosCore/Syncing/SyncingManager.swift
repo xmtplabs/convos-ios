@@ -302,8 +302,8 @@ actor SyncingManager: SyncingManagerProtocol {
         syncTask = Task { [weak self] in
             guard let self else { return }
             do {
-//                try Task.checkCancellation()
-//                _ = try await client.conversationsProvider.syncAllConversations(consentStates: consentStates)
+                try Task.checkCancellation()
+                _ = try await client.conversationsProvider.syncAllConversations(consentStates: consentStates)
                 try Task.checkCancellation()
                 // Check if pause was requested during starting and handle transition
                 await self.handleSyncCompleteTransition(params: params)

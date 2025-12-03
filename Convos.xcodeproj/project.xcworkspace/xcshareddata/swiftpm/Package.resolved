@@ -1,5 +1,5 @@
 {
-  "originHash" : "ab4fa2132305d319330b5f2a562461200333b8282a944110cc10afa52d015d98",
+  "originHash" : "dbd82271ba70c94f3952de60ff4b7d549e231f354ba56c9d4c9a0e169162afec",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/bufbuild/connect-swift",
       "state" : {
-        "revision" : "a8c984a1077f78e94e0884c5c11683a7f684f92c",
-        "version" : "1.0.0"
+        "revision" : "8ff57dad962668357af2959fdd63868682f3053e",
+        "version" : "1.2.0"
       }
     },
     {
@@ -267,8 +267,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/xmtp-ios.git",
       "state" : {
-        "revision" : "943d4827b1de8af0ef9b54d66d46ee682d69d2c2",
-        "version" : "4.6.2-rc3"
+        "revision" : "d7975dd32e9f95c8eb40504004dbf8df5f986dda",
+        "version" : "4.6.4-rc2"
       }
     }
   ],

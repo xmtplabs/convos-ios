@@ -35,6 +35,7 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
         case connected(ConnectionType)
         case disconnected
         case connecting
+        case unknown
 
         public var isConnected: Bool {
             if case .connected = self { return true }
@@ -52,7 +53,7 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
     private let monitor: NWPathMonitor
     private let queue: DispatchQueue = DispatchQueue(label: "com.convos.networkmonitor", qos: .utility)
 
-    private var _status: Status = .disconnected
+    private var _status: Status = .unknown
     private var _currentPath: NWPath?
     private var statusContinuations: [UUID: AsyncStream<Status>.Continuation] = [:]
 
