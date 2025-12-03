@@ -36,21 +36,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     // Handle notifications when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        // Check if we should display this notification based on the active conversation
-        let conversationId = notification.request.content.threadIdentifier
-
-        if !conversationId.isEmpty,
-           let session = session {
-            let shouldDisplay = await session.shouldDisplayNotification(for: conversationId)
-            if !shouldDisplay {
-                return []
-            }
-        }
-
-        // Show notification banner when app is in foreground
-        // NSE processes all notifications regardless of app state
-        Log.info("App in foreground - showing notification banner")
-        return [.banner]
+        return []
     }
 
     // Handle notification taps
