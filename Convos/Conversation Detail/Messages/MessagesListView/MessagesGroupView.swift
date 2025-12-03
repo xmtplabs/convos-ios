@@ -18,7 +18,7 @@ struct MessagesGroupView: View {
                 Spacer()
 
                 if !group.sender.isCurrentUser {
-                    ProfileAvatarView(profile: group.sender.profile, profileImage: nil)
+                    ProfileAvatarView(profile: group.sender.profile, profileImage: nil, useSystemPlaceholder: false)
                         .frame(width: DesignConstants.ImageSizes.smallAvatar,
                                height: DesignConstants.ImageSizes.smallAvatar)
                         .onTapGesture {

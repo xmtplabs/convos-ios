@@ -27,7 +27,8 @@ struct ProfileEditView: View {
                         VStack(spacing: DesignConstants.Spacing.step6x) {
                             ProfileAvatarView(
                                 profile: profile,
-                                profileImage: profileImage
+                                profileImage: profileImage,
+                                useSystemPlaceholder: false
                             )
                             .frame(width: 160.0, height: 160.0)
 
@@ -35,7 +36,8 @@ struct ProfileEditView: View {
                                 currentImage: $profileImage,
                                 isPickerPresented: $isImagePickerPresented,
                                 showsCurrentImage: false,
-                                symbolSize: 20.0
+                                symbolSize: 20.0,
+                                symbolName: "photo.on.rectangle.angled"
                             )
                             .frame(width: 44.0, height: 44.0)
                         }

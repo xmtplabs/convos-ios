@@ -44,7 +44,11 @@ struct MessagesInputView: View {
             Button {
                 onProfilePhotoTap()
             } label: {
-                ProfileAvatarView(profile: profile, profileImage: profileImage)
+                ProfileAvatarView(
+                    profile: profile,
+                    profileImage: profileImage,
+                    useSystemPlaceholder: animateAvatarForQuickname
+                )
             }
             .frame(width: sendButtonSize, height: sendButtonSize)
             .frame(alignment: .bottomLeading)

@@ -70,7 +70,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         await coordinator.inviteWasAccepted(for: testConversationId)
 
         // Since notifications are already granted, should go straight to quickname
-        XCTAssertEqual(coordinator.state, .setupQuickname(autoDismiss: false))
+        XCTAssertEqual(coordinator.state, .setupQuickname)
         XCTAssertFalse(coordinator.isWaitingForInviteAcceptance)
     }
 
@@ -117,7 +117,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         XCTAssertFalse(coordinator.isWaitingForInviteAcceptance)
 
         // Should prioritize quickname first
-        XCTAssertEqual(coordinator.state, .setupQuickname(autoDismiss: false))
+        XCTAssertEqual(coordinator.state, .setupQuickname)
 
         // Complete quickname
         await coordinator.setupQuicknameDidAutoDismiss()
@@ -128,7 +128,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     func testStart_FirstTimeUser_ShowsNonDismissibleSetupQuickname() async {
         await coordinator.start(for: testConversationId)
-        XCTAssertEqual(coordinator.state, .setupQuickname(autoDismiss: false))
+        XCTAssertEqual(coordinator.state, .setupQuickname)
     }
 
     func testDidTapSetupQuickname_MarksAsShown() async {
@@ -152,7 +152,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         let quicknameSettings = QuicknameSettings.current()
         if quicknameSettings.isDefault {
             // User has no quickname, should show auto-dismissing setup
-            XCTAssertEqual(coordinator.state, .setupQuickname(autoDismiss: true))
+            XCTAssertEqual(coordinator.state, .setupQuickname)
         } else {
             // User has a quickname, should show add (pattern match to avoid UIImage comparison)
             if case .addQuickname = coordinator.state {
@@ -241,7 +241,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         mockNotificationCenter.authStatus = .notDetermined
 
         await coordinator.start(for: testConversationId)
-        XCTAssertEqual(coordinator.state, .setupQuickname(autoDismiss: false))
+        XCTAssertEqual(coordinator.state, .setupQuickname)
 
         await coordinator.didSelectQuickname()
 
@@ -366,6 +366,6 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
         // After delay, should go to quickname (not complete, because invite flow)
         try? await Task.sleep(for: .seconds(2.1))
-        XCTAssertEqual(coordinator.state, .setupQuickname(autoDismiss: false))
+        XCTAssertEqual(coordinator.state, .setupQuickname)
     }
 }

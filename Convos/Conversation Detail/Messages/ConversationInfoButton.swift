@@ -51,6 +51,7 @@ struct ConversationInfoButton<InfoView: View>: View {
                             isImagePickerPresented: $isImagePickerPresented,
                             focusState: $focusState,
                             focused: .conversationName,
+                            settingsSymbolName: "gear",
                             onSubmit: onConversationNameEndedEditing,
                             onSettings: onConversationSettings
                         )

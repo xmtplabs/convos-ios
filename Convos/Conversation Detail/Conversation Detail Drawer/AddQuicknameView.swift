@@ -13,7 +13,8 @@ struct AddQuicknameView: View {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 ProfileAvatarView(
                     profile: profile,
-                    profileImage: profileImage
+                    profileImage: profileImage,
+                    useSystemPlaceholder: false
                 )
                 .frame(width: 24.0, height: 24.0)
 

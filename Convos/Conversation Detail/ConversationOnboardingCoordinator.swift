@@ -53,8 +53,8 @@ enum ConversationOnboardingState: Equatable {
 
     case started
 
-    /// Show "Tap to change your ID" prompt (first time, non-dismissible)
-    case setupQuickname(autoDismiss: Bool)
+    /// Show "Tap to add your name for this convo" prompt
+    case setupQuickname
 
     case settingUpQuickname
 
@@ -83,7 +83,6 @@ enum ConversationOnboardingState: Equatable {
     case notificationsDenied
 
     static let addQuicknameViewDuration: CGFloat = 8.0
-    static let setupQuicknameViewDuration: CGFloat = 8.0
     static let useAsQuicknameViewDuration: CGFloat = 8.0
     static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
@@ -93,8 +92,6 @@ enum ConversationOnboardingState: Equatable {
     /// Returns the autodismiss duration for this state, or nil if autodismiss is not enabled
     var autodismissDuration: CGFloat? {
         switch self {
-        case .setupQuickname(let autoDismiss):
-            return autoDismiss ? Self.setupQuicknameViewDuration : nil
         case .addQuickname:
             return Self.addQuicknameViewDuration
         case .saveAsQuickname:
@@ -362,12 +359,12 @@ final class ConversationOnboardingCoordinator {
         if !hasShownQuicknameEditor {
             // First time: show non-dismissible setup prompt
             shouldAnimateAvatarForQuicknameSetup = true
-            state = .setupQuickname(autoDismiss: false)
+            state = .setupQuickname
             handleStateChange()
         } else if quicknameSettings.isDefault && !hasSetQuicknameForConversation {
             // Has seen editor but no quickname: show auto-dismissing setup
             shouldAnimateAvatarForQuicknameSetup = true
-            state = .setupQuickname(autoDismiss: true)
+            state = .setupQuickname
             handleStateChange()
         } else if !hasSetQuicknameForConversation {
             // Has quickname: show auto-dismissing add name

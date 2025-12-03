@@ -14,7 +14,7 @@ struct ConversationMemberView: View {
                 HStack {
                     Spacer()
                     VStack {
-                        ProfileAvatarView(profile: member.profile, profileImage: nil)
+                        ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
                             .frame(width: 160.0, height: 160.0)
 
                         Text(member.profile.displayName.capitalized)

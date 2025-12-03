@@ -55,7 +55,8 @@ struct AppSettingsView: View {
                             Spacer()
                             ProfileAvatarView(
                                 profile: quicknameSettings.profile,
-                                profileImage: quicknameSettings.profileImage
+                                profileImage: quicknameSettings.profileImage,
+                                useSystemPlaceholder: false
                             )
                                 .frame(width: 16.0, height: 16.0)
                             Text(

@@ -18,6 +18,8 @@ struct QuickEditView: View {
     @Binding var isImagePickerPresented: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focused: MessagesViewInputFocus
+    let imageSymbolName: String = "photo.on.rectangle.angled"
+    let settingsSymbolName: String
     let onSubmit: () -> Void
     let onSettings: () -> Void
 
@@ -25,8 +27,12 @@ struct QuickEditView: View {
 
     var body: some View {
         HStack {
-            ImagePickerButton(currentImage: $image, isPickerPresented: $isImagePickerPresented)
-                .frame(width: 52.0, height: 52.0)
+            ImagePickerButton(
+                currentImage: $image,
+                isPickerPresented: $isImagePickerPresented,
+                symbolName: imageSymbolName
+            )
+            .frame(width: 52.0, height: 52.0)
 
             TextField(
                 placeholderText,
@@ -59,11 +65,12 @@ struct QuickEditView: View {
             Button {
                 onSettings()
             } label: {
-                Image(systemName: "gear")
+                Image(systemName: settingsSymbolName)
                     .resizable()
+                    .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                     .aspectRatio(contentMode: .fit)
                     .foregroundStyle(.black.opacity(0.3))
-                    .padding(.horizontal, 12.0)
+                    .padding(DesignConstants.Spacing.step3x)
             }
             .frame(width: 52.0, height: 52.0)
             .background(Circle().fill(.gray.opacity(0.2)))
@@ -84,6 +91,7 @@ struct QuickEditView: View {
         isImagePickerPresented: $isImagePickerPresented,
         focusState: $focusState,
         focused: .displayName,
+        settingsSymbolName: "gear",
         onSubmit: {},
         onSettings: {}
     )

@@ -194,6 +194,7 @@ struct PrimarySecondaryContainerView<PrimaryContent: View,
                     isImagePickerPresented: $isImagePickerPresented,
                     focusState: $focusState,
                     focused: .conversationName,
+                    settingsSymbolName: "gear",
                     onSubmit: {},
                     onSettings: {}
                 )
@@ -246,6 +247,7 @@ struct PrimarySecondaryContainerView<PrimaryContent: View,
                     isImagePickerPresented: $isImagePickerPresented,
                     focusState: $focusState,
                     focused: .displayName,
+                    settingsSymbolName: "gear",
                     onSubmit: {},
                     onSettings: {}
                 )
