@@ -34,28 +34,44 @@ struct QuickEditView: View {
             )
             .frame(width: 52.0, height: 52.0)
 
-            TextField(
-                placeholderText,
-                text: $text
-            )
-            .focused($focusState, equals: focused)
-            .introspect(.textField, on: .iOS(.v26)) { textField in
-                textFieldDelegate.action = onSubmit
-                textField.delegate = textFieldDelegate
-            }
-            .padding(.horizontal, 16.0)
-            .font(.body)
-            .tint(.colorTextPrimary)
-            .foregroundStyle(.colorTextPrimary)
-            .multilineTextAlignment(.center)
-            .truncationMode(.tail)
-            .submitLabel(.done)
-            .frame(minWidth: 166.0)
-            .frame(height: 52.0)
-            .onChange(of: text) { _, newValue in
-                if newValue.count > NameLimits.maxDisplayNameLength {
-                    text = String(newValue.prefix(NameLimits.maxDisplayNameLength))
+            HStack(spacing: DesignConstants.Spacing.stepHalf) {
+                TextField(
+                    placeholderText,
+                    text: $text
+                )
+                .focused($focusState, equals: focused)
+                .introspect(.textField, on: .iOS(.v26)) { textField in
+                    textFieldDelegate.action = onSubmit
+                    textField.delegate = textFieldDelegate
                 }
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .font(.body)
+                .tint(.colorTextPrimary)
+                .foregroundStyle(.colorTextPrimary)
+                .multilineTextAlignment(.center)
+                .truncationMode(.tail)
+                .submitLabel(.done)
+                .frame(minWidth: 166.0)
+                .frame(height: 52.0)
+                .onChange(of: text) { _, newValue in
+                    if newValue.count > NameLimits.maxDisplayNameLength {
+                        text = String(newValue.prefix(NameLimits.maxDisplayNameLength))
+                    }
+                }
+
+                Button {
+                    onSettings()
+                } label: {
+                    Image(systemName: settingsSymbolName)
+                        .resizable()
+                        .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                        .aspectRatio(contentMode: .fit)
+                        .foregroundStyle(.black.opacity(0.3))
+                        .padding(.vertical, 6.0)
+                        .padding(.horizontal, 5.0)
+                }
+                .frame(width: 32.0, height: 32.0)
+                .padding(.trailing, DesignConstants.Spacing.step3x)
             }
             .background(
                 Capsule()
@@ -63,17 +79,17 @@ struct QuickEditView: View {
             )
 
             Button {
-                onSettings()
+                onSubmit()
             } label: {
-                Image(systemName: settingsSymbolName)
+                Image(systemName: "checkmark")
                     .resizable()
                     .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                     .aspectRatio(contentMode: .fit)
-                    .foregroundStyle(.black.opacity(0.3))
-                    .padding(DesignConstants.Spacing.step3x)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .padding(DesignConstants.Spacing.step4x)
             }
             .frame(width: 52.0, height: 52.0)
-            .background(Circle().fill(.gray.opacity(0.2)))
+            .background(Circle().fill(.colorFillPrimary))
         }
         .frame(maxWidth: .infinity)
     }

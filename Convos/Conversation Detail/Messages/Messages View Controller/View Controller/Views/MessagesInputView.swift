@@ -82,11 +82,12 @@ struct MessagesInputView: View {
                 onSendMessage()
             } label: {
                 Image(systemName: "arrow.up")
+                    .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                     .frame(width: sendButtonSize, height: sendButtonSize, alignment: .center)
-                    .tint(.colorTextPrimary)
+                    .tint(sendButtonEnabled ? .colorTextPrimaryInverted : .colorTextPrimary)
                     .font(.callout.weight(.medium))
             }
-            .background(.colorFillMinimal)
+            .background(sendButtonEnabled ? .colorFillPrimary : .colorFillMinimal)
             .mask(Circle())
             .frame(width: sendButtonSize, height: sendButtonSize, alignment: .bottomLeading)
             .hoverEffect(.lift)
