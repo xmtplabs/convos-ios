@@ -87,7 +87,7 @@ struct MyInfoView: View {
                             )
                             .frame(width: 32.0, height: 32.0)
 
-                            TextField("Somebody", text: $quicknameViewModel.editingDisplayName)
+                            TextField("Someone", text: $quicknameViewModel.editingDisplayName)
                                 .scrollDismissesKeyboard(.interactively)
                         } else {
                             ProfileAvatarView(
