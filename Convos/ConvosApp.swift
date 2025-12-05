@@ -9,6 +9,7 @@ struct ConvosApp: App {
 
     let session: any SessionManagerProtocol
     let conversationsViewModel: ConversationsViewModel
+    let quicknameViewModel: QuicknameSettingsViewModel = .shared
 
     init() {
         let environment = ConfigManager.shared.currentEnvironment
@@ -51,8 +52,11 @@ struct ConvosApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ConversationsView(viewModel: conversationsViewModel)
-                .withSafeAreaEnvironment()
+            ConversationsView(
+                viewModel: conversationsViewModel,
+                quicknameViewModel: quicknameViewModel
+            )
+            .withSafeAreaEnvironment()
         }
     }
 

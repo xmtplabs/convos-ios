@@ -18,6 +18,9 @@ struct QuickEditView: View {
     @Binding var isImagePickerPresented: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focused: MessagesViewInputFocus
+    let imageSymbolName: String = "photo.fill.on.rectangle.fill"
+    let settingsSymbolName: String
+    let showsSettingsButton: Bool
     let onSubmit: () -> Void
     let onSettings: () -> Void
 
@@ -25,8 +28,12 @@ struct QuickEditView: View {
 
     var body: some View {
         HStack {
-            ImagePickerButton(currentImage: $image, isPickerPresented: $isImagePickerPresented)
-                .frame(width: 52.0, height: 52.0)
+            ImagePickerButton(
+                currentImage: $image,
+                isPickerPresented: $isImagePickerPresented,
+                symbolName: imageSymbolName
+            )
+            .frame(width: 52.0, height: 52.0)
 
             TextField(
                 placeholderText,
@@ -37,15 +44,32 @@ struct QuickEditView: View {
                 textFieldDelegate.action = onSubmit
                 textField.delegate = textFieldDelegate
             }
-            .padding(.horizontal, 16.0)
+            .padding(.leading, DesignConstants.Spacing.step4x)
             .font(.body)
             .tint(.colorTextPrimary)
             .foregroundStyle(.colorTextPrimary)
-            .multilineTextAlignment(.center)
+            .multilineTextAlignment(.leading)
             .truncationMode(.tail)
             .submitLabel(.done)
             .frame(minWidth: 166.0)
             .frame(height: 52.0)
+            .safeAreaInset(edge: .trailing) {
+                if showsSettingsButton {
+                    Button {
+                        onSettings()
+                    } label: {
+                        Image(systemName: settingsSymbolName)
+                            .resizable()
+                            .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundStyle(.black.opacity(0.3))
+                            .padding(.vertical, 6.0)
+                            .padding(.horizontal, 5.0)
+                    }
+                    .frame(width: 32.0, height: 32.0)
+                    .padding(.trailing, 10.0)
+                }
+            }
             .onChange(of: text) { _, newValue in
                 if newValue.count > NameLimits.maxDisplayNameLength {
                     text = String(newValue.prefix(NameLimits.maxDisplayNameLength))
@@ -57,16 +81,17 @@ struct QuickEditView: View {
             )
 
             Button {
-                onSettings()
+                onSubmit()
             } label: {
-                Image(systemName: "gear")
+                Image(systemName: "checkmark")
                     .resizable()
+                    .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                     .aspectRatio(contentMode: .fit)
-                    .foregroundStyle(.black.opacity(0.3))
-                    .padding(.horizontal, 12.0)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .padding(DesignConstants.Spacing.step4x)
             }
             .frame(width: 52.0, height: 52.0)
-            .background(Circle().fill(.gray.opacity(0.2)))
+            .background(Circle().fill(.colorFillPrimary))
         }
         .frame(maxWidth: .infinity)
     }
@@ -84,6 +109,8 @@ struct QuickEditView: View {
         isImagePickerPresented: $isImagePickerPresented,
         focusState: $focusState,
         focused: .displayName,
+        settingsSymbolName: "gear",
+        showsSettingsButton: true,
         onSubmit: {},
         onSettings: {}
     )

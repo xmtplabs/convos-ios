@@ -4,12 +4,10 @@ import SwiftUI
 struct MessagesGroupItemView: View {
     let message: AnyMessage
     let bubbleType: MessageBubbleType
-    let showsSentStatus: Bool
     let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (AnyMessage) -> Void
 
     @State private var isAppearing: Bool = true
-    @State private var showingSentStatus: Bool = false
 
     private var animates: Bool {
         message.origin == .inserted
@@ -90,24 +88,7 @@ struct MessagesGroupItemView: View {
                 // Updates are handled at the item level, not here
                 EmptyView()
             }
-
-            if showingSentStatus {
-                HStack(spacing: DesignConstants.Spacing.stepHalf) {
-                    Text("Sent")
-                    Image(systemName: "checkmark")
-                }
-                .transition(.blurReplace)
-                .padding(.vertical, DesignConstants.Spacing.stepX)
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
-                .zIndex(60)
-                .id("sent-status")
-            }
         }
-        .onChange(of: showsSentStatus, initial: true) {
-            showingSentStatus = showsSentStatus
-        }
-        .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showingSentStatus)
         .id("messages-group-item-view-\(message.base.id)")
         .transition(
             .asymmetric(
@@ -173,7 +154,7 @@ private struct MultipleAttachmentsPlaceholder: View {
                 .frame(width: 200, height: 150)
                 .overlay(
                     VStack {
-                        Image(systemName: "photo.on.rectangle.angled")
+                        Image(systemName: "photo.fill.on.rectangle.fill")
                             .font(.largeTitle)
                             .foregroundColor(.gray)
                         Text("\(urls.count) Attachments")
@@ -197,7 +178,6 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .normal,
-        showsSentStatus: false,
         onTapMessage: { _ in },
         onTapAvatar: { _ in }
     )
@@ -212,7 +192,6 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .tailed,
-        showsSentStatus: true,
         onTapMessage: { _ in },
         onTapAvatar: { _ in }
     )
@@ -227,7 +206,6 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .unpublished
         ), .existing),
         bubbleType: .normal,
-        showsSentStatus: false,
         onTapMessage: { _ in },
         onTapAvatar: { _ in }
     )
@@ -242,7 +220,6 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .tailed,
-        showsSentStatus: false,
         onTapMessage: { _ in },
         onTapAvatar: { _ in }
     )

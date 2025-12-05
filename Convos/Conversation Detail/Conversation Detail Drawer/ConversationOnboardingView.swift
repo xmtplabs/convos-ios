@@ -32,22 +32,9 @@ struct ConversationOnboardingView: View {
             switch coordinator.state {
             case .idle, .started, .settingUpQuickname, .quicknameLearnMore, .presentingProfileSettings:
                 EmptyView()
-            case .setupQuickname(let autoDismiss):
-                SetupQuicknameView(
-                    autoDismiss: autoDismiss,
-                )
-                .transition(.blurReplace)
-
-            case .saveAsQuickname(let profile):
-                UseAsQuicknameView(
-                    profile: .constant(profile),
-                    onLearnMore: {
-                        // keep the keyboard dismissed
-                        focusCoordinator.moveFocus(to: nil)
-                        coordinator.presentWhatIsQuickname()
-                    }
-                )
-                .transition(.blurReplace)
+            case .setupQuickname:
+                SetupQuicknameView()
+                    .transition(.blurReplace)
 
             case .savedAsQuicknameSuccess:
                 SetupQuicknameSuccessView()
@@ -96,10 +83,10 @@ struct ConversationOnboardingView: View {
         }, set: { _ in
         })) {
             WhatIsQuicknameView {
-                onPresentProfileSettings()
                 coordinator.onContinueFromWhatIsQuickname()
             }
             .interactiveDismissDisabled()
+            .background(.colorBackgroundPrimary)
         }
     }
 }
@@ -109,9 +96,8 @@ struct ConversationOnboardingView: View {
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     let onboardingSteps: [ConversationOnboardingState] = [
         .idle,
-        .setupQuickname(autoDismiss: false),
+        .setupQuickname,
         .settingUpQuickname,
-        .saveAsQuickname(profile: .mock()),
         .savedAsQuicknameSuccess,
         .requestNotifications,
         .notificationsEnabled
@@ -152,7 +138,7 @@ struct ConversationOnboardingView: View {
             onPresentProfileSettings: {}
         )
         .onAppear {
-            coordinator.state = .setupQuickname(autoDismiss: false)
+            coordinator.state = .setupQuickname
         }
         .padding()
     }
@@ -169,7 +155,7 @@ struct ConversationOnboardingView: View {
         onPresentProfileSettings: {}
     )
     .onAppear {
-        coordinator.state = .setupQuickname(autoDismiss: false)
+        coordinator.state = .setupQuickname
     }
     .padding()
 }
@@ -185,7 +171,7 @@ struct ConversationOnboardingView: View {
         onPresentProfileSettings: {}
     )
     .onAppear {
-        coordinator.state = .setupQuickname(autoDismiss: true)
+        coordinator.state = .setupQuickname
     }
     .padding()
 }
@@ -205,23 +191,6 @@ struct ConversationOnboardingView: View {
             settings: QuicknameSettings.current(),
             profileImage: nil
         )
-    }
-    .padding()
-}
-
-#Preview("Save As Quickname") {
-    @Previewable @State var coordinator = ConversationOnboardingCoordinator()
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    let sampleProfile = Profile(inboxId: "preview-inbox", name: "Jane Doe", avatar: nil)
-
-    ConversationOnboardingView(
-        coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onPresentProfileSettings: {}
-    )
-    .onAppear {
-        coordinator.state = .saveAsQuickname(profile: sampleProfile)
     }
     .padding()
 }

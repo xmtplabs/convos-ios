@@ -8,7 +8,7 @@ struct TextTitleContentView: View {
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             if let profile {
-                ProfileAvatarView(profile: profile, profileImage: nil)
+                ProfileAvatarView(profile: profile, profileImage: nil, useSystemPlaceholder: false)
                     .frame(width: 16.0, height: 16.0)
             }
 

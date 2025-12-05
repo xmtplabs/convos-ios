@@ -10,9 +10,6 @@ class MyProfileViewModel {
     private var cancellables: Set<AnyCancellable> = []
     private var updateDisplayNameTask: Task<Void, Never>?
     private var updateImageTask: Task<Void, Never>?
-    private(set) var quicknameSettings: QuicknameSettingsViewModel = .init()
-
-    var saveDisplayNameAsQuickname: Bool = false
 
     var isEditingDisplayName: Bool = false
     var editingDisplayName: String = ""
@@ -59,6 +56,7 @@ class MyProfileViewModel {
         myProfileRepository.myProfilePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] profile in
+                self?.profileImage = ImageCache.shared.image(for: profile)
                 self?.profile = profile
             }
             .store(in: &cancellables)
@@ -96,7 +94,6 @@ class MyProfileViewModel {
 
     func update(using profile: Profile, profileImage: UIImage?, conversationId: String) {
         self.profile = profile.with(inboxId: profile.inboxId)
-        self.saveDisplayNameAsQuickname = true
         update(displayName: profile.displayName, conversationId: conversationId)
         if let profileImage = profileImage {
             update(profileImage: profileImage, conversationId: conversationId)
@@ -113,17 +110,6 @@ class MyProfileViewModel {
         // @jarodl check if the image was actually changed
         if let profileImage {
             update(profileImage: profileImage, conversationId: conversationId)
-        }
-
-        if saveDisplayNameAsQuickname {
-            let current = QuicknameSettings.current()
-                .with(displayName: trimmedDisplayName)
-                .with(profileImage: profileImage)
-            do {
-                try current.save()
-            } catch {
-                Log.error("Error saving profile as Quickname: \(error.localizedDescription)")
-            }
         }
     }
 }

@@ -24,9 +24,9 @@ struct ConvosToolbarButton: View {
 // swiftlint:disable force_unwrapping
 
 struct AppSettingsView: View {
+    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
-    @State private var quicknameSettings: QuicknameSettingsViewModel = .init()
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.dismiss) private var dismiss: DismissAction
 
@@ -35,44 +35,37 @@ struct AppSettingsView: View {
             List {
                 Section {
                     NavigationLink {
-                        ProfileEditView(
-                            profile: .constant(quicknameSettings.profile),
-                            profileImage: $quicknameSettings.profileImage,
-                            editingDisplayName: $quicknameSettings.editingDisplayName,
-                            saveDisplayNameAsQuickname: .constant(false),
-                            quicknameSettings: quicknameSettings,
-                            showsQuicknameToggle: false,
-                            showsCancelButton: false
-                        ) {
-                            quicknameSettings.save()
-                            dismiss()
+                        MyInfoView(
+                            profile: .constant(.empty()),
+                            profileImage: .constant(nil),
+                            editingDisplayName: .constant(""),
+                            quicknameViewModel: quicknameViewModel,
+                            showsCancelButton: false,
+                            showsProfile: false,
+                            showsUseQuicknameButton: false,
+                            canEditQuickname: true
+                        ) { _ in
                         }
                     } label: {
                         HStack {
-                            Text("Quickname")
+                            Text("My info")
                                 .foregroundStyle(.colorTextPrimary)
 
                             Spacer()
-                            ProfileAvatarView(
-                                profile: quicknameSettings.profile,
-                                profileImage: quicknameSettings.profileImage
-                            )
-                                .frame(width: 16.0, height: 16.0)
+
                             Text(
-                                quicknameSettings.editingDisplayName.isEmpty ? "Someone" : quicknameSettings.editingDisplayName
+                                quicknameViewModel.editingDisplayName.isEmpty ? "Somebody" : quicknameViewModel.editingDisplayName
                             )
                             .foregroundStyle(.colorTextPrimary)
+
+                            ProfileAvatarView(
+                                profile: quicknameViewModel.profile,
+                                profileImage: quicknameViewModel.profileImage,
+                                useSystemPlaceholder: false
+                            )
+                            .frame(width: 16.0, height: 16.0)
                         }
                     }
-                } header: {
-                    HStack {
-                        Text("Names")
-                            .foregroundStyle(.colorTextSecondary)
-                        Spacer()
-                    }
-                } footer: {
-                    Text("Each time you join a convo, you'll choose a name")
-                        .foregroundStyle(.colorTextSecondary)
                 }
 
                 Section {
@@ -134,7 +127,7 @@ struct AppSettingsView: View {
                     }
 
                     Button {
-                        openURL(URL(string: "https://convos.org/terms-and-privacy")!)
+                        openURL(URL(string: "https://hq.convos.org/privacy-and-terms")!)
                     } label: {
                         NavigationLink("Privacy & Terms", destination: EmptyView())
                     }
@@ -158,7 +151,7 @@ struct AppSettingsView: View {
                             .foregroundStyle(.colorTextTertiary)
                     }
                 } footer: {
-                    Text("Made in the open by XMTP")
+                    Text("Made in the open by XMTP Labs")
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -170,6 +163,7 @@ struct AppSettingsView: View {
                     }
                     .confirmationDialog("", isPresented: $showingDeleteAllDataConfirmation) {
                         Button("Delete", role: .destructive) {
+                            quicknameViewModel.delete()
                             onDeleteAllData()
                             dismiss()
                         }
@@ -212,7 +206,8 @@ struct AppSettingsView: View {
 // swiftlint:enable force_unwrapping
 
 #Preview {
+    let quicknameViewModel = QuicknameSettingsViewModel.shared
     NavigationStack {
-        AppSettingsView {}
+        AppSettingsView(quicknameViewModel: quicknameViewModel) {}
     }
 }

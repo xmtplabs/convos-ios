@@ -56,7 +56,7 @@ class ConversationViewModel {
             !conversation.hasJoined || conversation.members.count > 1
         ) && !conversation.isDraft ? conversation.membersCountString : "Customize"
     }
-    var conversationNamePlaceholder: String = "Name"
+    var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
     var joinEnabled: Bool = true
 
@@ -238,6 +238,9 @@ class ConversationViewModel {
             .receive(on: DispatchQueue.main)
             .compactMap { $0 }
             .sink { [weak self] conversation in
+                if let imageURL = conversation.imageURL {
+                    self?.conversationImage = ImageCache.shared.image(for: imageURL)
+                }
                 self?.conversation = conversation
             }
             .store(in: &cancellables)
@@ -344,7 +347,6 @@ class ConversationViewModel {
 
     func onProfileSettingsDismissed(focusCoordinator: FocusCoordinator) {
         onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .editProfile)
-        presentingProfileSettings = false
     }
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
@@ -382,12 +384,9 @@ class ConversationViewModel {
         myProfileViewModel.onEndedEditing(for: conversation.id)
 
         // Forward profile editing completion to onboarding coordinator
-        let didChangeProfile = !profile.displayName.isEmpty || profileImage != nil
-        let isSavingAsQuickname = myProfileViewModel.saveDisplayNameAsQuickname
         onboardingCoordinator.handleDisplayNameEndedEditing(
-            profile: profile,
-            didChangeProfile: didChangeProfile,
-            isSavingAsQuickname: isSavingAsQuickname
+            displayName: editingDisplayName,
+            profileImage: profileImage
         )
 
         // Delegate focus transition to coordinator

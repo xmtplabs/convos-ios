@@ -8,6 +8,7 @@ struct AvatarView: View {
     let fallbackName: String
     let cacheableObject: any ImageCacheable
     let placeholderImage: UIImage?
+    let placeholderImageName: String?
     @State private var cachedImage: UIImage?
     @State private var isLoading: Bool = false
 
@@ -18,6 +19,15 @@ struct AvatarView: View {
                     .resizable()
                     .scaledToFit()
                     .aspectRatio(contentMode: .fill)
+            } else if let placeholderImageName {
+                Image(systemName: placeholderImageName)
+                    .resizable()
+                    .scaledToFit()
+                    .aspectRatio(contentMode: .fill)
+                    .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                    .padding(DesignConstants.Spacing.step2x)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .background(.colorFillTertiary)
             } else {
                 MonogramView(name: fallbackName)
             }
@@ -77,13 +87,15 @@ struct AvatarView: View {
 struct ProfileAvatarView: View {
     let profile: Profile
     let profileImage: UIImage?
+    let useSystemPlaceholder: Bool
 
     var body: some View {
         AvatarView(
             imageURL: profile.avatarURL,
             fallbackName: profile.displayName,
             cacheableObject: profile,
-            placeholderImage: profileImage
+            placeholderImage: profileImage,
+            placeholderImageName: useSystemPlaceholder ? "person.crop.circle.fill" : nil
         )
     }
 }
@@ -99,7 +111,8 @@ struct ConversationAvatarView: View {
                 imageURL: conversation.imageURL,
                 fallbackName: "",
                 cacheableObject: conversation,
-                placeholderImage: conversationImage
+                placeholderImage: conversationImage,
+                placeholderImageName: nil
             )
         } else {
             MonogramView(text: "")
@@ -110,7 +123,7 @@ struct ConversationAvatarView: View {
 #Preview {
     @Previewable @State var profileImage: UIImage?
     let profile: Profile = .mock(name: "John Doe")
-    ProfileAvatarView(profile: profile, profileImage: nil)
+    ProfileAvatarView(profile: profile, profileImage: profileImage, useSystemPlaceholder: true)
 }
 
 #Preview {

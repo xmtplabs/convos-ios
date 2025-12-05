@@ -50,6 +50,7 @@ struct ImagePickerButton: View {
     @State var showsCurrentImage: Bool = true
     @State var imageState: ImagePickerImage.State = .empty
     @State var symbolSize: CGFloat = 24.0
+    let symbolName: String
     @State private var imageLoadingTask: Task<Void, Never>?
     @State private var imageSelection: PhotosPickerItem?
 
@@ -67,7 +68,8 @@ struct ImagePickerButton: View {
                     ZStack {
                         Circle()
                             .fill(.black)
-                        Image(systemName: "photo.on.rectangle.angled")
+                        Image(systemName: symbolName)
+                            .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                             .font(.system(size: symbolSize))
                             .foregroundColor(.white)
                     }
@@ -126,10 +128,15 @@ struct ImagePickerButton: View {
     @Previewable @State var image: UIImage?
     @Previewable @State var isPickerPresented: Bool = false
     VStack {
-        ImagePickerButton(currentImage: $image, isPickerPresented: $isPickerPresented)
+        ImagePickerButton(currentImage: $image, isPickerPresented: $isPickerPresented, symbolName: "photo.fill.on.rectangle.fill")
             .frame(width: 52.0, height: 52.0)
 
-        ImagePickerButton(currentImage: $image, isPickerPresented: $isPickerPresented, showsCurrentImage: false)
-            .frame(width: 52.0, height: 52.0)
+        ImagePickerButton(
+            currentImage: $image,
+            isPickerPresented: $isPickerPresented,
+            showsCurrentImage: false,
+            symbolName: "photo.fill.on.rectangle.fill"
+        )
+        .frame(width: 52.0, height: 52.0)
     }
 }

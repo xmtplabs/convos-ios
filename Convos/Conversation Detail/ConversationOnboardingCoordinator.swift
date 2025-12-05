@@ -53,14 +53,10 @@ enum ConversationOnboardingState: Equatable {
 
     case started
 
-    /// Show "Tap to change your ID" prompt (first time, non-dismissible)
-    case setupQuickname(autoDismiss: Bool)
+    /// Show "Tap to add your name for this convo" prompt
+    case setupQuickname
 
     case settingUpQuickname
-
-    /// Shows "Use as Quickname in new convos?" button
-    /// Tapping it takes you to your Profile
-    case saveAsQuickname(profile: Profile)
 
     case quicknameLearnMore
 
@@ -83,8 +79,6 @@ enum ConversationOnboardingState: Equatable {
     case notificationsDenied
 
     static let addQuicknameViewDuration: CGFloat = 8.0
-    static let setupQuicknameViewDuration: CGFloat = 8.0
-    static let useAsQuicknameViewDuration: CGFloat = 8.0
     static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
     // how long we wait before showing the description string
@@ -93,12 +87,8 @@ enum ConversationOnboardingState: Equatable {
     /// Returns the autodismiss duration for this state, or nil if autodismiss is not enabled
     var autodismissDuration: CGFloat? {
         switch self {
-        case .setupQuickname(let autoDismiss):
-            return autoDismiss ? Self.setupQuicknameViewDuration : nil
         case .addQuickname:
             return Self.addQuicknameViewDuration
-        case .saveAsQuickname:
-            return Self.useAsQuicknameViewDuration
         case .savedAsQuicknameSuccess:
             return Self.savedAsQuicknameSuccessDuration
         case .notificationsEnabled:
@@ -117,9 +107,13 @@ final class ConversationOnboardingCoordinator {
 
     var state: ConversationOnboardingState = .idle
 
+    private var quicknameViewModel: QuicknameSettingsViewModel = .shared
+
     var isSettingUpQuickname: Bool {
         switch state {
-        case .settingUpQuickname, .presentingProfileSettings:
+        case .settingUpQuickname,
+                .quicknameLearnMore,
+                .presentingProfileSettings:
             return true
         default:
             return false
@@ -247,12 +241,8 @@ final class ConversationOnboardingCoordinator {
 
             // Transition to next state based on current state
             switch state {
-            case .setupQuickname:
-                await setupQuicknameDidAutoDismiss()
             case .addQuickname:
                 await addQuicknameDidAutoDismiss()
-            case .saveAsQuickname:
-                await saveAsQuicknameDidAutodismiss()
             case .savedAsQuicknameSuccess:
                 await transitionToNotificationState()
             case .notificationsEnabled:
@@ -357,17 +347,17 @@ final class ConversationOnboardingCoordinator {
         setHasSetQuickname(true, for: clientId)
 
         // Determine which quickname state to show
-        let quicknameSettings = QuicknameSettings.current()
+        let quicknameSettings = quicknameViewModel.quicknameSettings
 
         if !hasShownQuicknameEditor {
             // First time: show non-dismissible setup prompt
             shouldAnimateAvatarForQuicknameSetup = true
-            state = .setupQuickname(autoDismiss: false)
+            state = .setupQuickname
             handleStateChange()
         } else if quicknameSettings.isDefault && !hasSetQuicknameForConversation {
             // Has seen editor but no quickname: show auto-dismissing setup
             shouldAnimateAvatarForQuicknameSetup = true
-            state = .setupQuickname(autoDismiss: true)
+            state = .setupQuickname
             handleStateChange()
         } else if !hasSetQuicknameForConversation {
             // Has quickname: show auto-dismissing add name
@@ -398,6 +388,7 @@ final class ConversationOnboardingCoordinator {
     /// User tapped to set up their quickname (opens profile editor)
     func didTapProfilePhoto() {
         guard case .setupQuickname = state else {
+            skipAddQuickname()
             return
         }
         hasShownQuicknameEditor = true
@@ -412,15 +403,8 @@ final class ConversationOnboardingCoordinator {
     }
 
     func onContinueFromWhatIsQuickname() {
-        state = .presentingProfileSettings
+        state = .savedAsQuicknameSuccess
         handleStateChange()
-    }
-
-    /// The setup quickname view auto-dismissed
-    func setupQuicknameDidAutoDismiss() async {
-        hasShownQuicknameEditor = true
-        shouldAnimateAvatarForQuicknameSetup = false
-        await transitionToNotificationState()
     }
 
     /// User selected a quickname to use
@@ -429,14 +413,11 @@ final class ConversationOnboardingCoordinator {
         await transitionToNotificationState()
     }
 
-    private func saveAsQuicknameDidAutodismiss() async {
-        await transitionToNotificationState()
-    }
-
-    func successfullySavedAsQuickname() {
-        guard state == .presentingProfileSettings else { return }
-        state = .savedAsQuicknameSuccess
-        handleStateChange()
+    func skipAddQuickname() {
+        guard case .addQuickname = state else { return }
+        Task {
+            await transitionToNotificationState()
+        }
     }
 
     private func addQuicknameDidAutoDismiss() async {
@@ -448,18 +429,16 @@ final class ConversationOnboardingCoordinator {
     ///   - profile: The current profile
     ///   - didChangeProfile: Whether the profile was actually changed
     ///   - isSavingAsQuickname: Whether the user is saving this as their quickname
-    func handleDisplayNameEndedEditing(profile: Profile, didChangeProfile: Bool, isSavingAsQuickname: Bool) {
-        if isSavingAsQuickname {
-            successfullySavedAsQuickname()
-        } else if didChangeProfile {
-            // Check if we should show the "save as quickname" prompt
-            guard state != .presentingProfileSettings else { return }
-            let hasDefaultQuickname = QuicknameSettings.current().isDefault
-            guard !hasSeenAddAsQuickname && hasDefaultQuickname else { return }
-            state = .saveAsQuickname(profile: profile)
-            handleStateChange()
-            hasSeenAddAsQuickname = true
-        }
+    func handleDisplayNameEndedEditing(displayName: String, profileImage: UIImage?) {
+        let quicknameSettings = quicknameViewModel.quicknameSettings
+        guard state == .settingUpQuickname, quicknameSettings.isDefault else { return }
+
+        // save the first name/photo the user sets as the quickname
+        quicknameViewModel.editingDisplayName = displayName
+        quicknameViewModel.profileImage = profileImage
+        quicknameViewModel.save()
+        state = .quicknameLearnMore
+        handleStateChange()
     }
 
     /// Request notification permission from the user

@@ -59,7 +59,7 @@ struct MessagesView<BottomBarContent: View>: View {
                     profileImage: $profileImage,
                     focusState: $focusState,
                     focusCoordinator: focusCoordinator,
-                    animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
+                    onboardingCoordinator: onboardingCoordinator,
                     messagesTextFieldEnabled: messagesTextFieldEnabled,
                     onProfilePhotoTap: onProfilePhotoTap,
                     onSendMessage: onSendMessage,

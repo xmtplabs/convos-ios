@@ -4,6 +4,8 @@ import SwiftUI
 
 @Observable
 class QuicknameSettingsViewModel {
+    static let shared: QuicknameSettingsViewModel = .init()
+
     var quicknameSettings: QuicknameSettings {
         .init(
             displayName: editingDisplayName,
@@ -18,9 +20,9 @@ class QuicknameSettingsViewModel {
     var profileImage: UIImage?
     var tags: [String] = []
 
-    var exampleDisplayName: String = "Someone"
+    var exampleDisplayName: String = "Somebody"
 
-    init() {
+    private init() {
         let currentSettings = QuicknameSettings.current()
         editingDisplayName = currentSettings.displayName
         profileImage = currentSettings.profileImage
@@ -33,5 +35,11 @@ class QuicknameSettingsViewModel {
         } catch {
             Log.error("Failed saving quickname settings: \(error.localizedDescription)")
         }
+    }
+
+    func delete() {
+        editingDisplayName = ""
+        profileImage = nil
+        quicknameSettings.delete()
     }
 }

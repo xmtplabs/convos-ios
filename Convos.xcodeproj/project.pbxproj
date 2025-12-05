@@ -120,10 +120,16 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		7A68D6442EE38812009F4FA4 /* Exceptions for "ConvosTests" folder in "ConvosTests" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				ConversationOnboardingCoordinatorTests.swift,
+			);
+			target = 7ACA8BA22DE16DE200848799 /* ConvosTests */;
+		};
 		7A9C77CE2EC2819D00E19ECF /* Exceptions for "Convos" folder in "ConvosTests" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
-				"Conversation Detail/ConversationOnboardingCoordinator.swift",
 				Profile/QuicknameSettings.swift,
 			);
 			target = 7ACA8BA22DE16DE200848799 /* ConvosTests */;
@@ -244,8 +250,8 @@
 				"Design System/ViewExtensions.swift",
 				Explode/ExplodeInfoView.swift,
 				"Invite Helpers/Invite+InviteURL.swift",
+				Profile/MyInfoView.swift,
 				Profile/MyProfileViewModel.swift,
-				Profile/ProfileEditView.swift,
 				Profile/QuicknameRandomizerSettingsView/QuicknameRandomizerSettingsView.swift,
 				Profile/QuicknameSettings.swift,
 				"Shared Views/AutoShareSheetView.swift",
@@ -289,6 +295,9 @@
 		};
 		7ACA8BA42DE16DE200848799 /* ConvosTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				7A68D6442EE38812009F4FA4 /* Exceptions for "ConvosTests" folder in "ConvosTests" target */,
+			);
 			path = ConvosTests;
 			sourceTree = "<group>";
 		};

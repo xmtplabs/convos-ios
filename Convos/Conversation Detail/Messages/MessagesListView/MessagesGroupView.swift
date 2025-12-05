@@ -18,7 +18,7 @@ struct MessagesGroupView: View {
                 Spacer()
 
                 if !group.sender.isCurrentUser {
-                    ProfileAvatarView(profile: group.sender.profile, profileImage: nil)
+                    ProfileAvatarView(profile: group.sender.profile, profileImage: nil, useSystemPlaceholder: false)
                         .frame(width: DesignConstants.ImageSizes.smallAvatar,
                                height: DesignConstants.ImageSizes.smallAvatar)
                         .onTapGesture {
@@ -65,10 +65,10 @@ struct MessagesGroupView: View {
                     MessagesGroupItemView(
                         message: message,
                         bubbleType: bubbleType,
-                        showsSentStatus: showsSentStatus,
                         onTapMessage: onTapMessage,
                         onTapAvatar: onTapAvatar
                     )
+                    .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
                     .transition(
                         .asymmetric(
@@ -76,6 +76,20 @@ struct MessagesGroupView: View {
                             removal: .opacity
                         )
                     )
+
+                    if showsSentStatus {
+                        HStack(spacing: DesignConstants.Spacing.stepHalf) {
+                            Spacer()
+                            Text("Sent")
+                            Image(systemName: "checkmark")
+                        }
+                        .transition(.blurReplace)
+                        .padding(.vertical, DesignConstants.Spacing.stepX)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                        .zIndex(60)
+                        .id("sent-status-\(message.differenceIdentifier)")
+                    }
                 }
             }
             .id("message-group-container-\(group.id)")

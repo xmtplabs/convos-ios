@@ -61,6 +61,6 @@ struct QuicknameRandomizerSettingsView: View {
 }
 
 #Preview {
-    @Previewable @State var viewModel: QuicknameSettingsViewModel = .init()
+    @Previewable @State var viewModel: QuicknameSettingsViewModel = .shared
     QuicknameRandomizerSettingsView(quicknameSettings: viewModel)
 }

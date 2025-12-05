@@ -250,7 +250,6 @@ extension DebugViewSection {
     }
 
     private func resetOnboarding() {
-        QuicknameSettings.delete()
         ConversationOnboardingCoordinator().reset()
     }
 

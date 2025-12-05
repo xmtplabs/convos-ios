@@ -102,7 +102,8 @@ final class FocusCoordinator {
             // If nothing was tracked, fall back to message field or default
             return previousFocus ?? defaultFocus ?? .message
 
-        case (.displayName, .editProfile):
+        case (.displayName, .editProfile),
+            (.message, .editProfile):
             return .message
 
         case (.conversationName, .conversationSettings):

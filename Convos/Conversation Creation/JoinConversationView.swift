@@ -84,7 +84,7 @@ struct JoinConversationView: View {
                         Group {
                             HStack {
                                 Button {
-                                    openURL(URL(string: "https://convos.org/terms-and-privacy")!)
+                                    openURL(URL(string: "https://hq.convos.org/privacy-and-terms")!)
                                 } label: {
                                     HStack(spacing: DesignConstants.Spacing.stepX) {
                                         Text("Privacy & Terms")

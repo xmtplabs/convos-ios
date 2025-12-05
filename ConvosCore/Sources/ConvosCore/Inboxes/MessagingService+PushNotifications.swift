@@ -128,7 +128,7 @@ extension MessagingService {
 
         return .init(
             title: result.conversationName,
-            body: "Someone accepted your invite",
+            body: "Somebody accepted your invite",
             conversationId: result.conversationId,
             userInfo: userInfo
         )
@@ -187,7 +187,7 @@ extension MessagingService {
                     // Valid join request - show notification
                     return .init(
                         title: result.conversationName,
-                        body: "Someone accepted your invite",
+                        body: "Somebody accepted your invite",
                         conversationId: result.conversationId,
                         userInfo: userInfo
                     )

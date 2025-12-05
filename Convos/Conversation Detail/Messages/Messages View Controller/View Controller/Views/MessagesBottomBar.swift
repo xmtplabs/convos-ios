@@ -14,16 +14,22 @@ struct MessagesBottomBar: View {
     @Binding var profileImage: UIImage?
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
-    let animateAvatarForQuickname: Bool
+    let onboardingCoordinator: ConversationOnboardingCoordinator
     let messagesTextFieldEnabled: Bool
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
 
+    @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
+
     @State private var isExpanded: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @Namespace private var namespace: Namespace.ID
+
+    var quicknamePlaceholderText: String {
+        onboardingCoordinator.state == .settingUpQuickname ? "Add your name" : "Your name"
+    }
 
     var body: some View {
         GlassEffectContainer {
@@ -37,7 +43,7 @@ struct MessagesBottomBar: View {
                         messageText: $messageText,
                         sendButtonEnabled: $sendButtonEnabled,
                         focusState: $focusState,
-                        animateAvatarForQuickname: animateAvatarForQuickname,
+                        animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
                         messagesTextFieldEnabled: messagesTextFieldEnabled,
                         onProfilePhotoTap: onProfilePhotoTap,
                         onSendMessage: onSendMessage
@@ -51,14 +57,16 @@ struct MessagesBottomBar: View {
 
                 if isExpanded {
                     QuickEditView(
-                        placeholderText: "\(emptyDisplayNamePlaceholder)...",
+                        placeholderText: quicknamePlaceholderText,
                         text: $displayName,
                         image: $profileImage,
                         isImagePickerPresented: $isImagePickerPresented,
                         focusState: $focusState,
                         focused: .displayName,
+                        settingsSymbolName: "lanyardcard.fill",
+                        showsSettingsButton: !quicknameSettings.quicknameSettings.isDefault && !onboardingCoordinator.isSettingUpQuickname,
                         onSubmit: onDisplayNameEndedEditing,
-                        onSettings: onProfileSettings
+                        onSettings: onProfileSettings,
                     )
                     .frame(maxWidth: 320.0)
                     .padding(DesignConstants.Spacing.step6x)
@@ -87,7 +95,7 @@ struct MessagesBottomBar: View {
     @Previewable @State var messageText: String = ""
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
-    @Previewable var animateAvatarForQuickname: Bool = false
+    @Previewable @State var onboardingCoordinator: ConversationOnboardingCoordinator = .init()
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     @Previewable @State var bottomBarHeight: CGFloat = 0.0
@@ -115,7 +123,7 @@ struct MessagesBottomBar: View {
                 profileImage: $profileImage,
                 focusState: $focusState,
                 focusCoordinator: focusCoordinator,
-                animateAvatarForQuickname: animateAvatarForQuickname,
+                onboardingCoordinator: onboardingCoordinator,
                 messagesTextFieldEnabled: true,
                 onProfilePhotoTap: {
                     focusCoordinator.moveFocus(to: .displayName)

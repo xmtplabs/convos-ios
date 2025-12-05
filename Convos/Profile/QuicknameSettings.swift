@@ -83,7 +83,7 @@ struct QuicknameSettings: Equatable {
 
     func save() throws {
         guard !isDefault else {
-            Self.delete()
+            delete()
             return
         }
 
@@ -102,6 +102,16 @@ struct QuicknameSettings: Equatable {
             try jpegData.write(to: imageURL)
         } else if let imageURL = Self.defaultProfileImageURL {
             // Remove image if nil
+            try? FileManager.default.removeItem(at: imageURL)
+        }
+    }
+
+    func delete() {
+        // Remove from UserDefaults
+        UserDefaults.standard.removeObject(forKey: Self.userDefaultsKey)
+
+        // Delete profile image from disk
+        if let imageURL = Self.defaultProfileImageURL {
             try? FileManager.default.removeItem(at: imageURL)
         }
     }
@@ -139,15 +149,5 @@ struct QuicknameSettings: Equatable {
             profileImage: profileImage,
             randomizerSettings: storedSettings.randomizerSettings,
         )
-    }
-
-    static func delete() {
-        // Remove from UserDefaults
-        UserDefaults.standard.removeObject(forKey: userDefaultsKey)
-
-        // Delete profile image from disk
-        if let imageURL = defaultProfileImageURL {
-            try? FileManager.default.removeItem(at: imageURL)
-        }
     }
 }

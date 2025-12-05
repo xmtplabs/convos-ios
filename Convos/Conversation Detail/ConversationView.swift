@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ConversationView<MessagesBottomBar: View>: View {
     @Bindable var viewModel: ConversationViewModel
+    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
     let onScanInviteCode: () -> Void
@@ -30,7 +31,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             displayName: $viewModel.editingDisplayName,
             messageText: $viewModel.messageText,
             sendButtonEnabled: $viewModel.sendButtonEnabled,
-            profileImage: $viewModel.profileImage,
+            profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
@@ -73,15 +74,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
-            ProfileEditView(
+            MyInfoView(
                 profile: .constant(viewModel.myProfileViewModel.profile),
                 profileImage: $viewModel.myProfileViewModel.profileImage,
                 editingDisplayName: $viewModel.myProfileViewModel.editingDisplayName,
-                saveDisplayNameAsQuickname: $viewModel.myProfileViewModel.saveDisplayNameAsQuickname,
-                quicknameSettings: viewModel.myProfileViewModel.quicknameSettings,
-                showsQuicknameToggle: true,
-                showsCancelButton: true
-            ) {
+                quicknameViewModel: quicknameViewModel,
+                showsCancelButton: true,
+                showsProfile: true,
+                showsUseQuicknameButton: true,
+                canEditQuickname: false
+            ) { quicknameSettings in
+                viewModel.onUseQuickname(quicknameSettings.profile, quicknameSettings.profileImage)
+            }
+            .onDisappear {
                 viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
             }
         }
@@ -131,11 +136,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
 #Preview {
     @Previewable @State var viewModel: ConversationViewModel = .mock
+    @Previewable @State var quicknameViewModel: QuicknameSettingsViewModel = .shared
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
     @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
     NavigationStack {
         ConversationView(
             viewModel: viewModel,
+            quicknameViewModel: quicknameViewModel,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             onScanInviteCode: {},
