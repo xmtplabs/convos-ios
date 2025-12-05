@@ -36,17 +36,6 @@ struct ConversationOnboardingView: View {
                 SetupQuicknameView()
                     .transition(.blurReplace)
 
-            case .saveAsQuickname(let profile):
-                UseAsQuicknameView(
-                    profile: .constant(profile),
-                    onLearnMore: {
-                        // keep the keyboard dismissed
-                        focusCoordinator.moveFocus(to: nil)
-                        coordinator.presentWhatIsQuickname()
-                    }
-                )
-                .transition(.blurReplace)
-
             case .savedAsQuicknameSuccess:
                 SetupQuicknameSuccessView()
                     .transition(.blurReplace)
@@ -109,7 +98,6 @@ struct ConversationOnboardingView: View {
         .idle,
         .setupQuickname,
         .settingUpQuickname,
-        .saveAsQuickname(profile: .mock()),
         .savedAsQuicknameSuccess,
         .requestNotifications,
         .notificationsEnabled
@@ -203,23 +191,6 @@ struct ConversationOnboardingView: View {
             settings: QuicknameSettings.current(),
             profileImage: nil
         )
-    }
-    .padding()
-}
-
-#Preview("Save As Quickname") {
-    @Previewable @State var coordinator = ConversationOnboardingCoordinator()
-    @Previewable @State var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
-    let sampleProfile = Profile(inboxId: "preview-inbox", name: "Jane Doe", avatar: nil)
-
-    ConversationOnboardingView(
-        coordinator: coordinator,
-        focusCoordinator: focusCoordinator,
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onPresentProfileSettings: {}
-    )
-    .onAppear {
-        coordinator.state = .saveAsQuickname(profile: sampleProfile)
     }
     .padding()
 }

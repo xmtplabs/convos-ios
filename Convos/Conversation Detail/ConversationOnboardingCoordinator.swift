@@ -58,10 +58,6 @@ enum ConversationOnboardingState: Equatable {
 
     case settingUpQuickname
 
-    /// Shows "Use as Quickname in new convos?" button
-    /// Tapping it takes you to your Profile
-    case saveAsQuickname(profile: Profile)
-
     case quicknameLearnMore
 
     /// Waiting to see if the user saves a quickname
@@ -83,7 +79,6 @@ enum ConversationOnboardingState: Equatable {
     case notificationsDenied
 
     static let addQuicknameViewDuration: CGFloat = 8.0
-    static let useAsQuicknameViewDuration: CGFloat = 8.0
     static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
     // how long we wait before showing the description string
@@ -94,8 +89,6 @@ enum ConversationOnboardingState: Equatable {
         switch self {
         case .addQuickname:
             return Self.addQuicknameViewDuration
-        case .saveAsQuickname:
-            return Self.useAsQuicknameViewDuration
         case .savedAsQuicknameSuccess:
             return Self.savedAsQuicknameSuccessDuration
         case .notificationsEnabled:
@@ -252,8 +245,6 @@ final class ConversationOnboardingCoordinator {
                 await setupQuicknameDidAutoDismiss()
             case .addQuickname:
                 await addQuicknameDidAutoDismiss()
-            case .saveAsQuickname:
-                await saveAsQuicknameDidAutodismiss()
             case .savedAsQuicknameSuccess:
                 await transitionToNotificationState()
             case .notificationsEnabled:
@@ -430,14 +421,9 @@ final class ConversationOnboardingCoordinator {
         await transitionToNotificationState()
     }
 
-    private func saveAsQuicknameDidAutodismiss() async {
+    func skipAddQuickname() async {
+        guard case .addQuickname = state else { return }
         await transitionToNotificationState()
-    }
-
-    func successfullySavedAsQuickname() {
-        guard state == .presentingProfileSettings else { return }
-        state = .savedAsQuicknameSuccess
-        handleStateChange()
     }
 
     private func addQuicknameDidAutoDismiss() async {

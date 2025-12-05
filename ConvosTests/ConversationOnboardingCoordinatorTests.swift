@@ -279,8 +279,6 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
             XCTFail("Should not be idle for new conversation")
         case .settingUpQuickname:
             XCTFail("Should not be setting up for new conversation")
-        case .saveAsQuickname:
-            XCTAssertTrue(true, "SaveAsQuickname is also a valid quickname state")
         }
 
         // Clean up
