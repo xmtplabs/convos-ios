@@ -20,7 +20,7 @@ class QuicknameSettingsViewModel {
     var profileImage: UIImage?
     var tags: [String] = []
 
-    var exampleDisplayName: String = "Someone"
+    var exampleDisplayName: String = "Somebody"
 
     private init() {
         let currentSettings = QuicknameSettings.current()

@@ -148,7 +148,7 @@ public struct ProfileData {
     }
 
     public var displayNameOrUsername: String {
-        return name ?? username ?? "Someone"
+        return name ?? username ?? "Somebody"
     }
 }
 

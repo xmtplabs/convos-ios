@@ -124,7 +124,7 @@ struct MessagesInputView: View {
             profile: profile,
             profileImage: $profileImage,
             displayName: $displayName,
-            emptyDisplayNamePlaceholder: "Someone",
+            emptyDisplayNamePlaceholder: "Somebody",
             messageText: $messageText,
             sendButtonEnabled: $sendButtonEnabled,
             focusState: $focusState,

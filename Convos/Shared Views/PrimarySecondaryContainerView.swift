@@ -226,7 +226,7 @@ struct PrimarySecondaryContainerView<PrimaryContent: View,
                     }
                     .frame(width: 40.0, height: 40.0)
 
-                    TextField("Chat as Someone...", text: $text)
+                    TextField("Chat as Somebody...", text: $text)
                         .frame(maxWidth: .infinity)
 
                     Button {
@@ -242,7 +242,7 @@ struct PrimarySecondaryContainerView<PrimaryContent: View,
                 }
             } secondaryContent: {
                 QuickEditView(
-                    placeholderText: "Someone...",
+                    placeholderText: "Somebody...",
                     text: $text,
                     image: $image,
                     isImagePickerPresented: $isImagePickerPresented,

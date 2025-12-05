@@ -32,7 +32,7 @@ struct WhatIsQuicknameView: View {
                 .padding(.vertical, 10.0)
 
                 Text(
-                    quicknameSettings.editingDisplayName.isEmpty ? "Someone" : quicknameSettings.editingDisplayName
+                    quicknameSettings.editingDisplayName.isEmpty ? "Somebody" : quicknameSettings.editingDisplayName
                 )
                 .foregroundStyle(.colorTextPrimary)
 

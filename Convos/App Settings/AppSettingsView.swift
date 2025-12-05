@@ -54,7 +54,7 @@ struct AppSettingsView: View {
                             Spacer()
 
                             Text(
-                                quicknameViewModel.editingDisplayName.isEmpty ? "Someone" : quicknameViewModel.editingDisplayName
+                                quicknameViewModel.editingDisplayName.isEmpty ? "Somebody" : quicknameViewModel.editingDisplayName
                             )
                             .foregroundStyle(.colorTextPrimary)
 

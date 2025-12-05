@@ -20,7 +20,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var displayName: String {
-        name ?? "Someone"
+        name ?? "Somebody"
     }
 
     public func with(inboxId: String) -> Profile {

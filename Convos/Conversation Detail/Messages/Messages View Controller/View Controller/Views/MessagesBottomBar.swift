@@ -8,7 +8,7 @@ enum MessagesViewInputFocus: Hashable {
 struct MessagesBottomBar: View {
     let profile: Profile
     @Binding var displayName: String
-    let emptyDisplayNamePlaceholder: String = "Someone"
+    let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
     @Binding var sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?

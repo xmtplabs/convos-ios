@@ -58,7 +58,7 @@ struct MyInfoView: View {
                             .frame(width: 32.0, height: 32.0)
 
                             Text(
-                                editingDisplayName.isEmpty ? "Someone" : editingDisplayName
+                                editingDisplayName.isEmpty ? "Somebody" : editingDisplayName
                             )
                             .foregroundStyle(.colorTextPrimary)
 
@@ -87,7 +87,7 @@ struct MyInfoView: View {
                             )
                             .frame(width: 32.0, height: 32.0)
 
-                            TextField("Someone", text: $quicknameViewModel.editingDisplayName)
+                            TextField("Somebody", text: $quicknameViewModel.editingDisplayName)
                                 .scrollDismissesKeyboard(.interactively)
                         } else {
                             ProfileAvatarView(
@@ -98,7 +98,7 @@ struct MyInfoView: View {
                             .frame(width: 32.0, height: 32.0)
 
                             Text(
-                                quicknameViewModel.editingDisplayName.isEmpty ? "Someone" : quicknameViewModel.editingDisplayName
+                                quicknameViewModel.editingDisplayName.isEmpty ? "Somebody" : quicknameViewModel.editingDisplayName
                             )
                             .foregroundStyle(.colorTextPrimary)
                         }
