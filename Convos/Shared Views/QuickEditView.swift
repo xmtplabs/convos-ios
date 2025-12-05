@@ -35,31 +35,25 @@ struct QuickEditView: View {
             )
             .frame(width: 52.0, height: 52.0)
 
-            HStack(spacing: DesignConstants.Spacing.stepHalf) {
-                TextField(
-                    placeholderText,
-                    text: $text
-                )
-                .focused($focusState, equals: focused)
-                .introspect(.textField, on: .iOS(.v26)) { textField in
-                    textFieldDelegate.action = onSubmit
-                    textField.delegate = textFieldDelegate
-                }
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
-                .font(.body)
-                .tint(.colorTextPrimary)
-                .foregroundStyle(.colorTextPrimary)
-                .multilineTextAlignment(.center)
-                .truncationMode(.tail)
-                .submitLabel(.done)
-                .frame(minWidth: 166.0)
-                .frame(height: 52.0)
-                .onChange(of: text) { _, newValue in
-                    if newValue.count > NameLimits.maxDisplayNameLength {
-                        text = String(newValue.prefix(NameLimits.maxDisplayNameLength))
-                    }
-                }
-
+            TextField(
+                placeholderText,
+                text: $text
+            )
+            .focused($focusState, equals: focused)
+            .introspect(.textField, on: .iOS(.v26)) { textField in
+                textFieldDelegate.action = onSubmit
+                textField.delegate = textFieldDelegate
+            }
+            .padding(.leading, DesignConstants.Spacing.step4x)
+            .font(.body)
+            .tint(.colorTextPrimary)
+            .foregroundStyle(.colorTextPrimary)
+            .multilineTextAlignment(.leading)
+            .truncationMode(.tail)
+            .submitLabel(.done)
+            .frame(minWidth: 166.0)
+            .frame(height: 52.0)
+            .safeAreaInset(edge: .trailing) {
                 if showsSettingsButton {
                     Button {
                         onSettings()
@@ -73,7 +67,12 @@ struct QuickEditView: View {
                             .padding(.horizontal, 5.0)
                     }
                     .frame(width: 32.0, height: 32.0)
-                    .padding(.trailing, DesignConstants.Spacing.step3x)
+                    .padding(.trailing, 10.0)
+                }
+            }
+            .onChange(of: text) { _, newValue in
+                if newValue.count > NameLimits.maxDisplayNameLength {
+                    text = String(newValue.prefix(NameLimits.maxDisplayNameLength))
                 }
             }
             .background(

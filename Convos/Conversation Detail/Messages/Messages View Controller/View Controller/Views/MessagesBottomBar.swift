@@ -64,7 +64,7 @@ struct MessagesBottomBar: View {
                         focusState: $focusState,
                         focused: .displayName,
                         settingsSymbolName: "lanyardcard.fill",
-                        showsSettingsButton: !quicknameSettings.quicknameSettings.isDefault,
+                        showsSettingsButton: !quicknameSettings.quicknameSettings.isDefault && !onboardingCoordinator.isSettingUpQuickname,
                         onSubmit: onDisplayNameEndedEditing,
                         onSettings: onProfileSettings,
                     )

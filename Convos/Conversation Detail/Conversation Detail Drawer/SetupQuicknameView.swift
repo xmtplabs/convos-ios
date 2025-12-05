@@ -4,8 +4,8 @@ struct SetupQuicknameSuccessView: View {
     var body: some View {
         Group {
             HStack(spacing: DesignConstants.Spacing.stepX) {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.colorGreen)
+                Image(systemName: "lanyardcard.fill")
+                    .foregroundStyle(.colorLava)
 
                 Text("Quickname saved")
                     .font(.callout)
