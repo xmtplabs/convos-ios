@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ConversationsView: View {
     @State var viewModel: ConversationsViewModel
+    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
 
     @Namespace private var namespace: Namespace.ID
     @State private var presentingAppSettings: Bool = false
@@ -135,6 +136,7 @@ struct ConversationsView: View {
                 if let conversationViewModel = viewModel.selectedConversationViewModel {
                     ConversationView(
                         viewModel: conversationViewModel,
+                        quicknameViewModel: quicknameViewModel,
                         focusState: focusState,
                         focusCoordinator: coordinator,
                         onScanInviteCode: {},
@@ -155,17 +157,21 @@ struct ConversationsView: View {
         .focusable(false)
         .focusEffectDisabled()
         .sheet(isPresented: $presentingAppSettings) {
-            AppSettingsView(onDeleteAllData: viewModel.deleteAllData)
-                .navigationTransition(
-                    .zoom(
-                        sourceID: "app-settings-transition-source",
-                        in: namespace
-                    )
+            AppSettingsView(
+                quicknameViewModel: quicknameViewModel,
+                onDeleteAllData: viewModel.deleteAllData
+            )
+            .navigationTransition(
+                .zoom(
+                    sourceID: "app-settings-transition-source",
+                    in: namespace
                 )
+            )
         }
         .fullScreenCover(item: $viewModel.newConversationViewModel) { newConvoViewModel in
             NewConversationView(
-                viewModel: newConvoViewModel
+                viewModel: newConvoViewModel,
+                quicknameViewModel: quicknameViewModel
             )
             .background(.colorBackgroundPrimary)
             .interactiveDismissDisabled()
@@ -196,7 +202,9 @@ struct ConversationsView: View {
 #Preview {
     let convos = ConvosClient.mock()
     let viewModel = ConversationsViewModel(session: convos.session)
+    let quicknameViewModel = QuicknameSettingsViewModel.shared
     ConversationsView(
-        viewModel: viewModel
+        viewModel: viewModel,
+        quicknameViewModel: quicknameViewModel
     )
 }

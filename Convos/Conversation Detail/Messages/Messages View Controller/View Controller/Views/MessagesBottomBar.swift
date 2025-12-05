@@ -21,6 +21,8 @@ struct MessagesBottomBar: View {
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
 
+    @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
+
     @State private var isExpanded: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @Namespace private var namespace: Namespace.ID
@@ -62,6 +64,7 @@ struct MessagesBottomBar: View {
                         focusState: $focusState,
                         focused: .displayName,
                         settingsSymbolName: "lanyardcard.fill",
+                        showsSettingsButton: !quicknameSettings.quicknameSettings.isDefault,
                         onSubmit: onDisplayNameEndedEditing,
                         onSettings: onProfileSettings,
                     )

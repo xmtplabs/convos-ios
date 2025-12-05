@@ -20,6 +20,7 @@ struct QuickEditView: View {
     let focused: MessagesViewInputFocus
     let imageSymbolName: String = "photo.on.rectangle.angled"
     let settingsSymbolName: String
+    let showsSettingsButton: Bool
     let onSubmit: () -> Void
     let onSettings: () -> Void
 
@@ -59,19 +60,21 @@ struct QuickEditView: View {
                     }
                 }
 
-                Button {
-                    onSettings()
-                } label: {
-                    Image(systemName: settingsSymbolName)
-                        .resizable()
-                        .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundStyle(.black.opacity(0.3))
-                        .padding(.vertical, 6.0)
-                        .padding(.horizontal, 5.0)
+                if showsSettingsButton {
+                    Button {
+                        onSettings()
+                    } label: {
+                        Image(systemName: settingsSymbolName)
+                            .resizable()
+                            .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                            .aspectRatio(contentMode: .fit)
+                            .foregroundStyle(.black.opacity(0.3))
+                            .padding(.vertical, 6.0)
+                            .padding(.horizontal, 5.0)
+                    }
+                    .frame(width: 32.0, height: 32.0)
+                    .padding(.trailing, DesignConstants.Spacing.step3x)
                 }
-                .frame(width: 32.0, height: 32.0)
-                .padding(.trailing, DesignConstants.Spacing.step3x)
             }
             .background(
                 Capsule()
@@ -108,6 +111,7 @@ struct QuickEditView: View {
         focusState: $focusState,
         focused: .displayName,
         settingsSymbolName: "gear",
+        showsSettingsButton: true,
         onSubmit: {},
         onSettings: {}
     )

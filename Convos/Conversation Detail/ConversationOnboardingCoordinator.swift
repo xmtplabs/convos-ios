@@ -114,9 +114,13 @@ final class ConversationOnboardingCoordinator {
 
     var state: ConversationOnboardingState = .idle
 
+    private var quicknameViewModel: QuicknameSettingsViewModel = .shared
+
     var isSettingUpQuickname: Bool {
         switch state {
-        case .settingUpQuickname, .presentingProfileSettings:
+        case .settingUpQuickname,
+                .quicknameLearnMore,
+                .presentingProfileSettings:
             return true
         default:
             return false
@@ -354,7 +358,7 @@ final class ConversationOnboardingCoordinator {
         setHasSetQuickname(true, for: clientId)
 
         // Determine which quickname state to show
-        let quicknameSettings = QuicknameSettings.current()
+        let quicknameSettings = quicknameViewModel.quicknameSettings
 
         if !hasShownQuicknameEditor {
             // First time: show non-dismissible setup prompt
@@ -409,7 +413,7 @@ final class ConversationOnboardingCoordinator {
     }
 
     func onContinueFromWhatIsQuickname() {
-        state = .presentingProfileSettings
+        state = .savedAsQuicknameSuccess
         handleStateChange()
     }
 
@@ -445,18 +449,16 @@ final class ConversationOnboardingCoordinator {
     ///   - profile: The current profile
     ///   - didChangeProfile: Whether the profile was actually changed
     ///   - isSavingAsQuickname: Whether the user is saving this as their quickname
-    func handleDisplayNameEndedEditing(profile: Profile, didChangeProfile: Bool, isSavingAsQuickname: Bool) {
-        if isSavingAsQuickname {
-            successfullySavedAsQuickname()
-        } else if didChangeProfile {
-            // Check if we should show the "save as quickname" prompt
-            guard state != .presentingProfileSettings else { return }
-            let hasDefaultQuickname = QuicknameSettings.current().isDefault
-            guard !hasSeenAddAsQuickname && hasDefaultQuickname else { return }
-            state = .saveAsQuickname(profile: profile)
-            handleStateChange()
-            hasSeenAddAsQuickname = true
-        }
+    func handleDisplayNameEndedEditing(displayName: String, profileImage: UIImage?) {
+        let quicknameSettings = quicknameViewModel.quicknameSettings
+        guard state == .settingUpQuickname, quicknameSettings.isDefault else { return }
+
+        // save the first name/photo the user sets as the quickname
+        quicknameViewModel.editingDisplayName = displayName
+        quicknameViewModel.profileImage = profileImage
+        quicknameViewModel.save()
+        state = .quicknameLearnMore
+        handleStateChange()
     }
 
     /// Request notification permission from the user

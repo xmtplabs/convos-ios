@@ -94,10 +94,10 @@ struct ConversationOnboardingView: View {
         }, set: { _ in
         })) {
             WhatIsQuicknameView {
-                onPresentProfileSettings()
                 coordinator.onContinueFromWhatIsQuickname()
             }
             .interactiveDismissDisabled()
+            .background(.colorBackgroundPrimary)
         }
     }
 }

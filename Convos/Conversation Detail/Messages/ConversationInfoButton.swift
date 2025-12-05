@@ -52,6 +52,7 @@ struct ConversationInfoButton<InfoView: View>: View {
                             focusState: $focusState,
                             focused: .conversationName,
                             settingsSymbolName: "gear",
+                            showsSettingsButton: true,
                             onSubmit: onConversationNameEndedEditing,
                             onSettings: onConversationSettings
                         )

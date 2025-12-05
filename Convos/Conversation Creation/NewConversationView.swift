@@ -3,6 +3,7 @@ import SwiftUI
 
 struct NewConversationView: View {
     let viewModel: NewConversationViewModel
+    @Bindable var quicknameViewModel: QuicknameSettingsViewModel
 
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var presentingDeleteConfirmation: Bool = false
@@ -34,6 +35,7 @@ struct NewConversationView: View {
                         let conversationViewModel = viewModel.conversationViewModel
                         ConversationView(
                             viewModel: conversationViewModel,
+                            quicknameViewModel: quicknameViewModel,
                             focusState: focusState,
                             focusCoordinator: coordinator,
                             onScanInviteCode: viewModel.onScanInviteCode,
@@ -104,12 +106,14 @@ struct NewConversationView: View {
         messagingService: MockMessagingService(),
         showingFullScreenScanner: false
     )
+    @Previewable @State var quicknameViewModel: QuicknameSettingsViewModel = .shared
     @Previewable @State var presented: Bool = true
     VStack {
     }
     .fullScreenCover(isPresented: $presented) {
         NewConversationView(
-            viewModel: viewModel
+            viewModel: viewModel,
+            quicknameViewModel: quicknameViewModel
         )
     }
 }

@@ -247,7 +247,6 @@ final class ConversationsViewModel {
 
     func deleteAllData() {
         selectedConversation = nil
-        QuicknameSettings.delete()
         Task { [weak self] in
             guard let self else { return }
             do {

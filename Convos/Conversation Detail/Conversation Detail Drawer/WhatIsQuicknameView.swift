@@ -2,7 +2,8 @@ import SwiftUI
 
 struct WhatIsQuicknameView: View {
     let onContinue: () -> Void
-    @Environment(\.dismiss) var dismiss: DismissAction
+
+    @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
@@ -12,13 +13,36 @@ struct WhatIsQuicknameView: View {
             Text("Quickname")
                 .font(.system(.largeTitle))
                 .fontWeight(.bold)
-            Text("You're a new you in every convo, and your Quickname lets you instantly reuse a favorite name and pic across convos.")
+            Text("Choose to add a name or pic, or not. You always start anonymous.")
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
 
-            Text("You're always anonymous by default, with the option to use your quickname.")
+            Text("You have a Quickname for easy re-use")
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
+
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                ProfileAvatarView(
+                    profile: quicknameSettings.profile,
+                    profileImage: quicknameSettings.profileImage,
+                    useSystemPlaceholder: false
+                )
+                .frame(width: 32.0, height: 32.0)
+                .padding(.leading, 10.0)
+                .padding(.vertical, 10.0)
+
+                Text(
+                    quicknameSettings.editingDisplayName.isEmpty ? "Someone" : quicknameSettings.editingDisplayName
+                )
+                .foregroundStyle(.colorTextPrimary)
+
+                Spacer()
+            }
+            .frame(maxWidth: .infinity)
+            .background(
+                Capsule()
+                    .stroke(.colorBorderSubtle, lineWidth: 1.0)
+            )
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {

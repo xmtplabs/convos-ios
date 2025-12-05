@@ -344,7 +344,6 @@ class ConversationViewModel {
 
     func onProfileSettingsDismissed(focusCoordinator: FocusCoordinator) {
         onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .editProfile)
-        presentingProfileSettings = false
     }
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
@@ -382,12 +381,9 @@ class ConversationViewModel {
         myProfileViewModel.onEndedEditing(for: conversation.id)
 
         // Forward profile editing completion to onboarding coordinator
-        let didChangeProfile = !profile.displayName.isEmpty || profileImage != nil
-        let isSavingAsQuickname = myProfileViewModel.saveDisplayNameAsQuickname
         onboardingCoordinator.handleDisplayNameEndedEditing(
-            profile: profile,
-            didChangeProfile: didChangeProfile,
-            isSavingAsQuickname: isSavingAsQuickname
+            displayName: editingDisplayName,
+            profileImage: profileImage
         )
 
         // Delegate focus transition to coordinator
