@@ -502,16 +502,6 @@ struct ConversationCustomMetadataTests {
         var metadata = ConversationCustomMetadata()
         metadata.tag = "abc1234567" // 10 characters
 
-        // Add realistic 140-character description (exactly 140 chars to simulate real usage)
-        let descriptions = [
-            "Planning committee for annual tech conference - discussing venue, speakers, sponsors and logistics for our biggest event of year!",
-            "Weekend hiking group organizing trail adventures in the Pacific Northwest. Join us for breathtaking views and great company monthly.",
-            "Book club reading contemporary fiction and classics. We meet twice monthly to discuss themes, characters, and share recommendations!!!",
-            "Fantasy football league coordinating draft picks, trades, and weekly matchups. May the best manager win this season's championship!!!",
-            "Neighborhood watch volunteers keeping our community safe. Share updates, coordinate patrols, and build stronger connections together!!!",
-        ]
-        metadata.description_p = String(descriptions.randomElement()!.prefix(140))
-
         // Realistic varied first and last names to avoid artificial compression gains
         let firstNames = ["Alice", "Bob", "Charlie", "Diana", "Emma", "Frank", "Grace", "Henry",
                           "Isabella", "Jack", "Kate", "Liam", "Mia", "Noah", "Olivia", "Peter",

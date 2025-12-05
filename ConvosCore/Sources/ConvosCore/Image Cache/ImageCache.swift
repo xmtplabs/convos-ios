@@ -51,7 +51,7 @@ private struct CacheConfiguration {
 public final class ImageCache: @unchecked Sendable {
     public static let shared: ImageCache = ImageCache()
 
-    private let cache: NSCache<NSString, UIImage>
+    private let cache: NSCache<NSString, Image>
 
     // Disk cache properties
     private let diskCacheURL: URL
@@ -71,7 +71,7 @@ public final class ImageCache: @unchecked Sendable {
     }
 
     private init() {
-        cache = NSCache<NSString, UIImage>()
+        cache = NSCache<NSString, Image>()
         cache.countLimit = CacheConfiguration.memoryCacheCountLimit
         cache.totalCostLimit = CacheConfiguration.memoryCacheTotalCostLimit
 
@@ -97,12 +97,12 @@ public final class ImageCache: @unchecked Sendable {
     // MARK: - Generic Cache Methods
 
     /// Get cached image for any ImageCacheable object (synchronous, memory only)
-    public func image(for object: any ImageCacheable) -> UIImage? {
+    public func image(for object: any ImageCacheable) -> Image? {
         return cache.object(forKey: object.imageCacheIdentifier as NSString)
     }
 
     /// Get cached image for any ImageCacheable object (async, checks memory → disk)
-    public func imageAsync(for object: any ImageCacheable) async -> UIImage? {
+    public func imageAsync(for object: any ImageCacheable) async -> Image? {
         let identifier = object.imageCacheIdentifier
 
         // Check memory first
@@ -121,7 +121,7 @@ public final class ImageCache: @unchecked Sendable {
     }
 
     /// Set cached image for any ImageCacheable object (saves to both memory and disk)
-    public func setImage(_ image: UIImage, for object: any ImageCacheable) {
+    public func setImage(_ image: Image, for object: any ImageCacheable) {
         let identifier = object.imageCacheIdentifier
         cacheImage(image, key: identifier, cache: cache, logContext: "Object cache", imageFormat: .jpg)
 
@@ -136,10 +136,10 @@ public final class ImageCache: @unchecked Sendable {
     /// Resize, cache, and return JPEG data for upload in one pass
     /// This optimizes the common pattern of resizing, caching, and uploading images
     /// - Parameters:
-    ///   - image: The original UIImage to resize and cache
+    ///   - image: The original Image to resize and cache
     ///   - object: The ImageCacheable object to cache the image for
     /// - Returns: JPEG data ready for upload, or nil if compression fails
-    public func resizeCacheAndGetData(_ image: UIImage, for object: any ImageCacheable) -> Data? {
+    public func resizeCacheAndGetData(_ image: Image, for object: any ImageCacheable) -> Data? {
         let identifier = object.imageCacheIdentifier
 
         // Resize and compress to JPEG in one pass
@@ -148,11 +148,11 @@ public final class ImageCache: @unchecked Sendable {
             return nil
         }
 
-        // Reconstruct UIImage and cache asynchronously to avoid blocking
+        // Reconstruct Image and cache asynchronously to avoid blocking
         // This allows the method to return the JPEG data immediately for upload
         Task {
-            guard let resizedImage = UIImage(data: jpegData) else {
-                Log.error("Failed to create UIImage from compressed data for caching: \(identifier)")
+            guard let resizedImage = Image(data: jpegData) else {
+                Log.error("Failed to create Image from compressed data for caching: \(identifier)")
                 return
             }
 
@@ -187,12 +187,12 @@ public final class ImageCache: @unchecked Sendable {
     // MARK: - Identifier-based Methods
 
     /// Get cached image by identifier (synchronous, memory only)
-    public func image(for identifier: String, imageFormat: ImageFormat = .jpg) -> UIImage? {
+    public func image(for identifier: String, imageFormat: ImageFormat = .jpg) -> Image? {
         return cache.object(forKey: identifier as NSString)
     }
 
     /// Get cached image by identifier (async, checks memory → disk)
-    public func imageAsync(for identifier: String, imageFormat: ImageFormat = .jpg) async -> UIImage? {
+    public func imageAsync(for identifier: String, imageFormat: ImageFormat = .jpg) async -> Image? {
         // Check memory first
         if let memoryImage = cache.object(forKey: identifier as NSString) {
             return memoryImage
@@ -209,7 +209,7 @@ public final class ImageCache: @unchecked Sendable {
     }
 
     /// Cache image by identifier (saves to both memory and disk)
-    public func cacheImage(_ image: UIImage, for identifier: String, imageFormat: ImageFormat = .jpg) {
+    public func cacheImage(_ image: Image, for identifier: String, imageFormat: ImageFormat = .jpg) {
         cacheImage(image, key: identifier, cache: cache, logContext: "Identifier cache", imageFormat: imageFormat)
 
         // Save to disk asynchronously
@@ -223,21 +223,21 @@ public final class ImageCache: @unchecked Sendable {
     /// Resize, cache, and return JPEG data for upload in one pass (identifier-based)
     /// This optimizes the common pattern of resizing, caching, and uploading images
     /// - Parameters:
-    ///   - image: The original UIImage to resize and cache
+    ///   - image: The original Image to resize and cache
     ///   - identifier: The identifier string to cache the image for
     /// - Returns: JPEG data ready for upload, or nil if compression fails
-    public func resizeCacheAndGetData(_ image: UIImage, for identifier: String) -> Data? {
+    public func resizeCacheAndGetData(_ image: Image, for identifier: String) -> Data? {
         // Resize and compress to JPEG in one pass
         guard let jpegData = ImageCompression.resizeAndCompressToJPEG(image, compressionQuality: 0.8) else {
             Log.error("Failed to resize and compress image for upload: \(identifier)")
             return nil
         }
 
-        // Reconstruct UIImage and cache asynchronously to avoid blocking
+        // Reconstruct Image and cache asynchronously to avoid blocking
         // This allows the method to return the JPEG data immediately for upload
         Task {
-            guard let resizedImage = UIImage(data: jpegData) else {
-                Log.error("Failed to create UIImage from compressed data for caching: \(identifier)")
+            guard let resizedImage = Image(data: jpegData) else {
+                Log.error("Failed to create Image from compressed data for caching: \(identifier)")
                 return
             }
 
@@ -270,12 +270,12 @@ public final class ImageCache: @unchecked Sendable {
 
     // MARK: - URL-based Methods (kept for compatibility)
 
-    public func image(for url: URL) -> UIImage? {
+    public func image(for url: URL) -> Image? {
         return cache.object(forKey: url.absoluteString as NSString)
     }
 
     /// Get cached image by URL (async, checks memory → disk)
-    public func imageAsync(for url: URL) async -> UIImage? {
+    public func imageAsync(for url: URL) async -> Image? {
         let urlString = url.absoluteString
 
         // Check memory first
@@ -293,7 +293,7 @@ public final class ImageCache: @unchecked Sendable {
         return nil
     }
 
-    public func setImage(_ image: UIImage, for url: String) {
+    public func setImage(_ image: Image, for url: String) {
         cacheImage(image, key: url, cache: cache, logContext: "URL cache", imageFormat: .jpg)
 
         // Save to disk asynchronously (default to JPEG for URL-based cache)
@@ -307,7 +307,7 @@ public final class ImageCache: @unchecked Sendable {
     // MARK: - Disk Cache Methods
 
     /// Load image from disk cache
-    private func loadImageFromDisk(identifier: String, imageFormat: ImageFormat) async -> UIImage? {
+    private func loadImageFromDisk(identifier: String, imageFormat: ImageFormat) async -> Image? {
         var fileURL = self.diskCacheURL.appendingPathComponent(self.sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
         let formatName = imageFormat == .png ? "PNG" : "JPEG"
 
@@ -325,7 +325,7 @@ public final class ImageCache: @unchecked Sendable {
 
                 do {
                     let data = try Data(contentsOf: fileURL)
-                    if let image = UIImage(data: data) {
+                    if let image = Image(data: data) {
                         // Update file access date for LRU cleanup
                         var resourceValues = URLResourceValues()
                         resourceValues.contentAccessDate = Date()
@@ -375,7 +375,7 @@ public final class ImageCache: @unchecked Sendable {
     }
 
     /// Save image to disk cache
-    private func saveImageToDisk(_ image: UIImage, identifier: String, imageFormat: ImageFormat = .jpg) async {
+    private func saveImageToDisk(_ image: Image, identifier: String, imageFormat: ImageFormat = .jpg) async {
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             self.diskCacheQueue.async { [weak self] in
                 guard let self else {
@@ -586,11 +586,11 @@ public final class ImageCache: @unchecked Sendable {
     // MARK: - Private Methods
 
     /// Calculates memory cost in bytes for an image based on pixel dimensions
-    /// Uses CGImage pixel dimensions (not UIImage point dimensions) to account for scale factor
-    /// - Parameter image: The UIImage to calculate cost for
+    /// Uses CGImage pixel dimensions (not Image point dimensions) to account for scale factor
+    /// - Parameter image: The Image to calculate cost for
     /// - Returns: Memory cost in bytes (width * height * 4 bytes per pixel for RGBA)
-    private func memoryCost(for image: UIImage) -> Int {
-        guard let cgImage = image.cgImage else {
+    private func memoryCost(for image: Image) -> Int {
+        guard let cgImage = image.asCgImage() else {
             // Fallback to point-based calculation if CGImage is unavailable
             // Account for scale factor to get pixel dimensions (scale^2 for area)
             let scale = image.scale > 0 ? image.scale : 1.0
@@ -601,7 +601,7 @@ public final class ImageCache: @unchecked Sendable {
     }
 
     /// Cache image in memory without compression (for images already processed, e.g., loaded from disk)
-    private func cacheImageInMemory(_ image: UIImage, key: String, cache: NSCache<NSString, UIImage>, logContext: String) {
+    private func cacheImageInMemory(_ image: Image, key: String, cache: NSCache<NSString, Image>, logContext: String) {
         guard image.size.width > 0 && image.size.height > 0 else {
             Log.error("Invalid image dimensions for \(logContext): \(key)")
             return
@@ -613,7 +613,7 @@ public final class ImageCache: @unchecked Sendable {
     }
 
     /// Resize, compress, and cache image in memory (for new/original images)
-    private func cacheImage(_ image: UIImage, key: String, cache: NSCache<NSString, UIImage>, logContext: String, imageFormat: ImageFormat = .jpg) {
+    private func cacheImage(_ image: Image, key: String, cache: NSCache<NSString, Image>, logContext: String, imageFormat: ImageFormat = .jpg) {
         let compressedData: Data?
         switch imageFormat {
         case .png:
@@ -627,8 +627,8 @@ public final class ImageCache: @unchecked Sendable {
             return
         }
 
-        guard let resizedImage = UIImage(data: imageData) else {
-            Log.error("Failed to create UIImage from compressed data for \(logContext): \(key)")
+        guard let resizedImage = Image(data: imageData) else {
+            Log.error("Failed to create Image from compressed data for \(logContext): \(key)")
             return
         }
 
@@ -650,7 +650,7 @@ public extension View {
     /// Modifier that subscribes to image cache updates for a specific ImageCacheable object
     func cachedImage(
         for object: any ImageCacheable,
-        onChange: @escaping (UIImage?) -> Void
+        onChange: @escaping (Image?) -> Void
     ) -> some View {
         self
             .onAppear {

@@ -1,10 +1,9 @@
 import Foundation
 import GRDB
-import UIKit
 
 public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
-    func update(avatar: UIImage?, conversationId: String) async throws
+    func update(avatar: Image?, conversationId: String) async throws
 }
 
 enum MyProfileWriterError: Error {
@@ -54,7 +53,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         try await group.updateProfile(profile)
     }
 
-    func update(avatar: UIImage?, conversationId: String) async throws {
+    func update(avatar: Image?, conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -105,7 +104,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         try await group.updateProfile(updatedProfile)
 
         // Cache the resized image with the uploaded URL as well
-        if let image = UIImage(data: compressedImageData) {
+        if let image = Image(data: compressedImageData) {
             ImageCache.shared.setImage(image, for: uploadedURL)
         }
 

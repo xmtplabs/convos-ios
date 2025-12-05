@@ -101,7 +101,7 @@ public final class SessionManager: SessionManagerProtocol {
     // MARK: - Private Methods
 
     private func startMessagingServices(for identities: [KeychainIdentity]) async {
-        let inboxIds = identities.map { $0.inboxId }
+		let inboxIds = identities.map(\.inboxId)
         Log.info("Starting messaging services for inboxes: \(inboxIds)")
 
         var servicesToCreate: [KeychainIdentity] = []

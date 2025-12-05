@@ -1,12 +1,20 @@
 import Foundation
+#if os(macOS)
+import AppKit
+#elseif os(iOS) || os(tvOS) || os(watchOS)
 import UIKit
+#endif
 
 /// Utility for accessing device information across the app
 struct DeviceInfo {
     /// Returns the device's identifier for vendor (IDFV)
     /// This is a unique identifier that persists across app launches but resets when all apps from the same vendor are deleted
     static var identifierForVendor: String? {
+#if os(macOS)
+        return nil
+#elseif os(iOS) || os(tvOS) || os(watchOS)
         return UIDevice.current.identifierForVendor?.uuidString
+#endif
     }
 
     /// Returns a fallback identifier if IDFV is not available
@@ -31,7 +39,7 @@ struct DeviceInfo {
 
     /// Returns the current OS string
     static var osString: String {
-        #if targetEnvironment(macCatalyst)
+        #if os(macOS) || targetEnvironment(macCatalyst)
         return "macos"
         #else
         return "ios"

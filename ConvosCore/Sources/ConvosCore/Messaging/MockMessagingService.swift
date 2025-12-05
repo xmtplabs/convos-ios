@@ -1,6 +1,5 @@
 import Combine
 import Foundation
-import UIKit
 import XMTPiOS
 
 public final class MockMessagingService: MessagingServiceProtocol, @unchecked Sendable {
@@ -125,7 +124,7 @@ extension MockMessagingService: MyProfileWriterProtocol {
     public func update(displayName: String, conversationId: String) {
     }
 
-    public func update(avatar: UIImage?, conversationId: String) async throws {
+    public func update(avatar: Image?, conversationId: String) async throws {
     }
 }
 
@@ -585,7 +584,7 @@ public class MockConversationMetadataWriter: ConversationMetadataWriterProtocol 
     public func demoteFromAdmin(_ memberInboxId: String, in conversationId: String) async throws {}
     public func promoteToSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws {}
     public func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws {}
-    public func updateImage(_ image: UIImage, for conversation: Conversation) async throws {}
+    public func updateImage(_ image: Image, for conversation: Conversation) async throws {}
     public func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws {}
 }
 

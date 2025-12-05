@@ -1,6 +1,18 @@
 import Foundation
-import UIKit
 import UserNotifications
+#if os(macOS)
+import AppKit
+#elseif os(iOS) || os(tvOS) || os(watchOS)
+import UIKit
+#endif
+
+private func registerForRemoteNotifications() {
+#if os(macOS)
+	NSApplication.shared.registerForRemoteNotifications()
+#elseif os(iOS) || os(tvOS) || os(watchOS)
+	UIApplication.shared.registerForRemoteNotifications()
+#endif
+}
 
 /// Manages push notification token storage and authorization requests.
 /// All methods are static since push token is app-level, not inbox-specific.
@@ -30,7 +42,7 @@ public final class PushNotificationRegistrar {
         if settings.authorizationStatus == .authorized {
             // Already authorized, just ensure we're registered for remote notifications
             await MainActor.run {
-                UIApplication.shared.registerForRemoteNotifications()
+				registerForRemoteNotifications()
             }
             return true
         }
@@ -40,7 +52,7 @@ public final class PushNotificationRegistrar {
             if granted {
                 // Authorization granted, register for remote notifications to get APNS token
                 await MainActor.run {
-                    UIApplication.shared.registerForRemoteNotifications()
+                    registerForRemoteNotifications()
                 }
                 Log.info("Notification authorization granted, registering for remote notifications")
             } else {

@@ -19,6 +19,22 @@ public protocol KeychainServiceProtocol: Sendable {
     func delete(account: String) throws
 }
 
+extension KeychainServiceProtocol {
+	public func saveString(_ value: String, account: String) throws {
+		guard let valueData = value.data(using: .utf8) else {
+			throw KeychainError.unknown(errSecParam)
+		}
+		try saveData(valueData, account: account)
+	}
+
+	public func retrieveString(account: String) throws -> String? {
+		guard let data = try retrieveData(account: account) else {
+			return nil
+		}
+		return String(data: data, encoding: .utf8)
+	}
+}
+
 /// Keychain service for storing and retrieving items
 ///
 /// Provides keychain operations for storing string and data values.
@@ -34,13 +50,6 @@ public final class KeychainService: KeychainServiceProtocol {
     private let serviceIdentifier: String = "org.convos.ios.KeychainService.v2"
 
     public init() {}
-
-    public func saveString(_ value: String, account: String) throws {
-        guard let valueData = value.data(using: .utf8) else {
-            throw KeychainError.unknown(errSecParam)
-        }
-        try saveData(valueData, account: account)
-    }
 
     public func saveData(_ data: Data, account: String) throws {
         try queue.sync {
@@ -74,16 +83,6 @@ public final class KeychainService: KeychainServiceProtocol {
                 throw KeychainError.unknown(status)
             }
         }
-    }
-
-    public func retrieveString(account: String) throws -> String? {
-        let result = try retrieveData(account: account)
-        guard let data = result,
-              let value = String(data: data, encoding: .utf8) else {
-            return nil
-        }
-
-        return value
     }
 
     public func retrieveData(account: String) throws -> Data? {
