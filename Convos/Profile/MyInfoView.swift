@@ -145,6 +145,44 @@ struct MyInfoView: View {
                     Text("Add this name and pic quickly in new convos")
                         .foregroundStyle(.colorTextSecondary)
                 }
+
+                Section {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Text("Social names · Phone number")
+                            .font(.body)
+                            .foregroundStyle(.colorTextInactive)
+
+                        Spacer()
+
+                        SoonLabel()
+                    }
+                } header: {
+                    HStack {
+                        Text("Verified info")
+                            .font(.callout.weight(.regular))
+                            .foregroundStyle(.colorTextSecondary)
+                        Spacer()
+                    }
+                }
+
+                Section {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Text("Human · Age")
+                            .font(.body)
+                            .foregroundStyle(.colorTextInactive)
+
+                        Spacer()
+
+                        SoonLabel()
+                    }
+                } header: {
+                    HStack {
+                        Text("Proofs")
+                            .font(.callout.weight(.regular))
+                            .foregroundStyle(.colorTextSecondary)
+                        Spacer()
+                    }
+                }
             }
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .contentMargins(.top, 0.0)
