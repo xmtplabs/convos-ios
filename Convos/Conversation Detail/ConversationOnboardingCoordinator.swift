@@ -241,8 +241,6 @@ final class ConversationOnboardingCoordinator {
 
             // Transition to next state based on current state
             switch state {
-            case .setupQuickname:
-                await setupQuicknameDidAutoDismiss()
             case .addQuickname:
                 await addQuicknameDidAutoDismiss()
             case .savedAsQuicknameSuccess:
@@ -407,13 +405,6 @@ final class ConversationOnboardingCoordinator {
     func onContinueFromWhatIsQuickname() {
         state = .savedAsQuicknameSuccess
         handleStateChange()
-    }
-
-    /// The setup quickname view auto-dismissed
-    func setupQuicknameDidAutoDismiss() async {
-        hasShownQuicknameEditor = true
-        shouldAnimateAvatarForQuicknameSetup = false
-        await transitionToNotificationState()
     }
 
     /// User selected a quickname to use

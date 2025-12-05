@@ -109,23 +109,6 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     // MARK: - Normal Flow Tests (Not Waiting for Invite)
 
-    func testStart_NormalFlow_PrioritizesQuicknameThenNotifications() async {
-        mockNotificationCenter.authStatus = .notDetermined
-
-        // Start normal flow (not waiting for invite)
-        await coordinator.start(for: testConversationId)
-        XCTAssertFalse(coordinator.isWaitingForInviteAcceptance)
-
-        // Should prioritize quickname first
-        XCTAssertEqual(coordinator.state, .setupQuickname)
-
-        // Complete quickname
-        await coordinator.setupQuicknameDidAutoDismiss()
-
-        // Then should go to notifications
-        XCTAssertEqual(coordinator.state, .requestNotifications)
-    }
-
     func testStart_FirstTimeUser_ShowsNonDismissibleSetupQuickname() async {
         await coordinator.start(for: testConversationId)
         XCTAssertEqual(coordinator.state, .setupQuickname)
@@ -161,30 +144,6 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
                 XCTFail("Expected addQuickname state, got \(coordinator.state)")
             }
         }
-    }
-
-    func testSetupQuicknameDidAutoDismiss_TransitionsToNotifications() async {
-        mockNotificationCenter.authStatus = .notDetermined
-
-        await coordinator.start(for: testConversationId)
-        await coordinator.setupQuicknameDidAutoDismiss()
-
-        XCTAssertEqual(coordinator.state, .requestNotifications)
-    }
-
-    // MARK: - Notification Permission Tests
-
-    // Note: requestNotificationPermission() calls PushNotificationRegistrar which we can't mock
-    // These tests verify the flow leading up to and after notification states
-
-    func testTransitionToNotifications_AlreadyAuthorized_Completes() async {
-        mockNotificationCenter.authStatus = .authorized
-
-        await coordinator.start(for: testConversationId)
-        await coordinator.setupQuicknameDidAutoDismiss()
-
-        // Should skip to completed since already authorized
-        XCTAssertEqual(coordinator.state, .idle)
     }
 
     // MARK: - Complete Flow Tests
