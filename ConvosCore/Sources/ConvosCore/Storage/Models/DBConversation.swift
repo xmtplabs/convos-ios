@@ -84,7 +84,7 @@ public struct DBConversation: Codable, FetchableRecord, PersistableRecord, Ident
         using: creatorForeignKey
     )
 
-    // the member whos conversation this is
+    // the member whose conversation this is
     static let inboxMember: BelongsToAssociation<DBConversation, DBConversationMember> = belongsTo(
         DBConversationMember.self,
         key: "conversationInboxMember",
