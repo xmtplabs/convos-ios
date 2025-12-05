@@ -390,6 +390,7 @@ final class ConversationOnboardingCoordinator {
     /// User tapped to set up their quickname (opens profile editor)
     func didTapProfilePhoto() {
         guard case .setupQuickname = state else {
+            skipAddQuickname()
             return
         }
         hasShownQuicknameEditor = true
@@ -421,9 +422,11 @@ final class ConversationOnboardingCoordinator {
         await transitionToNotificationState()
     }
 
-    func skipAddQuickname() async {
+    func skipAddQuickname() {
         guard case .addQuickname = state else { return }
-        await transitionToNotificationState()
+        Task {
+            await transitionToNotificationState()
+        }
     }
 
     private func addQuicknameDidAutoDismiss() async {
