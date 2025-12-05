@@ -28,7 +28,7 @@ struct MessagesBottomBar: View {
     @Namespace private var namespace: Namespace.ID
 
     var quicknamePlaceholderText: String {
-        onboardingCoordinator.state == .settingUpQuickname ? "Add your name" : "\(emptyDisplayNamePlaceholder)..."
+        onboardingCoordinator.state == .settingUpQuickname ? "Add your name" : "Your name"
     }
 
     var body: some View {

@@ -83,7 +83,7 @@ struct MyInfoView: View {
                                 isPickerPresented: $isImagePickerPresented,
                                 showsCurrentImage: true,
                                 symbolSize: 16.0,
-                                symbolName: "photo.on.rectangle.angled"
+                                symbolName: "photo.fill.on.rectangle.fill"
                             )
                             .frame(width: 32.0, height: 32.0)
 

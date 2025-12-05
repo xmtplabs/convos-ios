@@ -124,7 +124,7 @@ struct ConversationInfoButton<InfoView: View>: View {
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
 
     let conversation: Conversation = .mock()
-    let placeholderName: String = conversation.name ?? "Name"
+    let placeholderName: String = conversation.name ?? "Convo name"
 
     ConversationInfoButton(
         conversation: conversation,

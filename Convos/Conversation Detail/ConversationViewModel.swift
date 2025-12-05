@@ -56,7 +56,7 @@ class ConversationViewModel {
             !conversation.hasJoined || conversation.members.count > 1
         ) && !conversation.isDraft ? conversation.membersCountString : "Customize"
     }
-    var conversationNamePlaceholder: String = "Name"
+    var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
     var joinEnabled: Bool = true
 

@@ -18,7 +18,7 @@ struct QuickEditView: View {
     @Binding var isImagePickerPresented: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focused: MessagesViewInputFocus
-    let imageSymbolName: String = "photo.on.rectangle.angled"
+    let imageSymbolName: String = "photo.fill.on.rectangle.fill"
     let settingsSymbolName: String
     let showsSettingsButton: Bool
     let onSubmit: () -> Void

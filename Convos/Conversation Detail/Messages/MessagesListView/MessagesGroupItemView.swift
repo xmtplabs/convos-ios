@@ -105,7 +105,9 @@ struct MessagesGroupItemView: View {
             }
         }
         .onChange(of: showsSentStatus, initial: true) {
-            showingSentStatus = showsSentStatus
+            withAnimation {
+                showingSentStatus = showsSentStatus
+            }
         }
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: showingSentStatus)
         .id("messages-group-item-view-\(message.base.id)")
@@ -173,7 +175,7 @@ private struct MultipleAttachmentsPlaceholder: View {
                 .frame(width: 200, height: 150)
                 .overlay(
                     VStack {
-                        Image(systemName: "photo.on.rectangle.angled")
+                        Image(systemName: "photo.fill.on.rectangle.fill")
                             .font(.largeTitle)
                             .foregroundColor(.gray)
                         Text("\(urls.count) Attachments")

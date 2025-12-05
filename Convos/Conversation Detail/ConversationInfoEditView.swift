@@ -27,7 +27,7 @@ struct ConversationInfoEditView: View {
                                 isPickerPresented: $isImagePickerPresented,
                                 showsCurrentImage: false,
                                 symbolSize: 20.0,
-                                symbolName: "photo.on.rectangle.angled"
+                                symbolName: "photo.fill.on.rectangle.fill"
                             )
                             .frame(width: 44.0, height: 44.0)
                         }
