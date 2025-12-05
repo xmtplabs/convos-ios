@@ -84,8 +84,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 showsUseQuicknameButton: true,
                 canEditQuickname: false
             ) { quicknameSettings in
-                viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
                 viewModel.onUseQuickname(quicknameSettings.profile, quicknameSettings.profileImage)
+            }
+            .onDisappear {
+                viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
             }
         }
         .toolbar {
