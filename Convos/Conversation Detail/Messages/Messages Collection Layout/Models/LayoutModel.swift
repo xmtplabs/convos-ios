@@ -140,7 +140,7 @@ final class LayoutModel<Layout: MessagesLayoutProtocol> {
         }
     }
 
-    // MARK: To use only withing process(updateItems:)
+    // MARK: To use only within process(updateItems:)
 
     func insertSection(_ section: SectionModel<Layout>, at sectionIndex: Int) {
         var sections = sections
