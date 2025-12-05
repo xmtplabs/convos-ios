@@ -238,6 +238,9 @@ class ConversationViewModel {
             .receive(on: DispatchQueue.main)
             .compactMap { $0 }
             .sink { [weak self] conversation in
+                if let imageURL = conversation.imageURL {
+                    self?.conversationImage = ImageCache.shared.image(for: imageURL)
+                }
                 self?.conversation = conversation
             }
             .store(in: &cancellables)

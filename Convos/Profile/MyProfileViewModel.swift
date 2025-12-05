@@ -56,6 +56,7 @@ class MyProfileViewModel {
         myProfileRepository.myProfilePublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] profile in
+                self?.profileImage = ImageCache.shared.image(for: profile)
                 self?.profile = profile
             }
             .store(in: &cancellables)

@@ -31,7 +31,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             displayName: $viewModel.editingDisplayName,
             messageText: $viewModel.messageText,
             sendButtonEnabled: $viewModel.sendButtonEnabled,
-            profileImage: $viewModel.profileImage,
+            profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
