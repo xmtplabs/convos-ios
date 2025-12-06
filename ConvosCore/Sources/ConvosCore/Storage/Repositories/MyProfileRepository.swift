@@ -5,6 +5,8 @@ import GRDB
 public protocol MyProfileRepositoryProtocol {
     var myProfilePublisher: AnyPublisher<Profile, Never> { get }
     func fetch() throws -> Profile
+    func suspendObservation()
+    func resumeObservation()
 }
 
 class MyProfileRepository: MyProfileRepositoryProtocol {
@@ -20,6 +22,11 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
     private let profileSubject: CurrentValueSubject<Profile?, Never> = .init(nil)
     private var conversationIdCancellable: AnyCancellable?
     private var cancellables: Set<AnyCancellable> = .init()
+
+    /// When true, observation values are buffered instead of emitted
+    private var isSuspended: Bool = false
+    /// Stores the latest profile received while suspended
+    private var pendingProfile: Profile?
 
     init(
         inboxStateManager: any InboxStateManagerProtocol,
@@ -102,9 +109,29 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
 
         observation
             .sink { [weak self] profile in
-                self?.profileSubject.send(profile)
+                guard let self else { return }
+                if self.isSuspended {
+                    // Buffer the latest value while suspended
+                    self.pendingProfile = profile
+                } else {
+                    self.profileSubject.send(profile)
+                }
             }
             .store(in: &cancellables)
+    }
+
+    func suspendObservation() {
+        isSuspended = true
+        pendingProfile = nil
+    }
+
+    func resumeObservation() {
+        isSuspended = false
+        // Emit the latest buffered value if any
+        if let pending = pendingProfile {
+            profileSubject.send(pending)
+            pendingProfile = nil
+        }
     }
 
     func fetch() throws -> Profile {

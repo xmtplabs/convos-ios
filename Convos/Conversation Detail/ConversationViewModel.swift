@@ -74,14 +74,6 @@ class ConversationViewModel {
     var isEditingDescription: Bool = false
 
     // Editing values
-    var editingDisplayName: String {
-        get {
-            myProfileViewModel.editingDisplayName
-        }
-        set {
-            myProfileViewModel.editingDisplayName = newValue
-        }
-    }
     var editingConversationName: String = ""
     var editingDescription: String = ""
 
@@ -408,7 +400,7 @@ class ConversationViewModel {
 
         // Forward profile editing completion to onboarding coordinator
         onboardingCoordinator.handleDisplayNameEndedEditing(
-            displayName: editingDisplayName,
+            displayName: myProfileViewModel.editingDisplayName,
             profileImage: pickedImage
         )
 

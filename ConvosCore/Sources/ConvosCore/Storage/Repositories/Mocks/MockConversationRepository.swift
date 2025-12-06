@@ -11,6 +11,10 @@ public class MockMyProfileRepository: MyProfileRepositoryProtocol {
     public func fetch() throws -> Profile {
         .empty(inboxId: "mock-inbox-id")
     }
+
+    public func suspendObservation() {}
+
+    public func resumeObservation() {}
 }
 
 public class MockConversationRepository: ConversationRepositoryProtocol {

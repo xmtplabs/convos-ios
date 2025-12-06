@@ -28,7 +28,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             conversationNamePlaceholder: viewModel.conversationNamePlaceholder,
             conversationName: $viewModel.editingConversationName,
             conversationImage: $viewModel.conversationImage,
-            displayName: $viewModel.editingDisplayName,
+            displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
             sendButtonEnabled: $viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,

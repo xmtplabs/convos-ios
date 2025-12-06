@@ -10,6 +10,7 @@ class MyProfileViewModel {
     private var cancellables: Set<AnyCancellable> = []
     private var updateDisplayNameTask: Task<Void, Never>?
     private var updateImageTask: Task<Void, Never>?
+    private var pendingUpdateCount: Int = 0
 
     var isEditingDisplayName: Bool = false
     var editingDisplayName: String = ""
@@ -63,11 +64,27 @@ class MyProfileViewModel {
             .store(in: &cancellables)
     }
 
+    private func beginUpdate() {
+        if pendingUpdateCount == 0 {
+            myProfileRepository.suspendObservation()
+        }
+        pendingUpdateCount += 1
+    }
+
+    private func endUpdate() {
+        pendingUpdateCount -= 1
+        if pendingUpdateCount == 0 {
+            myProfileRepository.resumeObservation()
+        }
+    }
+
     private func update(displayName: String, conversationId: String) {
         editingDisplayName = displayName
         updateDisplayNameTask?.cancel()
+        beginUpdate()
         updateDisplayNameTask = Task { [weak self] in
             guard let self else { return }
+            defer { Task { @MainActor in self.endUpdate() } }
             do {
                 try await myProfileWriter.update(displayName: displayName, conversationId: conversationId)
             } catch {
@@ -81,8 +98,14 @@ class MyProfileViewModel {
         ImageCache.shared.setImage(profileImage, for: profile)
 
         updateImageTask?.cancel()
+        beginUpdate()
+        let displayNameTask = updateDisplayNameTask
         updateImageTask = Task { [weak self] in
             guard let self else { return }
+            defer { Task { @MainActor in self.endUpdate() } }
+            // Wait for any pending display name update to complete first,
+            // so the avatar update reads the profile with the correct name
+            await displayNameTask?.value
             do {
                 try await myProfileWriter.update(avatar: profileImage, conversationId: conversationId)
             } catch {
@@ -94,12 +117,16 @@ class MyProfileViewModel {
     // MARK: Public
 
     func update(using profile: Profile, profileImage: UIImage?, conversationId: String) {
-        self.profile = profile.with(inboxId: profile.inboxId)
+        self.editingDisplayName = profile.name ?? ""
+        self.profileImage = profileImage
+        self.profile = profile.with(inboxId: self.profile.inboxId)
         // update image first so we don't see the 'monogram' flash in avatar
+        if let name = profile.name {
+            update(displayName: name, conversationId: conversationId)
+        }
         if let profileImage = profileImage {
             update(profileImage: profileImage, conversationId: conversationId)
         }
-        update(displayName: profile.displayName, conversationId: conversationId)
     }
 
     func onEndedEditing(for conversationId: String) -> Bool {
