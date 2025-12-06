@@ -90,6 +90,7 @@ struct MyInfoView: View {
 
                             TextField("Somebody", text: $quicknameViewModel.editingDisplayName)
                                 .scrollDismissesKeyboard(.interactively)
+                                .submitLabel(.done)
                         } else {
                             ProfileAvatarView(
                                 profile: quicknameViewModel.profile,
