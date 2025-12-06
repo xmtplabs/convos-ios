@@ -5,21 +5,21 @@ import UserNotifications
 /// Manages push notification token storage and authorization requests.
 /// All methods are static since push token is app-level, not inbox-specific.
 public final class PushNotificationRegistrar {
-    private static var tokenKey: String = "pushToken"
+    private static var _token: String?
 
-    /// Saves the push token to UserDefaults and notifies observers of the change.
+    /// Saves the push token in memory and notifies observers of the change.
     /// Called by AppDelegate when APNS token is received.
+    /// Note: Token is intentionally not persisted per Apple guidelines -
+    /// APNs issues fresh tokens on restore, new device, or OS reinstall.
     public static func save(token: String) {
-        let existingToken = UserDefaults.standard.string(forKey: tokenKey)
-        guard token != existingToken else { return }
-
-        UserDefaults.standard.set(token, forKey: tokenKey)
+        guard token != _token else { return }
+        _token = token
         NotificationCenter.default.post(name: .convosPushTokenDidChange, object: nil)
     }
 
-    /// Returns the current push token from UserDefaults, if available.
+    /// Returns the current push token, if available.
     public static var token: String? {
-        UserDefaults.standard.string(forKey: tokenKey)
+        _token
     }
 
     /// Requests notification authorization if not already granted, then registers for remote notifications.
