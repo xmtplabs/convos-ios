@@ -63,7 +63,7 @@ struct ConvosApp: App {
     // MARK: - Migration
 
     private static func runDataWipeMigrationSync(environment: AppEnvironment) {
-        let migrationKey = "data_wipe_migration_v1_completed"
+        let migrationKey = "data_wipe_migration_v1_0_completed"
         let defaults = UserDefaults.standard
 
         // Check if migration has already been run
