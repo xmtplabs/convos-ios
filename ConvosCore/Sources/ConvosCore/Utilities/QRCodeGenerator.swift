@@ -1,7 +1,23 @@
 import CoreImage.CIFilterBuiltins
 import CryptoKit
 import Foundation
+#if os(macOS)
+import AppKit
+public typealias Color = NSColor
+extension Color {
+	public var ciColor: CIColor {
+		CIColor(color: self) ?? .red
+	}
+}
+#elseif os(iOS) || os(tvOS) || os(watchOS)
 import UIKit
+public typealias Color = UIColor
+extension Color {
+	public var ciColor: CIColor {
+		CIColor(color: self)
+	}
+}
+#endif
 
 /// A reusable QR code generator that can be used throughout the app
 ///
@@ -33,8 +49,8 @@ public enum QRCodeGenerator {
             roundedData: Bool = true,
             centerSpaceSize: Float = 0.25,
             correctionLevel: String = "Q",
-            foregroundColor: UIColor = .black,
-            backgroundColor: UIColor = .white
+            foregroundColor: Color = .black,
+            backgroundColor: Color = .white
         ) {
             self.scale = scale ?? 3.0 // Default to 3x if not provided
             self.displaySize = displaySize
@@ -42,8 +58,8 @@ public enum QRCodeGenerator {
             self.roundedData = roundedData
             self.centerSpaceSize = centerSpaceSize
             self.correctionLevel = correctionLevel
-            self.foregroundColor = CIColor(color: foregroundColor)
-            self.backgroundColor = CIColor(color: backgroundColor)
+			self.foregroundColor = foregroundColor.ciColor
+			self.backgroundColor = backgroundColor.ciColor
         }
 
         /// Configuration for QR codes in light mode
@@ -161,7 +177,7 @@ public enum QRCodeGenerator {
     ///   - from: The string to encode
     ///   - options: Generation options
     /// - Returns: The generated QR code image, or nil if generation fails
-    public static func generate(from string: String, options: Options = .init()) -> UIImage? {
+    public static func generate(from string: String, options: Options = .init()) -> Image? {
         let cacheKey = cacheKey(for: string, options: options)
 
         // Check memory cache first
@@ -195,7 +211,7 @@ public enum QRCodeGenerator {
         let scaledImage = outputImage.transformed(by: transform)
 
         guard let cgImage = context.createCGImage(scaledImage, from: scaledImage.extent) else { return nil }
-        let image = UIImage(cgImage: cgImage, scale: normalizedScale, orientation: .up)
+		let image = Image.fromCgImage(cgImage, scale: normalizedScale)
 
         // Cache the generated image (use PNG for QR codes to preserve transparency)
         ImageCache.shared.cacheImage(image, for: cacheKey, imageFormat: .png)
@@ -208,7 +224,7 @@ public enum QRCodeGenerator {
     ///   - from: The string to encode
     ///   - options: Generation options
     /// - Returns: The generated QR code image, or nil if generation fails
-    public static func generate(from string: String, options: Options = .init()) async -> UIImage? {
+    public static func generate(from string: String, options: Options = .init()) async -> Image? {
         let cacheKey = cacheKey(for: string, options: options)
 
         // Check cache first (use PNG for QR codes)
@@ -228,7 +244,7 @@ public enum QRCodeGenerator {
     ///   - string: The string to encode
     ///   - scale: Optional scale factor (defaults to 3.0)
     /// - Returns: Tuple of (lightModeImage, darkModeImage)
-    public static func pregenerate(from string: String, scale: CGFloat = 3.0) async -> (light: UIImage?, dark: UIImage?) {
+    public static func pregenerate(from string: String, scale: CGFloat = 3.0) async -> (light: Image?, dark: Image?) {
         let lightOptions = Options(
             scale: scale,
             displaySize: 220,
@@ -271,13 +287,13 @@ public extension QRCodeGenerator.Options {
     /// Returns a new Options instance with the scale normalized to 3.0
     /// This ensures consistent cache keys regardless of the original display scale
     func withNormalizedScale() -> QRCodeGenerator.Options {
-        let foregroundUIColor = UIColor(
+        let foregroundUIColor = Color(
             red: foregroundColor.red,
             green: foregroundColor.green,
             blue: foregroundColor.blue,
             alpha: foregroundColor.alpha
         )
-        let backgroundUIColor = UIColor(
+        let backgroundUIColor = Color(
             red: backgroundColor.red,
             green: backgroundColor.green,
             blue: backgroundColor.blue,

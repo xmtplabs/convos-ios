@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import GRDB
-import UIKit
 import XMTPiOS
 
 // MARK: - Conversation Metadata Writer Protocol
@@ -16,7 +15,7 @@ public protocol ConversationMetadataWriterProtocol {
     func demoteFromAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func promoteToSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
-    func updateImage(_ image: UIImage, for conversation: Conversation) async throws
+    func updateImage(_ image: Image, for conversation: Conversation) async throws
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
 }
 
@@ -151,7 +150,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
         Log.info("Updated conversation description for \(conversationId): \(description)")
     }
 
-    func updateImage(_ image: UIImage, for conversation: Conversation) async throws {
+    func updateImage(_ image: Image, for conversation: Conversation) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
         // Resize, cache, and get JPEG data in one pass

@@ -168,12 +168,11 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
     }
 
     private func removePushTokenObserver() {
-        if let observer = pushTokenObserver {
-            NotificationCenter.default.removeObserver(observer)
-            pushTokenObserver = nil
-            Log.info("DeviceRegistrationManager: Removed push token observer")
-        }
-    }
+		guard let observer = pushTokenObserver else { return }
+		NotificationCenter.default.removeObserver(observer)
+		pushTokenObserver = nil
+		Log.info("DeviceRegistrationManager: Removed push token observer")
+	}
 
     private func handlePushTokenChange() async {
         Log.info("DeviceRegistrationManager: Push token changed, re-registering device...")
