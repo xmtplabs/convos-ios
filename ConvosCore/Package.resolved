@@ -1,5 +1,5 @@
 {
-  "originHash" : "bc6ac9ae90cd6a052221c8cd6e4cac502da8f0cd943f0bc54edda525f6d286df",
+  "originHash" : "0e55686a1ce2a3e666bf6b5036e0d4a78414829c36e2840dadf26d6918fa6fae",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -44,6 +44,15 @@
       "state" : {
         "revision" : "cfbd6f540d5084bc96a60af841121472fbe725a3",
         "version" : "0.2.0"
+      }
+    },
+    {
+      "identity" : "differencekit",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/ra1028/DifferenceKit.git",
+      "state" : {
+        "revision" : "073b9671ce2b9b5b96398611427a1f929927e428",
+        "version" : "1.3.0"
       }
     },
     {
@@ -245,12 +254,21 @@
       }
     },
     {
+      "identity" : "swiftui-introspect",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/siteline/swiftui-introspect.git",
+      "state" : {
+        "revision" : "9bedf1e79c7b7c34b35b74bef126f56d2400ef7f",
+        "version" : "1.4.0-beta.4"
+      }
+    },
+    {
       "identity" : "xmtp-ios",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/xmtp-ios.git",
       "state" : {
-        "revision" : "b8379b8e823d72709124ceef1ff21492931b83a6",
-        "version" : "4.6.0-dev.b8379b8"
+        "revision" : "62abf4fa52957b11f711f0b4db6bd7f8a88970a4",
+        "version" : "4.7.0-dev.62abf4f"
       }
     }
   ],

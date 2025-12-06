@@ -5,6 +5,7 @@ struct MessagesGroupView: View {
     let group: MessagesGroup
     let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (AnyMessage) -> Void
+    let onTapInvite: (MessageInvite) -> Void
 
     @State private var isAppearing: Bool = true
 
@@ -66,7 +67,8 @@ struct MessagesGroupView: View {
                         message: message,
                         bubbleType: bubbleType,
                         onTapMessage: onTapMessage,
-                        onTapAvatar: onTapAvatar
+                        onTapAvatar: onTapAvatar,
+                        onTapInvite: onTapInvite
                     )
                     .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
@@ -125,6 +127,7 @@ struct MessagesGroupView: View {
             group: .mockIncoming,
             onTapMessage: { _ in },
             onTapAvatar: { _ in },
+            onTapInvite: { _ in }
         )
         .padding()
     }
@@ -137,6 +140,7 @@ struct MessagesGroupView: View {
             group: .mockOutgoing,
             onTapMessage: { _ in },
             onTapAvatar: { _ in },
+            onTapInvite: { _ in }
         )
         .padding()
     }
@@ -149,6 +153,7 @@ struct MessagesGroupView: View {
             group: .mockMixed,
             onTapMessage: { _ in },
             onTapAvatar: { _ in },
+            onTapInvite: { _ in }
         )
         .padding()
     }

@@ -11,7 +11,7 @@ extension Character {
 
 extension String {
     var allCharactersEmoji: Bool {
-        allSatisfy { $0.isEmoji }
+        trimmingCharacters(in: .whitespacesAndNewlines).allSatisfy { $0.isEmoji }
     }
 }
 
@@ -25,6 +25,7 @@ extension XMTPiOS.DecodedMessage {
         var contentType: MessageContentType
         var sourceMessageId: String?
         var emoji: String?
+        var invite: MessageInvite?
         var attachmentUrls: [String]
         var text: String?
         var update: DBMessage.Update?
@@ -66,6 +67,7 @@ extension XMTPiOS.DecodedMessage {
             contentType: components.contentType,
             text: components.text,
             emoji: components.emoji,
+            invite: components.invite,
             sourceMessageId: components.sourceMessageId,
             attachmentUrls: components.attachmentUrls,
             update: components.update
@@ -77,7 +79,40 @@ extension XMTPiOS.DecodedMessage {
         guard let contentString = content as? String else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
+
         let isContentEmoji = contentString.allCharactersEmoji
+
+        // try and decode the text as an invite
+        let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let url = URL(string: trimmedContent),
+           let inviteCode = url.convosInviteCode,
+           let signedInvite = try? SignedInvite.fromInviteCode(inviteCode) {
+            let imageURL: URL?
+            if let image = signedInvite.imageURL {
+                imageURL = URL(string: image)
+            } else {
+                imageURL = nil
+            }
+            let invite = MessageInvite(
+                inviteSlug: inviteCode,
+                conversationName: signedInvite.name,
+                conversationDescription: signedInvite.description_p,
+                imageURL: imageURL,
+                expiresAt: signedInvite.expiresAt,
+                conversationExpiresAt: signedInvite.conversationExpiresAt
+            )
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: .invite,
+                sourceMessageId: nil,
+                emoji: nil,
+                invite: invite,
+                attachmentUrls: [],
+                text: contentString,
+                update: nil
+            )
+        }
+
         return DBMessageComponents(
             messageType: .original,
             contentType: isContentEmoji ? .emoji : .text,

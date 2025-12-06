@@ -20,7 +20,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
     func setup(
         item: MessagesListItemType,
-        onTapAvatar: @escaping ((AnyMessage) -> Void)
+        onTapAvatar: @escaping ((AnyMessage) -> Void),
+        onTapInvite: @escaping ((MessageInvite) -> Void)
     ) {
         contentConfiguration = UIHostingConfiguration {
             Group {
@@ -40,6 +41,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         group: group,
                         onTapMessage: { _ in },
                         onTapAvatar: onTapAvatar,
+                        onTapInvite: onTapInvite
                     )
 
                 case .invite(let invite):

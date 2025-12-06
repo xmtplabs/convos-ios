@@ -6,6 +6,7 @@ struct MessagesGroupItemView: View {
     let bubbleType: MessageBubbleType
     let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (AnyMessage) -> Void
+    let onTapInvite: (MessageInvite) -> Void
 
     @State private var isAppearing: Bool = true
 
@@ -42,6 +43,7 @@ struct MessagesGroupItemView: View {
                     : 0,
                     y: isAppearing ? 40 : 0
                 )
+
             case .emoji(let text):
                 EmojiBubble(
                     emoji: text,
@@ -66,6 +68,33 @@ struct MessagesGroupItemView: View {
                 .offset(
                     x: isAppearing
                     ? (message.base.source == .incoming ? -200 : 200)
+                    : 0,
+                    y: isAppearing ? 40 : 0
+                )
+
+            case .invite(let invite):
+                MessageInviteContainerView(
+                    invite: invite,
+                    style: bubbleType,
+                    isOutgoing: message.base.source == .outgoing,
+                    profile: message.base.sender.profile,
+                    onTapInvite: onTapInvite,
+                ) {
+                    onTapAvatar(message)
+                }
+                .zIndex(200)
+                .id("message-invite-\(message.base.id)")
+                .scaleEffect(isAppearing ? 0.9 : 1.0)
+                .rotationEffect(
+                    .radians(
+                        isAppearing
+                        ? (message.base.source == .incoming ? -0.05 : 0.05)
+                        : 0
+                    )
+                )
+                .offset(
+                    x: isAppearing
+                    ? (message.base.source == .incoming ? -20 : 20)
                     : 0,
                     y: isAppearing ? 40 : 0
                 )
@@ -179,7 +208,8 @@ private struct MultipleAttachmentsPlaceholder: View {
         ), .existing),
         bubbleType: .normal,
         onTapMessage: { _ in },
-        onTapAvatar: { _ in }
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in }
     )
     .padding()
 }
@@ -193,7 +223,8 @@ private struct MultipleAttachmentsPlaceholder: View {
         ), .existing),
         bubbleType: .tailed,
         onTapMessage: { _ in },
-        onTapAvatar: { _ in }
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in }
     )
     .padding()
 }
@@ -207,7 +238,8 @@ private struct MultipleAttachmentsPlaceholder: View {
         ), .existing),
         bubbleType: .normal,
         onTapMessage: { _ in },
-        onTapAvatar: { _ in }
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in }
     )
     .padding()
 }
@@ -221,7 +253,8 @@ private struct MultipleAttachmentsPlaceholder: View {
         ), .existing),
         bubbleType: .tailed,
         onTapMessage: { _ in },
-        onTapAvatar: { _ in }
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in }
     )
     .padding()
 }

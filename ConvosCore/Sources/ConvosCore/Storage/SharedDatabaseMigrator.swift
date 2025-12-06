@@ -157,6 +157,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addInviteToMessage") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "invite", .jsonText)
+            }
+        }
+
         return migrator
     }
 }

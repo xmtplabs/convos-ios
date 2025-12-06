@@ -6,6 +6,12 @@ extension Profile: ImageCacheable {
     }
 }
 
+extension MessageInvite: ImageCacheable {
+    public var imageCacheIdentifier: String {
+        inviteSlug
+    }
+}
+
 extension Conversation: ImageCacheable {
     public var imageCacheIdentifier: String {
         clientConversationId

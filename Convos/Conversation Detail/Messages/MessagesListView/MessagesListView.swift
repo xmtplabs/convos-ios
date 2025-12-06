@@ -8,6 +8,7 @@ struct MessagesListView: View {
     let focusCoordinator: FocusCoordinator
     let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (AnyMessage) -> Void
+    let onTapInvite: (MessageInvite) -> Void
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -42,7 +43,8 @@ struct MessagesListView: View {
                                 MessagesGroupView(
                                     group: group,
                                     onTapMessage: onTapMessage,
-                                    onTapAvatar: onTapAvatar
+                                    onTapAvatar: onTapAvatar,
+                                    onTapInvite: onTapInvite
                                 )
 
                             case .invite(let invite):

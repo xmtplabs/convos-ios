@@ -20,7 +20,7 @@ public enum DBMessageType: String, Codable {
 }
 
 public enum MessageContentType: String, Codable {
-    case text, emoji, attachments, update
+    case text, emoji, attachments, update, invite
 
     var marksConversationAsUnread: Bool {
         switch self {
@@ -61,6 +61,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable {
         static let contentType: Column = Column(CodingKeys.contentType)
         static let text: Column = Column(CodingKeys.text)
         static let emoji: Column = Column(CodingKeys.emoji)
+        static let invite: Column = Column(CodingKeys.invite)
         static let sourceMessageId: Column = Column(CodingKeys.sourceMessageId)
         static let attachmentUrls: Column = Column(CodingKeys.attachmentUrls)
     }
@@ -79,6 +80,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable {
     // content
     let text: String?
     let emoji: String?
+    let invite: MessageInvite?
     let sourceMessageId: String? // replies and reactions
     let attachmentUrls: [String]
     let update: Update?
@@ -151,6 +153,7 @@ extension DBMessage {
             contentType: contentType,
             text: text,
             emoji: emoji,
+            invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -170,6 +173,7 @@ extension DBMessage {
             contentType: contentType,
             text: text,
             emoji: emoji,
+            invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -189,6 +193,7 @@ extension DBMessage {
             contentType: contentType,
             text: text,
             emoji: emoji,
+            invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -208,6 +213,7 @@ extension DBMessage {
             contentType: contentType,
             text: text,
             emoji: emoji,
+            invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -227,6 +233,7 @@ extension DBMessage {
             contentType: contentType,
             text: text,
             emoji: emoji,
+            invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update

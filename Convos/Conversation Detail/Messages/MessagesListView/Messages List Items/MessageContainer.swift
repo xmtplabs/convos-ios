@@ -4,7 +4,7 @@ struct MessageContainer<Content: View>: View {
     let style: MessageBubbleType
     let isOutgoing: Bool
     let cornerRadius: CGFloat = Constant.bubbleCornerRadius
-    let content: () -> Content
+    @ViewBuilder let content: () -> Content
 
     var spacer: some View {
         Spacer()
@@ -48,13 +48,15 @@ struct MessageContainer<Content: View>: View {
                 spacer
             }
 
-            if style == .none {
+            switch style {
+            case .none:
                 content()
                     .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
-            } else {
+            default:
                 content()
                     .background(isOutgoing ? Color.colorBubble : Color.colorBubbleIncoming)
                     .foregroundColor(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
+                    .compositingGroup()
                     .mask(mask)
             }
 

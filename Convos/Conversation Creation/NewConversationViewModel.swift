@@ -248,12 +248,12 @@ class NewConversationViewModel: Identifiable {
             currentError = nil
 
         case .validating:
-            conversationViewModel.isWaitingForInviteAcceptance = true
+            conversationViewModel.isWaitingForInviteAcceptance = false
             isCreatingConversation = false
             currentError = nil
 
         case .validated:
-            conversationViewModel.isWaitingForInviteAcceptance = true
+            conversationViewModel.isWaitingForInviteAcceptance = false
             isCreatingConversation = false
             currentError = nil
             showingFullScreenScanner = false
@@ -274,12 +274,16 @@ class NewConversationViewModel: Identifiable {
             Log.info("Waiting for invite acceptance...")
 
         case .ready(let result):
-            conversationViewModel.startOnboarding()
+            if result.origin != .existing {
+                conversationViewModel.startOnboarding()
+            }
+
             if result.origin == .joined {
                 conversationViewModel.inviteWasAccepted()
             } else {
                 conversationViewModel.isWaitingForInviteAcceptance = false
             }
+
             conversationViewModel.showsInfoView = true
             messagesTopBarTrailingItemEnabled = true
             messagesTextFieldEnabled = true
@@ -356,7 +360,6 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItem = .share
             shouldConfirmDeletingConversation = false
             conversationViewModel.untitledConversationPlaceholder = "Untitled"
-            conversationViewModel.inviteWasAccepted()
         }
         .store(in: &cancellables)
     }

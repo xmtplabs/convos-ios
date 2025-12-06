@@ -312,6 +312,12 @@ extension Array where Element == MessageWithDetails {
                 switch dbMessage.contentType {
                 case .text:
                     messageContent = .text(dbMessage.text ?? "")
+                case .invite:
+                    guard let invite = dbMessage.invite else {
+                        Log.error("Invite message type is missing invite object")
+                        return nil
+                    }
+                    messageContent = .invite(invite)
                 case .attachments:
                     messageContent = .attachments(dbMessage.attachmentUrls.compactMap { urlString in
                         URL(string: urlString)
@@ -388,7 +394,7 @@ extension Array where Element == MessageWithDetails {
                 return .message(message, origin)
             case .reply:
                 switch dbMessage.contentType {
-                case .text:
+                case .text, .invite:
                     break
                 case .attachments:
                     break
@@ -400,7 +406,7 @@ extension Array where Element == MessageWithDetails {
 
             case .reaction:
                 switch dbMessage.contentType {
-                case .text, .attachments, .update:
+                case .text, .attachments, .update, .invite:
                     // invalid
                     return nil
                 case .emoji:

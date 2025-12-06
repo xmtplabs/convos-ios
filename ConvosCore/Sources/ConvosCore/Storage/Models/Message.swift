@@ -1,5 +1,37 @@
 import Foundation
 
+public struct MessageInvite: Sendable, Hashable, Codable {
+    public let inviteSlug: String
+    public let conversationName: String?
+    public let conversationDescription: String?
+    public let imageURL: URL?
+    public let expiresAt: Date?
+    public let conversationExpiresAt: Date?
+}
+
+public extension MessageInvite {
+    static var empty: MessageInvite {
+        .init(
+            inviteSlug: "message-invite-slug",
+            conversationName: nil,
+            conversationDescription: nil,
+            imageURL: nil,
+            expiresAt: nil,
+            conversationExpiresAt: nil
+        )
+    }
+    static var mock: MessageInvite {
+        .init(
+            inviteSlug: "message-invite-slug",
+            conversationName: "Untitled",
+            conversationDescription: "A place to chat",
+            imageURL: nil,
+            expiresAt: nil,
+            conversationExpiresAt: nil
+        )
+    }
+}
+
 public protocol MessageType: Sendable {
     var id: String { get }
     var conversation: Conversation { get }
@@ -40,6 +72,7 @@ public enum AnyMessage: Hashable, Codable, Sendable {
 
 public enum MessageContent: Hashable, Codable, Sendable {
     case text(String),
+         invite(MessageInvite),
          emoji(String), // all emoji, not a reaction
          attachment(URL),
          attachments([URL]),

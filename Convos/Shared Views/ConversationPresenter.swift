@@ -3,6 +3,7 @@ import SwiftUI
 struct ConversationPresenter<Content: View>: View {
     let viewModel: ConversationViewModel?
     let focusCoordinator: FocusCoordinator
+    let insetsTopSafeArea: Bool
     @Binding var sidebarColumnWidth: CGFloat
     @ViewBuilder let content: (FocusState<MessagesViewInputFocus?>.Binding, FocusCoordinator) -> Content
 
@@ -22,7 +23,7 @@ struct ConversationPresenter<Content: View>: View {
                         focusCoordinator: focusCoordinator
                     )
                     .hoverEffect(.lift)
-                    .padding(.top, safeAreaInsets.top)
+                    .padding(.top, insetsTopSafeArea ? safeAreaInsets.top : DesignConstants.Spacing.step3x)
                     .padding(.leading, horizontalSizeClass != .compact ? sidebarColumnWidth : 0.0)
                     .transition(.asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
@@ -103,6 +104,7 @@ private struct ConversationInfoButtonWrapper: View {
     ConversationPresenter(
         viewModel: conversationViewModel,
         focusCoordinator: focusCoordinator,
+        insetsTopSafeArea: false,
         sidebarColumnWidth: $sidebarColumnWidth
     ) { _, _ in
         EmptyView()

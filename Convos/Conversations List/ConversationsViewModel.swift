@@ -201,7 +201,7 @@ final class ConversationsViewModel {
             guard let self else { return }
             let viewModel = await NewConversationViewModel.create(
                 session: session,
-                autoCreateConversation: true,
+                autoCreateConversation: true
             )
             await MainActor.run {
                 self.newConversationViewModel = viewModel
@@ -219,7 +219,7 @@ final class ConversationsViewModel {
             guard let self else { return }
             let viewModel = await NewConversationViewModel.create(
                 session: session,
-                showingFullScreenScanner: true,
+                showingFullScreenScanner: true
             )
             await MainActor.run {
                 self.newConversationViewModel = viewModel
@@ -236,7 +236,7 @@ final class ConversationsViewModel {
         newConversationViewModelTask = Task { [weak self] in
             guard let self else { return }
             let viewModel = await NewConversationViewModel.create(
-                session: session,
+                session: session
             )
             viewModel.joinConversation(inviteCode: inviteCode)
             await MainActor.run {
