@@ -60,6 +60,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,
                         focusCoordinator: focusCoordinator,
+                        onTapSetupQuickname: {
+                            onboardingCoordinator.didTapProfilePhoto()
+                            viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
+                        },
                         onUseQuickname: viewModel.onUseQuickname(_:_:),
                         onPresentProfileSettings: viewModel.onProfileSettings
                     )

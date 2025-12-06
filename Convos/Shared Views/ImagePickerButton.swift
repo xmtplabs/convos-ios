@@ -67,11 +67,11 @@ struct ImagePickerButton: View {
                 } else {
                     ZStack {
                         Circle()
-                            .fill(.black)
+                            .fill(.colorBackgroundInverted)
                         Image(systemName: symbolName)
                             .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                             .font(.system(size: symbolSize))
-                            .foregroundColor(.white)
+                            .foregroundColor(.colorTextPrimaryInverted)
                     }
                 }
             } else {
@@ -81,10 +81,10 @@ struct ImagePickerButton: View {
                 case .failure:
                     VStack {
                         Image(systemName: "exclamationmark.triangle")
-                            .foregroundColor(.red)
+                            .foregroundColor(.colorCaution)
                         Text("Error loading image")
                             .font(.caption)
-                            .foregroundColor(.red)
+                            .foregroundColor(.colorCaution)
                     }
                 case let .success(image):
                     Image(uiImage: image)

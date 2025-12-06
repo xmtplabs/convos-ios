@@ -64,7 +64,8 @@ struct MyInfoView: View {
 
                             Spacer()
                         }
-                        .listRowBackground(Color.black.opacity(0.04))
+                        .listRowBackground(Color.colorBackgroundInverted.opacity(0.04))
+                        .listRowInsets(.all, 10.0)
                     } header: {
                         HStack {
                             Text("How you appear in this convo")
@@ -134,6 +135,8 @@ struct MyInfoView: View {
                             .background(Capsule().fill(.colorFillPrimary))
                         }
                     }
+                    .buttonStyle(.borderless)
+                    .listRowInsets(.all, 10.0)
                 } header: {
                     HStack {
                         Text("Quickname")
@@ -150,7 +153,7 @@ struct MyInfoView: View {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Text("Social names · Phone number")
                             .font(.body)
-                            .foregroundStyle(.colorTextInactive)
+                            .foregroundStyle(.placeholder)
 
                         Spacer()
 
@@ -169,7 +172,7 @@ struct MyInfoView: View {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Text("Human · Age")
                             .font(.body)
-                            .foregroundStyle(.colorTextInactive)
+                            .foregroundStyle(.placeholder)
 
                         Spacer()
 

@@ -26,8 +26,10 @@ struct SetupQuicknameSuccessView: View {
 }
 
 struct SetupQuicknameView: View {
+    let action: () -> Void
     var body: some View {
         Button {
+            action()
         } label: {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Image(systemName: "lanyardcard.fill")
@@ -44,7 +46,6 @@ struct SetupQuicknameView: View {
             )
         }
         .transition(.blurReplace)
-        .disabled(true)
         .hoverEffect(.lift)
         .padding(.vertical, DesignConstants.Spacing.step4x)
     }
@@ -52,7 +53,7 @@ struct SetupQuicknameView: View {
 
 #Preview {
     VStack(spacing: 20) {
-        SetupQuicknameView()
+        SetupQuicknameView {}
     }
     .padding()
 }

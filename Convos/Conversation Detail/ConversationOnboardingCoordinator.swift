@@ -174,6 +174,8 @@ final class ConversationOnboardingCoordinator {
 
     // Only used in Debug builds
     func reset() {
+        state = .idle
+        quicknameViewModel.delete()
         hasSeenAddAsQuickname = false
         hasCompletedOnboarding = false
         hasShownQuicknameEditor = false

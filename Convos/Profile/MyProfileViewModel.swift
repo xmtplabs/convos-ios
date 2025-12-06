@@ -94,10 +94,11 @@ class MyProfileViewModel {
 
     func update(using profile: Profile, profileImage: UIImage?, conversationId: String) {
         self.profile = profile.with(inboxId: profile.inboxId)
-        update(displayName: profile.displayName, conversationId: conversationId)
+        // update image first so we don't see the 'monogram' flash in avatar
         if let profileImage = profileImage {
             update(profileImage: profileImage, conversationId: conversationId)
         }
+        update(displayName: profile.displayName, conversationId: conversationId)
     }
 
     func onEndedEditing(for conversationId: String) {

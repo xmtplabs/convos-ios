@@ -5,6 +5,7 @@ import SwiftUI
 struct ConversationOnboardingView: View {
     @Bindable var coordinator: ConversationOnboardingCoordinator
     let focusCoordinator: FocusCoordinator
+    let onTapSetupQuickname: () -> Void
     let onUseQuickname: (Profile, UIImage?) -> Void
     let onPresentProfileSettings: () -> Void
 
@@ -33,8 +34,10 @@ struct ConversationOnboardingView: View {
             case .idle, .started, .settingUpQuickname, .quicknameLearnMore, .presentingProfileSettings:
                 EmptyView()
             case .setupQuickname:
-                SetupQuicknameView()
-                    .transition(.blurReplace)
+                SetupQuicknameView {
+                    onTapSetupQuickname()
+                }
+                .transition(.blurReplace)
 
             case .savedAsQuicknameSuccess:
                 SetupQuicknameSuccessView()
@@ -134,6 +137,7 @@ struct ConversationOnboardingView: View {
         ConversationOnboardingView(
             coordinator: coordinator,
             focusCoordinator: focusCoordinator,
+            onTapSetupQuickname: {},
             onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
             onPresentProfileSettings: {}
         )
@@ -151,6 +155,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
+        onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
         onPresentProfileSettings: {}
     )
@@ -167,6 +172,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
+        onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
         onPresentProfileSettings: {}
     )
@@ -183,6 +189,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
+        onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
         onPresentProfileSettings: {}
     )
@@ -202,6 +209,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
+        onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
         onPresentProfileSettings: {}
     )
@@ -218,6 +226,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
+        onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
         onPresentProfileSettings: {}
     )
@@ -234,6 +243,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
+        onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
         onPresentProfileSettings: {}
     )
@@ -250,6 +260,7 @@ struct ConversationOnboardingView: View {
     ConversationOnboardingView(
         coordinator: coordinator,
         focusCoordinator: focusCoordinator,
+        onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
         onPresentProfileSettings: {}
     )

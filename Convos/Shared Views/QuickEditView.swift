@@ -62,7 +62,7 @@ struct QuickEditView: View {
                             .resizable()
                             .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                             .aspectRatio(contentMode: .fit)
-                            .foregroundStyle(.black.opacity(0.3))
+                            .foregroundStyle(.colorTextTertiary)
                             .padding(.vertical, 6.0)
                             .padding(.horizontal, 5.0)
                     }
@@ -77,7 +77,7 @@ struct QuickEditView: View {
             }
             .background(
                 Capsule()
-                    .stroke(.gray.opacity(0.2), lineWidth: 1.0)
+                    .stroke(.colorBorderSubtle, lineWidth: 1.0)
             )
 
             Button {
