@@ -7,7 +7,7 @@ import XMTPiOS
 struct ConvosApp: App {
     @UIApplicationDelegateAdaptor(ConvosAppDelegate.self) private var appDelegate: ConvosAppDelegate
 
-    let session: any SessionManagerProtocol
+    private let convos: ConvosClient
     let conversationsViewModel: ConversationsViewModel
     let quicknameViewModel: QuicknameSettingsViewModel = .shared
 
@@ -44,10 +44,9 @@ struct ConvosApp: App {
             }
         }
 
-        let convos: ConvosClient = .client(environment: environment)
-        self.session = convos.session
-        self.conversationsViewModel = .init(session: session)
-        appDelegate.session = session
+        self.convos = .client(environment: environment)
+        self.conversationsViewModel = .init(session: convos.session)
+        appDelegate.session = convos.session
     }
 
     var body: some Scene {

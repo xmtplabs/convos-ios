@@ -13,6 +13,7 @@ class MyProfileViewModel {
 
     var isEditingDisplayName: Bool = false
     var editingDisplayName: String = ""
+    var saveDisplayNameAsQuickname: Bool = false
 
     var profileImage: UIImage?
 
@@ -101,17 +102,36 @@ class MyProfileViewModel {
         update(displayName: profile.displayName, conversationId: conversationId)
     }
 
-    func onEndedEditing(for conversationId: String) {
+    func onEndedEditing(for conversationId: String) -> Bool {
+        var didChange = false
+
         let trimmedDisplayName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
         let latestProfile = try? myProfileRepository.fetch()
         if latestProfile == nil || latestProfile?.name != trimmedDisplayName {
             update(displayName: trimmedDisplayName, conversationId: conversationId)
+            didChange = true
         }
 
         // @jarodl check if the image was actually changed
         if let profileImage {
             update(profileImage: profileImage, conversationId: conversationId)
+            didChange = true
+            self.profileImage = nil
         }
+
+        if saveDisplayNameAsQuickname {
+            let current = QuicknameSettings.current()
+                .with(displayName: trimmedDisplayName)
+                .with(profileImage: profileImage)
+            do {
+                try current.save()
+            } catch {
+                Log.error("Error saving profile as Quickname: \(error.localizedDescription)")
+            }
+            saveDisplayNameAsQuickname = false
+        }
+
+        return didChange
     }
 }
 

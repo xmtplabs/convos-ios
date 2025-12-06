@@ -8,9 +8,24 @@ public struct IncomingMessageWriterResult {
     public let messageAlreadyExists: Bool
 }
 
+public enum ExplodeSettingsResult {
+    case fromSelf
+    case alreadyExpired
+    case applied(expiresAt: Date)
+}
+
 public protocol IncomingMessageWriterProtocol {
     func store(message: XMTPiOS.DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult
+
+    func decodeExplodeSettings(from message: XMTPiOS.DecodedMessage) -> ExplodeSettings?
+
+    func processExplodeSettings(
+        _ settings: ExplodeSettings,
+        conversationId: String,
+        senderInboxId: String,
+        currentInboxId: String
+    ) async -> ExplodeSettingsResult
 }
 
 class IncomingMessageWriter: IncomingMessageWriterProtocol {
@@ -76,5 +91,69 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
         }
 
         return result
+    }
+
+    func decodeExplodeSettings(from message: DecodedMessage) -> ExplodeSettings? {
+        guard let encodedContentType = try? message.encodedContent.type,
+              encodedContentType == ContentTypeExplodeSettings else {
+            return nil
+        }
+
+        guard let content = try? message.content() as Any,
+              let explodeSettings = content as? ExplodeSettings else {
+            Log.error("Failed to extract ExplodeSettings content")
+            return nil
+        }
+
+        return explodeSettings
+    }
+
+    func processExplodeSettings(
+        _ settings: ExplodeSettings,
+        conversationId: String,
+        senderInboxId: String,
+        currentInboxId: String
+    ) async -> ExplodeSettingsResult {
+        if senderInboxId == currentInboxId {
+            Log.info("ExplodeSettings: from self, skipping")
+            return .fromSelf
+        }
+
+        // When scheduled explosions are added, compare settings.expiresAt
+        // against messageSentAt to determine if this is immediate or scheduled.
+
+        do {
+            let didUpdate = try await databaseWriter.write { db -> Bool in
+                guard let dbConversation = try DBConversation.fetchOne(db, key: conversationId) else {
+                    return false
+                }
+                // Skip if already expired (idempotency)
+                if dbConversation.expiresAt != nil {
+                    return false
+                }
+                let updated = dbConversation.with(expiresAt: settings.expiresAt)
+                try updated.save(db)
+                return true
+            }
+
+            guard didUpdate else {
+                Log.info("ExplodeSettings: conversation already expired, skipping")
+                return .alreadyExpired
+            }
+
+            Log.info("ExplodeSettings: applied, posting conversationExpired notification for \(conversationId)")
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .conversationExpired,
+                    object: nil,
+                    userInfo: ["conversationId": conversationId]
+                )
+            }
+
+            return .applied(expiresAt: settings.expiresAt)
+        } catch {
+            Log.error("Failed to write expiresAt for conversation \(conversationId): \(error.localizedDescription)")
+            return .alreadyExpired
+        }
     }
 }

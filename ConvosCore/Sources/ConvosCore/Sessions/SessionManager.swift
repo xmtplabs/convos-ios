@@ -147,28 +147,30 @@ public final class SessionManager: SessionManagerProtocol {
     }
 
     private func observe() {
+        // Clear active conversation when a conversation is left/exploded
         leftConversationObserver = NotificationCenter.default
-            .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { notification in
-                Task { [weak self] in
-                    guard let self else { return }
-                    guard let clientId = notification.userInfo?["clientId"] as? String,
-                          let inboxId = notification.userInfo?["inboxId"] as? String else {
-                        return
-                    }
+            .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { [weak self] notification in
+                guard let self else { return }
+                guard let conversationId = notification.userInfo?["conversationId"] as? String,
+                      let clientId = notification.userInfo?["clientId"] as? String else {
+                    return
+                }
 
-                    // Schedule explosion notification if conversationId is provided
-                    if let conversationId: String = notification.userInfo?["conversationId"] as? String {
-                        await self.scheduleExplosionNotification(
-                            inboxId: inboxId,
-                            clientId: clientId,
-                            conversationId: conversationId
-                        )
+                // Clear activeConversationId if the left conversation matches the current active one
+                serviceQueue.sync {
+                    if self.activeConversationId == conversationId {
+                        self.activeConversationId = nil
+                        Log.info("Cleared active conversation after explosion/leave: \(conversationId)")
                     }
+                }
 
+                // Delete the inbox (XMTP client and keys)
+                Task {
                     do {
                         try await self.deleteInbox(clientId: clientId)
+                        Log.info("Deleted inbox after explosion: \(clientId)")
                     } catch {
-                        Log.error("Error deleting inbox from left conversation notification: \(error.localizedDescription)")
+                        Log.error("Failed to delete inbox after explosion: \(error.localizedDescription)")
                     }
                 }
             }
@@ -186,68 +188,6 @@ public final class SessionManager: SessionManagerProtocol {
         serviceQueue.sync {
             activeConversationId = conversationId
         }
-    }
-
-    // MARK: - Local Notification
-
-    private func scheduleExplosionNotification(inboxId: String, clientId: String, conversationId: String) async {
-        do {
-            let conversation = try fetchConversationDetails(
-                conversationId: conversationId,
-                inboxId: inboxId,
-                clientId: clientId
-            )
-
-            let content = UNMutableNotificationContent()
-            content.title = "💥 \(conversation.displayName) 💥"
-            content.body = "A convo exploded"
-            content.sound = .default
-            content.userInfo = [
-                "inboxId": inboxId,
-                "conversationId": conversationId,
-                "notificationType": "explosion"
-            ]
-
-            if let cachedImage = await ImageCache.shared.imageAsync(for: conversation),
-               let cachedImageData = cachedImage.jpegData(compressionQuality: 1.0) {
-                do {
-                    let tempDirectory = FileManager.default.temporaryDirectory
-                    let tempFileName = "explosion-\(conversationId)-\(UUID().uuidString).jpg"
-                    let tempFileURL = tempDirectory.appendingPathComponent(tempFileName)
-                    try cachedImageData.write(to: tempFileURL)
-
-                    // Create notification attachment
-                    let attachment = try UNNotificationAttachment(
-                        identifier: UUID().uuidString,
-                        url: tempFileURL,
-                        options: nil
-                    )
-                    content.attachments = [attachment]
-
-                    Log.info("Successfully added conversation image to explosion notification")
-                } catch {
-                    Log.warning("Failed to download or create notification attachment: \(error)")
-                }
-            }
-
-            let request = UNNotificationRequest(
-                identifier: "explosion-\(conversationId)",
-                content: content,
-                trigger: nil // Immediate trigger
-            )
-            try await UNUserNotificationCenter.current().add(request)
-            Log.info("Scheduled explosion notification for conversation: \(conversationId)")
-        } catch {
-            Log.error("Failed to schedule explosion notification: \(error)")
-        }
-    }
-
-    private func fetchConversationDetails(conversationId: String, inboxId: String, clientId: String) throws -> Conversation {
-        let conversationRepository = conversationRepository(for: conversationId, inboxId: inboxId, clientId: clientId)
-        guard let conversation = try conversationRepository.fetchConversation() else {
-            throw ConversationRepositoryError.failedFetchingConversation
-        }
-        return conversation
     }
 
     // MARK: - Inbox Management
@@ -270,15 +210,14 @@ public final class SessionManager: SessionManagerProtocol {
             messagingServices.removeValue(forKey: clientId)
         }
 
-        guard let service = service else {
-            Log.error("Messaging service not found for clientId \(clientId)")
-            throw SessionManagerError.inboxNotFound
+        if let service = service {
+            Log.info("Stopping messaging service for clientId: \(clientId)")
+            await service.stopAndDelete()
+        } else {
+            Log.info("Messaging service not found for clientId \(clientId), proceeding with DB cleanup")
         }
 
-        Log.info("Stopping messaging service for clientId: \(clientId)")
-        await service.stopAndDelete()
-
-        // Delete from database
+        // Always delete from database regardless of in-memory service state
         let inboxWriter = InboxWriter(dbWriter: databaseWriter)
         try await inboxWriter.delete(clientId: clientId)
     }

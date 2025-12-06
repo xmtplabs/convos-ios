@@ -293,6 +293,8 @@ final class ConversationsViewModel {
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
                     if selectedConversation?.id == conversationId {
                         selectedConversation = nil
+                        selectedConversationId = nil
+                        selectedConversationViewModel = nil
                     }
                     if newConversationViewModel?.conversationViewModel.conversation.id == conversationId {
                         newConversationViewModel = nil
@@ -305,6 +307,7 @@ final class ConversationsViewModel {
             .publisher(for: .explosionNotificationTapped)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] _ in
+                self?.selectedConversation = nil
                 self?.presentingExplodeInfo = true
             }
             .store(in: &cancellables)

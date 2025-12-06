@@ -90,7 +90,7 @@ struct ConversationInfoView: View {
                             .frame(width: 160.0, height: 160.0)
 
                             VStack(spacing: DesignConstants.Spacing.step2x) {
-                                Text(viewModel.conversationName.isEmpty ? "Untitled" : viewModel.conversationName)
+                                Text(viewModel.conversationName.orUntitled)
                                     .font(.largeTitle.weight(.semibold))
                                     .foregroundStyle(.colorTextPrimary)
                                 if !viewModel.conversationDescription.isEmpty {

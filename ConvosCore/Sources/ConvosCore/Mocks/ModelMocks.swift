@@ -38,6 +38,7 @@ public extension Conversation {
             imageURL: nil,
             isDraft: id.hasPrefix("draft-"),
             invite: nil,
+            expiresAt: nil,
             debugInfo: DBConversation.DebugInfo.empty
         )
     }

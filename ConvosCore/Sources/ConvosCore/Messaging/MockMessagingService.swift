@@ -591,15 +591,12 @@ public class MockConversationMetadataWriter: ConversationMetadataWriterProtocol 
 
 class MockConversationPermissionsRepository: ConversationPermissionsRepositoryProtocol {
     func addAdmin(memberInboxId: String, to conversationId: String) async throws {
-        // @lourou
     }
 
     func removeAdmin(memberInboxId: String, from conversationId: String) async throws {
-        // @lourou
     }
 
     func addSuperAdmin(memberInboxId: String, to conversationId: String) async throws {
-        // @lourou
     }
 
     func removeSuperAdmin(memberInboxId: String, from conversationId: String) async throws {

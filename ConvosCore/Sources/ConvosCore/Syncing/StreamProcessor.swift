@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import UserNotifications
 import XMTPiOS
 
 // MARK: - Protocol
@@ -47,6 +48,8 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
+    private let databaseWriter: any DatabaseWriter
+    private let databaseReader: any DatabaseReader
     private let consentStates: [ConsentState] = [.allowed, .unknown]
 
     // MARK: - Initialization
@@ -58,6 +61,8 @@ actor StreamProcessor: StreamProcessorProtocol {
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil
     ) {
         self.identityStore = identityStore
+        self.databaseWriter = databaseWriter
+        self.databaseReader = databaseReader
         self.deviceRegistrationManager = deviceRegistrationManager
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
         self.conversationWriter = ConversationWriter(
@@ -152,11 +157,24 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    // Store conversation and message
+                    // Store conversation before handling ExplodeSettings so the record exists
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
                         inboxId: client.inboxId
                     )
+
+                    // Handle ExplodeSettings - skip storing message if this is an explode message
+                    let explodeSettings = messageWriter.decodeExplodeSettings(from: message)
+                    if let explodeSettings {
+                        await processExplodeSettings(
+                            explodeSettings,
+                            senderInboxId: message.senderInboxId,
+                            conversation: conversation,
+                            client: client
+                        )
+                    }
+                    guard explodeSettings == nil else { return }
+
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
                     // Mark unread if needed
@@ -177,6 +195,52 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Private Helpers
+
+    /// Processes ExplodeSettings and handles conversation cleanup if expired.
+    /// - Parameters:
+    ///   - settings: The decoded ExplodeSettings
+    ///   - senderInboxId: The inbox ID of the message sender
+    ///   - conversation: The conversation the message belongs to
+    ///   - client: The client provider
+    private func processExplodeSettings(
+        _ settings: ExplodeSettings,
+        senderInboxId: String,
+        conversation: XMTPiOS.Group,
+        client: AnyClientProvider
+    ) async {
+        let result = await messageWriter.processExplodeSettings(
+            settings,
+            conversationId: conversation.id,
+            senderInboxId: senderInboxId,
+            currentInboxId: client.inboxId
+        )
+
+        if case .applied = result {
+            let conversationName = (try? conversation.name()).orUntitled
+            await postExplosionNotification(conversationName: conversationName, conversationId: conversation.id)
+        }
+    }
+
+    private func postExplosionNotification(conversationName: String, conversationId: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = "💥 \(conversationName) 💥"
+        content.body = "A convo exploded"
+        content.sound = .default
+        content.userInfo = ["isExplosion": true]
+        content.threadIdentifier = conversationId
+
+        let request = UNNotificationRequest(
+            identifier: "explosion-\(conversationId)",
+            content: content,
+            trigger: nil
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            Log.error("Failed to post explosion notification: \(error.localizedDescription)")
+        }
+    }
 
     /// Checks if a conversation should be processed based on its consent state.
     /// If consent is unknown but there's an outgoing join request, updates consent to allowed.

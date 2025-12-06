@@ -37,6 +37,7 @@ extension Conversation {
             imageURL: nil,
             isDraft: false,
             invite: .mock(),
+            expiresAt: Date(),
             debugInfo: .empty
         )
     }
@@ -63,6 +64,7 @@ extension Conversation {
             imageURL: nil,
             isDraft: true,
             invite: nil,
+            expiresAt: Date(),
             debugInfo: .empty
         )
     }

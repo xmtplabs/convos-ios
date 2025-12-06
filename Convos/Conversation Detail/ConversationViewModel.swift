@@ -39,6 +39,7 @@ class ConversationViewModel {
     var invite: Invite {
         conversation.invite ?? .empty
     }
+
     var profile: Profile {
         myProfileViewModel.profile
     }
@@ -109,6 +110,8 @@ class ConversationViewModel {
         conversation.members.count > 1 && conversation.creator.isCurrentUser
     }
     var sendButtonEnabled: Bool = false
+    var isExploding: Bool = false
+    var explodeError: String?
 
     var presentingConversationSettings: Bool = false
     var presentingProfileSettings: Bool = false
@@ -400,12 +403,13 @@ class ConversationViewModel {
     func onDisplayNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
         isEditingDisplayName = false
 
-        myProfileViewModel.onEndedEditing(for: conversation.id)
+        let pickedImage = myProfileViewModel.profileImage
+        _ = myProfileViewModel.onEndedEditing(for: conversation.id)
 
         // Forward profile editing completion to onboarding coordinator
         onboardingCoordinator.handleDisplayNameEndedEditing(
             displayName: editingDisplayName,
-            profileImage: profileImage
+            profileImage: pickedImage
         )
 
         // Delegate focus transition to coordinator
@@ -447,27 +451,68 @@ class ConversationViewModel {
         }
     }
 
+    private enum ExplodeConvoError: Error {
+        case conversationNotFound
+        case notGroupConversation
+    }
+
     func explodeConvo() {
         guard canRemoveMembers else { return }
+        guard !isExploding else { return }
+
+        isExploding = true
+        explodeError = nil
 
         Task { [weak self] in
             guard let self else { return }
+
             do {
+                let expiresAt = Date()
+
+                Log.info("Sending ExplodeSettings message...")
+                let messagingService = session.messagingService(
+                    for: conversation.clientId,
+                    inboxId: conversation.inboxId
+                )
+                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversation.id) else {
+                    throw ExplodeConvoError.conversationNotFound
+                }
+
+                try await withTimeout(seconds: 20) {
+                    try await xmtpConversation.sendExplode(expiresAt: expiresAt)
+                }
+                Log.info("ExplodeSettings message sent successfully")
+
+                guard case .group(let group) = xmtpConversation else {
+                    throw ExplodeConvoError.notGroupConversation
+                }
+
+                try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
+
                 let memberIdsToRemove = conversation.members
-                    .filter { !$0.isCurrentUser } // @jarodl fix when we have self removal
                     .map { $0.profile.inboxId }
-                // set the expiration to now
-                try await metadataWriter.updateExpiresAt(Date(), for: conversation.id)
-                // remove everyone anyway
+
                 try await metadataWriter.removeMembers(
                     memberIdsToRemove,
                     from: conversation.id
                 )
-                try await session.deleteInbox(clientId: conversation.clientId)
-                conversation.postLeftConversationNotification()
-                presentingConversationSettings = false
+
+                try await group.updateConsentState(state: .denied)
+                Log.info("Denied exploded conversation to prevent re-sync")
+
+                await MainActor.run {
+                    presentingConversationSettings = false
+                    isExploding = false
+                    conversation.postLeftConversationNotification()
+                }
+                Log.info("Explode complete, inbox deletion triggered")
             } catch {
                 Log.error("Error exploding convo: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.isExploding = false
+                    self.explodeError = "Explode failed."
+                }
             }
         }
     }

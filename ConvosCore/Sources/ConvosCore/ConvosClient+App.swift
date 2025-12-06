@@ -13,8 +13,15 @@ extension ConvosClient {
             environment: environment,
             identityStore: identityStore
         )
-        return .init(sessionManager: sessionManager,
-                     databaseManager: databaseManager,
-                     environment: environment)
+        let expiredConversationsWorker = ExpiredConversationsWorker(
+            databaseReader: databaseReader,
+            sessionManager: sessionManager
+        )
+        return .init(
+            sessionManager: sessionManager,
+            databaseManager: databaseManager,
+            environment: environment,
+            expiredConversationsWorker: expiredConversationsWorker
+        )
     }
 }

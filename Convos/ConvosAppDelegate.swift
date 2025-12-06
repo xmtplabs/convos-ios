@@ -36,9 +36,15 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     // Handle notifications when app is in foreground
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
-        // Check if we should display this notification based on the active conversation
         let conversationId = notification.request.content.threadIdentifier
 
+        // Always show explosion notifications (identified by isExplosion flag in userInfo)
+        if notification.request.content.userInfo["isExplosion"] as? Bool == true {
+            Log.info("App in foreground - showing explosion notification banner (always show)")
+            return [.banner, .sound]
+        }
+
+        // Check if we should display regular notifications based on the active conversation
         if !conversationId.isEmpty,
            let session = session {
             let shouldDisplay = await session.shouldDisplayNotification(for: conversationId)
@@ -56,31 +62,22 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
     // Handle notification taps
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
-        let userInfo = response.notification.request.content.userInfo
         Log.debug("Notification tapped")
 
-        // Check if this is an explosion notification
-        if let notificationType = userInfo["notificationType"] as? String,
-           notificationType == "explosion",
-           let inboxId = userInfo["inboxId"] as? String,
-           let conversationId = userInfo["conversationId"] as? String {
+        let conversationId = response.notification.request.content.threadIdentifier
+
+        // Check if this is an explosion notification tap
+        if response.notification.request.content.userInfo["isExplosion"] as? Bool == true {
+            Log.info("Explosion notification tapped")
             DispatchQueue.main.async {
                 NotificationCenter.default.post(
                     name: .explosionNotificationTapped,
                     object: nil,
-                    userInfo: [
-                        "inboxId": inboxId,
-                        "conversationId": conversationId,
-                        "notificationType": notificationType
-                    ]
+                    userInfo: response.notification.request.content.userInfo
                 )
             }
             return
         }
-
-        // Handle regular conversation notifications (Protocol messages)
-        // v2 notifications use clientId, need to look up inboxId from database
-        let conversationId = response.notification.request.content.threadIdentifier
 
         guard !conversationId.isEmpty else {
             Log.warning("Notification tapped but conversationId is empty")

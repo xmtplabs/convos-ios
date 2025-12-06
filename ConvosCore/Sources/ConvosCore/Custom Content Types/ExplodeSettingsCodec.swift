@@ -61,6 +61,8 @@ public struct ExplodeSettingsCodec: ContentCodec {
     }
 
     public func shouldPush(content: ExplodeSettings) throws -> Bool {
+        // Push to ensure all devices (including offline ones) receive the message
+        // But the notification will be silently dropped (not shown to user)
         true
     }
 }

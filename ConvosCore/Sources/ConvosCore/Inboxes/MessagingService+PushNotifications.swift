@@ -166,14 +166,14 @@ extension MessagingService {
             return nil
         }
 
-        // Check if message is from self - if so, drop it
-        if decodedMessage.senderInboxId == currentInboxId {
-            Log.info("Dropping notification - message from self")
-            return .droppedMessage
-        }
-
         switch conversation {
         case .dm:
+            // Check if message is from self - DMs from self should be dropped
+            if decodedMessage.senderInboxId == currentInboxId {
+                Log.info("Dropping DM notification - message from self")
+                return .droppedMessage
+            }
+
             // DMs are only used for join requests (invite acceptance flow)
             // When someone accepts an invite, they send the signed invite back via DM
             // This allows us to add them to the group conversation they were invited to
@@ -201,36 +201,95 @@ extension MessagingService {
 
             // Shouldn't reach here, but if we do, drop the notification
             return .droppedMessage
-        case .group(let conversation):
-            let dbConversation = try await storeConversation(conversation, inboxId: currentInboxId)
-            let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
-            _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)
-
-            // Only handle text content type
-            let encodedContentType = try decodedMessage.encodedContent.type
-            guard encodedContentType == ContentTypeText else {
-                Log.info("Skipping non-text content type: \(encodedContentType.description)")
-                return .droppedMessage
-            }
-
-            // Extract text content
-            let content = try decodedMessage.content() as Any
-            guard let textContent = content as? String else {
-                Log.warning("Could not extract text content from message")
-                return nil
-            }
-
-            let notificationTitle: String?
-            let notificationBody = textContent // Just the decoded text
-
-            notificationTitle = try conversation.name()
-
-            return .init(
-                title: notificationTitle,
-                body: notificationBody,
+        case .group(let group):
+            return try await handleGroupMessage(
+                group: group,
+                decodedMessage: decodedMessage,
                 conversationId: conversationId,
+                currentInboxId: currentInboxId,
                 userInfo: userInfo
             )
+        }
+    }
+
+    private func handleGroupMessage(
+        group: XMTPiOS.Group,
+        decodedMessage: DecodedMessage,
+        conversationId: String,
+        currentInboxId: String,
+        userInfo: [AnyHashable: Any]
+    ) async throws -> DecodedNotificationContent? {
+        let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
+        let explodeSettings = messageWriter.decodeExplodeSettings(from: decodedMessage)
+        if let explodeSettings {
+            return try await handleExplodeSettingsMessage(
+                decodedMessage: decodedMessage,
+                settings: explodeSettings,
+                group: group,
+                conversationId: conversationId,
+                currentInboxId: currentInboxId,
+                userInfo: userInfo
+            )
+        }
+
+        if decodedMessage.senderInboxId == currentInboxId {
+            return .droppedMessage
+        }
+
+        let encodedContentType = try? decodedMessage.encodedContent.type
+        guard let encodedContentType, encodedContentType == ContentTypeText else {
+            return .droppedMessage
+        }
+
+        let dbConversation = try await storeConversation(group, inboxId: currentInboxId)
+
+        _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)
+
+        let content = try decodedMessage.content() as Any
+        guard let textContent = content as? String else {
+            return .droppedMessage
+        }
+
+        let notificationTitle = (try? group.name()).orUntitled
+
+        return .init(
+            title: notificationTitle,
+            body: textContent,
+            conversationId: conversationId,
+            userInfo: userInfo
+        )
+    }
+
+    private func handleExplodeSettingsMessage(
+        decodedMessage: DecodedMessage,
+        settings: ExplodeSettings,
+        group: XMTPiOS.Group,
+        conversationId: String,
+        currentInboxId: String,
+        userInfo: [AnyHashable: Any]
+    ) async throws -> DecodedNotificationContent? {
+        let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
+        let result = await messageWriter.processExplodeSettings(
+            settings,
+            conversationId: conversationId,
+            senderInboxId: decodedMessage.senderInboxId,
+            currentInboxId: currentInboxId
+        )
+
+        switch result {
+        case .applied:
+            let conversationName = (try? group.name()).orUntitled
+            var explosionUserInfo = userInfo
+            explosionUserInfo["isExplosion"] = true
+            explosionUserInfo["clientId"] = currentInboxId
+            return .init(
+                title: "💥 \(conversationName) 💥",
+                body: "A convo exploded",
+                conversationId: conversationId,
+                userInfo: explosionUserInfo
+            )
+        case .fromSelf, .alreadyExpired:
+            return .droppedMessage
         }
     }
 

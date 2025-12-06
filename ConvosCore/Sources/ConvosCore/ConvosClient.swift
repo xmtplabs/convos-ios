@@ -13,6 +13,7 @@ public final class ConvosClient {
     private let sessionManager: any SessionManagerProtocol
     private let databaseManager: any DatabaseManagerProtocol
     private let environment: AppEnvironment
+    public let expiredConversationsWorker: ExpiredConversationsWorkerProtocol?
 
     var databaseWriter: any DatabaseWriter {
         databaseManager.dbWriter
@@ -35,24 +36,34 @@ public final class ConvosClient {
             environment: .tests,
             identityStore: identityStore
         )
-        return .init(sessionManager: sessionManager,
-                     databaseManager: databaseManager,
-                     environment: .tests)
+        return .init(
+            sessionManager: sessionManager,
+            databaseManager: databaseManager,
+            environment: .tests,
+            expiredConversationsWorker: nil
+        )
     }
 
     public static func mock() -> ConvosClient {
         let databaseManager = MockDatabaseManager.previews
         let sessionManager = MockInboxesService()
-        return .init(sessionManager: sessionManager,
-                     databaseManager: databaseManager,
-                     environment: .tests)
+        return .init(
+            sessionManager: sessionManager,
+            databaseManager: databaseManager,
+            environment: .tests,
+            expiredConversationsWorker: nil
+        )
     }
 
-    internal init(sessionManager: any SessionManagerProtocol,
-                  databaseManager: any DatabaseManagerProtocol,
-                  environment: AppEnvironment) {
+    internal init(
+        sessionManager: any SessionManagerProtocol,
+        databaseManager: any DatabaseManagerProtocol,
+        environment: AppEnvironment,
+        expiredConversationsWorker: ExpiredConversationsWorkerProtocol?
+    ) {
         self.sessionManager = sessionManager
         self.databaseManager = databaseManager
         self.environment = environment
+        self.expiredConversationsWorker = expiredConversationsWorker
     }
 }

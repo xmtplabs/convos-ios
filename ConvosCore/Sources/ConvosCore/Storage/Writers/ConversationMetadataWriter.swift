@@ -84,21 +84,6 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
 
         try await group.updateExpiresAt(date: expiresAt)
 
-        do {
-            guard let sender = try await inboxReady.client.messageSender(
-                for: conversationId
-            ) else {
-                throw OutgoingMessageWriterError.missingClientProvider
-            }
-
-            try await sender.sendExplode(expiresAt: expiresAt)
-        } catch {
-            // We continue anyway since not sending explode as a custom content type just means
-            // the push notification will fail to display. The next time the app is active
-            // expiresAt for the conversation will be updated.
-            Log.error("Failed sending explode as custom content type: \(error.localizedDescription)")
-        }
-
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
                 .fetchOne(db, key: conversationId) else {
@@ -106,7 +91,6 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
             }
             let updatedConversation = localConversation.with(expiresAt: expiresAt)
             try updatedConversation.save(db)
-            Log.info("Updated local conversation expiresAt for \(conversationId): \(expiresAt)")
             return updatedConversation
         }
 

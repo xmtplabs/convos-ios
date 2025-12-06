@@ -196,10 +196,14 @@ extension XMTPiOS.Client: XMTPClientProvider {
 
 extension XMTPiOS.Conversation: MessageSender {
     public func sendExplode(expiresAt: Date) async throws {
+        Log.info("Sending ExplodeSettings message with expiresAt: \(expiresAt) (\(expiresAt.timeIntervalSince1970))")
+        let codec = ExplodeSettingsCodec()
+        Log.info("ExplodeSettings shouldPush: \(try codec.shouldPush(content: ExplodeSettings(expiresAt: expiresAt)))")
         try await send(
             content: ExplodeSettings(expiresAt: expiresAt),
-            options: .init(contentType: ExplodeSettingsCodec().contentType)
+            options: .init(contentType: codec.contentType)
         )
+        Log.info("ExplodeSettings message sent successfully")
     }
 
     public func prepare(text: String) async throws -> String {

@@ -24,6 +24,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let imageURL: URL?
     public let isDraft: Bool
     public let invite: Invite?
+    public let expiresAt: Date?
     public let debugInfo: DBConversation.DebugInfo
 }
 
@@ -41,10 +42,7 @@ public extension Conversation {
     }
 
     var displayName: String {
-        guard let name, !name.isEmpty else {
-            return "Untitled"
-        }
-        return name
+        name.orUntitled
     }
 
     var memberNamesString: String {

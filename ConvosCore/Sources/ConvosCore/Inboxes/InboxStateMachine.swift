@@ -240,7 +240,7 @@ public actor InboxStateMachine {
         )
 
         // Set custom XMTP host if provided
-        Log.info("🔧 XMTP Configuration:")
+        Log.info("XMTP Configuration:")
 
         // @lourou: Enable XMTP v4 d14n when ready
         // if let gatewayUrl = environment.gatewayUrl {
@@ -263,11 +263,11 @@ public actor InboxStateMachine {
 
         // Log the actual XMTPEnvironment.customLocalAddress after setting
         if let customHost = environment.customLocalAddress {
-            Log.info("🌐 Setting XMTPEnvironment.customLocalAddress = \(customHost)")
+            Log.info("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
             XMTPEnvironment.customLocalAddress = customHost
-            Log.info("🌐 Actual XMTPEnvironment.customLocalAddress = \(XMTPEnvironment.customLocalAddress ?? "nil")")
+            Log.info("Actual XMTPEnvironment.customLocalAddress = \(XMTPEnvironment.customLocalAddress ?? "nil")")
         } else {
-            Log.info("🌐 Using default XMTP endpoints")
+            Log.info("Using default XMTP endpoints")
         }
     }
 
@@ -851,7 +851,7 @@ public actor InboxStateMachine {
         // } else {
 
         // Direct XMTP v3 connection: we specify env and isSecure
-        Log.info("🔗 Using direct XMTP connection with env: \(environment.xmtpEnv)")
+        Log.info("Using direct XMTP connection with env: \(environment.xmtpEnv)")
         let apiOptions: ClientOptions.Api = .init(
             env: environment.xmtpEnv,
             isSecure: environment.isSecure,

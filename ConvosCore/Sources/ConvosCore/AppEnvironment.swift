@@ -87,15 +87,15 @@ public enum AppEnvironment: Sendable {
     var apiBaseURL: String {
         switch self {
         case .local(let config):
-            Log.info("🌐 Using API URL from local config: \(config.apiBaseURL)")
+            Log.info("Using API URL from local config: \(config.apiBaseURL)")
             return config.apiBaseURL
         case .tests:
             return "http://localhost:4000/api/"
         case .dev(let config):
-            Log.info("🌐 Using API URL from dev config: \(config.apiBaseURL)")
+            Log.info("Using API URL from dev config: \(config.apiBaseURL)")
             return config.apiBaseURL
         case .production(let config):
-            Log.info("🌐 Using API URL from production config: \(config.apiBaseURL)")
+            Log.info("Using API URL from production config: \(config.apiBaseURL)")
             return config.apiBaseURL
         }
     }
