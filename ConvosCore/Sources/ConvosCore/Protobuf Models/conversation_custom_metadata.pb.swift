@@ -93,7 +93,7 @@ public struct ConversationProfile: Sendable {
 
 extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\u{2}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -101,9 +101,9 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
       // allocates stack space for every case branch when no optimizations are
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
-      case 2: try { try decoder.decodeSingularStringField(value: &self.tag) }()
-      case 3: try { try decoder.decodeRepeatedMessageField(value: &self.profiles) }()
-      case 4: try { try decoder.decodeSingularSFixed64Field(value: &self._expiresAtUnix) }()
+      case 1: try { try decoder.decodeSingularStringField(value: &self.tag) }()
+      case 2: try { try decoder.decodeRepeatedMessageField(value: &self.profiles) }()
+      case 3: try { try decoder.decodeSingularSFixed64Field(value: &self._expiresAtUnix) }()
       default: break
       }
     }
@@ -115,13 +115,13 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
     // https://github.com/apple/swift-protobuf/issues/1182
     if !self.tag.isEmpty {
-      try visitor.visitSingularStringField(value: self.tag, fieldNumber: 2)
+      try visitor.visitSingularStringField(value: self.tag, fieldNumber: 1)
     }
     if !self.profiles.isEmpty {
-      try visitor.visitRepeatedMessageField(value: self.profiles, fieldNumber: 3)
+      try visitor.visitRepeatedMessageField(value: self.profiles, fieldNumber: 2)
     }
     try { if let v = self._expiresAtUnix {
-      try visitor.visitSingularSFixed64Field(value: v, fieldNumber: 4)
+      try visitor.visitSingularSFixed64Field(value: v, fieldNumber: 3)
     } }()
     try unknownFields.traverse(visitor: &visitor)
   }
