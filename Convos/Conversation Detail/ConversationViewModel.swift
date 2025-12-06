@@ -502,9 +502,9 @@ class ConversationViewModel {
                 Log.info("Denied exploded conversation to prevent re-sync")
 
                 await MainActor.run {
-                    presentingConversationSettings = false
-                    isExploding = false
-                    conversation.postLeftConversationNotification()
+                    self.presentingConversationSettings = false
+                    self.isExploding = false
+                    self.conversation.postLeftConversationNotification()
                 }
                 Log.info("Explode complete, inbox deletion triggered")
             } catch {
