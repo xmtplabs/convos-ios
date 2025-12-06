@@ -64,7 +64,7 @@ struct MyInfoView: View {
 
                             Spacer()
                         }
-                        .listRowBackground(Color.colorBackgroundInverted.opacity(0.04))
+                        .listRowBackground(Color.colorBackgroundSubtle)
                         .listRowInsets(.all, 10.0)
                     } header: {
                         HStack {
