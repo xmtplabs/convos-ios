@@ -105,7 +105,7 @@ struct MessagesBottomBar: View {
             conversation: .mock(),
             messages: [],
             invite: .mock(),
-            scrollViewWillBeginDragging: {},
+            onUserInteraction: {},
             hasLoadedAllMessages: true,
             onTapAvatar: { _ in },
             onLoadPreviousMessages: {},

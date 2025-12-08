@@ -5,7 +5,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let conversation: Conversation
     let messages: [MessagesListItemType]
     let invite: Invite
-    let scrollViewWillBeginDragging: () -> Void
+    let onUserInteraction: () -> Void
     let hasLoadedAllMessages: Bool
     let onTapAvatar: (ConversationMember) -> Void
     let onLoadPreviousMessages: () -> Void
@@ -17,7 +17,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
-        messagesViewController.scrollViewWillBeginDragging = scrollViewWillBeginDragging
+        messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.bottomBarHeight = bottomBarHeight
         messagesViewController.onTapAvatar = onTapAvatar
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
@@ -40,7 +40,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         conversation: .mock(),
         messages: messages,
         invite: invite,
-        scrollViewWillBeginDragging: {},
+        onUserInteraction: {},
         hasLoadedAllMessages: false,
         onTapAvatar: { _ in },
         onLoadPreviousMessages: {},

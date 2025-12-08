@@ -36,7 +36,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             messagesTextFieldEnabled: messagesTextFieldEnabled,
-            scrollViewWillBeginDragging: {
+            onUserInteraction: {
                 viewModel.dismissQuickEditor()
                 focusCoordinator.dismissQuickEditor()
             },

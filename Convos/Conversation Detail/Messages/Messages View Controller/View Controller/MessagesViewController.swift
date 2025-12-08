@@ -5,6 +5,14 @@ import Foundation
 import SwiftUI
 import UIKit
 
+/// A gesture recognizer that fires immediately on touch without interfering with other gestures
+private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent) {
+        super.touchesBegan(touches, with: event)
+        state = .recognized
+    }
+}
+
 final class MessagesViewController: UIViewController {
     struct MessagesState {
         let conversation: Conversation
@@ -102,7 +110,7 @@ final class MessagesViewController: UIViewController {
 
     private var lastKeyboardFrameChange: KeyboardInfo?
 
-    var scrollViewWillBeginDragging: (() -> Void)?
+    var onUserInteraction: (() -> Void)?
 
     // MARK: - Initialization
 
@@ -230,6 +238,21 @@ final class MessagesViewController: UIViewController {
             guard let self = self else { return }
             self.onTapInvite?(invite)
         }
+
+        setupImmediateTouchGesture()
+    }
+
+    private func setupImmediateTouchGesture() {
+        let gesture = ImmediateTouchGestureRecognizer(target: self, action: #selector(handleImmediateTouch))
+        gesture.cancelsTouchesInView = false
+        gesture.delaysTouchesBegan = false
+        gesture.delaysTouchesEnded = false
+        gesture.delegate = self
+        collectionView.addGestureRecognizer(gesture)
+    }
+
+    @objc private func handleImmediateTouch(_ gesture: UIGestureRecognizer) {
+        onUserInteraction?()
     }
 
     private func handleViewTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -462,10 +485,6 @@ extension MessagesViewController {
 // MARK: - UIScrollViewDelegate & UICollectionViewDelegate
 
 extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate {
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-        scrollViewWillBeginDragging?()
-    }
-
     func scrollViewShouldScrollToTop(_ scrollView: UIScrollView) -> Bool {
         guard scrollView.contentSize.height > 0,
               !currentInterfaceActions.options.contains(.scrollingToTop),
@@ -628,6 +647,17 @@ extension MessagesViewController: KeyboardListenerDelegate {
         }, completion: { _ in
             self.currentInterfaceActions.options.remove(.changingContentInsets)
         })
+    }
+}
+
+// MARK: - UIGestureRecognizerDelegate
+
+extension MessagesViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizer(
+        _ gestureRecognizer: UIGestureRecognizer,
+        shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
+    ) -> Bool {
+        gestureRecognizer is ImmediateTouchGestureRecognizer
     }
 }
 
