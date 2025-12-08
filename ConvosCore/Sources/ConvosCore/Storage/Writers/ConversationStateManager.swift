@@ -86,13 +86,17 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
         identityStore: any KeychainIdentityStoreProtocol,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
-        environment: AppEnvironment
+        environment: AppEnvironment,
+        conversationId: String? = nil
     ) {
         self.inboxStateManager = inboxStateManager
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
-        self.conversationIdSubject = .init(DBConversation.generateDraftConversationId())
+
+        // Use provided conversationId or generate a new draft ID
+        let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
+        self.conversationIdSubject = .init(initialConversationId)
 
         // Initialize writers
         let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter)
@@ -133,6 +137,13 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
         )
 
         setupStateObservation()
+
+        // If using an existing conversation, transition state machine to ready
+        if let conversationId {
+            Task {
+                await stateMachine.useExisting(conversationId: conversationId)
+            }
+        }
     }
 
     deinit {
