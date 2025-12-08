@@ -3,15 +3,24 @@ import GRDB
 import XMTPiOS
 
 extension Character {
+    var isSimpleEmoji: Bool {
+        guard let firstScalar = unicodeScalars.first else { return false }
+        return firstScalar.properties.isEmoji && firstScalar.value >= 0x231A
+    }
+
+    var isCombinedIntoEmoji: Bool {
+        unicodeScalars.count > 1 && unicodeScalars.first?.properties.isEmoji ?? false
+    }
+
     var isEmoji: Bool {
-        guard let scalar = unicodeScalars.first else { return false }
-        return scalar.properties.isEmojiPresentation || scalar.properties.isEmoji
+        isSimpleEmoji || isCombinedIntoEmoji
     }
 }
 
 extension String {
     var allCharactersEmoji: Bool {
-        trimmingCharacters(in: .whitespacesAndNewlines).allSatisfy { $0.isEmoji }
+        let trimmed = trimmingCharacters(in: .whitespacesAndNewlines)
+        return !trimmed.isEmpty && !trimmed.contains { !$0.isEmoji }
     }
 }
 
@@ -81,26 +90,10 @@ extension XMTPiOS.DecodedMessage {
         }
 
         let isContentEmoji = contentString.allCharactersEmoji
+        let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
 
         // try and decode the text as an invite
-        let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let url = URL(string: trimmedContent),
-           let inviteCode = url.convosInviteCode,
-           let signedInvite = try? SignedInvite.fromInviteCode(inviteCode) {
-            let imageURL: URL?
-            if let image = signedInvite.imageURL {
-                imageURL = URL(string: image)
-            } else {
-                imageURL = nil
-            }
-            let invite = MessageInvite(
-                inviteSlug: inviteCode,
-                conversationName: signedInvite.name,
-                conversationDescription: signedInvite.description_p,
-                imageURL: imageURL,
-                expiresAt: signedInvite.expiresAt,
-                conversationExpiresAt: signedInvite.conversationExpiresAt
-            )
+        if !isContentEmoji, let invite = MessageInvite.from(text: contentString) {
             return DBMessageComponents(
                 messageType: .original,
                 contentType: .invite,
@@ -111,17 +104,17 @@ extension XMTPiOS.DecodedMessage {
                 text: contentString,
                 update: nil
             )
+        } else {
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: isContentEmoji ? .emoji : .text,
+                sourceMessageId: nil,
+                emoji: isContentEmoji ? trimmedContent : nil,
+                attachmentUrls: [],
+                text: isContentEmoji ? nil : contentString,
+                update: nil
+            )
         }
-
-        return DBMessageComponents(
-            messageType: .original,
-            contentType: isContentEmoji ? .emoji : .text,
-            sourceMessageId: nil,
-            emoji: isContentEmoji ? contentString : nil,
-            attachmentUrls: [],
-            text: isContentEmoji ? nil : contentString,
-            update: nil
-        )
     }
 
     private func handleReplyContent() throws -> DBMessageComponents {

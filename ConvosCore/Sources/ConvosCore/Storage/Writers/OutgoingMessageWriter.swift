@@ -54,28 +54,8 @@ class OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             guard let self else { return }
 
             let isContentEmoji = text.allCharactersEmoji
-            let invite: MessageInvite?
             let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            if let url = URL(string: trimmedText),
-               let inviteCode = url.convosInviteCode,
-               let signedInvite = try? SignedInvite.fromInviteCode(inviteCode) {
-                let imageURL: URL?
-                if let image = signedInvite.imageURL {
-                    imageURL = URL(string: image)
-                } else {
-                    imageURL = nil
-                }
-                invite = MessageInvite(
-                    inviteSlug: inviteCode,
-                    conversationName: signedInvite.name,
-                    conversationDescription: signedInvite.description_p,
-                    imageURL: imageURL,
-                    expiresAt: signedInvite.expiresAt,
-                    conversationExpiresAt: signedInvite.conversationExpiresAt
-                )
-            } else {
-                invite = nil
-            }
+            let invite = MessageInvite.from(text: text)
 
             let contentType: MessageContentType
             if isContentEmoji {
@@ -97,7 +77,7 @@ class OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 messageType: .original,
                 contentType: contentType,
                 text: isContentEmoji ? nil : text,
-                emoji: isContentEmoji ? text : nil,
+                emoji: isContentEmoji ? trimmedText : nil,
                 invite: invite,
                 sourceMessageId: nil,
                 attachmentUrls: [],
