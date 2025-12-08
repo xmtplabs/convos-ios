@@ -2,6 +2,7 @@
 import Foundation
 import GRDB
 import Testing
+import UIKit
 import XMTPiOS
 
 /// Comprehensive tests for InboxStateMachine
@@ -640,6 +641,213 @@ struct InboxStateMachineTests {
         // Clean up
         await stateMachine.stopAndDelete()
         try? result.client.deleteLocalDatabase()
+        try? await fixtures.cleanup()
+    }
+
+    // MARK: - App Lifecycle Tests
+
+    @Test("App backgrounding pauses sync and app foregrounding resumes sync")
+    func testAppBackgroundAndForeground() async throws {
+        let fixtures = TestFixtures()
+
+        let clientId = ClientId.generate().value
+        let mockSync = MockSyncingManager()
+        let mockInvites = MockInvitesRepository()
+        let networkMonitor = NetworkMonitor()
+
+        let stateMachine = InboxStateMachine(
+            clientId: clientId,
+            identityStore: fixtures.identityStore,
+            invitesRepository: mockInvites,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            syncingManager: mockSync,
+            networkMonitor: networkMonitor,
+            overrideJWTToken: "test-jwt-token",
+            environment: .tests
+        )
+
+        // Register and wait for ready
+        await stateMachine.register(clientId: clientId)
+
+        // Wait for ready state with timeout
+        let state = try await waitForState(stateMachine, timeout: 30) { state in
+            if case .ready = state { return true }
+            if case .error = state { return true }
+            return false
+        }
+
+        guard case .ready(_, let result) = state else {
+            if case .error(_, let error) = state {
+                Issue.record("Registration failed: \(error)")
+            }
+            Issue.record("Did not reach ready state")
+            try? await fixtures.cleanup()
+            return
+        }
+
+        #expect(await mockSync.isStarted, "Sync should be started")
+
+        Log.info("Inbox ready, simulating app entering background...")
+
+        // Simulate app entering background
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+
+        // Wait for backgrounded state
+        let backgroundedState = try await waitForState(stateMachine, timeout: 5) { state in
+            if case .backgrounded = state { return true }
+            return false
+        }
+
+        guard case .backgrounded = backgroundedState else {
+            Issue.record("Did not reach backgrounded state")
+            try? await fixtures.cleanup()
+            return
+        }
+
+        // Verify sync was paused
+        #expect(await mockSync.isPaused, "SyncingManager should be paused when backgrounded")
+        let pauseCount = await mockSync.pauseCallCount
+        #expect(pauseCount > 0, "SyncingManager should have been paused")
+
+        Log.info("App backgrounded, sync paused. Simulating app returning to foreground...")
+
+        // Simulate app entering foreground
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+
+        // Wait for ready state again
+        let foregroundState = try await waitForState(stateMachine, timeout: 5) { state in
+            if case .ready = state { return true }
+            return false
+        }
+
+        guard case .ready = foregroundState else {
+            Issue.record("Did not return to ready state")
+            try? await fixtures.cleanup()
+            return
+        }
+
+        // Verify sync was resumed
+        let resumeCount = await mockSync.resumeCallCount
+        #expect(resumeCount > 0, "SyncingManager should have been resumed after foregrounding")
+        #expect(!(await mockSync.isPaused), "SyncingManager should not be paused after foregrounding")
+
+        Log.info("App foregrounded, sync resumed successfully")
+
+        // Clean up
+        await stateMachine.stopAndDelete()
+        try? result.client.deleteLocalDatabase()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("State sequence includes backgrounded state")
+    func testStateSequenceIncludesBackgrounded() async throws {
+        let fixtures = TestFixtures()
+
+        let clientId = ClientId.generate().value
+        let mockInvites = MockInvitesRepository()
+        let networkMonitor = NetworkMonitor()
+
+        let stateMachine = InboxStateMachine(
+            clientId: clientId,
+            identityStore: fixtures.identityStore,
+            invitesRepository: mockInvites,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            syncingManager: nil,
+            networkMonitor: networkMonitor,
+            overrideJWTToken: "test-jwt-token",
+            environment: .tests
+        )
+
+        actor StateCollector {
+            var states: [String] = []
+            func add(_ state: String) {
+                states.append(state)
+            }
+            func getStates() -> [String] {
+                states
+            }
+        }
+
+        let collector = StateCollector()
+
+        // Observe states in background
+        let observerTask = Task {
+            for await state in await stateMachine.stateSequence {
+                let stateName: String
+                switch state {
+                case .idle:
+                    stateName = "idle"
+                case .registering:
+                    stateName = "registering"
+                case .authenticatingBackend:
+                    stateName = "authenticatingBackend"
+                case .ready:
+                    stateName = "ready"
+                case .backgrounded:
+                    stateName = "backgrounded"
+                case .error:
+                    stateName = "error"
+                case .authorizing:
+                    stateName = "authorizing"
+                case .deleting:
+                    stateName = "deleting"
+                case .stopping:
+                    stateName = "stopping"
+                }
+                await collector.add(stateName)
+
+                // Stop after we see the backgrounded -> ready transition
+                let states = await collector.getStates()
+                if states.count >= 2 {
+                    let lastTwo = Array(states.suffix(2))
+                    if lastTwo == ["backgrounded", "ready"] {
+                        break
+                    }
+                }
+            }
+        }
+
+        // Register
+        await stateMachine.register(clientId: clientId)
+
+        // Wait for ready state
+        _ = try await waitForState(stateMachine, timeout: 30) { state in
+            if case .ready = state { return true }
+            if case .error = state { return true }
+            return false
+        }
+
+        // Simulate background
+        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+
+        // Wait for backgrounded
+        _ = try await waitForState(stateMachine, timeout: 5) { state in
+            if case .backgrounded = state { return true }
+            return false
+        }
+
+        // Simulate foreground
+        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+
+        // Wait for ready again
+        _ = try await waitForState(stateMachine, timeout: 5) { state in
+            if case .ready = state { return true }
+            return false
+        }
+
+        // Wait for observer to finish
+        observerTask.cancel()
+
+        // Verify state progression includes backgrounded
+        let observedStates = await collector.getStates()
+        #expect(observedStates.contains("ready"))
+        #expect(observedStates.contains("backgrounded"))
+
+        // Clean up
+        let finalState = await stateMachine.state
+        if case .ready(_, let result) = finalState {
+            try? result.client.deleteLocalDatabase()
+        }
         try? await fixtures.cleanup()
     }
 }

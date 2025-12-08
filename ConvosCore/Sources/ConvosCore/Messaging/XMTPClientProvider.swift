@@ -95,6 +95,8 @@ public protocol XMTPClientProvider: AnyObject {
         signingKey: SigningKey, installationIds: [String]
     ) async throws
     func deleteLocalDatabase() throws
+    func reconnectLocalDatabase() async throws
+    func dropLocalDatabaseConnection() throws
 }
 
 enum XMTPClientProviderError: Error {

@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import UIKit
 import XMTPiOS
 
 private extension AppEnvironment {
@@ -66,6 +67,7 @@ extension InboxStateMachine.State {
              .registering(let clientId),
              .authenticatingBackend(let clientId, _),
              .ready(let clientId, _),
+             .backgrounded(let clientId, _),
              .deleting(let clientId, _),
              .stopping(let clientId),
              .error(let clientId, _):
@@ -95,6 +97,8 @@ public struct InboxReadyResult: @unchecked Sendable {
 typealias AnySyncingManager = (any SyncingManagerProtocol)
 typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 
+// swiftlint:disable type_body_length
+
 /// State machine managing the lifecycle of an XMTP inbox
 ///
 /// InboxStateMachine coordinates the complex lifecycle of an inbox from creation/authorization
@@ -114,6 +118,8 @@ public actor InboxStateMachine {
              clientAuthorized(clientId: String, client: any XMTPClientProvider),
              clientRegistered(clientId: String, client: any XMTPClientProvider),
              authorized(clientId: String, result: InboxReadyResult),
+             enterBackground,
+             enterForeground,
              delete,
              stop
     }
@@ -124,6 +130,7 @@ public actor InboxStateMachine {
         case registering(clientId: String)
         case authenticatingBackend(clientId: String, inboxId: String)
         case ready(clientId: String, result: InboxReadyResult)
+        case backgrounded(clientId: String, result: InboxReadyResult)
         case deleting(clientId: String, inboxId: String?)
         case stopping(clientId: String)
         case error(clientId: String, error: any Error)
@@ -144,6 +151,7 @@ public actor InboxStateMachine {
     private var actionQueue: [Action] = []
     private var isProcessing: Bool = false
     private var networkMonitorTask: Task<Void, Never>?
+    private var appLifecycleTask: Task<Void, Never>?
 
     // MARK: - State Observation
 
@@ -164,7 +172,8 @@ public actor InboxStateMachine {
             return inboxId
         case .deleting(_, let inboxId):
             return inboxId
-        case .ready(_, let result):
+        case .ready(_, let result),
+                .backgrounded(_, let result):
             return result.client.inboxId
         default:
             return nil
@@ -252,7 +261,7 @@ public actor InboxStateMachine {
         //         Log.info("   Clearing previous customLocalAddress for gateway mode")
         //         XMTPEnvironment.customLocalAddress = nil
         //     }
-        // } else {
+        // }
 
         // XMTP v3
         Log.info("   Mode = XMTP v3")
@@ -357,12 +366,26 @@ public actor InboxStateMachine {
             case (.deleting, .delete):
                 // Already deleting - ignore duplicate delete request (idempotent)
                 Log.info("Duplicate delete request while already deleting, ignoring")
+            case let (.ready(clientId, result), .enterBackground):
+                try await handleEnterBackground(clientId: clientId, result: result)
+
+            case let (.backgrounded(clientId, result), .enterForeground):
+                try await handleEnterForeground(clientId: clientId, result: result)
+
+            case (let .backgrounded(clientId, result), .delete):
+                try await handleDeleteFromBackgrounded(clientId: clientId, result: result)
+
             case let (.ready(clientId, _), .stop),
                 let (.error(clientId, _), .stop),
-                let (.deleting(clientId, _), .stop):
+                let (.deleting(clientId, _), .stop),
+                let (.backgrounded(clientId, _), .stop):
                 try await handleStop(clientId: clientId)
 
             case (.idle, .stop), (.stopping, .stop):
+                break
+
+            // Ignore lifecycle events when not in appropriate state
+            case (_, .enterBackground), (_, .enterForeground):
                 break
 
             default:
@@ -375,8 +398,9 @@ public actor InboxStateMachine {
                 return
             }
 
-            // Cancel network monitoring on error
-            stopNetworkMonitoring()
+            // Cancel app lifecycle observation and network monitoring on error
+            stopAppLifecycleObservation()
+            await stopNetworkMonitoring()
 
             Log.error(
                 "Failed state transition \(_state) -> \(action): \(error.localizedDescription)"
@@ -398,10 +422,9 @@ public actor InboxStateMachine {
         }
 
         emitStateChange(.authorizing(clientId: clientId, inboxId: inboxId))
-        Log
-            .info(
-                "Started authorization flow for inbox: \(inboxId), clientId: \(clientId)"
-            )
+        Log.info(
+            "Started authorization flow for inbox: \(inboxId), clientId: \(clientId)"
+        )
 
         // Set custom local address before building/creating client
         // Only updates if different, avoiding unnecessary mutations
@@ -479,7 +502,7 @@ public actor InboxStateMachine {
         } catch {
             // Rollback keychain entry on database failure to maintain consistency
             Log.error("Failed to save inbox to database, rolling back keychain: \(error)")
-            try? await identityStore.delete(clientId: clientId)
+            _ = try? await identityStore.delete(clientId: clientId)
             throw error
         }
 
@@ -512,11 +535,15 @@ public actor InboxStateMachine {
     }
 
     private func handleAuthorized(clientId: String, client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
-        // Start network monitoring before starting sync
-        await startNetworkMonitoring()
-
         await syncingManager?.start(with: client, apiClient: apiClient)
         emitStateChange(.ready(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
+        // Start app lifecycle observation and network monitoring after starting sync
+        await startNetworkMonitoring()
+        startAppLifecycleObservation()
+        // check if app was backgrounded during auth
+        if await UIApplication.shared.applicationState != .active {
+            enqueueAction(.enterBackground)
+        }
     }
 
     private func handleDelete(clientId: String, client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
@@ -528,8 +555,11 @@ public actor InboxStateMachine {
 
         defer { enqueueAction(.stop) }
 
-        // Stop network monitoring
-        stopNetworkMonitoring()
+        // Stop app lifecycle observation and network monitoring
+        stopAppLifecycleObservation()
+        await stopNetworkMonitoring()
+
+        await syncingManager?.stop()
 
         // Perform common cleanup operations
         try await performInboxCleanup(clientId: clientId, client: client, apiClient: apiClient)
@@ -555,8 +585,9 @@ public actor InboxStateMachine {
 
         emitStateChange(.deleting(clientId: clientId, inboxId: resolvedInboxId))
 
-        // Stop network monitoring
-        stopNetworkMonitoring()
+        // Stop app lifecycle observation and network monitoring
+        stopAppLifecycleObservation()
+        await stopNetworkMonitoring()
 
         await syncingManager?.stop()
 
@@ -569,10 +600,14 @@ public actor InboxStateMachine {
 
         // Delete identity - idempotent operation, may already be deleted from previous attempt
         do {
-            try await identityStore.delete(clientId: clientId)
+            let deletedIdentity = try await identityStore.delete(clientId: clientId)
             Log.info("Deleted identity from keychain for clientId: \(clientId)")
+            deleteDatabaseFiles(for: deletedIdentity.inboxId)
         } catch KeychainIdentityStoreError.identityNotFound {
             Log.info("Identity already deleted for clientId: \(clientId), continuing cleanup")
+            if let resolvedInboxId {
+                deleteDatabaseFiles(for: resolvedInboxId)
+            }
         }
 
         Log.info("Deleted inbox with clientId \(clientId)")
@@ -596,8 +631,9 @@ public actor InboxStateMachine {
 
         emitStateChange(.deleting(clientId: clientId, inboxId: inboxIdFromDb))
 
-        // Stop network monitoring
-        stopNetworkMonitoring()
+        // Stop app lifecycle observation and network monitoring
+        stopAppLifecycleObservation()
+        await stopNetworkMonitoring()
 
         await syncingManager?.stop()
 
@@ -610,15 +646,14 @@ public actor InboxStateMachine {
 
         // Delete identity - idempotent operation, may already be deleted
         do {
-            try await identityStore.delete(clientId: clientId)
+            let deletedIdentity = try await identityStore.delete(clientId: clientId)
             Log.info("Deleted identity from keychain for clientId: \(clientId)")
+            deleteDatabaseFiles(for: deletedIdentity.inboxId)
         } catch KeychainIdentityStoreError.identityNotFound {
             Log.info("Identity already deleted for clientId: \(clientId), continuing cleanup")
-        }
-
-        // Delete XMTP database files if we have an inboxId
-        if let inboxId = inboxIdFromDb {
-            deleteDatabaseFiles(for: inboxId)
+            if let inboxIdFromDb {
+                deleteDatabaseFiles(for: inboxIdFromDb)
+            }
         }
 
         Log.info("Deleted inbox with clientId \(clientId)")
@@ -627,12 +662,61 @@ public actor InboxStateMachine {
     private func handleStop(clientId: String) async throws {
         Log.info("Stopping inbox with clientId \(clientId)...")
 
-        // Cancel network monitoring
-        stopNetworkMonitoring()
+        // Cancel app lifecycle and network monitoring
+        stopAppLifecycleObservation()
+        await stopNetworkMonitoring()
 
         emitStateChange(.stopping(clientId: clientId))
         await syncingManager?.stop()
         emitStateChange(.idle(clientId: clientId))
+    }
+
+    private func handleEnterBackground(clientId: String, result: InboxReadyResult) async throws {
+        Log.info("App entering background, pausing sync for clientId \(clientId)...")
+
+        // Stop network monitoring while backgrounded
+        await stopNetworkMonitoring()
+
+        // Pause the syncing manager
+        await syncingManager?.pause()
+
+        try result.client.dropLocalDatabaseConnection()
+
+        emitStateChange(.backgrounded(clientId: clientId, result: result))
+        Log.info("Inbox backgrounded successfully")
+    }
+
+    private func handleEnterForeground(clientId: String, result: InboxReadyResult) async throws {
+        Log.info("App entering foreground, resuming sync for clientId \(clientId)...")
+
+        try await result.client.reconnectLocalDatabase()
+
+        // Restart network monitoring
+        await startNetworkMonitoring()
+
+        // Resume the syncing manager
+        await syncingManager?.resume()
+
+        emitStateChange(.ready(clientId: clientId, result: result))
+        Log.info("Inbox returned to ready state")
+    }
+
+    private func handleDeleteFromBackgrounded(clientId: String, result: InboxReadyResult) async throws {
+        try Task.checkCancellation()
+
+        Log.info("Deleting inbox with clientId \(clientId) from backgrounded state...")
+        let inboxId = result.client.inboxId
+        emitStateChange(.deleting(clientId: clientId, inboxId: inboxId))
+
+        defer { enqueueAction(.stop) }
+
+        // App lifecycle observation is still running, stop it
+        stopAppLifecycleObservation()
+
+        // Network monitoring already stopped when backgrounded
+
+        // Perform common cleanup operations
+        try await performInboxCleanup(clientId: clientId, client: result.client, apiClient: result.apiClient)
     }
 
     /// Performs common cleanup operations when deleting an inbox
@@ -700,7 +784,7 @@ public actor InboxStateMachine {
         // These operations should be idempotent - if identity is already deleted,
         // we're likely in a retry scenario from a previous failed deletion attempt
         do {
-            try await identityStore.delete(clientId: clientId)
+            _ = try await identityStore.delete(clientId: clientId)
             Log.info("Deleted identity from keychain for clientId: \(clientId)")
         } catch KeychainIdentityStoreError.identityNotFound {
             Log.info("Identity already deleted for clientId: \(clientId), continuing cleanup")
@@ -848,7 +932,7 @@ public actor InboxStateMachine {
         //         appVersion: "convos/\(Bundle.appVersion)",
         //         gatewayUrl: gatewayUrl
         //     )
-        // } else {
+        // }
 
         // Direct XMTP v3 connection: we specify env and isSecure
         Log.info("Using direct XMTP connection with env: \(environment.xmtpEnv)")
@@ -857,7 +941,6 @@ public actor InboxStateMachine {
             isSecure: environment.isSecure,
             appVersion: "convos/\(Bundle.appVersion)"
         )
-        // }
 
         return ClientOptions(
             api: apiOptions,
@@ -930,15 +1013,56 @@ public actor InboxStateMachine {
         Log.info("Successfully authenticated with backend")
     }
 
+    // MARK: - App Lifecycle Observation
+
+    private func stopAppLifecycleObservation() {
+        appLifecycleTask?.cancel()
+        appLifecycleTask = nil
+    }
+
+    private func startAppLifecycleObservation() {
+        stopAppLifecycleObservation()
+
+        appLifecycleTask = Task { [weak self] in
+            let notificationCenter = NotificationCenter.default
+
+            // Create async streams for both notifications
+            let backgroundNotifications = notificationCenter.notifications(
+                named: UIApplication.didEnterBackgroundNotification
+            )
+            let foregroundNotifications = notificationCenter.notifications(
+                named: UIApplication.willEnterForegroundNotification
+            )
+
+            // Merge both notification streams and handle them
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask {
+                    for await _ in backgroundNotifications {
+                        guard let self else { return }
+                        await self.enqueueAction(.enterBackground)
+                    }
+                }
+
+                group.addTask {
+                    for await _ in foregroundNotifications {
+                        guard let self else { return }
+                        await self.enqueueAction(.enterForeground)
+                    }
+                }
+            }
+        }
+    }
+
     // MARK: - Network Monitoring
 
-    private func stopNetworkMonitoring() {
+    private func stopNetworkMonitoring() async {
         networkMonitorTask?.cancel()
         networkMonitorTask = nil
+        await networkMonitor.stop()
     }
 
     private func startNetworkMonitoring() async {
-        stopNetworkMonitoring()
+        await stopNetworkMonitoring()
 
         await networkMonitor.start()
 
@@ -952,6 +1076,11 @@ public actor InboxStateMachine {
     }
 
     private func handleNetworkStatusChange(_ status: NetworkMonitor.Status) async {
+        guard case .ready = _state else {
+            Log.debug("Ignoring network status change in non-ready state: \(_state)")
+            return
+        }
+
         switch status {
         case .connected(let type):
             Log.info("Network connected (\(type)) - resuming sync")
@@ -979,3 +1108,5 @@ public actor InboxStateMachine {
         await syncingManager?.pause()
     }
 }
+
+// swiftlint:enable type_body_length

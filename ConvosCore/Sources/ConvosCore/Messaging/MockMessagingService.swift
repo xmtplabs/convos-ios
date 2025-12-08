@@ -376,6 +376,12 @@ extension MockMessagingService: XMTPClientProvider, GroupConversationSender {
     public func deleteLocalDatabase() throws {
     }
 
+    public func dropLocalDatabaseConnection() throws {
+    }
+
+    public func reconnectLocalDatabase() async throws {
+    }
+
     public func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
     }
 

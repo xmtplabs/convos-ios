@@ -202,8 +202,19 @@ actor SyncingManager: SyncingManagerProtocol {
                 // Already starting - ignore duplicate start
                 Log.info("Already starting, ignoring duplicate start request")
 
-            case (.ready, .start(let params)),
-                 (.paused, .start(let params)):
+            case let (.ready(readyParams), .start(startParams)):
+                if readyParams.client.inboxId != startParams.client.inboxId {
+                    // stop first, then start
+                    Log.info("Starting with different client params")
+                    try await handleStop()
+                    try await handleStart(
+                        client: startParams.client,
+                        apiClient: startParams.apiClient
+                    )
+                } else {
+                    Log.info("Already ready, ignoring duplicate start request")
+                }
+            case (.paused, .start(let params)):
                 // Already running - stop first, then start
                 try await handleStop()
                 try await handleStart(client: params.client, apiClient: params.apiClient)

@@ -195,7 +195,7 @@ public protocol KeychainIdentityStoreProtocol: Actor {
     func identity(for inboxId: String) throws -> KeychainIdentity
     func loadAll() throws -> [KeychainIdentity]
     func delete(inboxId: String) throws
-    func delete(clientId: String) throws
+    func delete(clientId: String) throws -> KeychainIdentity
     func deleteAll() throws
 }
 
@@ -341,12 +341,13 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         try deleteData(with: query)
     }
 
-    public func delete(clientId: String) throws {
+    public func delete(clientId: String) throws -> KeychainIdentity {
         // Direct lookup using clientId as a keychain attribute
         let identity = try identity(forClientId: clientId)
 
         // Delete using the inboxId (which is the account key in keychain)
         try delete(inboxId: identity.inboxId)
+        return identity
     }
 
     public func deleteAll() throws {

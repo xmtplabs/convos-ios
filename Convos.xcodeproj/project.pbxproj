@@ -1567,6 +1567,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Convos needs local network access to connect to development backend and XMTP node";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
@@ -1610,6 +1611,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Convos needs local network access to connect to development backend and XMTP node";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
@@ -1845,6 +1847,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Convos Local";
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "To join a convo, scan its QR code";
+				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "Convos needs local network access to connect to development backend and XMTP node";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight UIInterfaceOrientationPortrait";
