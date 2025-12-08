@@ -117,7 +117,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     Button {
                         onScanInviteCode()
                     } label: {
-                        Image(systemName: "qrcode.viewfinder")
+                        Image(systemName: "viewfinder")
                     }
                     .buttonBorderShape(.circle)
                     .disabled(!messagesTopBarTrailingItemEnabled)

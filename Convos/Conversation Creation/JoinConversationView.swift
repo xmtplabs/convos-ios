@@ -43,10 +43,10 @@ struct JoinConversationView: View {
                                     requestCameraAccess()
                                 } label: {
                                     HStack(spacing: DesignConstants.Spacing.step2x) {
-                                        Image(systemName: "camera.fill")
+                                        Image(systemName: "viewfinder")
                                             .font(.callout)
                                             .foregroundStyle(.black)
-                                        Text("Allow")
+                                        Text("Scan")
                                             .font(.callout.weight(.medium))
                                             .foregroundStyle(.black)
                                     }
@@ -62,20 +62,13 @@ struct JoinConversationView: View {
                         }
                         .padding(.bottom, DesignConstants.Spacing.step3x)
 
-                        VStack(spacing: DesignConstants.Spacing.step3x) {
-                            HStack(spacing: DesignConstants.Spacing.step2x) {
-                                Image(systemName: "qrcode")
-                                    .foregroundStyle(.white)
-                                Text("Join a convo by invitation only")
-                                    .font(.callout)
-                                    .multilineTextAlignment(.center)
-                                    .foregroundStyle(.white)
-                            }
-                            Text("Ask a friend to invite you to a convo, then scan its code or tap its link to enter the app.")
+                        HStack(spacing: DesignConstants.Spacing.step2x) {
+                            Image(systemName: "qrcode")
+                                .foregroundStyle(.white)
+                            Text("Scan a convo code")
                                 .font(.callout)
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(.white)
-                                .opacity(0.6)
                         }
                         .padding(.horizontal, DesignConstants.Spacing.step10x)
 

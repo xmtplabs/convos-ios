@@ -113,7 +113,7 @@ struct ConversationsView: View {
                     }
 
                     ToolbarItem(placement: .bottomBar) {
-                        Button("Scan", systemImage: "qrcode.viewfinder") {
+                        Button("Scan", systemImage: "viewfinder") {
                             viewModel.onJoinConvo()
                         }
                     }
