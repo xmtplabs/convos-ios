@@ -130,6 +130,15 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
         }
     }
 
+    var lastMessageInGroup: AnyMessage? {
+        switch self {
+        case .messages(let group):
+            return group.messages.last
+        default:
+            return nil
+        }
+    }
+
     /// Returns the origin of this list item (if applicable)
     var origin: AnyMessage.Origin? {
         switch self {

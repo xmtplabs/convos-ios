@@ -90,6 +90,11 @@ final class MessagesViewController: UIViewController {
                         UIView.performWithoutAnimation {
                             self.scrollToBottom()
                         }
+                    } else if let lastMessageGroup = state.messages.last,
+                              lastMessageGroup.isMessagesGroupSentByCurrentUser,
+                              let oldLastMessage = oldValue?.messages.last?.lastMessageInGroup,
+                              lastMessageGroup.lastMessageInGroup != oldLastMessage {
+                        self.scrollToBottom()
                     }
                 }
             isFirstStateUpdate = false
