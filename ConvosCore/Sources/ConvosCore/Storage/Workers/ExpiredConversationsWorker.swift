@@ -5,13 +5,13 @@ import UIKit
 public protocol ExpiredConversationsWorkerProtocol {}
 
 final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol {
-    private let sessionManager: SessionManagerProtocol
-    private let databaseReader: DatabaseReader
+    private let sessionManager: any SessionManagerProtocol
+    private let databaseReader: any DatabaseReader
     private var observers: [NSObjectProtocol] = []
 
     init(
-        databaseReader: DatabaseReader,
-        sessionManager: SessionManagerProtocol
+        databaseReader: any DatabaseReader,
+        sessionManager: any SessionManagerProtocol
     ) {
         self.databaseReader = databaseReader
         self.sessionManager = sessionManager

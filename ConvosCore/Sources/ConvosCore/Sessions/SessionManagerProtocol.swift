@@ -32,7 +32,10 @@ public protocol SessionManagerProtocol: AnyObject {
 
     // MARK: Notifications
 
+    func notifyChangesInDatabase()
     func shouldDisplayNotification(for conversationId: String) async -> Bool
+
+    // MARK: Helpers
 
     func inboxId(for conversationId: String) async -> String?
 }

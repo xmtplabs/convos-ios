@@ -8,6 +8,9 @@ public final class MockInboxesService: SessionManagerProtocol {
         true
     }
 
+    public func notifyChangesInDatabase() {
+    }
+
     public func inboxId(for conversationId: String) async -> String? {
         "mock-inbox-id"
     }
