@@ -135,9 +135,10 @@ public final class AssetURLResolver: Sendable {
     /// Extracts the asset key from a full URL or returns the value if already a key
     ///
     /// Use this when storing asset URLs to extract just the key portion.
+    /// Only extracts keys from allowed hosts - rejects URLs from unknown domains.
     ///
     /// - Parameter urlString: A full URL string or asset key
-    /// - Returns: The asset key, or nil if extraction fails
+    /// - Returns: The asset key, or nil if extraction fails or URL is from non-allowed host
     public func extractAssetKey(from urlString: String?) -> String? {
         guard let urlString, !urlString.isEmpty else {
             return nil
@@ -153,20 +154,17 @@ public final class AssetURLResolver: Sendable {
 
         let resolvedConfig = config.withLock { $0 }
 
-        // Check if it matches an allowed host - extract full path as key
-        if let resolvedConfig,
-           let inputHost = inputURL.host?.lowercased(),
-           resolvedConfig.allowedHosts.contains(inputHost) {
-            let key = inputURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            return key.isEmpty ? nil : key
+        // Security: Only extract keys from allowed hosts
+        guard let resolvedConfig,
+              let inputHost = inputURL.host?.lowercased(),
+              resolvedConfig.allowedHosts.contains(inputHost) else {
+            Log.warning("AssetURLResolver: Cannot extract key from non-allowed host: \(inputURL.host ?? "nil")")
+            return nil
         }
 
-        // For any other URL (including unknown legacy URLs), extract lastPathComponent as key
-        // This allows migration from legacy URLs we don't know about yet
-        let key = inputURL.lastPathComponent
+        // Extract full path as key and sanitize
+        let key = inputURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !key.isEmpty else { return nil }
-
-        // Sanitize the extracted key
         return sanitizeAssetKey(key)
     }
 }
