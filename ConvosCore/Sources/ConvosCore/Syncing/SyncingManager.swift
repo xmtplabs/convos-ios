@@ -49,7 +49,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     enum State: Sendable {
         case idle
-        case starting(SyncClientParams)
+        case starting(SyncClientParams, pauseOnComplete: Bool)
         case ready(SyncClientParams)
         case paused(SyncClientParams)
         case stopping
@@ -59,7 +59,7 @@ actor SyncingManager: SyncingManagerProtocol {
             switch self {
             case .idle, .stopping, .error:
                 return nil
-            case .starting(let params),
+            case .starting(let params, _),
                  .ready(let params),
                  .paused(let params):
                 return params.client
@@ -70,7 +70,7 @@ actor SyncingManager: SyncingManagerProtocol {
             switch self {
             case .idle, .stopping, .error:
                 return nil
-            case .starting(let params),
+            case .starting(let params, _),
                  .ready(let params),
                  .paused(let params):
                 return params.apiClient
@@ -97,7 +97,6 @@ actor SyncingManager: SyncingManagerProtocol {
     private var actionQueue: [Action] = []
     private var isProcessing: Bool = false
     private var currentTask: Task<Void, Never>?
-    private var pauseRequestedDuringStarting: Bool = false
 
     // Notification handling
     private var notificationObservers: [NSObjectProtocol] = []
@@ -202,6 +201,14 @@ actor SyncingManager: SyncingManagerProtocol {
                 // Already starting - ignore duplicate start
                 Log.info("Already starting, ignoring duplicate start request")
 
+            case let (.starting(stateParams, pauseOnComplete), .syncComplete(actionParams)):
+                // Validate this syncComplete is for the current starting session
+                guard stateParams.client.inboxId == actionParams.client.inboxId else {
+                    Log.info("Ignoring stale syncComplete for old session (expected \(stateParams.client.inboxId), got \(actionParams.client.inboxId))")
+                    break
+                }
+                try await handleSyncComplete(params: actionParams, pauseOnComplete: pauseOnComplete)
+
             case let (.ready(readyParams), .start(startParams)):
                 if readyParams.client.inboxId != startParams.client.inboxId {
                     // stop first, then start
@@ -223,23 +230,21 @@ actor SyncingManager: SyncingManagerProtocol {
                 // Recover from error by starting fresh
                 try await handleStart(client: params.client, apiClient: params.apiClient)
 
-            case (.starting, .syncComplete(let params)):
-                try await handleSyncComplete(client: params.client, apiClient: params.apiClient)
-
             case (.ready, .pause):
                 try await handlePause()
 
             case (.paused, .resume):
                 try await handleResume()
 
-            case (.starting, .pause):
-                // Pause requested during starting - will pause once ready
-                Log.info("Pause requested while starting - will pause once ready")
-                pauseRequestedDuringStarting = true
+            case (.starting(let params, _), .pause):
+                // Pause requested during starting - will pause once sync completes
+                Log.info("Pause requested while starting - will pause once sync completes")
+                emitStateChange(.starting(params, pauseOnComplete: true))
 
-            case (.starting, .resume):
-                // Can't resume while starting
-                Log.info("Cannot resume while starting")
+            case (.starting(let params, _), .resume):
+                // User changed their mind - cancel the pending pause
+                Log.info("Resume requested while starting - cancelling pending pause")
+                emitStateChange(.starting(params, pauseOnComplete: false))
 
             case (.ready, .stop), (.paused, .stop), (.error, .stop), (.starting, .stop):
                 try await handleStop()
@@ -247,6 +252,11 @@ actor SyncingManager: SyncingManagerProtocol {
             case (.idle, .stop), (.stopping, _):
                 // Already idle or stopping, ignore
                 break
+
+            case (.idle, .syncComplete(_)):
+                // Sync completed but stop was already processed - ignore
+                // This can happen if syncAllConversations completes just before cancellation
+                Log.info("Sync completed after stop - ignoring")
 
             default:
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
@@ -272,7 +282,6 @@ actor SyncingManager: SyncingManagerProtocol {
             }
 
             Log.error("Failed state transition \(_state) -> \(action): \(error.localizedDescription)")
-            pauseRequestedDuringStarting = false // Reset flag on error
             emitStateChange(.error(error))
         }
     }
@@ -285,8 +294,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private func handleStart(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
         let params = SyncClientParams(client: client, apiClient: apiClient)
-        pauseRequestedDuringStarting = false // Reset flag when starting
-        emitStateChange(.starting(params))
+        emitStateChange(.starting(params, pauseOnComplete: false))
 
         // Setup notifications if not already done
         if notificationObservers.isEmpty {
@@ -316,21 +324,22 @@ actor SyncingManager: SyncingManagerProtocol {
                 try Task.checkCancellation()
                 _ = try await client.conversationsProvider.syncAllConversations(consentStates: consentStates)
                 try Task.checkCancellation()
-                // Check if pause was requested during starting and handle transition
-                await self.handleSyncCompleteTransition(params: params)
+                // Route sync completion through the action queue for consistent state transitions
+                await self.enqueueAction(.syncComplete(params))
             } catch is CancellationError {
                 Log.info("syncAllConversations cancelled")
             } catch {
                 Log.error("syncAllConversations failed: \(error)")
-                await self.handleSyncError(error: error)
+                // Transition to ready state anyway - streams are already running
+                // and will continue to receive updates. The initial sync failure
+                // shouldn't block the app from functioning.
+                await self.enqueueAction(.syncComplete(params))
             }
         }
     }
 
-    private func handleSyncCompleteTransition(params: SyncClientParams) async {
-        // Check if pause was requested during starting
-        if pauseRequestedDuringStarting {
-            pauseRequestedDuringStarting = false
+    private func handleSyncComplete(params: SyncClientParams, pauseOnComplete: Bool) async throws {
+        if pauseOnComplete {
             // Cancel streams before transitioning to paused
             messageStreamTask?.cancel()
             conversationStreamTask?.cancel()
@@ -350,20 +359,6 @@ actor SyncingManager: SyncingManagerProtocol {
             emitStateChange(.ready(params))
             Log.info("syncAllConversations completed, sync ready")
         }
-    }
-
-    private func handleSyncError(error: Error) async {
-        pauseRequestedDuringStarting = false
-        emitStateChange(.error(error))
-    }
-
-    private func handleSyncComplete(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
-        // This method is no longer used in the normal flow
-        // Streams are started in handleStart, and syncAllConversations is called there too
-        // Keeping this method for backwards compatibility but it shouldn't be called
-        Log.warning("handleSyncComplete called but should not be used in current flow")
-        let params = SyncClientParams(client: client, apiClient: apiClient)
-        emitStateChange(.ready(params))
     }
 
     private func handlePause() async throws {

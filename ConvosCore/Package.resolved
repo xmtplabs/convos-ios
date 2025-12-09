@@ -1,5 +1,5 @@
 {
-  "originHash" : "0e55686a1ce2a3e666bf6b5036e0d4a78414829c36e2840dadf26d6918fa6fae",
+  "originHash" : "7263024c16b32d6ffb00125beb27911ac5c4ae6591c206fd0d1d975beb5632f3",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/bufbuild/connect-swift",
       "state" : {
-        "revision" : "a8c984a1077f78e94e0884c5c11683a7f684f92c",
-        "version" : "1.0.0"
+        "revision" : "8ff57dad962668357af2959fdd63868682f3053e",
+        "version" : "1.2.0"
       }
     },
     {
@@ -44,15 +44,6 @@
       "state" : {
         "revision" : "cfbd6f540d5084bc96a60af841121472fbe725a3",
         "version" : "0.2.0"
-      }
-    },
-    {
-      "identity" : "differencekit",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/ra1028/DifferenceKit.git",
-      "state" : {
-        "revision" : "073b9671ce2b9b5b96398611427a1f929927e428",
-        "version" : "1.3.0"
       }
     },
     {
@@ -254,21 +245,12 @@
       }
     },
     {
-      "identity" : "swiftui-introspect",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/siteline/swiftui-introspect.git",
-      "state" : {
-        "revision" : "9bedf1e79c7b7c34b35b74bef126f56d2400ef7f",
-        "version" : "1.4.0-beta.4"
-      }
-    },
-    {
       "identity" : "xmtp-ios",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/xmtp-ios.git",
       "state" : {
-        "revision" : "62abf4fa52957b11f711f0b4db6bd7f8a88970a4",
-        "version" : "4.7.0-dev.62abf4f"
+        "revision" : "59c17403741f5b8e49fdb7f0f846561aad15b0a7",
+        "version" : "4.6.7"
       }
     }
   ],

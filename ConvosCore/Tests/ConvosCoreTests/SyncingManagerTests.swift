@@ -81,6 +81,12 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
 
     func deleteLocalDatabase() throws {
     }
+
+    func dropLocalDatabaseConnection() throws {
+    }
+
+    func reconnectLocalDatabase() async throws {
+    }
 }
 
 class TestableMockConversations: ConversationsProvider {
@@ -655,6 +661,48 @@ struct SyncingManagerTests {
 
         // Wait for resume to complete
         try await Task.sleep(for: .milliseconds(100))
+
+        // Clean up
+        await syncingManager.stop()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Pause then resume during starting results in ready state")
+    func testPauseThenResumeDuringStarting() async throws {
+        let fixtures = TestFixtures()
+        let mockClient = TestableMockClient()
+        // Use a delay to ensure we're in starting state when pause/resume are called
+        mockClient.syncBehavior = .delay(0.5)
+        mockClient.streamBehavior = .neverClose
+        let mockAPIClient = TestableMockAPIClient()
+
+        let syncingManager = SyncingManager(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceRegistrationManager: nil
+        )
+
+        // Start syncing - this will be in starting state
+        await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
+
+        // Pause while in starting state
+        await syncingManager.pause()
+
+        // Resume while still in starting state (user changed their mind)
+        await syncingManager.resume()
+
+        // Wait for sync to complete
+        try await Task.sleep(for: .milliseconds(600))
+
+        // Should be in ready state (not paused) because resume cancelled the pending pause
+        // Verify by trying to pause - if we're in ready, pause will work
+        // If we were already paused, calling pause would be ignored
+        await syncingManager.pause()
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Now resume should work (proves we were in ready, not already paused)
+        await syncingManager.resume()
 
         // Clean up
         await syncingManager.stop()

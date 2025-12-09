@@ -386,7 +386,7 @@ public actor InboxStateMachine {
 
             // Ignore lifecycle events when not in appropriate state
             case (_, .enterBackground), (_, .enterForeground):
-                break
+                Log.info("Ignoring lifecycle event for transition: \(_state) -> \(action)")
 
             default:
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
