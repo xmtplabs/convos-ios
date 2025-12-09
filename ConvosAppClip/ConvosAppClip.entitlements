@@ -8,7 +8,9 @@
 	<array>
 		<string>webcredentials:$(WEB_CREDENTIALS_DOMAIN)</string>
 		<string>applinks:$(ASSOCIATED_DOMAIN)</string>
+		<string>applinks:$(SECONDARY_ASSOCIATED_DOMAIN)</string>
 		<string>appclips:$(ASSOCIATED_DOMAIN)</string>
+		<string>appclips:$(SECONDARY_ASSOCIATED_DOMAIN)</string>
 	</array>
 	<key>com.apple.developer.parent-application-identifiers</key>
 	<array>
