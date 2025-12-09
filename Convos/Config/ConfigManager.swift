@@ -160,7 +160,10 @@ final class ConfigManager {
 
     /// Associated domain from config (matches ASSOCIATED_DOMAIN from xcconfig)
     var associatedDomain: String {
-        associatedDomains.first!
+        guard let domain = associatedDomains.first else {
+            fatalError("associatedDomains is empty")
+        }
+        return domain
     }
 
     /// All associated domains from config (primary first).
