@@ -81,13 +81,13 @@ public final class AssetURLResolver: @unchecked Sendable {
         let baseURL = cdnBaseURL
         lock.unlock()
 
-        // Check if it matches our CDN
-        if let baseURL, urlString.hasPrefix(baseURL) {
-            var key = String(urlString.dropFirst(baseURL.count))
-            // Remove leading slash if present
-            if key.hasPrefix("/") {
-                key = String(key.dropFirst())
-            }
+        // Check if it matches our CDN using proper URL parsing to prevent spoofed domains
+        if let baseURL,
+           let cdnURL = URL(string: baseURL),
+           let inputURL = URL(string: urlString),
+           inputURL.host == cdnURL.host,
+           inputURL.scheme == cdnURL.scheme {
+            let key = inputURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             return key.isEmpty ? nil : key
         }
 
