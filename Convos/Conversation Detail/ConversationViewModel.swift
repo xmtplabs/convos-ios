@@ -89,7 +89,12 @@ class ConversationViewModel {
     var conversationDescription: String {
         isEditingDescription ? editingDescription : conversation.description ?? ""
     }
-    var conversationImage: UIImage?
+    var conversationImage: UIImage? {
+        didSet {
+            isConversationImageDirty = true
+        }
+    }
+    var isConversationImageDirty: Bool = false
     var messageText: String = "" {
         didSet {
             sendButtonEnabled = !messageText.isEmpty
@@ -125,6 +130,9 @@ class ConversationViewModel {
 
     @ObservationIgnored
     private var joinFromInviteTask: Task<Void, Never>?
+
+    @ObservationIgnored
+    private var loadConversationImageTask: Task<Void, Never>?
 
     // MARK: - Init
 
@@ -237,12 +245,52 @@ class ConversationViewModel {
             .receive(on: DispatchQueue.main)
             .compactMap { $0 }
             .sink { [weak self] conversation in
-                if let imageURL = conversation.imageURL {
-                    self?.conversationImage = ImageCache.shared.image(for: imageURL)
-                }
-                self?.conversation = conversation
+                guard let self else { return }
+                self.conversation = conversation
+                self.loadConversationImage(for: conversation)
             }
             .store(in: &cancellables)
+    }
+
+    private func loadConversationImage(for conversation: Conversation) {
+        guard !isConversationImageDirty else { return }
+        guard let imageURL = conversation.imageURL else { return }
+
+        if let cachedImage = ImageCache.shared.image(for: imageURL) {
+            conversationImage = cachedImage
+            isConversationImageDirty = false
+            return
+        }
+
+        loadConversationImageTask?.cancel()
+        loadConversationImageTask = Task { [weak self] in
+            guard let self else { return }
+
+            let cachedImage = await ImageCache.shared.imageAsync(for: imageURL)
+            if let cachedImage {
+                guard !Task.isCancelled, !self.isConversationImageDirty else { return }
+                self.conversationImage = cachedImage
+                self.isConversationImageDirty = false
+                return
+            }
+
+            do {
+                let (data, _) = try await URLSession.shared.data(from: imageURL)
+                guard !Task.isCancelled else { return }
+                guard let image = UIImage(data: data) else { return }
+
+                ImageCache.shared.setImage(image, for: imageURL.absoluteString)
+                ImageCache.shared.setImage(image, for: conversation)
+
+                guard !self.isConversationImageDirty else { return }
+                self.conversationImage = image
+                self.isConversationImageDirty = false
+            } catch {
+                if !Task.isCancelled {
+                    Log.error("Error loading conversation image: \(error)")
+                }
+            }
+        }
     }
 
     // MARK: - Public
@@ -283,8 +331,9 @@ class ConversationViewModel {
             }
         }
 
-        if let conversationImage = conversationImage {
+        if isConversationImageDirty, let conversationImage = conversationImage {
             ImageCache.shared.setImage(conversationImage, for: conversation)
+            isConversationImageDirty = false
 
             Task { [weak self] in
                 guard let self else { return }
@@ -338,6 +387,12 @@ class ConversationViewModel {
         isEditingDescription = false
         editingConversationName = conversation.name ?? ""
         editingDescription = conversation.description ?? ""
+        if let imageURL = conversation.imageURL {
+            conversationImage = ImageCache.shared.image(for: imageURL)
+        } else {
+            conversationImage = nil
+        }
+        isConversationImageDirty = false
     }
 
     func onProfilePhotoTap(focusCoordinator: FocusCoordinator) {
