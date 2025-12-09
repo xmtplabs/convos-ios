@@ -162,6 +162,15 @@ public enum AppEnvironment: Sendable {
         }
     }
 
+    public var allowedAssetHosts: [String] {
+        switch self {
+        case .local(config: let config), .dev(config: let config), .production(config: let config):
+            return config.allowedAssetHosts
+        case .tests:
+            return []
+        }
+    }
+
     public var apnsEnvironment: ApnsEnvironment {
         switch buildEnvironment {
         case .simulator:
