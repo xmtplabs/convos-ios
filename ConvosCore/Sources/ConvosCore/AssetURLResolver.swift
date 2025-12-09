@@ -104,8 +104,12 @@ public final class AssetURLResolver: Sendable {
         }
 
         // Build URL using the primary CDN
-        let fullURL = resolvedConfig.primaryBaseURL.appendingPathComponent(cleanKey)
-        return fullURL
+        // Append each path component separately to preserve slashes in multi-segment keys
+        var url = resolvedConfig.primaryBaseURL
+        for component in cleanKey.split(separator: "/") {
+            url.appendPathComponent(String(component))
+        }
+        return url
     }
 
     /// Sanitizes an asset key, returning nil if invalid
