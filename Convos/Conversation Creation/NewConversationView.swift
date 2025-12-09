@@ -87,6 +87,7 @@ struct NewConversationView: View {
                 }
                 .selfSizingSheet(item: $viewModel.displayError) { error in
                     InfoView(title: error.title, description: error.description)
+                        .background(.colorBackgroundRaised)
                 }
             }
         }

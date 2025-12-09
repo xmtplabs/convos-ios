@@ -89,7 +89,7 @@ struct ConversationOnboardingView: View {
                 coordinator.onContinueFromWhatIsQuickname()
             }
             .interactiveDismissDisabled()
-            .background(.colorBackgroundPrimary)
+            .background(.colorBackgroundRaised)
         }
     }
 }

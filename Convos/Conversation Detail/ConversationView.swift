@@ -77,6 +77,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ConversationForkedInfoView {
                 viewModel.leaveConvo()
             }
+            .background(.colorBackgroundRaised)
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
             MyInfoView(
