@@ -5,6 +5,9 @@
   "bundleId": "org.convos.ios",
   "appGroupIdentifier": "group.org.convos.ios",
   "relyingPartyIdentifier": "convos.org",
-  "associatedDomain": "popup.convos.org",
+  "associatedDomains": [
+    "popup.convos.org",
+    "app.convos.org"
+  ],
   "appUrlScheme": "convos"
 }

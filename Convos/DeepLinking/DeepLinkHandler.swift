@@ -31,7 +31,7 @@ final class DeepLinkHandler {
             return false
         }
 
-        // Check against the configured associated domain
-        return host == ConfigManager.shared.associatedDomain
+        // Check against all configured associated domains
+        return ConfigManager.shared.associatedDomains.contains(host)
     }
 }

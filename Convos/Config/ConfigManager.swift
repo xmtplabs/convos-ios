@@ -160,10 +160,19 @@ final class ConfigManager {
 
     /// Associated domain from config (matches ASSOCIATED_DOMAIN from xcconfig)
     var associatedDomain: String {
-        guard let domain = config["associatedDomain"] as? String else {
-            fatalError("Missing 'associatedDomain' in config.json")
+        associatedDomains.first!
+    }
+
+    /// All associated domains from config (primary first).
+    /// Supports new `associatedDomains` array, but falls back to legacy single `associatedDomain` string.
+    var associatedDomains: [String] {
+        if let domains = config["associatedDomains"] as? [String], !domains.isEmpty {
+            return domains
         }
-        return domain
+        if let single = config["associatedDomain"] as? String {
+            return [single]
+        }
+        fatalError("Missing 'associatedDomains' or 'associatedDomain' in config.json")
     }
 
     /// App URL scheme from config
