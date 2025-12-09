@@ -1,7 +1,7 @@
 {
   "environment": "production",
   "backendUrl": "https://api.prod.convos.xyz/api",
-  "assetsCdnUrl": "https://d51djp6swedyt.cloudfront.net",
+  "assetsCdnUrl": "https://assets.prod.convos.xyz",
   "xmtpNetwork": "production",
   "bundleId": "org.convos.ios",
   "appGroupIdentifier": "group.org.convos.ios",
