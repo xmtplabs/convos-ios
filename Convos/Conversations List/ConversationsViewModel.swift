@@ -3,6 +3,7 @@ import ConvosCore
 import Foundation
 import Observation
 import SwiftUI
+import UIKit
 
 @MainActor
 @Observable
@@ -337,6 +338,20 @@ final class ConversationsViewModel {
                 if let selectedId = _selectedConversationId,
                    !conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
+                }
+            }
+            .store(in: &cancellables)
+
+        // Mark active conversation as read when app becomes active
+        NotificationCenter.default
+            .publisher(for: UIApplication.didBecomeActiveNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if let conversation = self.selectedConversationViewModel?.conversation {
+                    self.markConversationAsRead(conversation)
+                } else if let conversation = self.newConversationViewModel?.conversationViewModel.conversation {
+                    self.markConversationAsRead(conversation)
                 }
             }
             .store(in: &cancellables)
