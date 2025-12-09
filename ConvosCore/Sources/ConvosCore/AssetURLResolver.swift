@@ -1,4 +1,5 @@
 import Foundation
+import os
 
 /// Resolves asset keys to full CDN URLs
 ///
@@ -8,20 +9,19 @@ import Foundation
 /// Example:
 /// - Stored key: `a75e060a-1694-41de-8e6d-ca28a12fc62f.jpeg`
 /// - Full URL: `https://d32k96dpvyy43a.cloudfront.net/a75e060a-1694-41de-8e6d-ca28a12fc62f.jpeg`
-public final class AssetURLResolver: @unchecked Sendable {
-    public static let shared: AssetURLResolver = AssetURLResolver()
+public final class AssetURLResolver: Sendable {
+    public static let shared = AssetURLResolver()
 
-    private var cdnBaseURL: String?
-    private let lock: NSLock = NSLock()
+    private let cdnBaseURL: OSAllocatedUnfairLock<String?>
 
-    private init() {}
+    private init() {
+        self.cdnBaseURL = OSAllocatedUnfairLock(initialState: nil)
+    }
 
     /// Configure the resolver with the CDN base URL (without trailing slash)
     /// Call this once at app startup with the environment's assetsCdnUrl
     public func configure(cdnBaseURL: String?) {
-        lock.lock()
-        defer { lock.unlock() }
-        self.cdnBaseURL = cdnBaseURL
+        self.cdnBaseURL.withLock { $0 = cdnBaseURL }
     }
 
     /// Resolves an asset value to a full URL
@@ -39,15 +39,12 @@ public final class AssetURLResolver: @unchecked Sendable {
         }
 
         // If already a full URL, return it directly
-        if assetValue.hasPrefix("http://") || assetValue.hasPrefix("https://") {
-            return URL(string: assetValue)
+        if let url = URL(string: assetValue), url.scheme != nil {
+            return url
         }
 
         // Otherwise, it's an asset key - prepend the CDN base URL
-        lock.lock()
-        let baseURL = cdnBaseURL
-        lock.unlock()
-
+        let baseURL = cdnBaseURL.withLock { $0 }
         guard let baseURL, !baseURL.isEmpty else {
             // No CDN configured (local environment) - can't resolve
             Log.warning("AssetURLResolver: No CDN configured, cannot resolve asset key: \(assetValue)")
@@ -73,17 +70,11 @@ public final class AssetURLResolver: @unchecked Sendable {
         }
 
         // If it's not a full URL, assume it's already an asset key
-        guard urlString.hasPrefix("http://") || urlString.hasPrefix("https://") else {
+        guard let inputURL = URL(string: urlString), inputURL.scheme != nil else {
             return urlString
         }
 
-        lock.lock()
-        let baseURL = cdnBaseURL
-        lock.unlock()
-
-        guard let inputURL = URL(string: urlString) else {
-            return nil
-        }
+        let baseURL = cdnBaseURL.withLock { $0 }
 
         // Check if it matches our current CDN - extract full path as key
         if let baseURL,
