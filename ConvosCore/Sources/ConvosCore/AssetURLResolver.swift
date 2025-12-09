@@ -81,26 +81,22 @@ public final class AssetURLResolver: @unchecked Sendable {
         let baseURL = cdnBaseURL
         lock.unlock()
 
-        // Check if it matches our CDN using proper URL parsing to prevent spoofed domains
+        guard let inputURL = URL(string: urlString) else {
+            return nil
+        }
+
+        // Check if it matches our current CDN - extract full path as key
         if let baseURL,
            let cdnURL = URL(string: baseURL),
-           let inputURL = URL(string: urlString),
            inputURL.host == cdnURL.host,
            inputURL.scheme == cdnURL.scheme {
             let key = inputURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             return key.isEmpty ? nil : key
         }
 
-        // Check for legacy S3 URLs and extract just the filename/key
-        // Pattern: https://convos-assets-*.s3.*.amazonaws.com/{key}
-        if urlString.contains("s3.") && urlString.contains("amazonaws.com") {
-            if let url = URL(string: urlString) {
-                let key = url.lastPathComponent
-                return key.isEmpty ? nil : key
-            }
-        }
-
-        // Not a recognized CDN URL - return nil to keep the full URL
-        return nil
+        // For any other URL (including legacy S3), extract lastPathComponent as key
+        // This allows old S3 URLs to be migrated to our new CDN
+        let key = inputURL.lastPathComponent
+        return key.isEmpty ? nil : key
     }
 }
