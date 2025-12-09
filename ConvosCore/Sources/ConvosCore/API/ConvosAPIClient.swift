@@ -358,7 +358,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
 
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
-        Log.info("Received presigned URL: \(presignedResponse.url)")
+        Log.info("Received presigned URL from Convos API")
 
         // Step 2: Upload directly to S3 using presigned URL
         // The asset key is the filename we passed in
