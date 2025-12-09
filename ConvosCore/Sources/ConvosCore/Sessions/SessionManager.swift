@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import GRDB
+import UIKit
 import UserNotifications
 
 public extension Notification.Name {
@@ -25,6 +26,7 @@ enum SessionManagerError: Error {
 public final class SessionManager: SessionManagerProtocol {
     private var leftConversationObserver: Any?
     private var activeConversationObserver: Any?
+    private var foregroundObserverTask: Task<Void, Never>?
 
     // Thread-safe access to messaging services
     private let serviceQueue: DispatchQueue = DispatchQueue(label: "com.convos.sessionmanager.services")
@@ -39,6 +41,7 @@ public final class SessionManager: SessionManagerProtocol {
     private var unusedInboxPrepTask: Task<Void, Never>?
     private let deviceRegistrationManager: any DeviceRegistrationManagerProtocol
     private let unusedInboxCache: UnusedInboxCache
+    private let notificationChangeReporter: any NotificationChangeReporterType
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
@@ -53,6 +56,7 @@ public final class SessionManager: SessionManagerProtocol {
         self.unusedInboxCache = unusedInboxCache ?? UnusedInboxCache(
             identityStore: identityStore
         )
+        self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
         observe()
 
         initializationTask = Task { [weak self] in
@@ -89,6 +93,7 @@ public final class SessionManager: SessionManagerProtocol {
     deinit {
         initializationTask?.cancel()
         unusedInboxPrepTask?.cancel()
+        foregroundObserverTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -147,6 +152,17 @@ public final class SessionManager: SessionManagerProtocol {
     }
 
     private func observe() {
+        // Observe foreground notifications to refresh GRDB observers with changes from notification extension
+        foregroundObserverTask = Task { [weak self] in
+            let foregroundNotifications = NotificationCenter.default.notifications(
+                named: UIApplication.willEnterForegroundNotification
+            )
+            for await _ in foregroundNotifications {
+                guard let self else { return }
+                self.notificationChangeReporter.notifyChangesInDatabase()
+            }
+        }
+
         // Clear active conversation when a conversation is left/exploded
         leftConversationObserver = NotificationCenter.default
             .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { [weak self] notification in
@@ -293,7 +309,7 @@ public final class SessionManager: SessionManagerProtocol {
         ConversationsCountRepository(databaseReader: databaseReader, consent: consent, kinds: kinds)
     }
 
-    // MARK: Notification Display Logic
+    // MARK: Notifications
 
     public func shouldDisplayNotification(for conversationId: String) async -> Bool {
         let currentActiveConversationId = serviceQueue.sync { activeConversationId }
@@ -311,6 +327,12 @@ public final class SessionManager: SessionManagerProtocol {
         }
         return true
     }
+
+    public func notifyChangesInDatabase() {
+        notificationChangeReporter.notifyChangesInDatabase()
+    }
+
+    // MARK: Helpers
 
     public func inboxId(for conversationId: String) async -> String? {
         do {
