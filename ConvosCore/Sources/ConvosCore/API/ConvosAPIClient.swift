@@ -363,7 +363,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         // Step 2: Upload directly to S3 using presigned URL
         // The asset key is the filename we passed in
         guard let s3URL = URL(string: presignedResponse.url) else {
-            Log.error("Invalid presigned URL: \(presignedResponse.url)")
+            Log.error("Invalid presigned URL received")
             throw APIError.invalidURL
         }
 
@@ -372,7 +372,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         s3Request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         s3Request.httpBody = data
 
-        Log.info("Uploading to S3: \(s3URL.absoluteString)")
+        Log.info("Uploading to S3: \(s3URL.host ?? "unknown")\(s3URL.path)")
         Log.info("S3 upload data size: \(data.count) bytes")
         Log.info("S3 request headers: \(s3Request.allHTTPHeaderFields ?? [:])")
 
