@@ -2,44 +2,29 @@ import SwiftUI
 
 struct ConversationForkedInfoView: View {
     let onDelete: () -> Void
-    @Environment(\.dismiss) var dismiss: DismissAction
+    @Environment(\.openURL) private var openURL: OpenURLAction
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step6x) {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                Text("Get a new room")
+                Text("Error 01")
+                    .textCase(.uppercase)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+
+                Text("Network issue")
                     .font(.system(.largeTitle))
                     .fontWeight(.bold)
                     .padding(.bottom, DesignConstants.Spacing.step4x)
 
-                Text("A key is out of date, so this convo can’t continue correctly. Please delete it and start a new one.")
+                Text("Convos has detected a problem with the messaging network.")
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
 
-                Text("All data remains securely encrypted.")
+                Text("Everything is secure, but this convo can’t continue correctly. Please delete it and pop up a new one.")
                     .font(.body)
                     .foregroundStyle(.colorTextSecondary)
             }
-
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                Text("Current keys guarantee security")
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
-
-                // swiftlint:disable:next line_length
-                Text("Convos constantly confirms that all participants hold up-to-date cryptographic keys. If a member’s keys aren’t current, they cannot decrypt new messages nor updates, so their experience is degraded.")
-                    .font(.body)
-                    .foregroundStyle(.colorTextSecondary)
-            }
-
-            VStack {
-                Text("For privacy, Convos tracks zero app activity, including errors. Please let us know by screenshotting this and tag @convosmessenger on social.")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-                    .padding(DesignConstants.Spacing.step4x)
-            }
-            .background(.colorFillMinimal)
-            .mask(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {
@@ -53,16 +38,16 @@ struct ConversationForkedInfoView: View {
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {
-                    dismiss()
+                    // swiftlint:disable:next force_unwrapping
+                    openURL(URL(string: "https://learn.convos.org/error-01")!)
                 } label: {
-                    Text("Ignore")
+                    Text("Learn more")
                 }
                 .convosButtonStyle(.text)
                 .frame(maxWidth: .infinity)
             }
         }
         .padding(DesignConstants.Spacing.step10x)
-        .background(.colorBackgroundPrimary)
     }
 }
 
