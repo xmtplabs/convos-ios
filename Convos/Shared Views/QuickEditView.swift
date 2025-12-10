@@ -51,7 +51,6 @@ struct QuickEditView: View {
             .multilineTextAlignment(.leading)
             .truncationMode(.tail)
             .submitLabel(.done)
-            .frame(minWidth: 166.0)
             .frame(height: 52.0)
             .safeAreaInset(edge: .trailing) {
                 if showsSettingsButton {

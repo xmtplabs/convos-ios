@@ -32,7 +32,7 @@ final class ConversationsViewModel {
     }
 
     // Computed property derived from selectedConversationId
-    var selectedConversation: Conversation? {
+    private(set) var selectedConversation: Conversation? {
         get {
             guard let id = _selectedConversationId else { return nil }
             return conversations.first(where: { $0.id == id })

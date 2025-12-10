@@ -81,8 +81,7 @@ private struct ConversationInfoButtonWrapper: View {
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
-            isExploding: viewModel.isExploding,
-            explodeError: viewModel.explodeError,
+            explodeState: viewModel.explodeState,
             onConversationInfoTapped: { viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator) },
             onConversationNameEndedEditing: {
                 viewModel.onConversationNameEndedEditing(

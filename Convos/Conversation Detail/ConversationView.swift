@@ -72,6 +72,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         )
+        .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
             ConversationForkedInfoView {

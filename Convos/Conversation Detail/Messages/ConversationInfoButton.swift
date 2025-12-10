@@ -12,8 +12,7 @@ struct ConversationInfoButton<InfoView: View>: View {
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator?
     let showsExplodeNowButton: Bool
-    let isExploding: Bool
-    let explodeError: String?
+    let explodeState: ExplodeState
     let onConversationInfoTapped: () -> Void
     let onConversationNameEndedEditing: () -> Void
     let onConversationSettings: () -> Void
@@ -60,33 +59,8 @@ struct ConversationInfoButton<InfoView: View>: View {
                         )
 
                         if showsExplodeNowButton {
-                            VStack(spacing: DesignConstants.Spacing.step2x) {
-                                Button {
-                                    showingExplodeConfirmation = true
-                                } label: {
-                                    Text(isExploding ? "Exploding..." : "Explode now")
-                                }
-                                .buttonStyle(RoundedDestructiveButtonStyle(fullWidth: true))
-                                .disabled(isExploding)
-                                .confirmationDialog(
-                                    "",
-                                    isPresented: $showingExplodeConfirmation
-                                ) {
-                                    Button("Explode", role: .destructive) {
-                                        onExplodeNow()
-                                    }
-
-                                    Button("Cancel") {
-                                        showingExplodeConfirmation = false
-                                    }
-                                }
-
-                                if let explodeError {
-                                    Text(explodeError)
-                                        .font(.caption)
-                                        .foregroundColor(.red)
-                                        .multilineTextAlignment(.center)
-                                }
+                            ExplodeButton(state: explodeState) {
+                                onExplodeNow()
                             }
                         }
                     }
@@ -149,8 +123,7 @@ struct ConversationInfoButton<InfoView: View>: View {
         focusState: $focusState,
         focusCoordinator: focusCoordinator,
         showsExplodeNowButton: true,
-        isExploding: false,
-        explodeError: nil,
+        explodeState: .ready,
         onConversationInfoTapped: {
             focusCoordinator?.moveFocus(to: .conversationName)
         },

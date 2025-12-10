@@ -105,8 +105,7 @@ class ConversationViewModel {
     var sendButtonEnabled: Bool {
         !messageText.isEmpty
     }
-    var isExploding: Bool = false
-    var explodeError: String?
+    var explodeState: ExplodeState = .ready
 
     var presentingConversationSettings: Bool = false
     var presentingProfileSettings: Bool = false
@@ -503,10 +502,9 @@ class ConversationViewModel {
 
     func explodeConvo() {
         guard canRemoveMembers else { return }
-        guard !isExploding else { return }
+        guard case .ready = explodeState else { return }
 
-        isExploding = true
-        explodeError = nil
+        explodeState = .exploding
 
         Task { [weak self] in
             guard let self else { return }
@@ -529,6 +527,10 @@ class ConversationViewModel {
                 }
                 Log.info("ExplodeSettings message sent successfully")
 
+                await MainActor.run {
+                    self.explodeState = .exploded
+                }
+
                 guard case .group(let group) = xmtpConversation else {
                     throw ExplodeConvoError.notGroupConversation
                 }
@@ -548,15 +550,13 @@ class ConversationViewModel {
 
                 await MainActor.run {
                     self.presentingConversationSettings = false
-                    self.isExploding = false
                     self.conversation.postLeftConversationNotification()
                 }
                 Log.info("Explode complete, inbox deletion triggered")
             } catch {
                 Log.error("Error exploding convo: \(error.localizedDescription)")
                 await MainActor.run {
-                    self.isExploding = false
-                    self.explodeError = "Explode failed."
+                    self.explodeState = .error("Explode failed")
                 }
             }
         }

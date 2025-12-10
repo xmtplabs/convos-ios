@@ -90,8 +90,6 @@ extension XMTPiOS.DecodedMessage {
         }
 
         let isContentEmoji = contentString.allCharactersEmoji
-        let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
-
         // try and decode the text as an invite
         if !isContentEmoji, let invite = MessageInvite.from(text: contentString) {
             return DBMessageComponents(
@@ -105,6 +103,7 @@ extension XMTPiOS.DecodedMessage {
                 update: nil
             )
         } else {
+            let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
             return DBMessageComponents(
                 messageType: .original,
                 contentType: isContentEmoji ? .emoji : .text,

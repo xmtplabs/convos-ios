@@ -186,6 +186,7 @@
 				"Conversation Detail/ConversationShareView.swift",
 				"Conversation Detail/ConversationView.swift",
 				"Conversation Detail/ConversationViewModel.swift",
+				"Conversation Detail/ExplodeButton.swift",
 				"Conversation Detail/Messages/ConversationInfoButton.swift",
 				"Conversation Detail/Messages/Messages Collection Layout/Extensions/CGRect+Extension.swift",
 				"Conversation Detail/Messages/Messages Collection Layout/Extensions/RandomAccessCollection+Extension.swift",
@@ -1564,7 +1565,7 @@
 				ENABLE_TESTABILITY = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Convos/Config/Info.Dev.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Convos Dev";
+				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -1842,7 +1843,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = Convos/Config/Info.Local.plist;
-				INFOPLIST_KEY_CFBundleDisplayName = "Convos Local";
+				INFOPLIST_KEY_CFBundleDisplayName = Convos;
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
