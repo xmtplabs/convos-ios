@@ -23,7 +23,8 @@ struct ConvosApp: App {
                 logLevel: .debug,
                 rotationSchedule: .hourly,
                 maxFiles: 10,
-                customLogDirectory: environment.defaultXMTPLogsDirectoryURL
+                customLogDirectory: environment.defaultXMTPLogsDirectoryURL,
+                processType: .main
             )
         }
         Log.info("App starting with environment: \(environment)")

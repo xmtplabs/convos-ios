@@ -20,7 +20,8 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
                 logLevel: .debug,
                 rotationSchedule: .hourly,
                 maxFiles: 10,
-                customLogDirectory: environment.defaultXMTPLogsDirectoryURL
+                customLogDirectory: environment.defaultXMTPLogsDirectoryURL,
+                processType: .notificationExtension
             )
         }
 
