@@ -758,23 +758,6 @@ public actor InboxStateMachine {
 
         try Task.checkCancellation()
 
-        // Revoke installation if identity is available
-        if let identity = try? await identityStore.identity(for: client.inboxId) {
-            let keys = identity.clientKeys
-            do {
-                try await client.revokeInstallations(
-                    signingKey: keys.signingKey,
-                    installationIds: [client.installationId]
-                )
-            } catch {
-                Log.error("Failed revoking installation: \(error.localizedDescription)")
-            }
-        } else {
-            Log.warning("Identity not found, skipping revoking installation...")
-        }
-
-        try Task.checkCancellation()
-
         // Clean up all database records for this inbox
         try await cleanupInboxData(clientId: clientId)
 
