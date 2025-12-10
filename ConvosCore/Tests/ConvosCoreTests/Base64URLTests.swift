@@ -75,8 +75,8 @@ struct Base64URLTests {
             #expect(!encoded.contains("/"))
             #expect(!encoded.contains("="))
 
-            // Should only contain base64url chars
-            let validChars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+            // Should only contain base64url chars (plus * separator for iMessage compatibility)
+            let validChars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_*")
             #expect(encoded.rangeOfCharacter(from: validChars.inverted) == nil)
         }
     }
@@ -177,7 +177,7 @@ struct Base64URLTests {
             "ABC%", // % is not base64
             "ABC^", // ^ is not base64
             "ABC&", // & is not base64
-            "ABC*", // * is not base64
+            // Note: "*" is now a valid separator for iMessage compatibility (gets stripped before decoding)
             "ABC()", // () are not base64
         ]
 
@@ -319,8 +319,8 @@ struct Base64URLTests {
         let data = Data((0..<100).map { UInt8($0) })
         let encoded = data.base64URLEncoded()
 
-        // Should only contain valid base64url characters
-        let validChars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_")
+        // Should only contain valid base64url characters (plus * separator for iMessage compatibility)
+        let validChars = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_*")
         #expect(encoded.rangeOfCharacter(from: validChars.inverted) == nil)
     }
 
@@ -332,5 +332,103 @@ struct Base64URLTests {
         // Should not contain any control characters
         let controlChars = CharacterSet.controlCharacters
         #expect(encoded.rangeOfCharacter(from: controlChars) == nil)
+    }
+
+    // MARK: - iMessage Separator Tests
+
+    @Test("Long strings have separator inserted")
+    func longStringsHaveSeparator() {
+        // Create data that will encode to more than 300 characters
+        // 225 bytes of data -> 300 base64 characters (no separator needed)
+        // 226 bytes of data -> 302 base64 characters (separator needed at position 300)
+        let largeData = Data((0..<226).map { UInt8($0 % 256) })
+        let encoded = largeData.base64URLEncoded()
+
+        // Should contain at least one * separator
+        #expect(encoded.contains("*"))
+    }
+
+    @Test("Short strings have no separator")
+    func shortStringsHaveNoSeparator() {
+        // Create data that will encode to less than 300 characters
+        // 100 bytes -> ~134 base64 characters
+        let smallData = Data((0..<100).map { UInt8($0 % 256) })
+        let encoded = smallData.base64URLEncoded()
+
+        // Should NOT contain * separator
+        #expect(!encoded.contains("*"))
+    }
+
+    @Test("Separator appears at correct intervals")
+    func separatorAppearsAtCorrectIntervals() {
+        // Create data that will encode to significantly more than 600 characters
+        // 500 bytes -> ~667 base64 characters (should have 2 separators)
+        let largeData = Data((0..<500).map { UInt8($0 % 256) })
+        let encoded = largeData.base64URLEncoded()
+
+        // Split by separator and check each chunk
+        let chunks = encoded.split(separator: "*", omittingEmptySubsequences: false)
+
+        // Should have multiple chunks
+        #expect(chunks.count > 1, "Expected multiple chunks separated by *")
+
+        // Each chunk (except possibly the last) should be 300 characters or less
+        for (index, chunk) in chunks.enumerated() {
+            if index < chunks.count - 1 {
+                #expect(chunk.count == 300, "Chunk \(index) should be 300 characters, got \(chunk.count)")
+            } else {
+                #expect(chunk.count <= 300, "Last chunk should be 300 characters or less, got \(chunk.count)")
+            }
+        }
+    }
+
+    @Test("Round-trip with separator works")
+    func roundTripWithSeparator() throws {
+        // Test various large data sizes to ensure separator handling works correctly
+        let testSizes = [300, 500, 600, 1000, 2000]
+
+        for size in testSizes {
+            let data = Data((0..<size).map { UInt8($0 % 256) })
+            let encoded = data.base64URLEncoded()
+            let decoded = try encoded.base64URLDecoded()
+            #expect(decoded == data, "Round-trip failed for data of size \(size)")
+        }
+    }
+
+    @Test("Decoding with asterisk separator strips it")
+    func decodingStripsAsterisk() throws {
+        // Manually create a string with * separators to ensure they're stripped
+        let original = "AAEC" // Decodes to Data([0x00, 0x01, 0x02])
+        let withSeparators = "AA*EC"
+
+        let decodedOriginal = try original.base64URLDecoded()
+        let decodedWithSeparators = try withSeparators.base64URLDecoded()
+
+        #expect(decodedOriginal == decodedWithSeparators)
+    }
+
+    @Test("insertingSeparator helper works correctly")
+    func insertingSeparatorHelper() {
+        let input = "ABCDEFGHIJ"
+
+        // Every 3 characters
+        let result1 = input.insertingSeparator("*", every: 3)
+        #expect(result1 == "ABC*DEF*GHI*J")
+
+        // Every 5 characters
+        let result2 = input.insertingSeparator("-", every: 5)
+        #expect(result2 == "ABCDE-FGHIJ")
+
+        // Every 1 character
+        let result3 = input.insertingSeparator(".", every: 1)
+        #expect(result3 == "A.B.C.D.E.F.G.H.I.J")
+
+        // Interval larger than string
+        let result4 = input.insertingSeparator("*", every: 20)
+        #expect(result4 == "ABCDEFGHIJ")
+
+        // Empty string
+        let result5 = "".insertingSeparator("*", every: 3)
+        #expect(result5 == "")
     }
 }

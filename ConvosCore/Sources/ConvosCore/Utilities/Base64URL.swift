@@ -9,21 +9,35 @@ import Foundation
 /// - `/` → `_`
 /// - Removes padding `=`
 ///
+/// Additionally, inserts `*` separator characters every 300 characters to work around
+/// an iMessage URL parsing limitation that breaks long Base64 strings.
+/// See: https://www.patrickweaver.net/blog/imessage-mystery/
+///
 /// Used for encoding compressed protobuf payloads in invite URLs and metadata storage.
 public extension Data {
     /// Encode data to URL-safe base64 string without padding
+    ///
+    /// Inserts `*` every 300 characters to prevent iMessage from breaking the URL.
     func base64URLEncoded() -> String {
-        base64EncodedString()
+        let encoded = base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
             .replacingOccurrences(of: "=", with: "")
+
+        // Insert "*" every 300 characters to work around iMessage URL parsing
+        // iMessage breaks URLs with Base64 sections longer than 301 characters
+        return encoded.insertingSeparator("*", every: 300)
     }
 }
 
 public extension String {
     /// Decode URL-safe base64 string to data
+    ///
+    /// Removes `*` separator characters that were inserted for iMessage compatibility.
     func base64URLDecoded() throws -> Data {
+        // Remove "*" separators inserted for iMessage compatibility
         var base64 = self
+            .replacingOccurrences(of: "*", with: "")
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")
 
@@ -38,6 +52,23 @@ public extension String {
         }
 
         return data
+    }
+
+    /// Insert a separator string at regular intervals
+    func insertingSeparator(_ separator: String, every count: Int) -> String {
+        guard count > 0, !isEmpty else { return self }
+
+        var result = ""
+        result.reserveCapacity(self.count + (self.count / count) * separator.count)
+
+        for (index, character) in self.enumerated() {
+            if index > 0, index.isMultiple(of: count) {
+                result.append(separator)
+            }
+            result.append(character)
+        }
+
+        return result
     }
 }
 
