@@ -18,7 +18,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var conversationImage: UIImage?
     @Binding var displayName: String
     @Binding var messageText: String
-    @Binding var sendButtonEnabled: Bool
+    let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
     @FocusState.Binding var focusState: MessagesViewInputFocus?
@@ -57,7 +57,7 @@ struct MessagesView<BottomBarContent: View>: View {
                     profile: profile,
                     displayName: $displayName,
                     messageText: $messageText,
-                    sendButtonEnabled: $sendButtonEnabled,
+                    sendButtonEnabled: sendButtonEnabled,
                     profileImage: $profileImage,
                     focusState: $focusState,
                     focusCoordinator: focusCoordinator,

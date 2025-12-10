@@ -95,18 +95,16 @@ class ConversationViewModel {
         }
     }
     var isConversationImageDirty: Bool = false
-    var messageText: String = "" {
-        didSet {
-            sendButtonEnabled = !messageText.isEmpty
-        }
-    }
+    var messageText: String = ""
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
     var showsExplodeNowButton: Bool {
         conversation.members.count > 1 && conversation.creator.isCurrentUser
     }
-    var sendButtonEnabled: Bool = false
+    var sendButtonEnabled: Bool {
+        !messageText.isEmpty
+    }
     var isExploding: Bool = false
     var explodeError: String?
 

@@ -9,7 +9,7 @@ struct MessagesInputView: View {
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String
     @Binding var messageText: String
-    @Binding var sendButtonEnabled: Bool
+    let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForQuickname: Bool
     let messagesTextFieldEnabled: Bool
@@ -126,7 +126,7 @@ struct MessagesInputView: View {
             displayName: $displayName,
             emptyDisplayNamePlaceholder: "Somebody",
             messageText: $messageText,
-            sendButtonEnabled: $sendButtonEnabled,
+            sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
             animateAvatarForQuickname: animateAvatarForQuickname,
             messagesTextFieldEnabled: true,

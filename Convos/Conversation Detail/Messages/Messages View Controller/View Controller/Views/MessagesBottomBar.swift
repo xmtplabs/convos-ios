@@ -10,7 +10,7 @@ struct MessagesBottomBar: View {
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
-    @Binding var sendButtonEnabled: Bool
+    let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
@@ -41,7 +41,7 @@ struct MessagesBottomBar: View {
                         displayName: $displayName,
                         emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                         messageText: $messageText,
-                        sendButtonEnabled: $sendButtonEnabled,
+                        sendButtonEnabled: sendButtonEnabled,
                         focusState: $focusState,
                         animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
                         messagesTextFieldEnabled: messagesTextFieldEnabled,
@@ -120,7 +120,7 @@ struct MessagesBottomBar: View {
                 profile: profile,
                 displayName: $profileName,
                 messageText: $messageText,
-                sendButtonEnabled: $sendButtonEnabled,
+                sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
                 focusState: $focusState,
                 focusCoordinator: focusCoordinator,
