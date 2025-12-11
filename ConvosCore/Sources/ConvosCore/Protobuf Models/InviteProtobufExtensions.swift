@@ -253,15 +253,24 @@ extension SignedInvite {
     private static let maxDecompressedSize: UInt32 = 1 * 1024 * 1024
 
     /// Encode to URL-safe base64 string with optional DEFLATE compression
+    /// 
+    /// Additionally, inserts `*` separator characters every 300 characters to work around
+    /// an iMessage URL parsing limitation that breaks long Base64 strings.
+    /// See: https://www.patrickweaver.net/blog/imessage-mystery////
     public func toURLSafeSlug() throws -> String {
         let protobufData = try self.serializedData()
         let data = protobufData.compressedIfSmaller() ?? protobufData
-        return data.base64URLEncoded()
+        return data
+            .base64URLEncoded()
+            .insertingSeparator("*", every: 300)
     }
 
     /// Decode from URL-safe base64 string, automatically decompressing if needed
+    /// Removes `*` separator characters that were inserted for iMessage compatibility.
     public static func fromURLSafeSlug(_ slug: String) throws -> SignedInvite {
-        let data = try slug.base64URLDecoded()
+        let data = try slug
+            .replacingOccurrences(of: "*", with: "")
+            .base64URLDecoded()
 
         let protobufData: Data
         // validate compression marker value explicitly
