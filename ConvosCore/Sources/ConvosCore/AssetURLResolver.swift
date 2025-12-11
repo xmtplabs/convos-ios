@@ -116,7 +116,7 @@ public final class AssetURLResolver: Sendable {
     ///
     /// - Removes leading/trailing slashes
     /// - Rejects empty keys
-    /// - Rejects keys with path traversal attempts
+    /// - Rejects keys with path traversal attempts (including percent-encoded variants)
     private func sanitizeAssetKey(_ key: String) -> String? {
         // Trim whitespace and slashes
         var cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -127,8 +127,12 @@ public final class AssetURLResolver: Sendable {
             return nil
         }
 
-        // Reject path traversal attempts
-        if cleanKey.contains("..") || cleanKey.contains("//") {
+        // Decode percent-encoding to catch %2e%2e (encoded ..) and %2f%2f (encoded //)
+        let decodedKey = cleanKey.removingPercentEncoding ?? cleanKey
+
+        // Reject path traversal attempts (check both original and decoded)
+        if cleanKey.contains("..") || cleanKey.contains("//") ||
+           decodedKey.contains("..") || decodedKey.contains("//") {
             Log.warning("AssetURLResolver: Rejected key with path traversal: \(key)")
             return nil
         }
