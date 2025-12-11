@@ -148,7 +148,7 @@ extension XMTPiOS.Group {
         return String(randomString)
     }
 
-    public var memberProfiles: [DBMemberProfile] {
+    var memberProfiles: [DBMemberProfile] {
         get throws {
             let customMetadata = try currentCustomMetadata
             return customMetadata.profiles.map {
@@ -162,7 +162,7 @@ extension XMTPiOS.Group {
         }
     }
 
-    public func updateProfile(_ profile: DBMemberProfile) async throws {
+    func updateProfile(_ profile: DBMemberProfile) async throws {
         guard let conversationProfile = profile.conversationProfile else {
             throw ConversationCustomMetadataError.invalidInboxIdHex(profile.inboxId)
         }

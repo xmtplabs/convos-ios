@@ -1,8 +1,7 @@
 import Foundation
 import GRDB
-import XMTPiOS
 
-public protocol MemberProfileWriterProtocol {
+protocol MemberProfileWriterProtocol {
     func store(memberProfiles: [DBMemberProfile]) async throws
 }
 

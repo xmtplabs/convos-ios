@@ -82,7 +82,6 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private let identityStore: any KeychainIdentityStoreProtocol
     private let streamProcessor: any StreamProcessorProtocol
-    private let profileWriter: any MemberProfileWriterProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
     private let consentStates: [ConsentState] = [.allowed, .unknown]
 
@@ -115,7 +114,6 @@ actor SyncingManager: SyncingManagerProtocol {
             databaseReader: databaseReader,
             deviceRegistrationManager: deviceRegistrationManager
         )
-        self.profileWriter = MemberProfileWriter(databaseWriter: databaseWriter)
         self.joinRequestsManager = InviteJoinRequestsManager(
             identityStore: identityStore,
             databaseReader: databaseReader
