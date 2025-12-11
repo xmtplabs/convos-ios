@@ -1,9 +1,8 @@
 import Foundation
-import GRDB
 
 // MARK: - Consent
 
-public enum Consent: String, Codable, Hashable, SQLExpressible, CaseIterable, Sendable {
+public enum Consent: String, Codable, Hashable, CaseIterable, Sendable {
     case allowed, denied, unknown
 }
 

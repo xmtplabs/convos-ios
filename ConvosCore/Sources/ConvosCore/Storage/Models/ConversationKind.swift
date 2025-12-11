@@ -1,9 +1,8 @@
 import Foundation
-import GRDB
 
 // MARK: - ConversationKind
 
-public enum ConversationKind: String, Codable, Hashable, SQLExpressible, CaseIterable, Sendable {
+public enum ConversationKind: String, Codable, Hashable, CaseIterable, Sendable {
     case group, dm
 }
 

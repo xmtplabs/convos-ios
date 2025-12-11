@@ -183,7 +183,7 @@ class ConversationWriter: ConversationWriterProtocol {
         let description: String?
         let imageURLString: String?
         let expiresAt: Date?
-        let debugInfo: DBConversation.DebugInfo
+        let debugInfo: ConversationDebugInfo
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -440,8 +440,8 @@ fileprivate extension XMTPiOS.ConsentState {
 }
 
 fileprivate extension XMTPiOS.ConversationDebugInfo {
-    func toDBDebugInfo() -> DBConversation.DebugInfo {
-        DBConversation.DebugInfo(
+    func toDBDebugInfo() -> ConversationDebugInfo {
+        ConversationDebugInfo(
             epoch: epoch,
             maybeForked: maybeForked,
             forkDetails: forkDetails,
