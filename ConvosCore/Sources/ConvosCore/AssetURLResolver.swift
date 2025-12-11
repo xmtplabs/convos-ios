@@ -142,20 +142,33 @@ public final class AssetURLResolver: Sendable {
             return nil
         }
 
-        // Reject percent-encoded characters up front; keys are generated internally,
-        // so any % characters indicate tampering or invalid input
+        // Reject percent-encoded characters before decoding to block direct % usage
         if cleanKey.contains("%") {
             Log.warning("AssetURLResolver: Rejected key with percent-encoding: \(key)")
             return nil
         }
 
-        // Reject traversal patterns before any normalization
+        // Decode once to surface encoded traversal attempts, then trim again
+        cleanKey = cleanKey.removingPercentEncoding ?? cleanKey
+        cleanKey = cleanKey.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+        // Reject empty keys after decoding and trimming
+        guard !cleanKey.isEmpty else {
+            return nil
+        }
+
+        // Reject remaining percent-encoded characters to block double-encoding (%252e -> %2e)
+        if cleanKey.contains("%") {
+            Log.warning("AssetURLResolver: Rejected key with percent-encoding after decode: \(key)")
+            return nil
+        }
+
+        // Reject traversal patterns after normalization/decoding
         if cleanKey.contains("..") || cleanKey.contains("//") {
             Log.warning("AssetURLResolver: Rejected key with path traversal: \(key)")
             return nil
         }
 
-        // No percent-decoding: we control key generation and already reject %, so leave as-is
         return cleanKey
     }
 
