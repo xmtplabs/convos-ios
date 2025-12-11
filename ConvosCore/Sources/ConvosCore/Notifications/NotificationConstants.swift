@@ -10,9 +10,6 @@ struct NotificationConstants {
         static let userProfiles: String = "user_profiles_cache"
     }
 
-    // Notification configuration
-    static let maxStoredMessagesPerConversation: Int = 20
-
     // XMTP-specific constants
     struct XMTP {
         static let maxRetries: Int = 3
