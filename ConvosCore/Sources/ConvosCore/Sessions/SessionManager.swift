@@ -40,14 +40,14 @@ public final class SessionManager: SessionManagerProtocol {
     private var initializationTask: Task<Void, Never>?
     private var unusedInboxPrepTask: Task<Void, Never>?
     private let deviceRegistrationManager: any DeviceRegistrationManagerProtocol
-    private let unusedInboxCache: UnusedInboxCache
+    private let unusedInboxCache: any UnusedInboxCacheProtocol
     private let notificationChangeReporter: any NotificationChangeReporterType
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
          environment: AppEnvironment,
          identityStore: any KeychainIdentityStoreProtocol,
-         unusedInboxCache: UnusedInboxCache? = nil) {
+         unusedInboxCache: (any UnusedInboxCacheProtocol)? = nil) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment

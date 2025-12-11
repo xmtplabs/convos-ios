@@ -1,6 +1,36 @@
 import Foundation
 import GRDB
 
+// MARK: - UnusedInboxCacheProtocol
+
+/// Protocol for managing pre-created unused inboxes for faster user onboarding
+public protocol UnusedInboxCacheProtocol: Actor {
+    /// Checks if an unused inbox is available and prepares one if needed
+    func prepareUnusedInboxIfNeeded(
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader,
+        environment: AppEnvironment
+    ) async
+
+    /// Consumes the unused inbox if available, or creates a new one
+    func consumeOrCreateMessagingService(
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader,
+        environment: AppEnvironment
+    ) async -> any MessagingServiceProtocol
+
+    /// Clears the unused inbox from keychain
+    func clearUnusedInboxFromKeychain()
+
+    /// Checks if the given inbox ID is the unused inbox
+    func isUnusedInbox(_ inboxId: String) -> Bool
+
+    /// Checks if there is an unused inbox available
+    func hasUnusedInbox() -> Bool
+}
+
+// MARK: - UnusedInboxCache
+
 /// Manages pre-created unused inboxes for faster user onboarding
 ///
 /// UnusedInboxCache implements an optimization pattern where XMTP inboxes are
@@ -13,7 +43,7 @@ import GRDB
 ///
 /// This allows the app to skip the XMTP client creation step when users
 /// create/join their first conversation, making the UX feel instant.
-public actor UnusedInboxCache {
+public actor UnusedInboxCache: UnusedInboxCacheProtocol {
     // MARK: - Properties
 
     private let keychainService: any KeychainServiceProtocol
