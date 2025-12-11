@@ -79,16 +79,22 @@ public final class AssetURLResolver: Sendable {
 
         // Check if input is already a full URL
         if let inputURL = URL(string: assetValue),
-           let scheme = inputURL.scheme?.lowercased(),
-           scheme == "http" || scheme == "https" {
-            // Security: Only allow URLs from configured hosts
-            guard let resolvedConfig,
-                  let inputHost = inputURL.host?.lowercased(),
-                  resolvedConfig.allowedHosts.contains(inputHost) else {
-                Log.warning("AssetURLResolver: Rejected URL from non-allowed host: \(URL(string: assetValue)?.host ?? "nil")")
-                return nil
+           let scheme = inputURL.scheme?.lowercased() {
+            // Pass through local file URLs directly
+            if scheme == "file" {
+                return inputURL
             }
-            return inputURL
+
+            // For http/https, validate against allowed hosts
+            if scheme == "http" || scheme == "https" {
+                guard let resolvedConfig,
+                      let inputHost = inputURL.host?.lowercased(),
+                      resolvedConfig.allowedHosts.contains(inputHost) else {
+                    Log.warning("AssetURLResolver: Rejected URL from non-allowed host: \(URL(string: assetValue)?.host ?? "nil")")
+                    return nil
+                }
+                return inputURL
+            }
         }
 
         // It's an asset key - validate we have CDN configured
