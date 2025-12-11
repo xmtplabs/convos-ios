@@ -40,7 +40,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
         let result = try await databaseWriter.write { db in
             let sender = Member(inboxId: message.senderInboxId)
             try sender.save(db)
-            let senderProfile = MemberProfile(
+            let senderProfile = DBMemberProfile(
                 conversationId: conversation.id,
                 inboxId: message.senderInboxId,
                 name: nil,

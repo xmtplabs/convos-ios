@@ -90,7 +90,7 @@ class ConversationWriter: ConversationWriterProtocol {
                 debugInfo: .empty
             )
             try conversation.save(db)
-            let memberProfile = MemberProfile(
+            let memberProfile = DBMemberProfile(
                 conversationId: draftConversationId,
                 inboxId: creatorInboxId,
                 name: nil,
@@ -232,7 +232,7 @@ class ConversationWriter: ConversationWriterProtocol {
     private func saveConversationToDatabase(
         dbConversation: DBConversation,
         dbMembers: [DBConversationMember],
-        memberProfiles: [MemberProfile]
+        memberProfiles: [DBMemberProfile]
     ) async throws {
         try await databaseWriter.write { [weak self] db in
             guard let self else { return }
@@ -253,8 +253,8 @@ class ConversationWriter: ConversationWriterProtocol {
             try localState.insert(db, onConflict: .ignore)
 
             // Delete old members
-            try MemberProfile
-                .filter(MemberProfile.Columns.conversationId == dbConversation.id)
+            try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == dbConversation.id)
                 .deleteAll(db)
             // Save members
             try saveMembers(dbMembers, in: db)
@@ -300,7 +300,7 @@ class ConversationWriter: ConversationWriterProtocol {
             try Member(inboxId: member.inboxId).save(db)
             try member.save(db)
             // fetch from description
-            let memberProfile = MemberProfile(
+            let memberProfile = DBMemberProfile(
                 conversationId: member.conversationId,
                 inboxId: member.inboxId,
                 name: nil,

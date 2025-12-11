@@ -47,11 +47,11 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
 
     static let memberProfileForeignKey: ForeignKey = ForeignKey(
         [Columns.conversationId, Columns.inboxId],
-        to: [MemberProfile.Columns.conversationId, MemberProfile.Columns.inboxId]
+        to: [DBMemberProfile.Columns.conversationId, DBMemberProfile.Columns.inboxId]
     )
 
-    static let memberProfile: HasOneAssociation<DBConversationMember, MemberProfile> = hasOne(
-        MemberProfile.self,
+    static let memberProfile: HasOneAssociation<DBConversationMember, DBMemberProfile> = hasOne(
+        DBMemberProfile.self,
         using: memberProfileForeignKey
     )
 }

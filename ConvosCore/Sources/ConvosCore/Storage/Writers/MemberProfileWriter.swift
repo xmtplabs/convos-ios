@@ -3,7 +3,7 @@ import GRDB
 import XMTPiOS
 
 public protocol MemberProfileWriterProtocol {
-    func store(memberProfiles: [MemberProfile]) async throws
+    func store(memberProfiles: [DBMemberProfile]) async throws
 }
 
 class MemberProfileWriter: MemberProfileWriterProtocol {
@@ -13,7 +13,7 @@ class MemberProfileWriter: MemberProfileWriterProtocol {
         self.databaseWriter = databaseWriter
     }
 
-    func store(memberProfiles: [MemberProfile]) async throws {
+    func store(memberProfiles: [DBMemberProfile]) async throws {
         try await databaseWriter.write { db in
             for memberProfile in memberProfiles {
                 let member = Member(inboxId: memberProfile.inboxId)

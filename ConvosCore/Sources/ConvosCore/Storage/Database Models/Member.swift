@@ -10,10 +10,10 @@ struct Member: Codable, FetchableRecord, PersistableRecord, Hashable {
 
     let inboxId: String
 
-    static let profilesForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [MemberProfile.Columns.inboxId])
+    static let profilesForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMemberProfile.Columns.inboxId])
 
-    static let profiles: HasManyAssociation<Member, MemberProfile> = hasMany(
-        MemberProfile.self,
+    static let profiles: HasManyAssociation<Member, DBMemberProfile> = hasMany(
+        DBMemberProfile.self,
         using: profilesForeignKey
     )
 }

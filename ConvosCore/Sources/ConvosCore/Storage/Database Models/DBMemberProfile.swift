@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public struct MemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
+public struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     public static var databaseTableName: String = "memberProfile"
 
     public enum Columns {
@@ -19,23 +19,23 @@ public struct MemberProfile: Codable, FetchableRecord, PersistableRecord, Hashab
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [Member.Columns.inboxId])
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
-    static let member: BelongsToAssociation<MemberProfile, Member> = belongsTo(
+    static let member: BelongsToAssociation<DBMemberProfile, Member> = belongsTo(
         Member.self,
         using: memberForeignKey
     )
 
-    static let conversation: BelongsToAssociation<MemberProfile, DBConversation> = belongsTo(
+    static let conversation: BelongsToAssociation<DBMemberProfile, DBConversation> = belongsTo(
         DBConversation.self,
         using: conversationForeignKey
     )
 }
 
-extension MemberProfile {
+extension DBMemberProfile {
     static func fetchOne(
         _ db: Database,
         conversationId: String,
         inboxId: String
-    ) throws -> MemberProfile? {
+    ) throws -> DBMemberProfile? {
         try fetchOne(
             db,
             key: [
@@ -49,7 +49,7 @@ extension MemberProfile {
         _ db: Database,
         conversationId: String,
         inboxIds: [String]
-    ) throws -> [MemberProfile] {
+    ) throws -> [DBMemberProfile] {
         let keys = inboxIds.map {
             [
                 Columns.conversationId.name: conversationId,
@@ -59,7 +59,7 @@ extension MemberProfile {
         return try fetchAll(db, keys: keys)
     }
 
-    func with(name: String?) -> MemberProfile {
+    func with(name: String?) -> DBMemberProfile {
         .init(
             conversationId: conversationId,
             inboxId: inboxId,
@@ -68,7 +68,7 @@ extension MemberProfile {
         )
     }
 
-    func with(avatar: String?) -> MemberProfile {
+    func with(avatar: String?) -> DBMemberProfile {
         .init(
             conversationId: conversationId,
             inboxId: inboxId,

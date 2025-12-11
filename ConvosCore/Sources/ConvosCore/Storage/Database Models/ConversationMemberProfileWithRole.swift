@@ -4,7 +4,7 @@ import GRDB
 // MARK: - ConversationMemberProfileWithRole
 
 struct ConversationMemberProfileWithRole: Codable, FetchableRecord, PersistableRecord, Hashable {
-    let memberProfile: MemberProfile
+    let memberProfile: DBMemberProfile
     let role: MemberRole
 }
 

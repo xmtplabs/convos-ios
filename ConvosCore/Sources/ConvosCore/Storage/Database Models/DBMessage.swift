@@ -84,8 +84,8 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable {
         using: senderForeignKey
     )
 
-    static let senderProfile: HasOneThroughAssociation<DBMessage, MemberProfile> = hasOne(
-        MemberProfile.self,
+    static let senderProfile: HasOneThroughAssociation<DBMessage, DBMemberProfile> = hasOne(
+        DBMemberProfile.self,
         through: sender,
         using: DBConversationMember.memberProfile,
         key: "messageSenderProfile"

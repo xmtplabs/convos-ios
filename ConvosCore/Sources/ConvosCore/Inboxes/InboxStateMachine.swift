@@ -873,8 +873,8 @@ public actor InboxStateMachine {
 
             // Delete member profiles for this inbox
             for conversationId in conversationIds {
-                try MemberProfile
-                    .filter(MemberProfile.Columns.conversationId == conversationId)
+                try DBMemberProfile
+                    .filter(DBMemberProfile.Columns.conversationId == conversationId)
                     .deleteAll(db)
             }
 

@@ -64,7 +64,7 @@ class InviteWriter: InviteWriterProtocol {
                 createdAt: Date()
             )
             .save(db, onConflict: .ignore)
-            let memberProfile = MemberProfile(
+            let memberProfile = DBMemberProfile(
                 conversationId: conversation.id,
                 inboxId: conversation.inboxId,
                 name: nil,

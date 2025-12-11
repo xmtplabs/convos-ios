@@ -87,8 +87,8 @@ public struct DBConversation: Codable, FetchableRecord, PersistableRecord, Ident
         using: inboxMemberKey
     )
 
-    static let creatorProfile: HasOneThroughAssociation<DBConversation, MemberProfile> = hasOne(
-        MemberProfile.self,
+    static let creatorProfile: HasOneThroughAssociation<DBConversation, DBMemberProfile> = hasOne(
+        DBMemberProfile.self,
         through: creator,
         using: DBConversationMember.memberProfile,
         key: "conversationCreatorProfile"
@@ -106,8 +106,8 @@ public struct DBConversation: Codable, FetchableRecord, PersistableRecord, Ident
         key: "conversationMembers"
     )
 
-    static let memberProfiles: HasManyThroughAssociation<DBConversation, MemberProfile> = hasMany(
-        MemberProfile.self,
+    static let memberProfiles: HasManyThroughAssociation<DBConversation, DBMemberProfile> = hasMany(
+        DBMemberProfile.self,
         through: _members,
         using: DBConversationMember.memberProfile,
         key: "conversationMemberProfiles"

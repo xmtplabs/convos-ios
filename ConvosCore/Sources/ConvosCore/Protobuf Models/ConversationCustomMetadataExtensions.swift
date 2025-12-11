@@ -66,7 +66,7 @@ extension ConversationCustomMetadataError: DisplayError {
 
 // MARK: - DB Models
 
-extension MemberProfile {
+extension DBMemberProfile {
     var conversationProfile: ConversationProfile? {
         ConversationProfile(inboxIdString: inboxId, name: name, imageUrl: avatar)
     }
@@ -148,7 +148,7 @@ extension XMTPiOS.Group {
         return String(randomString)
     }
 
-    public var memberProfiles: [MemberProfile] {
+    public var memberProfiles: [DBMemberProfile] {
         get throws {
             let customMetadata = try currentCustomMetadata
             return customMetadata.profiles.map {
@@ -162,7 +162,7 @@ extension XMTPiOS.Group {
         }
     }
 
-    public func updateProfile(_ profile: MemberProfile) async throws {
+    public func updateProfile(_ profile: DBMemberProfile) async throws {
         guard let conversationProfile = profile.conversationProfile else {
             throw ConversationCustomMetadataError.invalidInboxIdHex(profile.inboxId)
         }
