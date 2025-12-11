@@ -388,9 +388,14 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.serverError(nil)
         }
 
-        // Extract the actual filename from the S3 URL path (includes extension)
-        // e.g., "/10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg" -> "10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg"
-        let assetPath = s3URL.lastPathComponent
+        // Use objectKey from the API response and append the file extension from the S3 URL
+        // objectKey: "10cf27ff-f6f8-4b70-b586-2f4370adddd5"
+        // S3 path: "/10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg"
+        // Result: "10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg"
+        let fileExtension = s3URL.pathExtension
+        let assetPath = fileExtension.isEmpty
+            ? presignedResponse.objectKey
+            : "\(presignedResponse.objectKey).\(fileExtension)"
         Log.info("Successfully uploaded to S3, assetPath: \(assetPath)")
         return assetPath
     }

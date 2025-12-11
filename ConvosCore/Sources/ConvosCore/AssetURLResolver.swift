@@ -90,11 +90,15 @@ public final class AssetURLResolver: Sendable {
                 guard let resolvedConfig,
                       let inputHost = inputURL.host?.lowercased(),
                       resolvedConfig.allowedHosts.contains(inputHost) else {
-                    Log.warning("AssetURLResolver: Rejected URL from non-allowed host: \(URL(string: assetValue)?.host ?? "nil")")
+                    Log.warning("AssetURLResolver: Rejected URL from non-allowed host: \(inputURL.host ?? "nil")")
                     return nil
                 }
                 return inputURL
             }
+
+            // Reject other URL schemes (data:, blob:, ftp:, etc.)
+            Log.warning("AssetURLResolver: Rejected URL with unsupported scheme: \(scheme)")
+            return nil
         }
 
         // It's an asset key - validate we have CDN configured
@@ -120,25 +124,38 @@ public final class AssetURLResolver: Sendable {
 
     /// Sanitizes an asset key, returning nil if invalid
     ///
-    /// - Decodes percent-encoding first to prevent bypass attacks
     /// - Removes leading/trailing slashes
     /// - Rejects empty keys
+    /// - Rejects keys with percent-encoded characters (we control generated keys, no need for encoding)
     /// - Rejects keys with path traversal attempts
     private func sanitizeAssetKey(_ key: String) -> String? {
         // Trim whitespace and slashes
         var cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
         cleanKey = cleanKey.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
 
-        // Decode percent-encoding FIRST to catch %2e%2e (..) and %2f%2f (//) bypass attempts
-        cleanKey = cleanKey.removingPercentEncoding ?? cleanKey
-
         // Reject empty keys
         guard !cleanKey.isEmpty else {
             return nil
         }
 
-        // Reject path traversal attempts on the decoded key
-        if cleanKey.contains("..") || cleanKey.contains("//") {
+        // Reject percent-encoded characters up front; we generate clean UUID-based keys,
+        // so any % characters indicate tampering or invalid input
+        if cleanKey.contains("%") {
+            Log.warning("AssetURLResolver: Rejected key with percent-encoding: \(key)")
+            return nil
+        }
+
+        // Decode before traversal validation to catch encoded attempts, then trim again
+        cleanKey = cleanKey.removingPercentEncoding ?? cleanKey
+        cleanKey = cleanKey.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+
+        // Reject empty keys after decoding and trimming
+        guard !cleanKey.isEmpty else {
+            return nil
+        }
+
+        // Reject path traversal attempts
+        if cleanKey.contains("..") {
             Log.warning("AssetURLResolver: Rejected key with path traversal: \(key)")
             return nil
         }
