@@ -21,7 +21,7 @@ public extension MessageInvite {
               let signedInvite = try? SignedInvite.fromInviteCode(inviteCode) else {
             return nil
         }
-        let imageURL: URL? = signedInvite.imageURL.flatMap { URL(string: $0) }
+        let imageURL: URL? = AssetURLResolver.shared.resolveURL(from: signedInvite.imageURL)
         return MessageInvite(
             inviteSlug: inviteCode,
             conversationName: signedInvite.name,

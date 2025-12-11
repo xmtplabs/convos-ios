@@ -355,10 +355,11 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
         struct PresignedResponse: Codable {
             let url: String
+            let objectKey: String
         }
 
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
-        Log.info("Received presigned URL from Convos API")
+        Log.info("Received presigned URL from Convos API, objectKey: \(presignedResponse.objectKey)")
 
         // Step 2: Upload directly to S3 using presigned URL
         // The asset key is the filename we passed in
@@ -392,8 +393,11 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.serverError(nil)
         }
 
-        Log.info("Successfully uploaded to S3, asset key: \(assetKey)")
-        return assetKey
+        // Extract the actual filename from the S3 URL path (includes extension)
+        // e.g., "/10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg" -> "10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg"
+        let assetPath = s3URL.lastPathComponent
+        Log.info("Successfully uploaded to S3, assetPath: \(assetPath)")
+        return assetPath
     }
 
     func uploadAttachmentAndExecute(
