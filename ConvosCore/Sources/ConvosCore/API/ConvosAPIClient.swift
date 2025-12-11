@@ -373,7 +373,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         s3Request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         s3Request.httpBody = data
 
-        Log.info("Uploading to S3: \(s3URL.host ?? "unknown")\(s3URL.path)")
+        Log.info("Uploading to S3")
         Log.info("S3 upload data size: \(data.count) bytes")
         Log.info("S3 request headers: \(s3Request.allHTTPHeaderFields ?? [:])")
 
