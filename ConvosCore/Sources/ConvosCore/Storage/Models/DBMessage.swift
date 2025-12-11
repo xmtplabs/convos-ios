@@ -1,36 +1,7 @@
 import Foundation
 import GRDB
 
-public enum MessageStatus: String, Hashable, Codable, Sendable {
-    case unpublished, published, failed, unknown
-}
-
-public enum MessageSource: String, Hashable, Codable, Sendable {
-    case incoming, outgoing
-
-    public var isIncoming: Bool {
-        self == .incoming
-    }
-}
-
-public enum DBMessageType: String, Codable {
-    case original,
-         reply,
-         reaction
-}
-
-public enum MessageContentType: String, Codable {
-    case text, emoji, attachments, update, invite
-
-    var marksConversationAsUnread: Bool {
-        switch self {
-        case .update:
-            false
-        default:
-            true
-        }
-    }
-}
+// MARK: - DBMessage
 
 struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable {
     static var databaseTableName: String = "message"

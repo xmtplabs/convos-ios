@@ -4,6 +4,8 @@ import GRDB
 // MARK: - DBConversationMember
 
 struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashable {
+    static var databaseTableName: String { "conversation_members" }
+
     enum Columns {
         static let conversationId: Column = Column(CodingKeys.conversationId)
         static let inboxId: Column = Column(CodingKeys.inboxId)
@@ -17,8 +19,6 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
     let role: MemberRole
     let consent: Consent
     let createdAt: Date
-
-    static var databaseTableName: String { "conversation_members" }
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [Member.Columns.inboxId])
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])

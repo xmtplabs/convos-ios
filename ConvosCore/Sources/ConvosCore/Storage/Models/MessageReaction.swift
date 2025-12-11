@@ -1,8 +1,8 @@
 import Foundation
 
-// MARK: - Message
+// MARK: - MessageReaction
 
-public struct Message: MessageType, Hashable, Codable, Sendable {
+public struct MessageReaction: MessageType, Hashable, Codable, Sendable {
     public let id: String
     public let conversation: Conversation
     public let sender: ConversationMember
@@ -11,5 +11,5 @@ public struct Message: MessageType, Hashable, Codable, Sendable {
     public let content: MessageContent
     public let date: Date
 
-    public let reactions: [MessageReaction]
+    public let emoji: String // same as content.text
 }

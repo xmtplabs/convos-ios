@@ -3,10 +3,6 @@ import GRDB
 
 // MARK: - DBConversation
 
-public enum CommitLogForkStatus: String, Codable, Hashable, Sendable {
-    case forked, notForked = "not_forked", unknown
-}
-
 public struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable, Hashable {
     public static var databaseTableName: String = "conversation"
 
