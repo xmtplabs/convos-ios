@@ -19,12 +19,7 @@ extension DBConversationDetails {
         // we don't need messages for the conversations list
         let messages: [Message] = []
 
-        let imageURL: URL?
-        if let imageURLString = conversation.imageURLString {
-            imageURL = URL(string: imageURLString)
-        } else {
-            imageURL = nil
-        }
+        let imageURL = AssetURLResolver.shared.resolveURL(from: conversation.imageURLString)
 
         return Conversation(
             id: conversation.id,

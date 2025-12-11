@@ -11,6 +11,13 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
         // Configure logging first (automatically disabled in production)
         let environment = try NotificationExtensionEnvironment.getEnvironment()
         ConvosLog.configure(environment: environment)
+
+        // Configure asset URL resolver with CDN base URL and allowed hosts
+        AssetURLResolver.shared.configure(
+            cdnBaseURL: environment.assetsCdnUrl,
+            allowedHosts: environment.allowedAssetHosts
+        )
+
         Log.info("Initializing global push handler for environment: \(environment.name)")
 
         // only enable LibXMTP logging in non-production environments

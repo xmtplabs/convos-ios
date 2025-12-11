@@ -34,21 +34,20 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func uploadAttachment(
         data: Data,
-        filename: String,
+        assetKey: String,
         contentType: String,
         acl: String
     ) async throws -> String {
-        return "https://mock-api.example.com/uploads/\(filename)"
+        assetKey
     }
 
     func uploadAttachmentAndExecute(
         data: Data,
-        filename: String,
+        assetKey: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
-        let uploadedURL = "https://mock-api.example.com/uploads/\(filename)"
-        try await afterUpload(uploadedURL)
-        return uploadedURL
+        try await afterUpload(assetKey)
+        return assetKey
     }
 
     // MARK: - Notifications mocks

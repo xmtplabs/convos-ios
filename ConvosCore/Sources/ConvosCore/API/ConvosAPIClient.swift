@@ -24,13 +24,13 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 
     func uploadAttachment(
         data: Data,
-        filename: String,
+        assetKey: String,
         contentType: String,
         acl: String
     ) async throws -> String
     func uploadAttachmentAndExecute(
         data: Data,
-        filename: String,
+        assetKey: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String
 
@@ -337,45 +337,32 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func uploadAttachment(
         data: Data,
-        filename: String,
+        assetKey: String,
         contentType: String = "image/jpeg",
         acl: String = "public-read"
     ) async throws -> String {
-        Log.info("Starting attachment upload process for file: \(filename)")
+        Log.info("Starting attachment upload process for asset key: \(assetKey)")
         Log.info("File data size: \(data.count) bytes")
 
         // Step 1: Get presigned URL from Convos API
         let presignedRequest = try authenticatedRequest(
             for: "v2/attachments/presigned",
             method: "GET",
-            queryParameters: ["contentType": contentType, "filename": filename]
+            queryParameters: ["contentType": contentType, "filename": assetKey]
         )
-
-        Log.info("Getting presigned URL from: \(presignedRequest.url?.absoluteString ?? "nil")")
 
         struct PresignedResponse: Codable {
             let url: String
+            let objectKey: String
         }
 
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
-        Log.info("Received presigned URL: \(presignedResponse.url)")
+        Log.info("Received presigned response for objectKey: \(presignedResponse.objectKey)")
 
-        // Step 2: Extract public URL BEFORE uploading (we already know what it will be!)
-        guard let urlComponents = URLComponents(string: presignedResponse.url) else {
-            Log.error("Failed to parse presigned URL components")
-            throw APIError.invalidURL
-        }
-
-        guard let scheme = urlComponents.scheme, let host = urlComponents.host else {
-            Log.error("Failed to extract scheme or host from presigned URL")
-            throw APIError.invalidURL
-        }
-        let publicURL = "\(scheme)://\(host)\(urlComponents.path)"
-        Log.info("Final public URL will be: \(publicURL)")
-
-        // Step 3: Upload directly to S3 using presigned URL
+        // Step 2: Upload directly to S3 using presigned URL
+        // The asset key is the filename we passed in
         guard let s3URL = URL(string: presignedResponse.url) else {
-            Log.error("Invalid presigned URL: \(presignedResponse.url)")
+            Log.error("Invalid presigned URL received")
             throw APIError.invalidURL
         }
 
@@ -384,9 +371,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         s3Request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         s3Request.httpBody = data
 
-        Log.info("Uploading to S3: \(s3URL.absoluteString)")
-        Log.info("S3 upload data size: \(data.count) bytes")
-        Log.info("S3 request headers: \(s3Request.allHTTPHeaderFields ?? [:])")
+        Log.info("Uploading \(data.count) bytes to S3")
 
         let (s3Data, s3Response) = try await URLSession.shared.data(for: s3Request)
 
@@ -395,8 +380,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.invalidResponse
         }
 
-        Log.info("S3 response status: \(s3HttpResponse.statusCode)")
-        Log.info("S3 response headers: \(s3HttpResponse.allHeaderFields)")
+        Log.info("S3 upload response status: \(s3HttpResponse.statusCode)")
 
         guard s3HttpResponse.statusCode == 200 else {
             Log.error("S3 upload failed with status: \(s3HttpResponse.statusCode)")
@@ -404,32 +388,40 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.serverError(nil)
         }
 
-        Log.info("Successfully uploaded to S3, public URL: \(publicURL)")
-        return publicURL
+        // Use objectKey from the API response and append the file extension from the S3 URL
+        // objectKey: "10cf27ff-f6f8-4b70-b586-2f4370adddd5"
+        // S3 path: "/10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg"
+        // Result: "10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg"
+        let fileExtension = s3URL.pathExtension
+        let assetPath = fileExtension.isEmpty
+            ? presignedResponse.objectKey
+            : "\(presignedResponse.objectKey).\(fileExtension)"
+        Log.info("Successfully uploaded to S3, assetPath: \(assetPath)")
+        return assetPath
     }
 
     func uploadAttachmentAndExecute(
         data: Data,
-        filename: String,
+        assetKey: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
-        Log.info("Starting chained upload and execute process for file: \(filename)")
+        Log.info("Starting chained upload and execute process for asset key: \(assetKey)")
 
-        // Step 1: Upload the attachment and get the URL
-        let uploadedURL = try await uploadAttachment(
+        // Step 1: Upload the attachment and get the asset key
+        let uploadedAssetKey = try await uploadAttachment(
             data: data,
-            filename: filename,
+            assetKey: assetKey,
             contentType: "image/jpeg",
             acl: "public-read"
         )
-        Log.info("Upload completed successfully, URL: \(uploadedURL)")
+        Log.info("Upload completed successfully, asset key: \(uploadedAssetKey)")
 
-        // Step 2: Execute the provided closure with the uploaded URL
-        Log.info("Executing post-upload action with URL: \(uploadedURL)")
-        try await afterUpload(uploadedURL)
+        // Step 2: Execute the provided closure with the asset key
+        Log.info("Executing post-upload action with asset key: \(uploadedAssetKey)")
+        try await afterUpload(uploadedAssetKey)
         Log.info("Post-upload action completed successfully")
 
-        return uploadedURL
+        return uploadedAssetKey
     }
 
     // MARK: - Push Notification Management (JWT-authenticated, inbox-level)

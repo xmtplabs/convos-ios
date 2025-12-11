@@ -37,10 +37,10 @@ public protocol MessagingServiceProtocol: AnyObject {
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
 
-    func uploadImage(data: Data, filename: String) async throws -> String
+    func uploadImage(data: Data, assetKey: String) async throws -> String
     func uploadImageAndExecute(
         data: Data,
-        filename: String,
+        assetKey: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String
 }

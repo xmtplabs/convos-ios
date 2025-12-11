@@ -88,7 +88,9 @@ final class ConfigManager {
                 relyingPartyIdentifier: relyingPartyIdentifier,
                 xmtpEndpoint: isEmptyOrWhitespace(Secrets.XMTP_CUSTOM_HOST) ? nil : Secrets.XMTP_CUSTOM_HOST.trimmingCharacters(in: .whitespacesAndNewlines),
                 xmtpNetwork: xmtpNetwork,
-                gatewayUrl: isEmptyOrWhitespace(Secrets.GATEWAY_URL) ? nil : Secrets.GATEWAY_URL.trimmingCharacters(in: .whitespacesAndNewlines)
+                gatewayUrl: isEmptyOrWhitespace(Secrets.GATEWAY_URL) ? nil : Secrets.GATEWAY_URL.trimmingCharacters(in: .whitespacesAndNewlines),
+                assetsCdnUrl: assetsCdnUrl,
+                allowedAssetHosts: allowedAssetHosts
             )
             environment = .local(config: config)
 
@@ -104,7 +106,9 @@ final class ConfigManager {
                 appGroupIdentifier: appGroupIdentifier,
                 relyingPartyIdentifier: relyingPartyIdentifier,
                 xmtpEndpoint: isEmptyOrWhitespace(Secrets.XMTP_CUSTOM_HOST) ? nil : Secrets.XMTP_CUSTOM_HOST.trimmingCharacters(in: .whitespacesAndNewlines),
-                xmtpNetwork: xmtpNetwork
+                xmtpNetwork: xmtpNetwork,
+                assetsCdnUrl: assetsCdnUrl,
+                allowedAssetHosts: allowedAssetHosts
             )
             environment = .dev(config: config)
 
@@ -118,7 +122,9 @@ final class ConfigManager {
                 apiBaseURL: url,
                 appGroupIdentifier: appGroupIdentifier,
                 relyingPartyIdentifier: relyingPartyIdentifier,
-                xmtpNetwork: xmtpNetwork
+                xmtpNetwork: xmtpNetwork,
+                assetsCdnUrl: assetsCdnUrl,
+                allowedAssetHosts: allowedAssetHosts
             )
             environment = .production(config: config)
 
@@ -200,5 +206,15 @@ final class ConfigManager {
         }
 
         return normalizedNetwork
+    }
+
+    /// Assets CDN URL from config (optional, for dev/prod environments)
+    var assetsCdnUrl: String? {
+        config["assetsCdnUrl"] as? String
+    }
+
+    /// Allowed asset hosts from config (CDN + legacy S3 buckets)
+    var allowedAssetHosts: [String] {
+        config["allowedAssetHosts"] as? [String] ?? []
     }
 }
