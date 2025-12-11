@@ -51,7 +51,11 @@ public final class AssetURLResolver: Sendable {
         }
 
         // Build the set of allowed hosts (all lowercase for case-insensitive matching)
-        var hosts = Set(allowedHosts.map { $0.lowercased() })
+        var hosts = Set(
+            allowedHosts
+                .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+                .filter { !$0.isEmpty }
+        )
         hosts.insert(primaryHost.lowercased()) // Always include the primary CDN host
 
         let resolvedConfig = Config(primaryBaseURL: url, allowedHosts: hosts)
@@ -138,28 +142,20 @@ public final class AssetURLResolver: Sendable {
             return nil
         }
 
-        // Reject percent-encoded characters up front; we generate clean UUID-based keys,
+        // Reject percent-encoded characters up front; keys are generated internally,
         // so any % characters indicate tampering or invalid input
         if cleanKey.contains("%") {
             Log.warning("AssetURLResolver: Rejected key with percent-encoding: \(key)")
             return nil
         }
 
-        // Decode before traversal validation to catch encoded attempts, then trim again
-        cleanKey = cleanKey.removingPercentEncoding ?? cleanKey
-        cleanKey = cleanKey.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-        // Reject empty keys after decoding and trimming
-        guard !cleanKey.isEmpty else {
-            return nil
-        }
-
-        // Reject path traversal attempts
-        if cleanKey.contains("..") {
+        // Reject traversal patterns before any normalization
+        if cleanKey.contains("..") || cleanKey.contains("//") {
             Log.warning("AssetURLResolver: Rejected key with path traversal: \(key)")
             return nil
         }
 
+        // No percent-decoding: we control key generation and already reject %, so leave as-is
         return cleanKey
     }
 
