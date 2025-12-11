@@ -2,6 +2,8 @@ import Foundation
 import GRDB
 
 public struct MemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
+    public static var databaseTableName: String = "memberProfile"
+
     public enum Columns {
         static let conversationId: Column = Column(CodingKeys.conversationId)
         static let inboxId: Column = Column(CodingKeys.inboxId)
