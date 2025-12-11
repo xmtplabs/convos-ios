@@ -351,15 +351,13 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             queryParameters: ["contentType": contentType, "filename": assetKey]
         )
 
-        Log.info("Getting presigned URL from: \(presignedRequest.url?.absoluteString ?? "nil")")
-
         struct PresignedResponse: Codable {
             let url: String
             let objectKey: String
         }
 
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
-        Log.info("Received presigned URL from Convos API, objectKey: \(presignedResponse.objectKey)")
+        Log.info("Received presigned response for objectKey: \(presignedResponse.objectKey)")
 
         // Step 2: Upload directly to S3 using presigned URL
         // The asset key is the filename we passed in
@@ -373,9 +371,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         s3Request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         s3Request.httpBody = data
 
-        Log.info("Uploading to S3")
-        Log.info("S3 upload data size: \(data.count) bytes")
-        Log.info("S3 request headers: \(s3Request.allHTTPHeaderFields ?? [:])")
+        Log.info("Uploading \(data.count) bytes to S3")
 
         let (s3Data, s3Response) = try await URLSession.shared.data(for: s3Request)
 
@@ -384,8 +380,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.invalidResponse
         }
 
-        Log.info("S3 response status: \(s3HttpResponse.statusCode)")
-        Log.info("S3 response headers: \(s3HttpResponse.allHeaderFields)")
+        Log.info("S3 upload response status: \(s3HttpResponse.statusCode)")
 
         guard s3HttpResponse.statusCode == 200 else {
             Log.error("S3 upload failed with status: \(s3HttpResponse.statusCode)")
