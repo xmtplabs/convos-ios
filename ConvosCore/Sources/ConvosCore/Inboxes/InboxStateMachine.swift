@@ -883,8 +883,8 @@ public actor InboxStateMachine {
                 .filter(DBInbox.Columns.clientId == clientId)
                 .fetchOne(db)?
                 .inboxId {
-                try Member
-                    .filter(Member.Columns.inboxId == inboxId)
+                try DBMember
+                    .filter(DBMember.Columns.inboxId == inboxId)
                     .deleteAll(db)
             }
 

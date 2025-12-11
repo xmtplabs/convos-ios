@@ -20,7 +20,7 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
     let consent: Consent
     let createdAt: Date
 
-    static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [Member.Columns.inboxId])
+    static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
     // Foreign key to match invites created by this member for this conversation
@@ -40,8 +40,8 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
         using: conversationForeignKey
     )
 
-    static let member: BelongsToAssociation<DBConversationMember, Member> = belongsTo(
-        Member.self,
+    static let member: BelongsToAssociation<DBConversationMember, DBMember> = belongsTo(
+        DBMember.self,
         using: memberForeignKey
     )
 

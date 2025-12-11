@@ -16,11 +16,11 @@ public struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hash
     public let name: String?
     public let avatar: String?
 
-    static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [Member.Columns.inboxId])
+    static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
-    static let member: BelongsToAssociation<DBMemberProfile, Member> = belongsTo(
-        Member.self,
+    static let member: BelongsToAssociation<DBMemberProfile, DBMember> = belongsTo(
+        DBMember.self,
         using: memberForeignKey
     )
 

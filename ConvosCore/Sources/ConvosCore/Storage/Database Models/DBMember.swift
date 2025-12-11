@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-struct Member: Codable, FetchableRecord, PersistableRecord, Hashable {
+struct DBMember: Codable, FetchableRecord, PersistableRecord, Hashable {
     static var databaseTableName: String = "member"
 
     enum Columns {
@@ -12,7 +12,7 @@ struct Member: Codable, FetchableRecord, PersistableRecord, Hashable {
 
     static let profilesForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMemberProfile.Columns.inboxId])
 
-    static let profiles: HasManyAssociation<Member, DBMemberProfile> = hasMany(
+    static let profiles: HasManyAssociation<DBMember, DBMemberProfile> = hasMany(
         DBMemberProfile.self,
         using: profilesForeignKey
     )

@@ -96,7 +96,7 @@ class ConversationWriter: ConversationWriterProtocol {
                 name: nil,
                 avatar: nil
             )
-            let member = Member(inboxId: creatorInboxId)
+            let member = DBMember(inboxId: creatorInboxId)
             try member.save(db)
             try memberProfile.save(db)
 
@@ -236,7 +236,7 @@ class ConversationWriter: ConversationWriterProtocol {
     ) async throws {
         try await databaseWriter.write { [weak self] db in
             guard let self else { return }
-            let creator = Member(inboxId: dbConversation.creatorId)
+            let creator = DBMember(inboxId: dbConversation.creatorId)
             try creator.save(db)
 
             // Save conversation (handle local conversation updates)
@@ -260,7 +260,7 @@ class ConversationWriter: ConversationWriterProtocol {
             try saveMembers(dbMembers, in: db)
             // Update profiles - ensure Member exists first
             try memberProfiles.forEach { profile in
-                let member = Member(inboxId: profile.inboxId)
+                let member = DBMember(inboxId: profile.inboxId)
                 try member.save(db)
                 try profile.save(db)
             }
@@ -297,7 +297,7 @@ class ConversationWriter: ConversationWriterProtocol {
 
     private func saveMembers(_ dbMembers: [DBConversationMember], in db: Database) throws {
         for member in dbMembers {
-            try Member(inboxId: member.inboxId).save(db)
+            try DBMember(inboxId: member.inboxId).save(db)
             try member.save(db)
             // fetch from description
             let memberProfile = DBMemberProfile(

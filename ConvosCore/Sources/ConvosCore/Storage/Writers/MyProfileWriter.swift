@@ -39,7 +39,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         let inboxId = inboxReady.client.inboxId
         let name = trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
         let profile = try await databaseWriter.write { db in
-            let member = Member(inboxId: inboxId)
+            let member = DBMember(inboxId: inboxId)
             try member.save(db)
             let profile = (try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) ?? .init(
                 conversationId: conversationId,
@@ -62,7 +62,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
         let inboxId = inboxReady.client.inboxId
         let profile = try await databaseWriter.write { db in
-            let member = Member(inboxId: inboxId)
+            let member = DBMember(inboxId: inboxId)
             try member.save(db)
             if let foundProfile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) {
                 Log.info("Found profile: \(foundProfile)")

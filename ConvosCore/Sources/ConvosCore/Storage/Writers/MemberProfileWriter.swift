@@ -16,7 +16,7 @@ class MemberProfileWriter: MemberProfileWriterProtocol {
     func store(memberProfiles: [DBMemberProfile]) async throws {
         try await databaseWriter.write { db in
             for memberProfile in memberProfiles {
-                let member = Member(inboxId: memberProfile.inboxId)
+                let member = DBMember(inboxId: memberProfile.inboxId)
                 try member.save(db)
                 try memberProfile.save(db)
             }

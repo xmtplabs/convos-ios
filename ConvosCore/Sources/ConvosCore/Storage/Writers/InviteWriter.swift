@@ -55,7 +55,7 @@ class InviteWriter: InviteWriterProtocol {
             expiresAfterUse: expiresAfterUse
         )
         try await databaseWriter.write { db in
-            try Member(inboxId: conversation.inboxId).save(db, onConflict: .ignore)
+            try DBMember(inboxId: conversation.inboxId).save(db, onConflict: .ignore)
             try DBConversationMember(
                 conversationId: conversation.id,
                 inboxId: conversation.inboxId,

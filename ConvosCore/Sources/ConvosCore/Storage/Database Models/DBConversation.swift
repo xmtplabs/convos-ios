@@ -99,8 +99,8 @@ public struct DBConversation: Codable, FetchableRecord, PersistableRecord, Ident
         key: "conversationMembers"
     ).order(DBConversationMember.Columns.createdAt.asc)
 
-    static let members: HasManyThroughAssociation<DBConversation, Member> = hasMany(
-        Member.self,
+    static let members: HasManyThroughAssociation<DBConversation, DBMember> = hasMany(
+        DBMember.self,
         through: _members,
         using: DBConversationMember.member,
         key: "conversationMembers"
