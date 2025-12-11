@@ -3,12 +3,12 @@ import GRDB
 
 // MARK: - ConversationMemberProfileWithRole
 
-struct ConversationMemberProfileWithRole: Codable, FetchableRecord, PersistableRecord, Hashable {
+struct DBConversationMemberProfileWithRole: Codable, FetchableRecord, PersistableRecord, Hashable {
     let memberProfile: DBMemberProfile
     let role: MemberRole
 }
 
-extension ConversationMemberProfileWithRole {
+extension DBConversationMemberProfileWithRole {
     func hydrateConversationMember(currentInboxId: String) -> ConversationMember {
         .init(
             profile: memberProfile.hydrateProfile(),
@@ -21,13 +21,13 @@ extension ConversationMemberProfileWithRole {
         _ db: Database,
         conversationId: String,
         inboxId: String
-    ) throws -> ConversationMemberProfileWithRole? {
+    ) throws -> DBConversationMemberProfileWithRole? {
         try DBConversationMember
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .filter(DBConversationMember.Columns.inboxId == inboxId)
             .select([DBConversationMember.Columns.role])
             .including(required: DBConversationMember.memberProfile)
-            .asRequest(of: ConversationMemberProfileWithRole.self)
+            .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchOne(db)
     }
 
@@ -35,13 +35,13 @@ extension ConversationMemberProfileWithRole {
         _ db: Database,
         conversationId: String,
         inboxIds: [String]
-    ) throws -> [ConversationMemberProfileWithRole] {
+    ) throws -> [DBConversationMemberProfileWithRole] {
         try DBConversationMember
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .filter(inboxIds.contains(DBConversationMember.Columns.inboxId))
             .select([DBConversationMember.Columns.role])
             .including(required: DBConversationMember.memberProfile)
-            .asRequest(of: ConversationMemberProfileWithRole.self)
+            .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(db)
     }
 }

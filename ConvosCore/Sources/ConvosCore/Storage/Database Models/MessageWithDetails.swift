@@ -5,7 +5,7 @@ import GRDB
 
 struct MessageWithDetails: Codable, FetchableRecord, PersistableRecord, Hashable {
     let message: DBMessage
-    let messageSender: ConversationMemberProfileWithRole
+    let messageSender: DBConversationMemberProfileWithRole
     let messageReactions: [DBMessage]
     let sourceMessage: DBMessage?
 }

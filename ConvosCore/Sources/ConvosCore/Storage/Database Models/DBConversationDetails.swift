@@ -5,8 +5,8 @@ import GRDB
 
 struct DBConversationDetails: Codable, FetchableRecord, PersistableRecord, Hashable {
     let conversation: DBConversation
-    let conversationCreator: ConversationMemberProfileWithRole
-    let conversationMembers: [ConversationMemberProfileWithRole]
+    let conversationCreator: DBConversationMemberProfileWithRole
+    let conversationMembers: [DBConversationMemberProfileWithRole]
     let conversationLastMessage: DBMessage?
     let conversationLocalState: ConversationLocalState
     let conversationInvite: DBInvite?
