@@ -326,7 +326,7 @@ extension Array where Element == MessageWithDetails {
                     messageContent = .emoji(dbMessage.emoji ?? "")
                 case .update:
                     guard let update = dbMessage.update,
-                          let initiatedByMember = try ConversationMemberProfileWithRole.fetchOne(
+                          let initiatedByMember = try DBConversationMemberProfileWithRole.fetchOne(
                             database,
                             conversationId: conversation.id,
                             inboxId: update.initiatedByInboxId
@@ -334,12 +334,12 @@ extension Array where Element == MessageWithDetails {
                         Log.error("Update message type is missing update object")
                         return nil
                     }
-                    let addedMembers = try ConversationMemberProfileWithRole.fetchAll(
+                    let addedMembers = try DBConversationMemberProfileWithRole.fetchAll(
                         database,
                         conversationId: conversation.id,
                         inboxIds: update.addedInboxIds
                     )
-                    let removedMembers = try ConversationMemberProfileWithRole.fetchAll(
+                    let removedMembers = try DBConversationMemberProfileWithRole.fetchAll(
                         database,
                         conversationId: conversation.id,
                         inboxIds: update.removedInboxIds

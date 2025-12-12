@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import Foundation
 import GRDB
 import UIKit
@@ -39,9 +40,9 @@ class MyProfileWriter: MyProfileWriterProtocol {
         let inboxId = inboxReady.client.inboxId
         let name = trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
         let profile = try await databaseWriter.write { db in
-            let member = Member(inboxId: inboxId)
+            let member = DBMember(inboxId: inboxId)
             try member.save(db)
-            let profile = (try MemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) ?? .init(
+            let profile = (try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) ?? .init(
                 conversationId: conversationId,
                 inboxId: inboxId,
                 name: name,
@@ -62,13 +63,13 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
         let inboxId = inboxReady.client.inboxId
         let profile = try await databaseWriter.write { db in
-            let member = Member(inboxId: inboxId)
+            let member = DBMember(inboxId: inboxId)
             try member.save(db)
-            if let foundProfile = try MemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) {
+            if let foundProfile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) {
                 Log.info("Found profile: \(foundProfile)")
                 return foundProfile
             } else {
-                let profile = MemberProfile(
+                let profile = DBMemberProfile(
                     conversationId: conversationId,
                     inboxId: inboxId,
                     name: nil,
@@ -115,3 +116,5 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
     }
 }
+
+#endif

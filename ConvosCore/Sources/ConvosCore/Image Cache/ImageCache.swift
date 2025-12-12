@@ -3,7 +3,6 @@ import CryptoKit
 import Foundation
 import Observation
 import os
-import SwiftUI
 
 // MARK: - Image Format
 
@@ -27,6 +26,9 @@ public protocol ImageCacheable {
     /// Unique identifier used for caching the image
     var imageCacheIdentifier: String { get }
 }
+
+#if canImport(UIKit)
+import SwiftUI
 
 // MARK: - Cache Configuration
 
@@ -668,3 +670,5 @@ public extension View {
             }
     }
 }
+
+#endif

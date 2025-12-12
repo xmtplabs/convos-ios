@@ -1,4 +1,4 @@
-import ConvosCore
+import ConvosCoreiOS
 import SwiftUI
 
 struct QRCodeView: View {

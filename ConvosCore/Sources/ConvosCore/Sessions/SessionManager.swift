@@ -1,8 +1,6 @@
 import Combine
 import Foundation
 import GRDB
-import UIKit
-import UserNotifications
 
 public extension Notification.Name {
     static let leftConversationNotification: Notification.Name = Notification.Name("LeftConversationNotification")
@@ -40,21 +38,28 @@ public final class SessionManager: SessionManagerProtocol {
     private var initializationTask: Task<Void, Never>?
     private var unusedInboxPrepTask: Task<Void, Never>?
     private let deviceRegistrationManager: any DeviceRegistrationManagerProtocol
-    private let unusedInboxCache: UnusedInboxCache
+    private let unusedInboxCache: any UnusedInboxCacheProtocol
     private let notificationChangeReporter: any NotificationChangeReporterType
+    private let platformProviders: PlatformProviders
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
          environment: AppEnvironment,
          identityStore: any KeychainIdentityStoreProtocol,
-         unusedInboxCache: UnusedInboxCache? = nil) {
+         unusedInboxCache: (any UnusedInboxCacheProtocol)? = nil,
+         platformProviders: PlatformProviders) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
         self.identityStore = identityStore
-        self.deviceRegistrationManager = DeviceRegistrationManager(environment: environment)
+        self.platformProviders = platformProviders
+        self.deviceRegistrationManager = DeviceRegistrationManager(
+            environment: environment,
+            platformProviders: platformProviders
+        )
         self.unusedInboxCache = unusedInboxCache ?? UnusedInboxCache(
-            identityStore: identityStore
+            identityStore: identityStore,
+            platformProviders: platformProviders
         )
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
         observe()
@@ -147,15 +152,16 @@ public final class SessionManager: SessionManagerProtocol {
             databaseReader: databaseReader,
             environment: environment,
             identityStore: identityStore,
-            startsStreamingServices: true
+            startsStreamingServices: true,
+            platformProviders: platformProviders
         )
     }
 
     private func observe() {
         // Observe foreground notifications to refresh GRDB observers with changes from notification extension
-        foregroundObserverTask = Task { [weak self] in
+        foregroundObserverTask = Task { [weak self, platformProviders] in
             let foregroundNotifications = NotificationCenter.default.notifications(
-                named: UIApplication.willEnterForegroundNotification
+                named: platformProviders.appLifecycle.willEnterForegroundNotification
             )
             for await _ in foregroundNotifications {
                 guard let self else { return }
@@ -240,7 +246,7 @@ public final class SessionManager: SessionManagerProtocol {
 
     public func deleteAllInboxes() async throws {
         // Always clear device registration state, even if deletion fails
-        defer { DeviceRegistrationManager.clearRegistrationState() }
+        defer { DeviceRegistrationManager.clearRegistrationState(deviceInfo: platformProviders.deviceInfo) }
 
         let services = serviceQueue.sync(flags: .barrier) {
             let copy = Array(messagingServices.values)

@@ -79,20 +79,20 @@ public enum ConvosLog {
 // MARK: - ConvosCore convenience wrapper
 
 /// ConvosCore logging wrapper - uses "ConvosCore" namespace
-enum Log {
-    static func debug(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+public enum Log {
+    public static func debug(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
         ConvosLog.debug(message, namespace: "ConvosCore", file: file, function: function, line: line)
     }
 
-    static func info(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+    public static func info(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
         ConvosLog.info(message, namespace: "ConvosCore", file: file, function: function, line: line)
     }
 
-    static func warning(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+    public static func warning(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
         ConvosLog.warning(message, namespace: "ConvosCore", file: file, function: function, line: line)
     }
 
-    static func error(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
+    public static func error(_ message: String, file: String = #file, function: String = #function, line: Int = #line) {
         ConvosLog.error(message, namespace: "ConvosCore", file: file, function: function, line: line)
     }
 }

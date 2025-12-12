@@ -153,8 +153,7 @@ public actor ConversationStateMachine {
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            deviceRegistrationManager: DeviceRegistrationManager(environment: environment)
+            databaseReader: databaseReader
         )
     }
 
