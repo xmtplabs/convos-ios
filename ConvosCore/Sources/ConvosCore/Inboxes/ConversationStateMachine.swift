@@ -150,11 +150,13 @@ public actor ConversationStateMachine {
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
+        // Note: We pass nil for deviceRegistrationManager here because ConversationStateMachine
+        // processes conversations that are being created/joined, not synced from streams.
+        // The main DeviceRegistrationManager is managed by SyncingManager.
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            deviceRegistrationManager: DeviceRegistrationManager(environment: environment)
+            databaseReader: databaseReader
         )
     }
 

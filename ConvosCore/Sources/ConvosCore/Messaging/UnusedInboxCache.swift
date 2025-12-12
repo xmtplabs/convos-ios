@@ -48,6 +48,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
 
     private let keychainService: any KeychainServiceProtocol
     private let identityStore: any KeychainIdentityStoreProtocol
+    private let platformProviders: PlatformProviders
     private var unusedMessagingService: MessagingService?
     private var isCreatingUnusedInbox: Bool = false
 
@@ -55,10 +56,12 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
 
     public init(
         keychainService: any KeychainServiceProtocol = KeychainService(),
-        identityStore: any KeychainIdentityStoreProtocol
+        identityStore: any KeychainIdentityStoreProtocol,
+        platformProviders: PlatformProviders
     ) {
         self.keychainService = keychainService
         self.identityStore = identityStore
+        self.platformProviders = platformProviders
     }
 
     // MARK: - Public Methods
@@ -165,7 +168,8 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
                     databaseReader: databaseReader,
                     databaseWriter: databaseWriter,
                     environment: environment,
-                    startsStreamingServices: true
+                    startsStreamingServices: true,
+                    platformProviders: platformProviders
                 )
 
                 // Schedule creation of a new unused inbox for next time
@@ -242,7 +246,8 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
-            environment: environment
+            environment: environment,
+            platformProviders: platformProviders
         )
 
         return MessagingService(
@@ -275,7 +280,8 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
-            startsStreamingServices: true
+            startsStreamingServices: true,
+            platformProviders: platformProviders
         )
 
         let messagingService = MessagingService(
@@ -334,7 +340,8 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
-            environment: environment
+            environment: environment,
+            platformProviders: platformProviders
         )
 
         let tempMessagingService = MessagingService(

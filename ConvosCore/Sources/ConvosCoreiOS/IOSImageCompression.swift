@@ -1,7 +1,12 @@
+import ConvosCore
+import Foundation
 import UIKit
 
-struct ImageCompression {
-    static let cacheOptimizedSize: CGFloat = 500
+/// iOS implementation of image compression using UIGraphicsImageRenderer.
+public struct IOSImageCompression: ImageCompressionProviding {
+    public static let cacheOptimizedSize: CGFloat = 500
+
+    public init() {}
 
     /// Resizes and compresses image to JPEG data in a single pass for optimal performance
     /// - Parameters:
@@ -9,7 +14,7 @@ struct ImageCompression {
     ///   - maxSize: Maximum dimensions in points
     ///   - compressionQuality: JPEG compression quality (0.0-1.0, default: 0.8)
     /// - Returns: JPEG data of the resized and compressed image, or nil if compression fails
-    static func resizeAndCompressToJPEG(
+    public func resizeAndCompressToJPEG(
         _ image: UIImage,
         maxSize: CGSize = CGSize(width: cacheOptimizedSize, height: cacheOptimizedSize),
         compressionQuality: CGFloat = 0.8
@@ -50,7 +55,7 @@ struct ImageCompression {
     ///   - image: The original UIImage to resize and compress
     ///   - maxSize: Maximum dimensions in points (default: 500×500pt for cache optimization)
     /// - Returns: PNG data of the resized and compressed image, or nil if compression fails
-    static func resizeAndCompressToPNG(
+    public func resizeAndCompressToPNG(
         _ image: UIImage,
         maxSize: CGSize = CGSize(width: cacheOptimizedSize, height: cacheOptimizedSize)
     ) -> Data? {

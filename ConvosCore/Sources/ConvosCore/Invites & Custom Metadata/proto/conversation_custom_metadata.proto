@@ -7,7 +7,6 @@ syntax = "proto3";
 // - expiresAt: Unix sfixed64 (8 bytes) instead of protobuf Timestamp (10-16 bytes)
 // - DEFLATE compression applied if size >100 bytes (typically 20-40% reduction)
 //
-// Expected size for 5-member group: ~200-300 bytes (40-60% smaller than unoptimized)
 message ConversationCustomMetadata {
     string tag = 1;
     repeated ConversationProfile profiles = 2;

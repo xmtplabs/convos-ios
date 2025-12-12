@@ -33,7 +33,10 @@ public struct NotificationExtensionEnvironment {
 
     /// Creates a cached push notification handler with the correct environment
     /// This should typically be called once and stored as a global singleton
-    public static func createPushNotificationHandler() throws -> CachedPushNotificationHandler {
+    /// - Parameter platformProviders: Platform-specific providers (use `.iOS` from ConvosCoreiOS)
+    public static func createPushNotificationHandler(
+        platformProviders: PlatformProviders
+    ) throws -> CachedPushNotificationHandler {
         let environment = try getEnvironment()
         let databaseManager = DatabaseManager(environment: environment)
         let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
@@ -44,7 +47,8 @@ public struct NotificationExtensionEnvironment {
             databaseReader: databaseManager.dbReader,
             databaseWriter: databaseManager.dbWriter,
             environment: environment,
-            identityStore: identityStore
+            identityStore: identityStore,
+            platformProviders: platformProviders
         )
         return CachedPushNotificationHandler.shared
     }

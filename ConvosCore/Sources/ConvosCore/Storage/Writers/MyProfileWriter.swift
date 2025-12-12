@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import Foundation
 import GRDB
 import UIKit
@@ -115,3 +116,5 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
     }
 }
+
+#endif

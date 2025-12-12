@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import Combine
 import Foundation
 import GRDB
@@ -360,3 +361,5 @@ enum ConversationMetadataError: LocalizedError {
         }
     }
 }
+
+#endif

@@ -1,20 +1,22 @@
 import Foundation
 import GRDB
-import UIKit
 
 public protocol ExpiredConversationsWorkerProtocol {}
 
 final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol {
     private let sessionManager: any SessionManagerProtocol
     private let databaseReader: any DatabaseReader
+    private let appLifecycle: any AppLifecycleProviding
     private var observers: [NSObjectProtocol] = []
 
     init(
         databaseReader: any DatabaseReader,
-        sessionManager: any SessionManagerProtocol
+        sessionManager: any SessionManagerProtocol,
+        appLifecycle: any AppLifecycleProviding
     ) {
         self.databaseReader = databaseReader
         self.sessionManager = sessionManager
+        self.appLifecycle = appLifecycle
         setupObservers()
         checkForExpiredConversations()
     }
@@ -28,7 +30,7 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol {
         let center = NotificationCenter.default
 
         observers.append(center.addObserver(
-            forName: UIApplication.didBecomeActiveNotification,
+            forName: appLifecycle.didBecomeActiveNotification,
             object: nil,
             queue: .main
         ) { [weak self] _ in

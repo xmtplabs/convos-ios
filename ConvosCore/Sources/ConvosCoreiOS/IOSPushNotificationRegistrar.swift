@@ -1,30 +1,40 @@
+import ConvosCore
+import ConvosLogging
 import Foundation
 import UIKit
 import UserNotifications
 
-/// Manages push notification token storage and authorization requests.
-/// All methods are static since push token is app-level, not inbox-specific.
-public final class PushNotificationRegistrar {
-    private static var _token: String?
+/// iOS implementation of push notification registration.
+///
+/// Manages push notification token storage and authorization requests using UIKit and UserNotifications.
+/// The token is stored in memory only per Apple guidelines - APNs issues fresh tokens on restore,
+/// new device, or OS reinstall.
+public final class IOSPushNotificationRegistrar: PushNotificationRegistrarProtocol, @unchecked Sendable {
+    // Using nonisolated(unsafe) because:
+    // 1. Token writes are serialized through AppDelegate
+    // 2. Reads can happen concurrently but are atomic (reference assignment)
+    nonisolated(unsafe) private var _token: String?
+
+    public init() {}
+
+    /// Returns the current push token, if available.
+    public var token: String? {
+        _token
+    }
 
     /// Saves the push token in memory and notifies observers of the change.
     /// Called by AppDelegate when APNS token is received.
     /// Note: Token is intentionally not persisted per Apple guidelines -
     /// APNs issues fresh tokens on restore, new device, or OS reinstall.
-    public static func save(token: String) {
+    public func save(token: String) {
         guard token != _token else { return }
         _token = token
         NotificationCenter.default.post(name: .convosPushTokenDidChange, object: nil)
     }
 
-    /// Returns the current push token, if available.
-    public static var token: String? {
-        _token
-    }
-
     /// Requests notification authorization if not already granted, then registers for remote notifications.
     /// Can be called from anywhere in the app when user takes an action that would benefit from notifications.
-    public static func requestNotificationAuthorizationIfNeeded() async -> Bool {
+    public func requestNotificationAuthorizationIfNeeded() async -> Bool {
         let settings = await UNUserNotificationCenter.current().notificationSettings()
 
         if settings.authorizationStatus == .authorized {

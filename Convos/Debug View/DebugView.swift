@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosCoreiOS
 import Sentry
 import SwiftUI
 import UIKit
@@ -243,9 +244,17 @@ extension DebugViewSection {
         let apnsEnv = ConfigManager.shared.currentEnvironment.apnsEnvironment.rawValue
         Log.info("Debug: Force re-registering device (APNS env: \(apnsEnv))")
 
-        DeviceRegistrationManager.clearRegistrationState()
+        // Use the iOS platform providers
+        let platformProviders = PlatformProviders.iOS
 
-        let manager = DeviceRegistrationManager(environment: ConfigManager.shared.currentEnvironment)
+        // Clear registration state
+        DeviceRegistrationManager.clearRegistrationState(deviceInfo: platformProviders.deviceInfo)
+
+        // Create manager with iOS platform providers for re-registration
+        let manager = DeviceRegistrationManager(
+            environment: ConfigManager.shared.currentEnvironment,
+            platformProviders: platformProviders
+        )
         await manager.registerDeviceIfNeeded()
     }
 
