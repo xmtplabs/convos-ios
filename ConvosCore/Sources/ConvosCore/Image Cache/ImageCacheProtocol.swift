@@ -66,3 +66,4 @@ public extension ImageCacheProtocol {
         cacheImage(image, for: identifier, imageFormat: .jpg)
     }
 }
+

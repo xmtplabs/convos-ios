@@ -20,3 +20,4 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
         mutedStates[conversationId] = isMuted
     }
 }
+

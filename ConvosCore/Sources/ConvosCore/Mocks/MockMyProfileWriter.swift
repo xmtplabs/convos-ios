@@ -15,3 +15,4 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
         updatedAvatars.append((image: avatar, conversationId: conversationId))
     }
 }
+

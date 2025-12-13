@@ -26,3 +26,4 @@ public final class MockInvitesRepository: InvitesRepositoryProtocol, @unchecked 
         mockInvites.filter { _ in true } // Return all invites for mock
     }
 }
+

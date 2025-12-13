@@ -152,3 +152,4 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
         AsyncThrowingStream { _ in }
     }
 }
+

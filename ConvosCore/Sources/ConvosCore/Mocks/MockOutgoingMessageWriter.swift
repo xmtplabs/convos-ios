@@ -18,3 +18,4 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         sentMessageSubject.send(messageId)
     }
 }
+

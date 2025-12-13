@@ -5,3 +5,4 @@ public typealias ImageType = NSImage
 import UIKit
 public typealias ImageType = UIImage
 #endif
+

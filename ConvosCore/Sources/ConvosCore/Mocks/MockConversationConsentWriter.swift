@@ -20,3 +20,4 @@ public final class MockConversationConsentWriter: ConversationConsentWriterProto
         deleteAllCalled = true
     }
 }
+
