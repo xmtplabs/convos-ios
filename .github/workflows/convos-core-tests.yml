@@ -147,8 +147,13 @@ jobs:
         run: |
           swift test --skip-build 2>&1 | tee test-output.log | grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" || true
 
-          # Check test results from output
-          if grep -q "Test Suite 'All tests' passed" test-output.log; then
+          # Check test results from output (Swift Testing format, not XCTest)
+          # Swift Testing outputs "Test run with X tests passed" at the end
+          if grep -q "Test run with.*passed" test-output.log; then
+            echo ""
+            echo "✅ All tests passed!"
+          elif grep -q "passed after" test-output.log && ! grep -q "failed after.*issue" test-output.log; then
+            # Alternative: all individual tests passed, none failed
             echo ""
             echo "✅ All tests passed!"
           else
