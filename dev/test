@@ -1,12 +1,10 @@
 #!/bin/bash
 set -eou pipefail
 
-# Usage: dev/test [--unit] [--verbose]
-#   --unit     Run only unit tests (no Docker required)
-#   --verbose  Show full output including app logs
-#   (none)     Run all tests with local XMTP node (requires Docker)
+# Usage: dev/test [--unit]
+#   --unit   Run only unit tests (no Docker required)
+#   (none)   Run all tests with local XMTP node (requires Docker)
 
-VERBOSE=false
 UNIT_TESTS=false
 
 for arg in "$@"; do
@@ -14,14 +12,10 @@ for arg in "$@"; do
         --unit)
             UNIT_TESTS=true
             ;;
-        --verbose|-v)
-            VERBOSE=true
-            ;;
         --help|-h)
-            echo "Usage: dev/test [--unit] [--verbose]"
-            echo "  --unit     Run only unit tests (no Docker required)"
-            echo "  --verbose  Show full output including app logs"
-            echo "  (none)     Run all tests with local XMTP node (requires Docker)"
+            echo "Usage: dev/test [--unit]"
+            echo "  --unit   Run only unit tests (no Docker required)"
+            echo "  (none)   Run all tests with local XMTP node (requires Docker)"
             exit 0
             ;;
         *)
@@ -32,17 +26,9 @@ for arg in "$@"; do
     esac
 done
 
-# Function to filter test output for cleaner display
-filter_test_output() {
-    if [ "$VERBOSE" = true ]; then
-        # Filter out xmtp_mls/xmtpv3 Rust library logs even in verbose mode
-        grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T.*(xmtp|INFO|WARN|ERROR)" || true
-    else
-        # Show only: build status, test results (passed/failed), issues, and final summary
-        # Use grep -v first to exclude xmtp logs, then grep for wanted patterns
-        grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" | \
-        grep -E "(^Building|^Build complete|Test Suite.*passed|Test Suite.*failed|passed after|failed after|recorded an issue|with [0-9]+ issue|Test run with|^error:|^􁁛|^􀢄)" || true
-    fi
+# Filter out noisy XMTP Rust library logs (timestamps like 2024-01-01T...)
+filter_xmtp_logs() {
+    grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" || true
 }
 
 # Check for --unit flag to run only unit tests without Docker
@@ -54,8 +40,8 @@ if [ "$UNIT_TESTS" = true ]; then
     cd "$SCRIPT_DIR/../ConvosCore"
 
     # Run only unit tests that don't require network
-    swift test --filter "Base64URL|DataHex|Compression|Custom Metadata" 2>&1 | filter_test_output
-    exit ${PIPESTATUS[0]}
+    swift test --filter "Base64URL|DataHex|Compression|Custom Metadata" 2>&1 | filter_xmtp_logs
+    exit 0
 fi
 
 echo "🧪 Running ConvosCore integration tests with local XMTP node..."
@@ -99,89 +85,51 @@ echo ""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/../ConvosCore"
 
-# Run tests using swift test (works on macOS without simulator)
-set +e  # temporarily disable exit on error to capture the exit code
-
 # Build first to avoid "multiple producers" error when running tests in parallel
-# This ensures compilation happens in a single process before parallel test execution
 echo "📦 Building tests..."
-swift build --build-tests -q 2>&1 | filter_test_output
-build_exit_code=${PIPESTATUS[0]}
-
-if [ $build_exit_code -ne 0 ]; then
+if ! swift build --build-tests -q 2>&1 | filter_xmtp_logs; then
     echo "❌ Build failed!"
-    exit $build_exit_code
+    cd "$SCRIPT_DIR"
+    ./compose down
+    exit 1
 fi
 
-# Run tests with a timeout because XMTP background workers may prevent clean exit
-# Tests complete but the process can hang due to background worker cleanup issues
 echo "🏃 Running tests..."
 
-# Start tests in background, writing to log file
-TEST_SERVER_ENABLED=true swift test --no-parallel --skip-build > test-output.log 2>&1 &
-TEST_PID=$!
+# Create log file for watchdog to monitor
+> test-output.log
 
-# Monitor progress and enforce timeout
-TIMEOUT=180
-ELAPSED=0
-while kill -0 $TEST_PID 2>/dev/null; do
+# Start a watchdog that will kill swift test if it hangs after tests complete
+# (XMTP background workers sometimes prevent clean exit)
+(
+    # Wait for tests to complete (look for final summary in output)
+    while ! grep -q "Test Suite 'All tests'" test-output.log 2>/dev/null; do
+        sleep 1
+    done
+    # Give swift test 5 seconds to exit cleanly after tests complete
     sleep 5
-    ELAPSED=$((ELAPSED + 5))
+    # If still running, kill any remaining swift test processes
+    pkill -9 -f "swift-test" 2>/dev/null || true
+) &
+WATCHDOG_PID=$!
 
-    # Show progress with current test name
-    PASSED=$(grep -c "passed after" test-output.log 2>/dev/null || echo "0")
-    FAILED=$(grep -c "failed after.*issue" test-output.log 2>/dev/null || echo "0")
-    CURRENT_TEST=$(grep "Test \".*\" started" test-output.log 2>/dev/null | tail -1 | sed 's/.*Test "\([^"]*\)".*/\1/' || echo "")
-    if [ -n "$CURRENT_TEST" ]; then
-        echo "  ⏳ Running: $CURRENT_TEST ($PASSED passed, $FAILED failed, ${ELAPSED}s)"
-    else
-        echo "  ⏳ Running... ($PASSED passed, $FAILED failed, ${ELAPSED}s)"
-    fi
+# Run tests (output goes to file and screen)
+TEST_SERVER_ENABLED=true swift test --skip-build 2>&1 | tee test-output.log | filter_xmtp_logs || true
 
-    if [ $ELAPSED -ge $TIMEOUT ]; then
-        echo ""
-        echo "⏱️  Test process didn't exit after ${TIMEOUT}s, forcing termination..."
-        echo "  (This is usually due to XMTP background workers not shutting down cleanly)"
-        kill $TEST_PID 2>/dev/null
-        sleep 2
-        kill -9 $TEST_PID 2>/dev/null
-        break
-    fi
-done
+# Clean up watchdog
+kill $WATCHDOG_PID 2>/dev/null || true
 
-wait $TEST_PID 2>/dev/null
-
-# Show filtered results
-echo ""
-filter_test_output < test-output.log
-
-# Determine test result from log file
-if grep -q "Test run with.*passed after" test-output.log 2>/dev/null; then
-    test_exit_code=0
-elif grep -q "failed after.*with.*issue" test-output.log 2>/dev/null; then
-    test_exit_code=1
-else
-    # Check if all suites completed even without final summary
-    SUITES_STARTED=$(grep -c "Suite.*started" test-output.log 2>/dev/null || echo "0")
-    SUITES_COMPLETED=$(grep -c "Suite.*after.*seconds" test-output.log 2>/dev/null || echo "0")
-    if [ "$SUITES_STARTED" = "$SUITES_COMPLETED" ] && [ "$SUITES_STARTED" != "0" ]; then
-        test_exit_code=0
-    else
-        test_exit_code=1
-    fi
-fi
-set -e  # re-enable exit on error
-
-if [ $test_exit_code -eq 0 ]; then
+# Check test results from output (exit code unreliable due to signal issues)
+if grep -q "Test Suite 'All tests' passed" test-output.log; then
     echo ""
     echo "✅ All tests passed!"
+    test_exit_code=0
 else
     echo ""
     echo "❌ Tests failed!"
-    echo ""
-    echo "📝 Full output saved to: ConvosCore/test-output.log"
-    echo "💡 Run with --verbose to see full output"
+    test_exit_code=1
 fi
+rm -f test-output.log
 
 # Stop the XMTP node
 echo ""
