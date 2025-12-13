@@ -30,6 +30,7 @@ public struct ConversationReadyResult {
 public actor ConversationStateMachine {
     enum Action {
         case create
+        case useExisting(conversationId: String)
         case validate(inviteCode: String)
         case join
         case delete
@@ -218,6 +219,10 @@ public actor ConversationStateMachine {
         enqueueAction(.create)
     }
 
+    func useExisting(conversationId: String) {
+        enqueueAction(.useExisting(conversationId: conversationId))
+    }
+
     func join(inviteCode: String) {
         enqueueAction(.validate(inviteCode: inviteCode))
     }
@@ -292,6 +297,9 @@ public actor ConversationStateMachine {
                 handleStop()
                 try await handleCreate()
 
+            case (.uninitialized, let .useExisting(conversationId)):
+                handleUseExisting(conversationId: conversationId)
+
             case (.uninitialized, let .validate(inviteCode)):
                 try await handleValidate(inviteCode: inviteCode, previousResult: nil)
             case let (.ready(previousResult), .validate(inviteCode)):
@@ -358,6 +366,14 @@ public actor ConversationStateMachine {
         emitStateChange(.ready(ConversationReadyResult(
             conversationId: externalConversationId,
             origin: .created
+        )))
+    }
+
+    private func handleUseExisting(conversationId: String) {
+        Log.info("Using existing conversation: \(conversationId)")
+        emitStateChange(.ready(ConversationReadyResult(
+            conversationId: conversationId,
+            origin: .existing
         )))
     }
 

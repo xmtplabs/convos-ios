@@ -49,6 +49,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         MockConversationStateManager()
     }
 
+    public func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol {
+        MockConversationStateManager()
+    }
+
     public var clientPublisher: AnyPublisher<(any XMTPClientProvider)?, Never> {
         Just(self).eraseToAnyPublisher()
     }
