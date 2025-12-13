@@ -86,6 +86,7 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
 public final class MockConversationsProvider: ConversationsProvider, @unchecked Sendable {
     public init() {}
 
+    // swiftlint:disable:next function_parameter_count
     public func listGroups(
         createdAfterNs: Int64?,
         createdBeforeNs: Int64?,
@@ -111,6 +112,7 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
         []
     }
 
+    // swiftlint:disable:next function_parameter_count
     public func listDms(
         createdAfterNs: Int64?,
         createdBeforeNs: Int64?,

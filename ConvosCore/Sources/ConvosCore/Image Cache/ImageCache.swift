@@ -65,7 +65,6 @@ private struct CacheConfiguration {
 /// When a new image is uploaded for an object, all views showing that object update instantly.
 @Observable
 public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
-    /// Legacy accessor for backwards compatibility
     // swiftlint:disable:next force_cast
     public static var shared: ImageCache { ImageCacheContainer.shared as! ImageCache }
 

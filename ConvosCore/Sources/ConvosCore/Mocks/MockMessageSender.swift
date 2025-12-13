@@ -65,7 +65,7 @@ public class MockConversationSender: ConversationSender, @unchecked Sendable {
 }
 
 /// Mock implementation of GroupConversationSender for testing
-public final class MockGroupConversationSender: MockConversationSender, GroupConversationSender {
+public final class MockGroupConversationSender: MockConversationSender, GroupConversationSender, @unchecked Sendable {
     public var mockPermissionPolicySet: PermissionPolicySet = .init(
         addMemberPolicy: .unknown,
         removeMemberPolicy: .unknown,

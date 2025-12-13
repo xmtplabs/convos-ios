@@ -3,7 +3,7 @@ import Foundation
 
 /// Mock implementation of OutgoingMessageWriterProtocol for testing
 public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @unchecked Sendable {
-    private let sentMessageSubject = PassthroughSubject<String, Never>()
+    private let sentMessageSubject: PassthroughSubject = PassthroughSubject<String, Never>()
     public var sentMessages: [String] = []
 
     public init() {}
