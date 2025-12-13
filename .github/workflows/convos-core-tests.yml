@@ -31,6 +31,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install docker-compose
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq docker-compose
+
       - name: Start Docker services
         run: ./dev/up
 
