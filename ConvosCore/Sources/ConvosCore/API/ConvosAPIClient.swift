@@ -7,7 +7,13 @@ protocol ConvosAPIClientFactoryType {
 
 enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
     static func client(environment: AppEnvironment, overrideJWTToken: String? = nil) -> any ConvosAPIClientProtocol {
-        ConvosAPIClient(environment: environment, overrideJWTToken: overrideJWTToken)
+        guard !environment.isTestingEnvironment else {
+            return MockAPIClient()
+        }
+        return ConvosAPIClient(
+            environment: environment,
+            overrideJWTToken: overrideJWTToken
+        )
     }
 }
 

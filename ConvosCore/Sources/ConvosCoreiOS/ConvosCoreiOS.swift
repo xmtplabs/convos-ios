@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 // ConvosCoreiOS
 //
 // iOS-specific implementations for the Convos app.
@@ -56,3 +57,4 @@ extension PlatformProviders {
 
 // Re-export types from ConvosCore for convenience
 @_exported import ConvosCore
+#endif

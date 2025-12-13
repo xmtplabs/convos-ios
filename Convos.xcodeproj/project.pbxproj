@@ -111,7 +111,6 @@
 		7AC5993D2E5592FA00D65D07 /* KeychainIdentityStoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KeychainIdentityStoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ACA8BA32DE16DE200848799 /* ConvosTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7AD5458D2E4EA89400500ADF /* ConvosCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = ConvosCore; sourceTree = "<group>"; };
-		7AD974562EC26F9500566BD5 /* Convos (Dev).xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Convos (Dev).xctestplan"; sourceTree = "<group>"; };
 		7ADC0C6E2E2977800053978A /* ConvosAppClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConvosAppClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C7C2E2977810053978A /* ConvosAppClipTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -438,7 +437,6 @@
 		D8A2B6882DA4BA4B00EF8577 = {
 			isa = PBXGroup;
 			children = (
-				7AD974562EC26F9500566BD5 /* Convos (Dev).xctestplan */,
 				7AD5458D2E4EA89400500ADF /* ConvosCore */,
 				D8477AD42DCBA52F00E31E54 /* .env */,
 				D8477AD52DCBA52F00E31E54 /* .env.example */,

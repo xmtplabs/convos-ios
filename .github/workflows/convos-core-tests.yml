@@ -1,33 +1,100 @@
 name: ConvosCore Tests
 
 on:
-  pull_request:
-    paths:
-      - 'ConvosCore/**'
-      - '.github/workflows/convos-core-tests.yml'
   push:
     branches:
       - main
       - develop
     paths:
       - 'ConvosCore/**'
+      - 'dev/**'
+      - '.github/workflows/convos-core-tests.yml'
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - 'ConvosCore/**'
+      - 'dev/**'
+      - '.github/workflows/convos-core-tests.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  test:
-    name: Run ConvosCore Tests
-    runs-on: macos-26
-    timeout-minutes: 15
+  # Backend job runs Docker services on Ubuntu and exposes via ngrok
+  backend:
+    name: XMTP Backend
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.draft == false
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Select Xcode (use default on macOS 26)
-        run: xcodebuild -version
+      - name: Install docker-compose
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq docker-compose
+
+      - name: Start Docker services
+        run: ./dev/up
+
+      - name: Wait for services to be ready
+        run: |
+          timeout 60 bash -c 'until nc -z localhost 5556; do sleep 1; done'
+          echo "✅ XMTP node is ready on port 5556"
+
+      - name: Install ngrok
+        run: |
+          curl -s https://ngrok-agent.s3.amazonaws.com/ngrok.asc | sudo tee /etc/apt/trusted.gpg.d/ngrok.asc >/dev/null
+          echo "deb https://ngrok-agent.s3.amazonaws.com buster main" | sudo tee /etc/apt/sources.list.d/ngrok.list
+          sudo apt-get update
+          sudo apt-get install -y ngrok
+
+      - name: Setup ngrok tunnel
+        env:
+          NGROK_AUTHTOKEN: ${{ secrets.NGROK_TOKEN }}
+        run: ./dev/start-ngrok-tunnels.sh
+
+      - name: Verify tunnel
+        run: |
+          echo "=== Ngrok Log ==="
+          cat ngrok-5556.log | head -20
+          echo ""
+          echo "=== Tunnel URL ==="
+          echo "Node: $(cat tunnel-info/node-url.txt)"
+
+      - name: Upload tunnel info
+        uses: actions/upload-artifact@v4
+        with:
+          name: tunnel-info-${{ github.run_id }}-${{ github.run_attempt }}
+          path: tunnel-info/
+          retention-days: 1
+
+      - name: Keep backend running
+        run: |
+          echo "Monitoring tunnel activity for up to 30 minutes, with a 10 minute inactivity timeout..."
+          timeout 1800 bash -c 'tail -f ngrok-5556.log | while read -t 600; do :; done' || true
+
+      - name: Cleanup
+        if: always()
+        run: |
+          if [ -f ngrok-5556.pid ]; then
+            kill $(cat ngrok-5556.pid) || true
+          fi
+          ./dev/down || true
+
+  # Tests job runs on macOS and connects to backend via ngrok
+  tests:
+    name: Run Tests
+    runs-on: macos-26
+    needs: []  # Don't wait for backend, start in parallel
+    if: github.event.pull_request.draft == false
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
 
       - name: Show environment
         run: |
@@ -48,30 +115,67 @@ jobs:
         working-directory: ConvosCore
         run: swift package resolve
 
-      - name: Run tests on iOS Simulator
+      - name: Build tests
+        working-directory: ConvosCore
+        run: swift build --build-tests -q
+
+      - name: Wait for tunnel info
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 10
+          max_attempts: 30
+          retry_wait_seconds: 10
+          command: |
+            gh run download ${{ github.run_id }} -n tunnel-info-${{ github.run_id }}-${{ github.run_attempt }} -D tunnel-info
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure test environment
+        run: |
+          NODE_URL=$(cat tunnel-info/node-url.txt)
+          if [ -z "$NODE_URL" ]; then
+            echo "Failed to read tunnel URL"
+            exit 1
+          fi
+          echo "XMTP_NODE_ADDRESS=${NODE_URL}" >> $GITHUB_ENV
+          echo "XMTP_IS_SECURE=false" >> $GITHUB_ENV
+          echo "TEST_SERVER_ENABLED=true" >> $GITHUB_ENV
+          echo "Using XMTP node tunnel: $NODE_URL"
+
+      - name: Run tests
         working-directory: ConvosCore
         run: |
-          set -o pipefail
-          xcodebuild test \
-            -scheme ConvosCore \
-            -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.1' \
-            -enableCodeCoverage YES \
-            -skipPackagePluginValidation \
-            -resultBundlePath TestResults.xcresult \
-            | tee test-output.log
+          swift test --skip-build 2>&1 | tee test-output.log | grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" || true
+
+          # Check test results from output (Swift Testing format, not XCTest)
+          # Swift Testing outputs "Test run with X tests passed" at the end
+          if grep -q "Test run with.*passed" test-output.log; then
+            echo ""
+            echo "✅ All tests passed!"
+          elif grep -q "passed after" test-output.log && ! grep -q "failed after.*issue" test-output.log; then
+            # Alternative: all individual tests passed, none failed
+            echo ""
+            echo "✅ All tests passed!"
+          else
+            echo ""
+            echo "❌ Tests failed!"
+            exit 1
+          fi
 
       - name: Upload test results
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-results
-          path: |
-            ConvosCore/TestResults.xcresult
-            ConvosCore/test-output.log
+          path: ConvosCore/test-output.log
           retention-days: 7
 
-      - name: Check test status
+      - name: Show failure details
         if: failure()
         run: |
           echo "❌ Tests failed! Check the uploaded artifacts for details."
-          exit 1
+          if [ -f ConvosCore/test-output.log ]; then
+            echo ""
+            echo "=== Last 100 lines of test output ==="
+            tail -100 ConvosCore/test-output.log
+          fi

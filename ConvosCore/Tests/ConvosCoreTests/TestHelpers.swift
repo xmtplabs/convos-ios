@@ -41,8 +41,13 @@ class TestFixtures {
         self.keychainService = MockKeychainService()
         self.databaseManager = MockDatabaseManager.makeTestDatabase()
 
-        // configure logging for tests
+        // Configure logging for tests
         ConvosLog.configure(environment: .tests)
+
+        // Set up mock singletons for legacy code paths
+        DeviceInfo.shared = MockDeviceInfoProvider()
+        AppLifecycle.shared = MockAppLifecycleProvider()
+        PushNotificationRegistrar.shared = MockPushNotificationRegistrarProvider()
     }
 
     /// Create a new XMTP client for testing
