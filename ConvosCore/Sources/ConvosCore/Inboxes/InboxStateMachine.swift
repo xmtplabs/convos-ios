@@ -42,6 +42,10 @@ private extension AppEnvironment {
 
         switch self {
         case .local, .tests:
+            // Support environment variable for CI (ngrok tunnels may require TLS)
+            if let envSecure = ProcessInfo.processInfo.environment["XMTP_IS_SECURE"] {
+                return envSecure.lowercased() == "true" || envSecure == "1"
+            }
             return false
         default:
             return true
