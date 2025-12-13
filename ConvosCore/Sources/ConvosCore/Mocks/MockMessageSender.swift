@@ -89,4 +89,3 @@ public final class MockGroupConversationSender: MockConversationSender, GroupCon
         // No-op for mock
     }
 }
-

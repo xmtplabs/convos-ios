@@ -41,4 +41,3 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
     public func setImage(_ image: ImageType, for url: String) {}
 }
 #endif
-

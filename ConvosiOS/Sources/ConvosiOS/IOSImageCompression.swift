@@ -89,4 +89,3 @@ public struct IOSImageCompression: ImageCompressionProviding {
         return resizedImage.pngData()
     }
 }
-

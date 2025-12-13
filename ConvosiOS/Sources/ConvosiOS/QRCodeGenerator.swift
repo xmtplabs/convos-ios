@@ -296,4 +296,3 @@ public extension QRCodeGenerator.Options {
         )
     }
 }
-

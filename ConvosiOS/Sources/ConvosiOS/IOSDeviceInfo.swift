@@ -44,4 +44,3 @@ public final class IOSDeviceInfo: DeviceInfoProviding, @unchecked Sendable {
         #endif
     }
 }
-
