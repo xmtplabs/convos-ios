@@ -1,8 +1,6 @@
-#if canImport(UIKit)
 import Combine
 import Foundation
 import GRDB
-import UIKit
 import XMTPiOS
 
 // MARK: - Conversation Metadata Writer Protocol
@@ -17,15 +15,37 @@ public protocol ConversationMetadataWriterProtocol {
     func demoteFromAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func promoteToSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
-    func updateImage(_ image: UIImage, for conversation: Conversation) async throws
+    func updateImage(_ image: ImageType, for conversation: Conversation) async throws
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
 }
 
-// MARK: - Conversation Metadata Writer Implementation
+// MARK: - Conversation Metadata Errors
 
 enum ConversationMetadataWriterError: Error {
     case failedImageCompression
 }
+
+enum ConversationMetadataError: LocalizedError {
+    case clientNotAvailable
+    case conversationNotFound(conversationId: String)
+    case memberNotFound(memberInboxId: String)
+    case insufficientPermissions
+
+    var errorDescription: String? {
+        switch self {
+        case .clientNotAvailable:
+            return "XMTP client is not available"
+        case .conversationNotFound(let conversationId):
+            return "Conversation not found: \(conversationId)"
+        case .memberNotFound(let memberInboxId):
+            return "Member not found: \(memberInboxId)"
+        case .insufficientPermissions:
+            return "Insufficient permissions to perform this action"
+        }
+    }
+}
+
+// MARK: - Conversation Metadata Writer Implementation
 
 final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
     private let inboxStateManager: any InboxStateManagerProtocol
@@ -136,11 +156,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
         Log.info("Updated conversation description for \(conversationId): \(description)")
     }
 
-    func updateImage(_ image: UIImage, for conversation: Conversation) async throws {
+    func updateImage(_ image: ImageType, for conversation: Conversation) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
         // Resize, cache, and get JPEG data in one pass
-        guard let compressedImageData = ImageCache.shared.resizeCacheAndGetData(
+        guard let compressedImageData = ImageCacheContainer.shared.resizeCacheAndGetData(
             image,
             for: conversation
         ) else {
@@ -339,27 +359,3 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
         Log.info("Demoted \(memberInboxId) from super admin in conversation \(conversationId)")
     }
 }
-
-// MARK: - Conversation Metadata Errors
-
-enum ConversationMetadataError: LocalizedError {
-    case clientNotAvailable
-    case conversationNotFound(conversationId: String)
-    case memberNotFound(memberInboxId: String)
-    case insufficientPermissions
-
-    var errorDescription: String? {
-        switch self {
-        case .clientNotAvailable:
-            return "XMTP client is not available"
-        case .conversationNotFound(let conversationId):
-            return "Conversation not found: \(conversationId)"
-        case .memberNotFound(let memberInboxId):
-            return "Member not found: \(memberInboxId)"
-        case .insufficientPermissions:
-            return "Insufficient permissions to perform this action"
-        }
-    }
-}
-
-#endif

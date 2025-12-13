@@ -7,7 +7,7 @@ let package = Package(
     name: "ConvosCore",
     platforms: [
         .iOS(.v26),
-        .macOS(.v15)
+        .macOS(.v26)
     ],
     products: [
         .library(
@@ -56,7 +56,7 @@ let package = Package(
         .target(
             name: "ConvosCoreiOS",
             dependencies: [
-                "ConvosCore",
+                .target(name: "ConvosCore", condition: .when(platforms: [.iOS])),
             ],
             path: "Sources/ConvosCoreiOS",
             swiftSettings: [
