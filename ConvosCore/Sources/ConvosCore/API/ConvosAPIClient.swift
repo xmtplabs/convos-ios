@@ -352,16 +352,16 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         )
 
         struct PresignedResponse: Codable {
-            let url: String
             let objectKey: String
+            let uploadUrl: String
+            let assetUrl: String?
         }
 
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
         Log.info("Received presigned response for objectKey: \(presignedResponse.objectKey)")
 
         // Step 2: Upload directly to S3 using presigned URL
-        // The asset key is the filename we passed in
-        guard let s3URL = URL(string: presignedResponse.url) else {
+        guard let s3URL = URL(string: presignedResponse.uploadUrl) else {
             Log.error("Invalid presigned URL received")
             throw APIError.invalidURL
         }
@@ -388,15 +388,21 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.serverError(nil)
         }
 
-        // Use objectKey from the API response and append the file extension from the S3 URL
-        // objectKey: "10cf27ff-f6f8-4b70-b586-2f4370adddd5"
-        // S3 path: "/10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg"
-        // Result: "10cf27ff-f6f8-4b70-b586-2f4370adddd5.jpeg"
-        let fileExtension = s3URL.pathExtension
-        let assetPath = fileExtension.isEmpty
-            ? presignedResponse.objectKey
-            : "\(presignedResponse.objectKey).\(fileExtension)"
-        Log.info("Successfully uploaded to S3, assetPath: \(assetPath)")
+        // Use assetUrl from the API response if available, otherwise fall back to objectKey
+        // assetUrl: "https://cdn.convos.tld/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpeg"
+        // This is the final CDN URL that should be stored and used for display
+        let assetPath: String
+        if let assetUrl = presignedResponse.assetUrl {
+            assetPath = assetUrl
+            Log.info("Successfully uploaded to S3, assetUrl: \(assetPath)")
+        } else {
+            // Fallback for backwards compatibility if CDN not configured
+            let fileExtension = s3URL.pathExtension
+            assetPath = fileExtension.isEmpty
+                ? presignedResponse.objectKey
+                : "\(presignedResponse.objectKey).\(fileExtension)"
+            Log.warning("No assetUrl in response, using fallback assetPath: \(assetPath)")
+        }
         return assetPath
     }
 
