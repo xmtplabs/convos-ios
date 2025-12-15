@@ -31,14 +31,16 @@ struct QuicknameSettings: Equatable {
     }
 
     var profile: Profile {
+        // Note: avatar is nil here because the local profileImage is passed directly
+        // to views (e.g., ProfileAvatarView) as placeholderImage, bypassing URL resolution.
         .init(
             inboxId: "",
             name: displayName.isEmpty ? nil : displayName,
-            avatar: profileImage == nil ? nil : Self.defaultProfileImageURL?.absoluteString
+            avatar: nil
         )
     }
 
-    private static var defaultProfileImageURL: URL? {
+    private static var profileImageFileURL: URL? {
         guard let documentsDirectory = FileManager.default.urls(
             for: .documentDirectory,
             in: .userDomainMask
@@ -74,10 +76,12 @@ struct QuicknameSettings: Equatable {
     }
 
     func profile(inboxId: String = "") -> Profile {
+        // Note: avatar is nil here because the local profileImage is passed directly
+        // to views (e.g., ProfileAvatarView) as placeholderImage, bypassing URL resolution.
         .init(
             inboxId: inboxId,
             name: displayName.isEmpty ? nil : displayName,
-            avatar: profileImage == nil ? nil : Self.defaultProfileImageURL?.absoluteString
+            avatar: nil
         )
     }
 
@@ -97,10 +101,10 @@ struct QuicknameSettings: Equatable {
 
         // Save profile image to disk
         if let profileImage = profileImage,
-           let imageURL = Self.defaultProfileImageURL,
+           let imageURL = Self.profileImageFileURL,
            let jpegData = profileImage.jpegData(compressionQuality: 1.0) {
             try jpegData.write(to: imageURL)
-        } else if let imageURL = Self.defaultProfileImageURL {
+        } else if let imageURL = Self.profileImageFileURL {
             // Remove image if nil
             try? FileManager.default.removeItem(at: imageURL)
         }
@@ -111,7 +115,7 @@ struct QuicknameSettings: Equatable {
         UserDefaults.standard.removeObject(forKey: Self.userDefaultsKey)
 
         // Delete profile image from disk
-        if let imageURL = Self.defaultProfileImageURL {
+        if let imageURL = Self.profileImageFileURL {
             try? FileManager.default.removeItem(at: imageURL)
         }
     }
@@ -138,7 +142,7 @@ struct QuicknameSettings: Equatable {
 
         // Load profile image from disk if it exists
         var profileImage: UIImage?
-        if let imageURL = defaultProfileImageURL,
+        if let imageURL = profileImageFileURL,
            FileManager.default.fileExists(atPath: imageURL.path),
            let imageData = try? Data(contentsOf: imageURL) {
             profileImage = UIImage(data: imageData)

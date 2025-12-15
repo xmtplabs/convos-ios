@@ -33,7 +33,7 @@ public final class AssetURLResolver: Sendable {
     ///   - allowedHosts: List of allowed hostnames (CDN + legacy S3 buckets)
     public func configure(allowedHosts: [String] = []) {
         guard !allowedHosts.isEmpty else {
-            Log.warning("AssetURLResolver: No allowed hosts configured - all asset URLs will be rejected")
+            Log.warning("No allowed hosts configured - all asset URLs will be rejected")
             config.withLock { $0 = nil }
             return
         }
@@ -46,7 +46,7 @@ public final class AssetURLResolver: Sendable {
         )
 
         guard !hosts.isEmpty else {
-            Log.warning("AssetURLResolver: No valid allowed hosts after filtering")
+            Log.warning("No valid allowed hosts after filtering")
             config.withLock { $0 = nil }
             return
         }
@@ -54,19 +54,16 @@ public final class AssetURLResolver: Sendable {
         let resolvedConfig = Config(allowedHosts: hosts)
         config.withLock { $0 = resolvedConfig }
 
-        Log.info("AssetURLResolver: Configured with \(hosts.count) allowed host(s): \(Array(hosts).joined(separator: ", "))")
+        Log.info("Configured with \(hosts.count) allowed host(s): \(Array(hosts).joined(separator: ", "))")
     }
 
-    /// Validates and resolves an asset URL
+    /// Validates a remote asset URL against allowed hosts
     ///
     /// With the new API, the backend provides complete URLs (assetUrl field).
     /// This method validates that URLs come from allowed hosts for security.
     ///
-    /// Handles these cases:
-    /// 1. Full URL from an allowed host - validates and returns
-    /// 2. URL from non-allowed host - returns nil (security)
-    /// 3. Local file URL - passes through directly
-    /// 4. No allowed hosts configured - returns nil
+    /// Only http/https URLs are accepted; local file:// URLs should be handled
+    /// directly by the caller (e.g., quickname preview) without going through this resolver.
     ///
     /// - Parameter assetValue: A full URL string (e.g., from backend's assetUrl field)
     /// - Returns: The validated URL, or nil if validation fails or URL is not from an allowed host
@@ -78,33 +75,28 @@ public final class AssetURLResolver: Sendable {
         // Parse as URL
         guard let inputURL = URL(string: assetValue),
               let scheme = inputURL.scheme?.lowercased() else {
-            Log.warning("AssetURLResolver: Invalid URL format: \(assetValue)")
+            Log.warning("Invalid URL format: \(assetValue)")
             return nil
         }
 
-        // Pass through local file URLs directly (used for trusted local assets e.g. quickname before upload)
-        if scheme == "file" {
-            return inputURL
+        // Only allow http/https; local file URLs should be handled directly by callers
+        guard scheme == "http" || scheme == "https" else {
+            Log.warning("Rejected URL with unsupported scheme: \(scheme)")
+            return nil
         }
 
-        // For http/https, validate against allowed hosts
-        if scheme == "http" || scheme == "https" {
-            guard let resolvedConfig = config.withLock({ $0 }) else {
-                Log.warning("AssetURLResolver: No allowed hosts configured, rejecting URL: \(assetValue)")
-                return nil
-            }
-
-            guard let inputHost = inputURL.host?.lowercased(),
-                  resolvedConfig.allowedHosts.contains(inputHost) else {
-                Log.warning("AssetURLResolver: Rejected URL from non-allowed host: \(inputURL.host ?? "nil")")
-                return nil
-            }
-
-            return inputURL
+        // Validate against allowed hosts
+        guard let resolvedConfig = config.withLock({ $0 }) else {
+            Log.warning("No allowed hosts configured, rejecting URL: \(assetValue)")
+            return nil
         }
 
-        // Reject other URL schemes (data:, blob:, ftp:, etc.)
-        Log.warning("AssetURLResolver: Rejected URL with unsupported scheme: \(scheme)")
-        return nil
+        guard let inputHost = inputURL.host?.lowercased(),
+              resolvedConfig.allowedHosts.contains(inputHost) else {
+            Log.warning("Rejected URL from non-allowed host: \(inputURL.host ?? "nil")")
+            return nil
+        }
+
+        return inputURL
     }
 }
