@@ -16,11 +16,8 @@ struct ConvosApp: App {
         // Configure logging (automatically disabled in production)
         ConvosLog.configure(environment: environment)
 
-        // Configure asset URL resolver with CDN base URL and allowed hosts
-        AssetURLResolver.shared.configure(
-            cdnBaseURL: environment.assetsCdnUrl,
-            allowedHosts: environment.allowedAssetHosts
-        )
+        // Configure asset URL resolver with allowed hosts
+        AssetURLResolver.shared.configure(allowedHosts: environment.allowedAssetHosts)
 
         // only enable LibXMTP logging in non-production environments
         if !environment.isProduction {

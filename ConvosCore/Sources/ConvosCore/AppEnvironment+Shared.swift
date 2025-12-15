@@ -11,7 +11,6 @@ public struct SharedAppConfiguration: Codable {
     public let xmtpEndpoint: String?
     public let xmtpNetwork: String?
     public let gatewayUrl: String?
-    public let assetsCdnUrl: String?
     public let allowedAssetHosts: [String]
 
     public init(environment: AppEnvironment) {
@@ -22,7 +21,6 @@ public struct SharedAppConfiguration: Codable {
         self.xmtpEndpoint = environment.xmtpEndpoint
         self.xmtpNetwork = environment.xmtpNetwork
         self.gatewayUrl = environment.gatewayUrl
-        self.assetsCdnUrl = environment.assetsCdnUrl
         self.allowedAssetHosts = environment.allowedAssetHosts
     }
 
@@ -34,7 +32,6 @@ public struct SharedAppConfiguration: Codable {
             xmtpEndpoint: xmtpEndpoint,
             xmtpNetwork: xmtpNetwork,
             gatewayUrl: gatewayUrl,
-            assetsCdnUrl: assetsCdnUrl,
             allowedAssetHosts: allowedAssetHosts
         )
 

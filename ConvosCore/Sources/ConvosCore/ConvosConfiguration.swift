@@ -15,7 +15,6 @@ public struct ConvosConfiguration: Sendable {
     public let xmtpEndpoint: String?
     public let xmtpNetwork: String?
     public let gatewayUrl: String?
-    public let assetsCdnUrl: String?
     public let allowedAssetHosts: [String]
 
     public init(
@@ -25,7 +24,6 @@ public struct ConvosConfiguration: Sendable {
         xmtpEndpoint: String? = nil,
         xmtpNetwork: String? = nil,
         gatewayUrl: String? = nil,
-        assetsCdnUrl: String? = nil,
         allowedAssetHosts: [String] = []
     ) {
         self.apiBaseURL = apiBaseURL
@@ -34,7 +32,6 @@ public struct ConvosConfiguration: Sendable {
         self.xmtpEndpoint = xmtpEndpoint
         self.xmtpNetwork = xmtpNetwork
         self.gatewayUrl = gatewayUrl
-        self.assetsCdnUrl = assetsCdnUrl
         self.allowedAssetHosts = allowedAssetHosts
     }
 }

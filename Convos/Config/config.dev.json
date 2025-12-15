@@ -1,7 +1,6 @@
 {
   "environment": "dev",
   "backendUrl": "https://api.dev.convos.xyz/api",
-  "assetsCdnUrl": "https://assets.dev.convos.xyz",
   "allowedAssetHosts": [
     "assets.dev.convos.xyz",
     "convos-assets-convos-otr-dev-20250721095153478000000001.s3.us-east-2.amazonaws.com"
