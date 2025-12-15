@@ -1,25 +1,23 @@
 import Foundation
 import os
 
-/// Resolves asset keys to full CDN URLs
+/// Validates and resolves asset URLs from trusted sources
 ///
-/// Asset keys are stored without the CDN domain to save space in QR codes and group metadata.
-/// This resolver converts between the stored key format and full URLs.
+/// With the new API, the backend provides complete asset URLs (assetUrl) rather than just keys.
+/// This resolver validates that URLs come from allowed hosts for security.
 ///
 /// This resolver only returns URLs pointing to allowed asset hosts (CDN + legacy S3).
 /// Full URLs from untrusted sources are rejected unless they match an allowed host.
 ///
 /// Example:
-/// - Stored key: `a75e060a-1694-41de-8e6d-ca28a12fc62f.jpeg`
-/// - Full URL: `https://assets.prod.convos.xyz/a75e060a-1694-41de-8e6d-ca28a12fc62f.jpeg`
+/// - Input: `https://assets.prod.convos.xyz/a75e060a-1694-41de-8e6d-ca28a12fc62f.jpeg`
+/// - Output: Same URL (after validation against allowed hosts)
 public final class AssetURLResolver: Sendable {
     public static let shared: AssetURLResolver = AssetURLResolver()
 
-    /// Stores the primary CDN config and allowed hosts
+    /// Stores the allowed hosts for security validation
     private struct Config: Sendable {
-        /// Primary CDN base URL (used for building URLs from asset keys)
-        let primaryBaseURL: URL
-        /// All allowed hosts (lowercase) including the primary CDN
+        /// All allowed hosts (lowercase) for validating asset URLs
         let allowedHosts: Set<String>
     }
 
@@ -29,182 +27,85 @@ public final class AssetURLResolver: Sendable {
         self.config = OSAllocatedUnfairLock(initialState: nil)
     }
 
-    /// Configure the resolver with the CDN base URL and allowed hosts
+    /// Configure the resolver with allowed asset hosts
     ///
     /// - Parameters:
-    ///   - cdnBaseURL: Primary CDN base URL (used for building URLs from asset keys)
     ///   - allowedHosts: List of allowed hostnames (CDN + legacy S3 buckets)
-    public func configure(cdnBaseURL: String?, allowedHosts: [String] = []) {
-        guard let cdnBaseURL, !cdnBaseURL.isEmpty else {
-            config.withLock { $0 = nil }
-            return
-        }
-
-        // Validate and parse the primary CDN URL
-        guard let url = URL(string: cdnBaseURL),
-              let scheme = url.scheme?.lowercased(),
-              scheme == "http" || scheme == "https",
-              let primaryHost = url.host, !primaryHost.isEmpty else {
-            Log.error("AssetURLResolver: Invalid CDN base URL configured: \(cdnBaseURL)")
+    public func configure(allowedHosts: [String] = []) {
+        guard !allowedHosts.isEmpty else {
+            Log.warning("AssetURLResolver: No allowed hosts configured - all asset URLs will be rejected")
             config.withLock { $0 = nil }
             return
         }
 
         // Build the set of allowed hosts (all lowercase for case-insensitive matching)
-        var hosts = Set(
+        let hosts = Set(
             allowedHosts
                 .map { $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
                 .filter { !$0.isEmpty }
         )
-        hosts.insert(primaryHost.lowercased()) // Always include the primary CDN host
 
-        let resolvedConfig = Config(primaryBaseURL: url, allowedHosts: hosts)
+        guard !hosts.isEmpty else {
+            Log.warning("AssetURLResolver: No valid allowed hosts after filtering")
+            config.withLock { $0 = nil }
+            return
+        }
+
+        let resolvedConfig = Config(allowedHosts: hosts)
         config.withLock { $0 = resolvedConfig }
 
-        Log.info("AssetURLResolver: Configured with \(hosts.count) allowed host(s)")
+        Log.info("AssetURLResolver: Configured with \(hosts.count) allowed host(s): \(Array(hosts).joined(separator: ", "))")
     }
 
-    /// Resolves an asset value to a full URL
+    /// Validates and resolves an asset URL
+    ///
+    /// With the new API, the backend provides complete URLs (assetUrl field).
+    /// This method validates that URLs come from allowed hosts for security.
     ///
     /// Handles these cases:
-    /// 1. Already a URL from an allowed host - validates and returns
-    /// 2. Asset key with configured CDN - prepends primary CDN base URL
-    /// 3. URL from non-allowed host - returns nil (security)
-    /// 4. No CDN configured - returns nil
+    /// 1. Full URL from an allowed host - validates and returns
+    /// 2. URL from non-allowed host - returns nil (security)
+    /// 3. Local file URL - passes through directly
+    /// 4. No allowed hosts configured - returns nil
     ///
-    /// - Parameter assetValue: Either a full URL string or an asset key
-    /// - Returns: The resolved URL, or nil if resolution fails or URL is not from an allowed host
+    /// - Parameter assetValue: A full URL string (e.g., from backend's assetUrl field)
+    /// - Returns: The validated URL, or nil if validation fails or URL is not from an allowed host
     public func resolveURL(from assetValue: String?) -> URL? {
         guard let assetValue, !assetValue.isEmpty else {
             return nil
         }
 
-        let resolvedConfig = config.withLock { $0 }
+        // Parse as URL
+        guard let inputURL = URL(string: assetValue),
+              let scheme = inputURL.scheme?.lowercased() else {
+            Log.warning("AssetURLResolver: Invalid URL format: \(assetValue)")
+            return nil
+        }
 
-        // Check if input is already a full URL
-        if let inputURL = URL(string: assetValue),
-           let scheme = inputURL.scheme?.lowercased() {
-            // Pass through local file URLs directly
-            if scheme == "file" {
-                return inputURL
+        // Pass through local file URLs directly (used for trusted local assets e.g. quickname before upload)
+        if scheme == "file" {
+            return inputURL
+        }
+
+        // For http/https, validate against allowed hosts
+        if scheme == "http" || scheme == "https" {
+            guard let resolvedConfig = config.withLock({ $0 }) else {
+                Log.warning("AssetURLResolver: No allowed hosts configured, rejecting URL: \(assetValue)")
+                return nil
             }
 
-            // For http/https, validate against allowed hosts
-            if scheme == "http" || scheme == "https" {
-                guard let resolvedConfig,
-                      let inputHost = inputURL.host?.lowercased(),
-                      resolvedConfig.allowedHosts.contains(inputHost) else {
-                    Log.warning("AssetURLResolver: Rejected URL from non-allowed host: \(inputURL.host ?? "nil")")
-                    return nil
-                }
-                return inputURL
+            guard let inputHost = inputURL.host?.lowercased(),
+                  resolvedConfig.allowedHosts.contains(inputHost) else {
+                Log.warning("AssetURLResolver: Rejected URL from non-allowed host: \(inputURL.host ?? "nil")")
+                return nil
             }
 
-            // Reject other URL schemes (data:, blob:, ftp:, etc.)
-            Log.warning("AssetURLResolver: Rejected URL with unsupported scheme: \(scheme)")
-            return nil
+            return inputURL
         }
 
-        // It's an asset key - validate we have CDN configured
-        guard let resolvedConfig else {
-            Log.warning("AssetURLResolver: No CDN configured, cannot resolve asset key: \(assetValue)")
-            return nil
-        }
-
-        // Sanitize the asset key
-        guard let cleanKey = sanitizeAssetKey(assetValue) else {
-            Log.warning("AssetURLResolver: Invalid asset key: \(assetValue)")
-            return nil
-        }
-
-        // Build URL using the primary CDN
-        // Append each path component separately to preserve slashes in multi-segment keys
-        var url = resolvedConfig.primaryBaseURL
-        for component in cleanKey.split(separator: "/") {
-            url.appendPathComponent(String(component))
-        }
-        return url
+        // Reject other URL schemes (data:, blob:, ftp:, etc.)
+        Log.warning("AssetURLResolver: Rejected URL with unsupported scheme: \(scheme)")
+        return nil
     }
 
-    /// Sanitizes an asset key, returning nil if invalid
-    ///
-    /// - Removes leading/trailing slashes
-    /// - Rejects empty keys
-    /// - Rejects keys with percent-encoded characters (we control generated keys, no need for encoding)
-    /// - Rejects keys with path traversal attempts
-    private func sanitizeAssetKey(_ key: String) -> String? {
-        // Trim whitespace and slashes
-        var cleanKey = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        cleanKey = cleanKey.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-        // Reject empty keys
-        guard !cleanKey.isEmpty else {
-            return nil
-        }
-
-        // Reject percent-encoded characters before decoding to block direct % usage
-        if cleanKey.contains("%") {
-            Log.warning("AssetURLResolver: Rejected key with percent-encoding: \(key)")
-            return nil
-        }
-
-        // Decode once to surface encoded traversal attempts, then trim again
-        cleanKey = cleanKey.removingPercentEncoding ?? cleanKey
-        cleanKey = cleanKey.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-
-        // Reject empty keys after decoding and trimming
-        guard !cleanKey.isEmpty else {
-            return nil
-        }
-
-        // Reject remaining percent-encoded characters to block double-encoding (%252e -> %2e)
-        if cleanKey.contains("%") {
-            Log.warning("AssetURLResolver: Rejected key with percent-encoding after decode: \(key)")
-            return nil
-        }
-
-        // Reject traversal patterns after normalization/decoding
-        if cleanKey.contains("..") || cleanKey.contains("//") {
-            Log.warning("AssetURLResolver: Rejected key with path traversal: \(key)")
-            return nil
-        }
-
-        return cleanKey
-    }
-
-    /// Extracts the asset key from a full URL or returns the value if already a key
-    ///
-    /// Use this when storing asset URLs to extract just the key portion.
-    /// Only extracts keys from allowed hosts - rejects URLs from unknown domains.
-    ///
-    /// - Parameter urlString: A full URL string or asset key
-    /// - Returns: The asset key, or nil if extraction fails or URL is from non-allowed host
-    public func extractAssetKey(from urlString: String?) -> String? {
-        guard let urlString, !urlString.isEmpty else {
-            return nil
-        }
-
-        // If it's not a full URL, assume it's already an asset key
-        guard let inputURL = URL(string: urlString),
-              let scheme = inputURL.scheme?.lowercased(),
-              scheme == "http" || scheme == "https" else {
-            // Validate as asset key
-            return sanitizeAssetKey(urlString)
-        }
-
-        let resolvedConfig = config.withLock { $0 }
-
-        // Security: Only extract keys from allowed hosts
-        guard let resolvedConfig,
-              let inputHost = inputURL.host?.lowercased(),
-              resolvedConfig.allowedHosts.contains(inputHost) else {
-            Log.warning("AssetURLResolver: Cannot extract key from non-allowed host: \(inputURL.host ?? "nil")")
-            return nil
-        }
-
-        // Extract full path as key and sanitize
-        let key = inputURL.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !key.isEmpty else { return nil }
-        return sanitizeAssetKey(key)
-    }
 }

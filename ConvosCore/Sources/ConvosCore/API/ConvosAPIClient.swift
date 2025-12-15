@@ -353,8 +353,9 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
         struct PresignedResponse: Codable {
             let objectKey: String
-            let uploadUrl: String
-            let assetUrl: String?
+            let uploadUrl: String    // Upload pre-signed URL
+            let assetUrl: String     // Final asset URL
+            // Note: legacy `url` field is ignored; decoder will drop unknown keys.
         }
 
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
@@ -388,21 +389,14 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.serverError(nil)
         }
 
-        // Use assetUrl from the API response if available, otherwise fall back to objectKey
-        // assetUrl: "https://cdn.convos.tld/a1b2c3d4-e5f6-7890-abcd-ef1234567890.jpeg"
-        // This is the final CDN URL that should be stored and used for display
-        let assetPath: String
-        if let assetUrl = presignedResponse.assetUrl {
-            assetPath = assetUrl
-            Log.info("Successfully uploaded to S3, assetUrl: \(assetPath)")
-        } else {
-            // Fallback for backwards compatibility if CDN not configured
-            let fileExtension = s3URL.pathExtension
-            assetPath = fileExtension.isEmpty
-                ? presignedResponse.objectKey
-                : "\(presignedResponse.objectKey).\(fileExtension)"
-            Log.warning("No assetUrl in response, using fallback assetPath: \(assetPath)")
+        // Require full asset URL. Do not fallback to bare keys.
+        guard let assetUrl = URL(string: presignedResponse.assetUrl) else {
+            Log.error("Invalid assetUrl in presigned response; refusing to return non-URL")
+            throw APIError.invalidResponse
         }
+
+        let assetPath = assetUrl.absoluteString
+        Log.info("Successfully uploaded to S3, assetUrl: \(assetPath)")
         return assetPath
     }
 
