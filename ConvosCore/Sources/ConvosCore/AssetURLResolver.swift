@@ -107,5 +107,4 @@ public final class AssetURLResolver: Sendable {
         Log.warning("AssetURLResolver: Rejected URL with unsupported scheme: \(scheme)")
         return nil
     }
-
 }
