@@ -209,7 +209,7 @@ struct AppSettingsView: View {
     let quicknameViewModel = QuicknameSettingsViewModel.shared
     NavigationStack {
         AppSettingsView(
-            viewModel: AppSettingsViewModel(session: ConvosClient.mock().session),
+            viewModel: .mock,
             quicknameViewModel: quicknameViewModel,
             onDeleteAllData: {}
         )

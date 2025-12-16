@@ -42,3 +42,9 @@ final class AppSettingsViewModel {
         }
     }
 }
+
+extension AppSettingsViewModel {
+    static var mock: AppSettingsViewModel {
+        AppSettingsViewModel(session: MockInboxesService())
+    }
+}
