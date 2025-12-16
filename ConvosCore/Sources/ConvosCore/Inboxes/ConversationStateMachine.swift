@@ -298,6 +298,9 @@ public actor ConversationStateMachine {
 
             case (.uninitialized, let .useExisting(conversationId)):
                 handleUseExisting(conversationId: conversationId)
+            case (.error, let .useExisting(conversationId)):
+                handleStop()
+                handleUseExisting(conversationId: conversationId)
 
             case (.uninitialized, let .validate(inviteCode)):
                 try await handleValidate(inviteCode: inviteCode, previousResult: nil)
