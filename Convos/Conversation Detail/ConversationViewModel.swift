@@ -9,6 +9,7 @@ class ConversationViewModel {
     // MARK: - Private
 
     private let session: any SessionManagerProtocol
+    private let conversationStateManager: any ConversationStateManagerProtocol
     private let outgoingMessageWriter: any OutgoingMessageWriterProtocol
     private let consentWriter: any ConversationConsentWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
@@ -139,25 +140,21 @@ class ConversationViewModel {
     ) {
         self.conversation = conversation
         self.session = session
-        self.conversationRepository = session.conversationRepository(
-            for: conversation.id,
-            inboxId: conversation.inboxId,
-            clientId: conversation.clientId
-        )
-
-        let messagesRepository = session.messagesRepository(for: conversation.id)
-        self.messagesListRepository = MessagesListRepository(messagesRepository: messagesRepository)
 
         let messagingService = session.messagingService(
             for: conversation.clientId,
             inboxId: conversation.inboxId
         )
-        outgoingMessageWriter = messagingService.messageWriter(for: conversation.id)
-        consentWriter = messagingService.conversationConsentWriter()
-        localStateWriter = messagingService.conversationLocalStateWriter()
-        metadataWriter = messagingService.conversationMetadataWriter()
+        let messagesRepository = session.messagesRepository(for: conversation.id)
+        self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
+        self.conversationRepository = conversationStateManager.draftConversationRepository
+        self.messagesListRepository = MessagesListRepository(messagesRepository: messagesRepository)
+        self.outgoingMessageWriter = conversationStateManager
+        self.consentWriter = conversationStateManager.conversationConsentWriter
+        self.localStateWriter = conversationStateManager.conversationLocalStateWriter
+        self.metadataWriter = conversationStateManager.conversationMetadataWriter
 
-        let myProfileWriter = messagingService.myProfileWriter()
+        let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
         myProfileViewModel = .init(
             inboxId: conversation.inboxId,
@@ -173,10 +170,10 @@ class ConversationViewModel {
             self.messages = []
         }
 
-        editingConversationName = conversation.name ?? ""
-        editingDescription = conversation.description ?? ""
+        editingConversationName = self.conversation.name ?? ""
+        editingDescription = self.conversation.description ?? ""
 
-        presentingConversationForked = conversation.isForked
+        presentingConversationForked = self.conversation.isForked
 
         Log.info("Created for conversation: \(conversation.id)")
 
@@ -189,13 +186,13 @@ class ConversationViewModel {
     init(
         conversation: Conversation,
         session: any SessionManagerProtocol,
-        conversationStateManager: any ConversationStateManagerProtocol,
-        myProfileRepository: any MyProfileRepositoryProtocol
+        conversationStateManager: any ConversationStateManagerProtocol
     ) {
         self.conversation = conversation
         self.session = session
 
         // Extract dependencies from conversation state manager
+        self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
         let messagesRepository = conversationStateManager.draftConversationRepository.messagesRepository
         self.messagesListRepository = MessagesListRepository(messagesRepository: messagesRepository)
@@ -205,7 +202,7 @@ class ConversationViewModel {
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
 
         let myProfileWriter = conversationStateManager.myProfileWriter
-        let myProfileRepository = myProfileRepository
+        let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
         myProfileViewModel = .init(
             inboxId: conversation.inboxId,
             myProfileWriter: myProfileWriter,
