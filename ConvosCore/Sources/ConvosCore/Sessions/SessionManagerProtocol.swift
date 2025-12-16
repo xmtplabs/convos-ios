@@ -2,7 +2,7 @@ import Combine
 import Foundation
 
 /// Progress events for inbox deletion
-public enum InboxDeletionProgress: Sendable {
+public enum InboxDeletionProgress: Sendable, Equatable {
     case clearingDeviceRegistration
     case stoppingServices(completed: Int, total: Int)
     case deletingFromDatabase

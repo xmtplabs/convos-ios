@@ -31,13 +31,10 @@ struct DeleteAllDataView: View {
             }
 
             VStack(spacing: DesignConstants.Spacing.step4x) {
-                Button {
-                    deleteAllData()
-                } label: {
-                    Text("Delete all data")
-                }
-                .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorCaution))
-                .disabled(viewModel.isDeleting)
+                HoldToDeleteButton(
+                    isDeleting: viewModel.isDeleting,
+                    onDelete: { deleteAllData() }
+                )
                 .hoverEffect(.lift)
 
                 Button {
@@ -55,23 +52,45 @@ struct DeleteAllDataView: View {
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
     }
 
-    private var progressMessage: String {
-        guard let currentStep = viewModel.deletionProgress else { return "" }
-
-        switch currentStep {
-        case .clearingDeviceRegistration:
-            return "Clearing settings..."
-        case let .stoppingServices(completed, total):
-            return "Stopping services (\(completed)/\(total))..."
-        case .deletingFromDatabase:
-            return "Deleting database..."
-        case .completed:
-            return ""
-        }
-    }
-
     private func deleteAllData() {
         viewModel.deleteAllData(onComplete: onComplete)
+    }
+}
+
+// MARK: - Hold To Delete Button
+
+private struct HoldToDeleteButton: View {
+    let isDeleting: Bool
+    let onDelete: () -> Void
+
+    private var buttonConfig: HoldToConfirmStyleConfig {
+        var config = HoldToConfirmStyleConfig.default
+        config.duration = 3.0
+        config.backgroundColor = .colorCaution
+        return config
+    }
+
+    var body: some View {
+        Button {
+            onDelete()
+        } label: {
+            textView
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+        }
+        .disabled(isDeleting)
+        .buttonStyle(HoldToConfirmPrimitiveStyle(config: buttonConfig))
+    }
+
+    private var textView: some View {
+        ZStack {
+            Text("Hold to delete")
+                .opacity(isDeleting ? 0 : 1)
+
+            Text("Deleting...")
+                .opacity(isDeleting ? 1 : 0)
+        }
+        .animation(.easeInOut(duration: 0.2), value: isDeleting)
     }
 }
 

@@ -27,6 +27,8 @@ final class AppSettingsViewModel {
         deletionError = nil
         deletionProgress = nil
 
+        QuicknameSettingsViewModel.shared.delete()
+
         Task {
             do {
                 for try await progress in session.deleteAllInboxesWithProgress() {
