@@ -13,7 +13,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var avatarURL: URL? {
-        AssetURLResolver.shared.resolveURL(from: avatar)
+        guard let avatar else { return nil }
+        return URL(string: avatar)
     }
 
     public var displayName: String {
