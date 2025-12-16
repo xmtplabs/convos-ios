@@ -3,7 +3,7 @@ import GRDB
 
 // MARK: - MessageWithDetails
 
-struct MessageWithDetails: Codable, FetchableRecord, PersistableRecord, Hashable {
+struct MessageWithDetails: Codable, FetchableRecord, Hashable {
     let message: DBMessage
     let messageSender: DBConversationMemberProfileWithRole
     let messageReactions: [DBMessage]

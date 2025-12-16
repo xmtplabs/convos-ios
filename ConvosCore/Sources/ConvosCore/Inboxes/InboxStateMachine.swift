@@ -29,20 +29,13 @@ private extension AppEnvironment {
     }
 
     var isSecure: Bool {
-        if let network = self.xmtpNetwork {
-            switch network.lowercased() {
-            case "local":
-                return false
-            case "dev", "production", "prod":
-                return true
-            default:
-                Log.warning("Unknown xmtpNetwork '\(network)', falling back to environment default")
-            }
-        }
-
         switch self {
         case .local, .tests:
-            return false
+            // Support environment variable for CI
+            guard let envSecure = ProcessInfo.processInfo.environment["XMTP_IS_SECURE"] else {
+                return false
+            }
+            return envSecure.lowercased() == "true" || envSecure == "1"
         default:
             return true
         }

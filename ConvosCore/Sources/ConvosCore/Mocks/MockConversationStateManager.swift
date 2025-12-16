@@ -2,7 +2,8 @@ import Combine
 import Foundation
 import GRDB
 
-public class MockConversationStateManager: ConversationStateManagerProtocol {
+/// Mock implementation of ConversationStateManagerProtocol for testing
+public final class MockConversationStateManager: ConversationStateManagerProtocol, @unchecked Sendable {
     // MARK: - State Properties
 
     public private(set) var currentState: ConversationStateMachine.State = .uninitialized
@@ -30,23 +31,34 @@ public class MockConversationStateManager: ConversationStateManagerProtocol {
 
     // MARK: - Dependencies
 
-    public let myProfileWriter: any MyProfileWriterProtocol = MockMyProfileWriter()
-    public let draftConversationRepository: any DraftConversationRepositoryProtocol = MockDraftConversationRepository()
-    public let conversationConsentWriter: any ConversationConsentWriterProtocol = MockConversationConsentWriter()
-    public let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol = MockConversationLocalStateWriter()
-    public let conversationMetadataWriter: any ConversationMetadataWriterProtocol = MockConversationMetadataWriter()
+    public let myProfileWriter: any MyProfileWriterProtocol
+    public let draftConversationRepository: any DraftConversationRepositoryProtocol
+    public let conversationConsentWriter: any ConversationConsentWriterProtocol
+    public let conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
+    public let conversationMetadataWriter: any ConversationMetadataWriterProtocol
 
     // MARK: - Initialization
 
-    public init() {
-        self.conversationIdSubject = .init("mock-conversation-\(UUID().uuidString)")
+    public init(
+        conversationId: String? = nil,
+        myProfileWriter: (any MyProfileWriterProtocol)? = nil,
+        draftConversationRepository: (any DraftConversationRepositoryProtocol)? = nil,
+        conversationConsentWriter: (any ConversationConsentWriterProtocol)? = nil,
+        conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
+        conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil
+    ) {
+        self.conversationIdSubject = .init(conversationId ?? "mock-conversation-\(UUID().uuidString)")
+        self.myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
+        self.draftConversationRepository = draftConversationRepository ?? MockDraftConversationRepository()
+        self.conversationConsentWriter = conversationConsentWriter ?? MockConversationConsentWriter()
+        self.conversationLocalStateWriter = conversationLocalStateWriter ?? MockConversationLocalStateWriter()
+        self.conversationMetadataWriter = conversationMetadataWriter ?? MockConversationMetadataWriter()
     }
 
     // MARK: - State Management
 
     public func waitForConversationReadyResult(timeout: TimeInterval = 10.0) async throws -> ConversationReadyResult {
-        // Mock implementation returns immediate success
-        return ConversationReadyResult(conversationId: conversationId, origin: .created)
+        ConversationReadyResult(conversationId: conversationId, origin: .created)
     }
 
     // MARK: - Observer Management
@@ -60,7 +72,7 @@ public class MockConversationStateManager: ConversationStateManagerProtocol {
 
     @MainActor
     public func removeObserver(_ observer: ConversationStateObserver) {
-        observers.removeAll { $0.observer === observer }
+        observers.removeAll { $0.observer === observer || $0.observer == nil }
     }
 
     @MainActor
@@ -76,7 +88,6 @@ public class MockConversationStateManager: ConversationStateManagerProtocol {
         currentState = .creating
         notifyObservers(currentState)
 
-        // Simulate async operation
         try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
 
         let result = ConversationReadyResult(conversationId: conversationId, origin: .created)
@@ -88,7 +99,6 @@ public class MockConversationStateManager: ConversationStateManagerProtocol {
         currentState = .validating(inviteCode: inviteCode)
         notifyObservers(currentState)
 
-        // Simulate async operation
         try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
 
         let result = ConversationReadyResult(conversationId: conversationId, origin: .joined)
@@ -104,10 +114,17 @@ public class MockConversationStateManager: ConversationStateManagerProtocol {
         currentState = .deleting
         notifyObservers(currentState)
 
-        // Simulate async operation
         try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
 
         currentState = .uninitialized
+        notifyObservers(currentState)
+    }
+
+    // MARK: - Test Helpers
+
+    /// Manually update the state and notify observers
+    public func setState(_ state: ConversationStateMachine.State) {
+        currentState = state
         notifyObservers(currentState)
     }
 

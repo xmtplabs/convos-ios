@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import ConvosLogging
 import CoreImage.CIFilterBuiltins
@@ -297,3 +298,4 @@ public extension QRCodeGenerator.Options {
         )
     }
 }
+#endif

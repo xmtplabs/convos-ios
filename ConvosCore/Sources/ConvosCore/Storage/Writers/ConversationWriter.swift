@@ -8,7 +8,7 @@ enum ConversationWriterError: Error {
     case invalidInvite(String)
 }
 
-public protocol ConversationWriterProtocol {
+protocol ConversationWriterProtocol {
     @discardableResult
     func store(conversation: XMTPiOS.Group, inboxId: String) async throws -> DBConversation
     @discardableResult

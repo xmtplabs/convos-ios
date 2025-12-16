@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 // ConvosCoreiOS
 //
 // iOS-specific implementations for the Convos app.
@@ -39,9 +40,8 @@ extension PlatformProviders {
         let deviceInfo = IOSDeviceInfo()
         let pushNotificationRegistrar = IOSPushNotificationRegistrar()
 
-        // Set legacy singletons for backwards compatibility
+        // Set legacy singletons for code that doesn't use dependency injection
         // (e.g., DebugView accessing PushNotificationRegistrar.token)
-        AppLifecycle.shared = appLifecycle
         DeviceInfo.shared = deviceInfo
         PushNotificationRegistrar.shared = pushNotificationRegistrar
         ImageCompression.shared = IOSImageCompression()
@@ -56,3 +56,4 @@ extension PlatformProviders {
 
 // Re-export types from ConvosCore for convenience
 @_exported import ConvosCore
+#endif

@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import Foundation
 import UIKit
@@ -32,3 +33,4 @@ public struct IOSAppLifecycleProvider: AppLifecycleProviding {
         }
     }
 }
+#endif

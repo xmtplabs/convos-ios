@@ -1,11 +1,9 @@
-#if canImport(UIKit)
 import Foundation
 import GRDB
-import UIKit
 
 public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
-    func update(avatar: UIImage?, conversationId: String) async throws
+    func update(avatar: ImageType?, conversationId: String) async throws
 }
 
 enum MyProfileWriterError: Error {
@@ -55,7 +53,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         try await group.updateProfile(profile)
     }
 
-    func update(avatar: UIImage?, conversationId: String) async throws {
+    func update(avatar: ImageType?, conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -82,14 +80,14 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
         guard let avatarImage = avatar else {
             // remove avatar image URL
-            ImageCache.shared.removeImage(for: profile.hydrateProfile())
+            ImageCacheContainer.shared.removeImage(for: profile.hydrateProfile())
             let updatedProfile = profile.with(avatar: nil)
             try await group.updateProfile(updatedProfile)
             return
         }
 
         let hydratedProfile = profile.hydrateProfile()
-        guard let compressedImageData = ImageCache.shared.resizeCacheAndGetData(
+        guard let compressedImageData = ImageCacheContainer.shared.resizeCacheAndGetData(
             avatarImage,
             for: hydratedProfile
         ) else {
@@ -106,8 +104,8 @@ class MyProfileWriter: MyProfileWriterProtocol {
         try await group.updateProfile(updatedProfile)
 
         // Cache the resized image with the uploaded URL as well
-        if let image = UIImage(data: compressedImageData) {
-            ImageCache.shared.setImage(image, for: uploadedURL)
+        if let image = ImageType(data: compressedImageData) {
+            ImageCacheContainer.shared.setImage(image, for: uploadedURL)
         }
 
         try await databaseWriter.write { db in
@@ -116,5 +114,3 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
     }
 }
-
-#endif

@@ -1,4 +1,3 @@
-#if canImport(UIKit)
 import Combine
 import Foundation
 
@@ -59,19 +58,6 @@ public final class MockInboxesService: SessionManagerProtocol {
     }
 
     public func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
-        MockMessagesRepository(conversation: .mock(id: conversationId))
+        MockMessagesRepository(conversationId: conversationId)
     }
 }
-
-// Separate mock for ConversationsCountRepository
-class MockConversationsCountRepository: ConversationsCountRepositoryProtocol {
-    var conversationsCount: AnyPublisher<Int, Never> {
-        Just(1).eraseToAnyPublisher()
-    }
-
-    func fetchCount() throws -> Int {
-        1
-    }
-}
-
-#endif

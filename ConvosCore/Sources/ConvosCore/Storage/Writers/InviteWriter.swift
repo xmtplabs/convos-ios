@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public protocol InviteWriterProtocol {
+protocol InviteWriterProtocol {
     func generate(for conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool) async throws -> Invite
     func update(for conversationId: String, name: String?, description: String?, imageURL: String?) async throws -> Invite
 }

@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import ConvosLogging
 import Foundation
@@ -63,3 +64,4 @@ public final class IOSPushNotificationRegistrar: PushNotificationRegistrarProtoc
         }
     }
 }
+#endif

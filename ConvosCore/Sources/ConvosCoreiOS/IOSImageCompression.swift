@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import Foundation
 import UIKit
@@ -89,3 +90,4 @@ public struct IOSImageCompression: ImageCompressionProviding {
         return resizedImage.pngData()
     }
 }
+#endif

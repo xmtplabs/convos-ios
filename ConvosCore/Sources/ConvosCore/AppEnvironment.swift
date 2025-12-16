@@ -130,7 +130,11 @@ public enum AppEnvironment: Sendable {
         case .local(config: let config), .dev(config: let config), .production(config: let config):
             return config.xmtpEndpoint
         case .tests:
-            // Point to local Docker XMTP node for tests
+            // Support environment variable for CI
+            // Falls back to localhost for local Docker
+            if let envEndpoint = ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] {
+                return envEndpoint
+            }
             return "localhost"
         }
     }

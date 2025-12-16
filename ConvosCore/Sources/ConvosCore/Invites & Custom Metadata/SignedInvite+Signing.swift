@@ -26,7 +26,7 @@ import SwiftProtobuf
 /// - Invites can have expiration dates and single-use flags
 /// - Invalid invites result in blocked DMs to prevent spam
 extension SignedInvite {
-    public static func slug(
+    static func slug(
         for conversation: DBConversation,
         expiresAt: Date?,
         expiresAfterUse: Bool,

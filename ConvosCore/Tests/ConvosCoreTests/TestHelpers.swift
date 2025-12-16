@@ -41,8 +41,12 @@ class TestFixtures {
         self.keychainService = MockKeychainService()
         self.databaseManager = MockDatabaseManager.makeTestDatabase()
 
-        // configure logging for tests
+        // Configure logging for tests
         ConvosLog.configure(environment: .tests)
+
+        // Set up mock singletons for code that doesn't use dependency injection
+        DeviceInfo.shared = MockDeviceInfoProvider()
+        PushNotificationRegistrar.shared = MockPushNotificationRegistrarProvider()
     }
 
     /// Create a new XMTP client for testing
@@ -50,10 +54,18 @@ class TestFixtures {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
 
+        // Check environment variable for secure mode
+        let isSecure: Bool
+        if let envSecure = ProcessInfo.processInfo.environment["XMTP_IS_SECURE"] {
+            isSecure = envSecure.lowercased() == "true" || envSecure == "1"
+        } else {
+            isSecure = false
+        }
+
         let clientOptions = ClientOptions(
             api: .init(
                 env: .local,
-                isSecure: false,
+                isSecure: isSecure,
                 appVersion: "convos-tests/1.0.0"
             ),
             codecs: [

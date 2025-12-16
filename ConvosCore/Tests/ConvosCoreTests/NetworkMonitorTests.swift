@@ -11,16 +11,16 @@ import Testing
 /// - Multiple subscribers to statusSequence
 /// - Network monitor restart after stop
 /// - Edge cases and error handling
-@Suite("NetworkMonitor Tests")
+@Suite("NetworkMonitor Tests", .serialized)
 struct NetworkMonitorTests {
 
     // MARK: - Basic Functionality Tests
 
-    @Test("NetworkMonitor initializes with disconnected status")
+    @Test("NetworkMonitor initializes with unknown status")
     func testInitialStatus() async {
         let monitor = NetworkMonitor()
         let status = await monitor.status
-        #expect(status == .disconnected)
+        #expect(status == .unknown)
         #expect(await monitor.isConnected == false)
     }
 
@@ -34,7 +34,7 @@ struct NetworkMonitorTests {
         // Verify it's running (status should be available)
         let status = await monitor.status
         // Status is always set (could be connected, disconnected, or connecting)
-        #expect(status == .disconnected || status == .connecting ||
+        #expect(status == .unknown || status == .connecting ||
                 (status.isConnected == true))
 
         // Stop monitoring
@@ -42,7 +42,7 @@ struct NetworkMonitorTests {
 
         // After stop, status should still be accessible
         let statusAfterStop = await monitor.status
-        #expect(statusAfterStop == .disconnected || statusAfterStop == .connecting ||
+        #expect(statusAfterStop == .unknown || statusAfterStop == .connecting ||
                 (statusAfterStop.isConnected == true))
     }
 
@@ -307,7 +307,7 @@ struct NetworkMonitorTests {
         await monitor.start()
         let status1 = await monitor.status
         // Status is always set
-        #expect(status1 == .disconnected || status1 == .connecting || status1.isConnected)
+        #expect(status1 == .unknown || status1 == .connecting || status1.isConnected)
 
         // Stop
         await monitor.stop()
@@ -316,7 +316,7 @@ struct NetworkMonitorTests {
         await monitor.start()
         let status2 = await monitor.status
         // Status is always set
-        #expect(status2 == .disconnected || status2 == .connecting || status2.isConnected)
+        #expect(status2 == .unknown || status2 == .connecting || status2.isConnected)
 
         // Should be able to get status sequence after restart
         actor StatusReceiver {
@@ -329,7 +329,7 @@ struct NetworkMonitorTests {
             for await status in await monitor.statusSequence {
                 await receiver.markReceived()
                 // Status is always set
-                #expect(status == .disconnected || status == .connecting || status.isConnected)
+                #expect(status == .unknown || status == .unknown || status == .connecting || status.isConnected)
                 break
             }
         }
@@ -437,7 +437,7 @@ struct NetworkMonitorTests {
 
         // Initial status should be disconnected
         let initialStatus = await monitor.status
-        #expect(initialStatus == .disconnected)
+        #expect(initialStatus == .unknown)
         #expect(await monitor.isConnected == false)
 
         await monitor.start()
@@ -445,7 +445,7 @@ struct NetworkMonitorTests {
         // After start, status should be available (may be connected, disconnected, or connecting)
         let statusAfterStart = await monitor.status
         // Status is always set
-        #expect(statusAfterStart == .disconnected || statusAfterStart == .connecting || statusAfterStart.isConnected)
+        #expect(statusAfterStart == .unknown || statusAfterStart == .connecting || statusAfterStart.isConnected)
 
         // isConnected should match status
         let isConnected = await monitor.isConnected
@@ -504,7 +504,7 @@ struct NetworkMonitorTests {
                 group.addTask { @Sendable in
                     let status = await monitor.status
                     // Status is always set
-                    #expect(status == .disconnected || status == .connecting || status.isConnected)
+                    #expect(status == .unknown || status == .connecting || status.isConnected)
                     let isConnected = await monitor.isConnected
                     #expect(type(of: isConnected) == Bool.self)
                 }
@@ -534,7 +534,9 @@ struct NetworkMonitorTests {
                     var count = 0
                     for await _ in await monitor.statusSequence {
                         count += 1
-                        if count >= 2 {
+                        // Only wait for initial status - subsequent updates only come
+                        // when the network actually changes, which may not happen during tests
+                        if count >= 1 {
                             break
                         }
                     }
@@ -543,8 +545,9 @@ struct NetworkMonitorTests {
             }
         }
 
-        // All tasks should have received at least one status
+        // All tasks should have received at least one status (the initial status)
         let receivedCounts = await collector.counts
+        #expect(receivedCounts.count == 10, "All 10 tasks should have completed")
         for count in receivedCounts {
             #expect(count >= 1)
         }

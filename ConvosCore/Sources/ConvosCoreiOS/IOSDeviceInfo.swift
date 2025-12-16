@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import ConvosCore
 import Foundation
 import UIKit
@@ -44,3 +45,4 @@ public final class IOSDeviceInfo: DeviceInfoProviding, @unchecked Sendable {
         #endif
     }
 }
+#endif

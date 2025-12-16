@@ -42,6 +42,33 @@ public extension Conversation {
             debugInfo: ConversationDebugInfo.empty
         )
     }
+
+    static func empty(id: String = "", clientId: String = "") -> Conversation {
+        Conversation(
+            id: id,
+            clientConversationId: id,
+            inboxId: "",
+            clientId: clientId,
+            creator: .empty(isCurrentUser: true),
+            createdAt: .distantFuture,
+            consent: .allowed,
+            kind: .group,
+            name: "",
+            description: "",
+            members: [],
+            otherMember: nil,
+            messages: [],
+            isPinned: false,
+            isUnread: false,
+            isMuted: false,
+            lastMessage: nil,
+            imageURL: nil,
+            isDraft: true,
+            invite: nil,
+            expiresAt: .distantFuture,
+            debugInfo: .empty
+        )
+    }
 }
 
 public extension ConversationMember {
@@ -60,6 +87,10 @@ public extension ConversationMember {
             role: isCurrentUser ? .admin : role,
             isCurrentUser: isCurrentUser
         )
+    }
+
+    static func empty(role: MemberRole = .member, isCurrentUser: Bool = false) -> ConversationMember {
+        ConversationMember(profile: .empty(), role: role, isCurrentUser: isCurrentUser)
     }
 }
 
