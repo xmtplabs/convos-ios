@@ -36,6 +36,11 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
         notifyObservers()
     }
 
+    public func waitForDeletionComplete() async {
+        currentState = .idle(clientId: currentState.clientId)
+        notifyObservers()
+    }
+
     public func addObserver(_ observer: any InboxStateObserver) {
         observers.removeAll { $0.observer == nil }
         observers.append(WeakStateObserver(observer: observer))

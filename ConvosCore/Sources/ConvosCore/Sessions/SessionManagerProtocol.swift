@@ -1,12 +1,21 @@
 import Combine
 import Foundation
 
+/// Progress events for inbox deletion
+public enum InboxDeletionProgress: Sendable, Equatable {
+    case clearingDeviceRegistration
+    case stoppingServices(completed: Int, total: Int)
+    case deletingFromDatabase
+    case completed
+}
+
 public protocol SessionManagerProtocol: AnyObject {
     // MARK: Inbox Management
 
     func addInbox() async -> AnyMessagingService
     func deleteInbox(clientId: String) async throws
     func deleteAllInboxes() async throws
+    func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
     // MARK: Messaging Services
 

@@ -135,6 +135,8 @@ final class ConversationsViewModel {
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
+    let appSettingsViewModel: AppSettingsViewModel
+
     init(
         session: any SessionManagerProtocol,
         horizontalSizeClass: UserInterfaceSizeClass? = nil
@@ -143,7 +145,7 @@ final class ConversationsViewModel {
         self.horizontalSizeClass = horizontalSizeClass
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
-
+        self.appSettingsViewModel = AppSettingsViewModel(session: session)
         self.conversationsRepository = session.conversationsRepository(
             for: .allowed
         )
@@ -248,15 +250,10 @@ final class ConversationsViewModel {
 
     func deleteAllData() {
         selectedConversation = nil
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await session.deleteAllInboxes()
-
-                // Clear all cached writers
-                await MainActor.run { self.localStateWriters.removeAll() }
-            } catch {
-                Log.error("Error deleting all accounts: \(error)")
+        appSettingsViewModel.deleteAllData { [weak self] in
+            // Clear all cached writers
+            DispatchQueue.main.async {
+                self?.localStateWriters.removeAll()
             }
         }
     }

@@ -10,6 +10,7 @@ struct ConversationsView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @State private var conversationPendingDeletion: Conversation?
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
@@ -53,17 +54,36 @@ struct ConversationsView: View {
 
                             ConversationsListItem(conversation: conversation)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button(role: .destructive) {
-                                        viewModel.leave(conversation: conversation)
+                                    Button {
+                                        conversationPendingDeletion = conversation
                                     } label: {
                                         Image(systemName: "trash")
+                                    }
+                                    .tint(.colorCaution)
+                                }
+                                .confirmationDialog(
+                                    "This convo will be deleted immediately.",
+                                    isPresented: Binding(
+                                        get: { conversationPendingDeletion?.id == conversation.id },
+                                        set: { if !$0 { conversationPendingDeletion = nil } }
+                                    ),
+                                    titleVisibility: .visible
+                                ) {
+                                    Button("Delete", role: .destructive) {
+                                        viewModel.leave(conversation: conversation)
+                                        conversationPendingDeletion = nil
+                                    }
+                                    Button("Cancel", role: .cancel) {
+                                        conversationPendingDeletion = nil
                                     }
                                 }
                                 .listRowSeparator(.hidden)
                                 .listRowBackground(
                                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
                                         .fill(
-                                            conversation.id == viewModel.selectedConversationId ? .colorFillMinimal : .clear
+                                            conversation.id == viewModel.selectedConversationId ||
+                                            conversationPendingDeletion?.id == conversation.id
+                                            ? .colorFillMinimal : .clear
                                         )
                                         .padding(.horizontal, DesignConstants.Spacing.step3x)
                                 )
@@ -159,6 +179,7 @@ struct ConversationsView: View {
         .focusEffectDisabled()
         .sheet(isPresented: $presentingAppSettings) {
             AppSettingsView(
+                viewModel: viewModel.appSettingsViewModel,
                 quicknameViewModel: quicknameViewModel,
                 onDeleteAllData: viewModel.deleteAllData
             )
@@ -168,6 +189,7 @@ struct ConversationsView: View {
                     in: namespace
                 )
             )
+            .interactiveDismissDisabled(viewModel.appSettingsViewModel.isDeleting)
         }
         .fullScreenCover(item: $viewModel.newConversationViewModel) { newConvoViewModel in
             NewConversationView(
