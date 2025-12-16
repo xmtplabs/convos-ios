@@ -34,9 +34,6 @@ final class AppSettingsViewModel {
                 for try await progress in session.deleteAllInboxesWithProgress() {
                     deletionProgress = progress
                 }
-
-                // Deletion complete
-                isDeleting = false
                 onComplete()
             } catch {
                 deletionError = error
