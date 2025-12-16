@@ -146,14 +146,14 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
             throw ConversationMetadataWriterError.failedImageCompression
         }
 
-        let assetKey = "conversation-image-\(UUID().uuidString).jpg"
+        let filename = "conversation-image-\(UUID().uuidString).jpg"
 
         _ = try await inboxReady.apiClient.uploadAttachmentAndExecute(
             data: compressedImageData,
-            assetKey: assetKey
-        ) { uploadedAssetKey in
+            filename: filename
+        ) { uploadedAssetUrl in
             do {
-                try await self.updateImageUrl(uploadedAssetKey, for: conversation.id)
+                try await self.updateImageUrl(uploadedAssetUrl, for: conversation.id)
             } catch {
                 Log.error("Failed updating conversation image URL: \(error.localizedDescription)")
             }

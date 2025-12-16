@@ -134,11 +134,11 @@ final class MessagingService: MessagingServiceProtocol {
                                           databaseReader: databaseReader)
     }
 
-    func uploadImage(data: Data, assetKey: String) async throws -> String {
+    func uploadImage(data: Data, filename: String) async throws -> String {
         let result = try await inboxStateManager.waitForInboxReadyResult()
         return try await result.apiClient.uploadAttachment(
             data: data,
-            assetKey: assetKey,
+            filename: filename,
             contentType: "image/jpeg",
             acl: "public-read"
         )
@@ -146,13 +146,13 @@ final class MessagingService: MessagingServiceProtocol {
 
     func uploadImageAndExecute(
         data: Data,
-        assetKey: String,
+        filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
         let result = try await inboxStateManager.waitForInboxReadyResult()
         return try await result.apiClient.uploadAttachmentAndExecute(
             data: data,
-            assetKey: assetKey,
+            filename: filename,
             afterUpload: afterUpload
         )
     }

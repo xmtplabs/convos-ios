@@ -24,13 +24,13 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 
     func uploadAttachment(
         data: Data,
-        assetKey: String,
+        filename: String,
         contentType: String,
         acl: String
     ) async throws -> String
     func uploadAttachmentAndExecute(
         data: Data,
-        assetKey: String,
+        filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String
 
@@ -337,18 +337,18 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func uploadAttachment(
         data: Data,
-        assetKey: String,
+        filename: String,
         contentType: String = "image/jpeg",
         acl: String = "public-read"
     ) async throws -> String {
-        Log.info("Starting attachment upload process for asset key: \(assetKey)")
+        Log.info("Starting attachment upload process for file: \(filename)")
         Log.info("File data size: \(data.count) bytes")
 
         // Step 1: Get presigned URL from Convos API
         let presignedRequest = try authenticatedRequest(
             for: "v2/attachments/presigned",
             method: "GET",
-            queryParameters: ["contentType": contentType, "filename": assetKey]
+            queryParameters: ["contentType": contentType, "filename": filename]
         )
 
         struct PresignedResponse: Codable {
@@ -402,26 +402,26 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func uploadAttachmentAndExecute(
         data: Data,
-        assetKey: String,
+        filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
-        Log.info("Starting chained upload and execute process for asset key: \(assetKey)")
+        Log.info("Starting chained upload and execute process for file: \(filename)")
 
-        // Step 1: Upload the attachment and get the asset key
-        let uploadedAssetKey = try await uploadAttachment(
+        // Step 1: Upload the attachment and get the URL
+        let uploadedURL = try await uploadAttachment(
             data: data,
-            assetKey: assetKey,
+            filename: filename,
             contentType: "image/jpeg",
             acl: "public-read"
         )
-        Log.info("Upload completed successfully, asset key: \(uploadedAssetKey)")
+        Log.info("Upload completed successfully, URL: \(uploadedURL)")
 
-        // Step 2: Execute the provided closure with the asset key
-        Log.info("Executing post-upload action with asset key: \(uploadedAssetKey)")
-        try await afterUpload(uploadedAssetKey)
+        // Step 2: Execute the provided closure with the URL
+        Log.info("Executing post-upload action with URL: \(uploadedURL)")
+        try await afterUpload(uploadedURL)
         Log.info("Post-upload action completed successfully")
 
-        return uploadedAssetKey
+        return uploadedURL
     }
 
     // MARK: - Push Notification Management (JWT-authenticated, inbox-level)

@@ -73,18 +73,19 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         MockConversationPermissionsRepository()
     }
 
-    public func uploadImage(data: Data, assetKey: String) async throws -> String {
-        // Return the asset key for testing
-        assetKey
+    public func uploadImage(data: Data, filename: String) async throws -> String {
+        let url = "https://mock-api.example.com/uploads/\(filename)"
+        return url
     }
 
     public func uploadImageAndExecute(
         data: Data,
-        assetKey: String,
+        filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
-        try await afterUpload(assetKey)
-        return assetKey
+        let url = "https://mock-api.example.com/uploads/\(filename)"
+        try await afterUpload(url)
+        return url
     }
 }
 

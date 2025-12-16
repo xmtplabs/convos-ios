@@ -95,18 +95,18 @@ class MyProfileWriter: MyProfileWriterProtocol {
             throw MyProfileWriterError.imageCompressionFailed
         }
 
-        let uploadedAssetKey = try await inboxReady.apiClient.uploadAttachment(
+        let uploadedAssetUrl = try await inboxReady.apiClient.uploadAttachment(
             data: compressedImageData,
-            assetKey: "p-\(UUID().uuidString).jpg",
+            filename: "p-\(UUID().uuidString).jpg",
             contentType: "image/jpeg",
             acl: "public-read"
         )
-        let updatedProfile = profile.with(avatar: uploadedAssetKey)
+        let updatedProfile = profile.with(avatar: uploadedAssetUrl)
         try await group.updateProfile(updatedProfile)
 
-        // Cache the resized image with the asset key as well
+        // Cache the resized image with the asset URL as well
         if let image = UIImage(data: compressedImageData) {
-            ImageCache.shared.setImage(image, for: uploadedAssetKey)
+            ImageCache.shared.setImage(image, for: uploadedAssetUrl)
         }
 
         try await databaseWriter.write { db in
