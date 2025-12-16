@@ -170,10 +170,10 @@ class ConversationViewModel {
             self.messages = []
         }
 
-        editingConversationName = conversation.name ?? ""
-        editingDescription = conversation.description ?? ""
+        editingConversationName = self.conversation.name ?? ""
+        editingDescription = self.conversation.description ?? ""
 
-        presentingConversationForked = conversation.isForked
+        presentingConversationForked = self.conversation.isForked
 
         Log.info("Created for conversation: \(conversation.id)")
 
