@@ -58,7 +58,7 @@ struct ShatteringText: View {
             .opacity(isExploded ? 1.0 : 0.0)
             .animation(.none, value: isExploded)
         }
-        .onAppear { generateRandomValues() }
+        .task(id: text) { generateRandomValues() }
     }
 
     private func generateRandomValues() {
