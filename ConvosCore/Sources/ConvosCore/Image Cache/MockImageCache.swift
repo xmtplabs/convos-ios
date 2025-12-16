@@ -2,6 +2,7 @@ import Foundation
 
 #if os(macOS)
 import AppKit
+import Combine
 
 /// Mock image cache for macOS (used for testing only)
 /// This provides a no-op implementation since image caching is not needed on macOS for tests
@@ -39,5 +40,11 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
     public func imageAsync(for url: URL) async -> ImageType? { nil }
 
     public func setImage(_ image: ImageType, for url: String) {}
+
+    public var cacheUpdates: AnyPublisher<String, Never> {
+        _cacheUpdates.eraseToAnyPublisher()
+    }
+
+    private var _cacheUpdates: CurrentValueSubject<String, Never> = .init("")
 }
 #endif
