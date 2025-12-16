@@ -137,8 +137,7 @@ custom_rules:
 
 excluded:
   - .build/
-  - ConvosCore/.build
-  - ConvosLogging/.build
+  - "**/.build"
   - ConvosCore/Tests
   - ConvosTests
   - ConvosTests/Helpers
