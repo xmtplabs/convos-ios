@@ -249,7 +249,7 @@ final class ConversationsViewModel {
     }
 
     func deleteAllData() {
-        selectedConversation = nil        
+        selectedConversation = nil
         appSettingsViewModel.deleteAllData { [weak self] in
             // Clear all cached writers
             DispatchQueue.main.async {
