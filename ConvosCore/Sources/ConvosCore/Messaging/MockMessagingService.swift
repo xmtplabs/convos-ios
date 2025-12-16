@@ -74,8 +74,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     }
 
     public func uploadImage(data: Data, filename: String) async throws -> String {
-        // Return a mock URL for testing
-        return "https://example.com/uploads/\(filename)"
+        let url = "https://mock-api.example.com/uploads/\(filename)"
+        return url
     }
 
     public func uploadImageAndExecute(
@@ -83,9 +83,9 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
-        let uploadedURL = "https://example.com/uploads/\(filename)"
-        try await afterUpload(uploadedURL)
-        return uploadedURL
+        let url = "https://mock-api.example.com/uploads/\(filename)"
+        try await afterUpload(url)
+        return url
     }
 }
 
