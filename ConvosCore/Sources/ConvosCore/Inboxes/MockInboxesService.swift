@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import Combine
 import Foundation
 
@@ -72,3 +73,5 @@ class MockConversationsCountRepository: ConversationsCountRepositoryProtocol {
         1
     }
 }
+
+#endif

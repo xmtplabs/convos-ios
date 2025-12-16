@@ -100,7 +100,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
 
         let observation = ValueObservation
             .tracking { db in
-                try MemberProfile
+                try DBMemberProfile
                     .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
                     .hydrateProfile() ?? .empty(inboxId: inboxId)
             }
@@ -141,7 +141,7 @@ class MyProfileRepository: MyProfileRepositoryProtocol {
         let inboxId = result.client.inboxId
 
         return try databaseReader.read { db in
-            try MemberProfile
+            try DBMemberProfile
                 .fetchOne(db, conversationId: conversationId, inboxId: inboxId)?
                 .hydrateProfile() ?? .empty(inboxId: inboxId)
         }

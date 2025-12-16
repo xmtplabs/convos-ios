@@ -3,33 +3,8 @@ import Foundation
 struct EmptyResponse: Decodable {}
 
 public enum ConvosAPI {
-    public enum AuthenticatorTransport: String, Codable {
-        case ble = "AUTHENTICATOR_TRANSPORT_BLE"
-        case transportInternal = "AUTHENTICATOR_TRANSPORT_INTERNAL"
-        case nfc = "AUTHENTICATOR_TRANSPORT_NFC"
-        case usb = "AUTHENTICATOR_TRANSPORT_USB"
-        case hybrid = "AUTHENTICATOR_TRANSPORT_HYBRID"
-    }
-
-    public struct PasskeyAttestation: Codable {
-        public let credentialId: String
-        public let clientDataJson: String
-        public let attestationObject: String
-        public let transports: [AuthenticatorTransport]
-    }
-
-    public struct Passkey: Codable {
-        public let challenge: String
-        public let attestation: PasskeyAttestation
-    }
-
     public struct FetchJwtResponse: Codable {
         public let token: String
-    }
-
-    public struct CreateSubOrganizationResponse: Codable {
-        public let subOrgId: String
-        public let walletAddress: String
     }
 
     // MARK: - Device Update Models

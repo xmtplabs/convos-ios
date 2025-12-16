@@ -1,6 +1,5 @@
 import Foundation
 import GRDB
-import UIKit
 import XMTPiOS
 
 private extension AppEnvironment {
@@ -146,6 +145,7 @@ public actor InboxStateMachine {
     private let databaseWriter: any DatabaseWriter
     private let apiClient: any ConvosAPIClientProtocol
     private let networkMonitor: any NetworkMonitorProtocol
+    private let appLifecycle: any AppLifecycleProviding
 
     private var currentTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
@@ -229,7 +229,8 @@ public actor InboxStateMachine {
         syncingManager: AnySyncingManager?,
         networkMonitor: any NetworkMonitorProtocol,
         overrideJWTToken: String? = nil,
-        environment: AppEnvironment
+        environment: AppEnvironment,
+        appLifecycle: any AppLifecycleProviding
     ) {
         self.initialClientId = clientId
         self._state = .idle(clientId: clientId)
@@ -240,6 +241,7 @@ public actor InboxStateMachine {
         self.networkMonitor = networkMonitor
         self.overrideJWTToken = overrideJWTToken ?? environment.defaultOverrideJWTToken
         self.environment = environment
+        self.appLifecycle = appLifecycle
 
         // Initialize API client
         Log.info("Initializing API client (JWT override: \(self.overrideJWTToken != nil))...")
@@ -541,7 +543,7 @@ public actor InboxStateMachine {
         await startNetworkMonitoring()
         startAppLifecycleObservation()
         // check if app was backgrounded during auth
-        if await UIApplication.shared.applicationState != .active {
+        if await appLifecycle.currentState != .active {
             enqueueAction(.enterBackground)
         }
     }
@@ -873,8 +875,8 @@ public actor InboxStateMachine {
 
             // Delete member profiles for this inbox
             for conversationId in conversationIds {
-                try MemberProfile
-                    .filter(MemberProfile.Columns.conversationId == conversationId)
+                try DBMemberProfile
+                    .filter(DBMemberProfile.Columns.conversationId == conversationId)
                     .deleteAll(db)
             }
 
@@ -883,8 +885,8 @@ public actor InboxStateMachine {
                 .filter(DBInbox.Columns.clientId == clientId)
                 .fetchOne(db)?
                 .inboxId {
-                try Member
-                    .filter(Member.Columns.inboxId == inboxId)
+                try DBMember
+                    .filter(DBMember.Columns.inboxId == inboxId)
                     .deleteAll(db)
             }
 
@@ -1006,15 +1008,15 @@ public actor InboxStateMachine {
     private func startAppLifecycleObservation() {
         stopAppLifecycleObservation()
 
-        appLifecycleTask = Task { [weak self] in
+        appLifecycleTask = Task { [weak self, appLifecycle] in
             let notificationCenter = NotificationCenter.default
 
             // Create async streams for both notifications
             let backgroundNotifications = notificationCenter.notifications(
-                named: UIApplication.didEnterBackgroundNotification
+                named: appLifecycle.didEnterBackgroundNotification
             )
             let foregroundNotifications = notificationCenter.notifications(
-                named: UIApplication.willEnterForegroundNotification
+                named: appLifecycle.willEnterForegroundNotification
             )
 
             // Merge both notification streams and handle them

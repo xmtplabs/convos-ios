@@ -1,5 +1,4 @@
 import AVFoundation
-import ConvosCore
 import SwiftUI
 
 struct QRScannerView: UIViewRepresentable {

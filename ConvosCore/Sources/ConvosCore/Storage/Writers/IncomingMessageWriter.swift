@@ -38,9 +38,9 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
     func store(message: DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
         let result = try await databaseWriter.write { db in
-            let sender = Member(inboxId: message.senderInboxId)
+            let sender = DBMember(inboxId: message.senderInboxId)
             try sender.save(db)
-            let senderProfile = MemberProfile(
+            let senderProfile = DBMemberProfile(
                 conversationId: conversation.id,
                 inboxId: message.senderInboxId,
                 name: nil,

@@ -6,12 +6,17 @@ import PackageDescription
 let package = Package(
     name: "ConvosCore",
     platforms: [
-        .iOS(.v26)
+        .iOS(.v26),
+        .macOS(.v15)
     ],
     products: [
         .library(
             name: "ConvosCore",
             targets: ["ConvosCore"]
+        ),
+        .library(
+            name: "ConvosCoreiOS",
+            targets: ["ConvosCoreiOS"]
         ),
     ],
     dependencies: [
@@ -42,6 +47,21 @@ let package = Package(
                 // Define DEBUG - will be active based on Xcode's SWIFT_ACTIVE_COMPILATION_CONDITIONS
                 .define("DEBUG", .when(configuration: .debug)),
                 // Disable optimization for debug builds to enable proper debugging
+                .unsafeFlags(["-Onone"], .when(configuration: .debug)),
+            ],
+            plugins: [
+                .plugin(name: "SwiftLintBuildToolPlugin", package: "SwiftLintPlugins")
+            ]
+        ),
+        .target(
+            name: "ConvosCoreiOS",
+            dependencies: [
+                "ConvosCore",
+            ],
+            path: "Sources/ConvosCoreiOS",
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .define("DEBUG", .when(configuration: .debug)),
                 .unsafeFlags(["-Onone"], .when(configuration: .debug)),
             ],
             plugins: [

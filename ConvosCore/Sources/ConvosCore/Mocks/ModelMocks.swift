@@ -39,7 +39,7 @@ public extension Conversation {
             isDraft: id.hasPrefix("draft-"),
             invite: nil,
             expiresAt: nil,
-            debugInfo: DBConversation.DebugInfo.empty
+            debugInfo: ConversationDebugInfo.empty
         )
     }
 }

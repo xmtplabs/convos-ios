@@ -1,3 +1,4 @@
+#if canImport(UIKit)
 import Combine
 import Foundation
 import UIKit
@@ -633,3 +634,5 @@ class MockConversationPermissionsRepository: ConversationPermissionsRepositoryPr
         return []
     }
 }
+
+#endif

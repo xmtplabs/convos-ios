@@ -26,17 +26,20 @@ public actor CachedPushNotificationHandler {
     ///   - databaseWriter: Database writer instance
     ///   - environment: App environment
     ///   - identityStore: Identity store instance
+    ///   - platformProviders: Platform-specific providers
     public static func initialize(
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
-        identityStore: any KeychainIdentityStoreProtocol
+        identityStore: any KeychainIdentityStoreProtocol,
+        platformProviders: PlatformProviders
     ) {
         _shared = CachedPushNotificationHandler(
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
-            identityStore: identityStore
+            identityStore: identityStore,
+            platformProviders: platformProviders
         )
     }
 
@@ -44,6 +47,7 @@ public actor CachedPushNotificationHandler {
     private let databaseWriter: any DatabaseWriter
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
+    private let platformProviders: PlatformProviders
 
     private var messagingServices: [String: MessagingService] = [:] // Keyed by inboxId
 
@@ -57,12 +61,14 @@ public actor CachedPushNotificationHandler {
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
-        identityStore: any KeychainIdentityStoreProtocol
+        identityStore: any KeychainIdentityStoreProtocol,
+        platformProviders: PlatformProviders
     ) {
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
         self.identityStore = identityStore
+        self.platformProviders = platformProviders
     }
 
     /// Handles a push notification using the structured payload with timeout protection
@@ -157,7 +163,8 @@ public actor CachedPushNotificationHandler {
             environment: environment,
             identityStore: identityStore,
             startsStreamingServices: false,
-            overrideJWTToken: overrideJWTToken
+            overrideJWTToken: overrideJWTToken,
+            platformProviders: platformProviders
         )
         messagingServices[inboxId] = messagingService
         return messagingService
