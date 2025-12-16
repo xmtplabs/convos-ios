@@ -19,7 +19,12 @@ extension DBConversationDetails {
         // we don't need messages for the conversations list
         let messages: [Message] = []
 
-        let imageURL = conversation.imageURLString.flatMap { URL(string: $0) }
+        let imageURL: URL?
+        if let imageURLString = conversation.imageURLString {
+            imageURL = URL(string: imageURLString)
+        } else {
+            imageURL = nil
+        }
 
         return Conversation(
             id: conversation.id,

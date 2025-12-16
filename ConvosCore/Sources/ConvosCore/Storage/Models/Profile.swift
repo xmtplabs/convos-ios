@@ -13,8 +13,10 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var avatarURL: URL? {
-        guard let avatar else { return nil }
-        return URL(string: avatar)
+        guard let avatar, let url = URL(string: avatar) else {
+            return nil
+        }
+        return url
     }
 
     public var displayName: String {

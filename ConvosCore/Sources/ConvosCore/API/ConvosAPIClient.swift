@@ -344,7 +344,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         Log.info("Starting attachment upload process for file: \(filename)")
         Log.info("File data size: \(data.count) bytes")
 
-        // Step 1: Get presigned URL from Convos API
+        // Get presigned URL from Convos API
         let presignedRequest = try authenticatedRequest(
             for: "v2/attachments/presigned",
             method: "GET",
@@ -361,7 +361,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
         Log.info("Received presigned response for objectKey: \(presignedResponse.objectKey)")
 
-        // Step 2: Upload directly to S3 using presigned URL
+        // Upload to S3 using presigned URL
         guard let s3URL = URL(string: presignedResponse.uploadUrl) else {
             Log.error("Invalid presigned URL received")
             throw APIError.invalidURL
@@ -407,7 +407,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     ) async throws -> String {
         Log.info("Starting chained upload and execute process for file: \(filename)")
 
-        // Step 1: Upload the attachment and get the URL
+        // Upload the attachment and get the URL
         let uploadedURL = try await uploadAttachment(
             data: data,
             filename: filename,
@@ -416,7 +416,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         )
         Log.info("Upload completed successfully, URL: \(uploadedURL)")
 
-        // Step 2: Execute the provided closure with the URL
+        // Execute the provided closure with the URL
         Log.info("Executing post-upload action with URL: \(uploadedURL)")
         try await afterUpload(uploadedURL)
         Log.info("Post-upload action completed successfully")
