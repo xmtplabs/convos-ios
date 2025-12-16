@@ -88,8 +88,7 @@ final class ConfigManager {
                 relyingPartyIdentifier: relyingPartyIdentifier,
                 xmtpEndpoint: isEmptyOrWhitespace(Secrets.XMTP_CUSTOM_HOST) ? nil : Secrets.XMTP_CUSTOM_HOST.trimmingCharacters(in: .whitespacesAndNewlines),
                 xmtpNetwork: xmtpNetwork,
-                gatewayUrl: isEmptyOrWhitespace(Secrets.GATEWAY_URL) ? nil : Secrets.GATEWAY_URL.trimmingCharacters(in: .whitespacesAndNewlines),
-                allowedAssetHosts: allowedAssetHosts
+                gatewayUrl: isEmptyOrWhitespace(Secrets.GATEWAY_URL) ? nil : Secrets.GATEWAY_URL.trimmingCharacters(in: .whitespacesAndNewlines)
             )
             environment = .local(config: config)
 
@@ -105,8 +104,7 @@ final class ConfigManager {
                 appGroupIdentifier: appGroupIdentifier,
                 relyingPartyIdentifier: relyingPartyIdentifier,
                 xmtpEndpoint: isEmptyOrWhitespace(Secrets.XMTP_CUSTOM_HOST) ? nil : Secrets.XMTP_CUSTOM_HOST.trimmingCharacters(in: .whitespacesAndNewlines),
-                xmtpNetwork: xmtpNetwork,
-                allowedAssetHosts: allowedAssetHosts
+                xmtpNetwork: xmtpNetwork
             )
             environment = .dev(config: config)
 
@@ -120,8 +118,7 @@ final class ConfigManager {
                 apiBaseURL: url,
                 appGroupIdentifier: appGroupIdentifier,
                 relyingPartyIdentifier: relyingPartyIdentifier,
-                xmtpNetwork: xmtpNetwork,
-                allowedAssetHosts: allowedAssetHosts
+                xmtpNetwork: xmtpNetwork
             )
             environment = .production(config: config)
 
@@ -203,10 +200,5 @@ final class ConfigManager {
         }
 
         return normalizedNetwork
-    }
-
-    /// Allowed asset hosts from config (CDN + legacy S3 buckets)
-    var allowedAssetHosts: [String] {
-        config["allowedAssetHosts"] as? [String] ?? []
     }
 }

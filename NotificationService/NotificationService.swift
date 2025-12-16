@@ -12,9 +12,6 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
         let environment = try NotificationExtensionEnvironment.getEnvironment()
         ConvosLog.configure(environment: environment)
 
-        // Configure asset URL resolver with allowed hosts
-        AssetURLResolver.shared.configure(allowedHosts: environment.allowedAssetHosts)
-
         Log.info("Initializing global push handler for environment: \(environment.name)")
 
         // only enable LibXMTP logging in non-production environments

@@ -1,10 +1,6 @@
 {
   "environment": "production",
   "backendUrl": "https://api.prod.convos.xyz/api",
-  "allowedAssetHosts": [
-    "assets.prod.convos.xyz",
-    "convos-assets-convos-otr-prod-20250826164208409800000019.s3.us-east-2.amazonaws.com"
-  ],
   "xmtpNetwork": "production",
   "bundleId": "org.convos.ios",
   "appGroupIdentifier": "group.org.convos.ios",

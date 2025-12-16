@@ -1,9 +1,6 @@
 {
   "environment": "local",
   "backendUrl": "http://localhost:4000/api",
-  "allowedAssetHosts": [
-    "localhost"
-  ],
   "xmtpNetwork": "local",
   "bundleId": "org.convos.ios-local",
   "appGroupIdentifier": "group.org.convos.ios-local",
