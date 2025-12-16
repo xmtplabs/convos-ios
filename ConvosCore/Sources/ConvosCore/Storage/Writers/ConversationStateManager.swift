@@ -72,6 +72,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
     private let stateMachine: ConversationStateMachine
 
     private var stateObservationTask: Task<Void, Never>?
+    private var initializationTask: Task<Void, Never>?
     private var observers: [WeakObserver] = []
     private var cancellables: Set<AnyCancellable> = .init()
 
@@ -140,7 +141,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
 
         // If using an existing conversation, transition state machine to ready
         if let conversationId {
-            Task {
+            initializationTask = Task { [stateMachine] in
                 await stateMachine.useExisting(conversationId: conversationId)
             }
         }
@@ -148,6 +149,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
 
     deinit {
         stateObservationTask?.cancel()
+        initializationTask?.cancel()
         cancellables.removeAll()
         observers.removeAll()
     }
