@@ -22,6 +22,7 @@ final class AppSettingsViewModel {
     // MARK: - Actions
 
     func deleteAllData(onComplete: @escaping () -> Void) {
+        guard !isDeleting else { return }
         isDeleting = true
         deletionError = nil
         deletionProgress = nil
