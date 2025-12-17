@@ -40,6 +40,11 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                                 willPresent notification: UNNotification) async -> UNNotificationPresentationOptions {
         let conversationId = notification.request.content.threadIdentifier
 
+        // Wake the inbox for this conversation so it's ready when the user opens it
+        if !conversationId.isEmpty, let session = session {
+            await session.wakeInboxForNotification(conversationId: conversationId)
+        }
+
         // Always show explosion notifications (identified by isExplosion flag in userInfo)
         if notification.request.content.userInfo["isExplosion"] as? Bool == true {
             Log.info("App in foreground - showing explosion notification banner (always show)")
@@ -94,6 +99,10 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
                 )
             return
         }
+
+        // Wake the inbox for this conversation when notification is tapped
+        // This ensures the inbox is ready when the user opens the conversation
+        await session.wakeInboxForNotification(conversationId: conversationId)
 
         Log
             .info(

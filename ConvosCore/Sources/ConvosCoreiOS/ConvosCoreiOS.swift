@@ -40,11 +40,11 @@ extension PlatformProviders {
         let deviceInfo = IOSDeviceInfo()
         let pushNotificationRegistrar = IOSPushNotificationRegistrar()
 
-        // Set legacy singletons for code that doesn't use dependency injection
+        // Configure legacy singletons for code that doesn't use dependency injection
         // (e.g., DebugView accessing PushNotificationRegistrar.token)
-        DeviceInfo.shared = deviceInfo
-        PushNotificationRegistrar.shared = pushNotificationRegistrar
-        ImageCompression.shared = IOSImageCompression()
+        DeviceInfo.configure(deviceInfo)
+        PushNotificationRegistrar.configure(pushNotificationRegistrar)
+        ImageCompression.configure(IOSImageCompression())
 
         return PlatformProviders(
             appLifecycle: appLifecycle,

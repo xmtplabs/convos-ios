@@ -35,7 +35,7 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     // MARK: - Messaging Services
 
-    public func messagingService(for clientId: String, inboxId: String) -> AnyMessagingService {
+    public func messagingService(for clientId: String, inboxId: String) async -> AnyMessagingService {
         mockMessagingService
     }
 
@@ -53,11 +53,25 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockInviteRepository()
     }
 
-    public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) -> any ConversationRepositoryProtocol {
+    public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }
 
     public func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
         MockMessagesRepository(conversationId: conversationId)
+    }
+
+    // MARK: - Lifecycle Management
+
+    public func wakeInboxForNotification(clientId: String, inboxId: String) async {}
+
+    public func wakeInboxForNotification(conversationId: String) async {}
+
+    public func isInboxAwake(clientId: String) async -> Bool {
+        true
+    }
+
+    public func isInboxSleeping(clientId: String) async -> Bool {
+        false
     }
 }

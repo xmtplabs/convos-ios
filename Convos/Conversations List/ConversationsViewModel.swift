@@ -44,6 +44,9 @@ final class ConversationsViewModel {
 
     private(set) var selectedConversationViewModel: ConversationViewModel?
 
+    @ObservationIgnored
+    private var updateSelectionTask: Task<Void, Never>?
+
     // Called whenever _selectedConversationId changes
     private func updateSelectionState() {
         let conversation = selectedConversation
@@ -52,13 +55,21 @@ final class ConversationsViewModel {
         if let conversation = conversation {
             // Update view model if needed
             if selectedConversationViewModel?.conversation.id != conversation.id {
-                selectedConversationViewModel = ConversationViewModel(
-                    conversation: conversation,
-                    session: session
-                )
-                markConversationAsRead(conversation)
+                // Cancel any pending update task
+                updateSelectionTask?.cancel()
+                updateSelectionTask = Task { [weak self] in
+                    guard let self else { return }
+                    let viewModel = await ConversationViewModel.create(
+                        conversation: conversation,
+                        session: session
+                    )
+                    guard !Task.isCancelled else { return }
+                    self.selectedConversationViewModel = viewModel
+                    self.markConversationAsRead(conversation)
+                }
             }
         } else {
+            updateSelectionTask?.cancel()
             selectedConversationViewModel = nil
         }
 
@@ -90,11 +101,10 @@ final class ConversationsViewModel {
         }
     }
     var presentingExplodeInfo: Bool = false
-    let maxNumberOfConvos: Int = 50
-    var presentingMaxNumberOfConvosReachedInfo: Bool = false
-    private var maxNumberOfConvosReached: Bool {
-        conversationsCount >= maxNumberOfConvos
-    }
+
+    // Note: The hard conversation limit has been removed.
+    // Resource management is now handled by InboxLifecycleManager which
+    // keeps at most 50 inboxes "awake" while supporting unlimited total conversations.
     private(set) var conversations: [Conversation] = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -176,6 +186,7 @@ final class ConversationsViewModel {
 
     deinit {
         newConversationViewModelTask?.cancel()
+        updateSelectionTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -193,10 +204,6 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
-        guard !maxNumberOfConvosReached else {
-            presentingMaxNumberOfConvosReachedInfo = true
-            return
-        }
         newConversationViewModelTask?.cancel()
         newConversationViewModelTask = Task { [weak self] in
             guard let self else { return }
@@ -211,10 +218,6 @@ final class ConversationsViewModel {
     }
 
     func onJoinConvo() {
-        guard !maxNumberOfConvosReached else {
-            presentingMaxNumberOfConvosReachedInfo = true
-            return
-        }
         newConversationViewModelTask?.cancel()
         newConversationViewModelTask = Task { [weak self] in
             guard let self else { return }
@@ -229,10 +232,6 @@ final class ConversationsViewModel {
     }
 
     private func join(from inviteCode: String) {
-        guard !maxNumberOfConvosReached else {
-            presentingMaxNumberOfConvosReachedInfo = true
-            return
-        }
         newConversationViewModelTask?.cancel()
         newConversationViewModelTask = Task { [weak self] in
             guard let self else { return }
@@ -395,7 +394,7 @@ final class ConversationsViewModel {
                     writer = localStateWriter
                 } else {
                     // Create new writer outside of MainActor context
-                    let messagingService = session.messagingService(
+                    let messagingService = await session.messagingService(
                         for: conversation.clientId,
                         inboxId: conversation.inboxId
                     )

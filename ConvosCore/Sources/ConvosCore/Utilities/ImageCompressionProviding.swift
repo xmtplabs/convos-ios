@@ -43,30 +43,42 @@ public protocol ImageCompressionProviding: Sendable {
 ///
 /// Example usage in AppDelegate or App init:
 /// ```swift
-/// ImageCompression.shared = IOSImageCompression()
+/// ImageCompression.configure(IOSImageCompression())
 /// ```
 public enum ImageCompression {
     /// Default size for cache-optimized images
     public static let cacheOptimizedSize: CGFloat = 500
 
-    // Using nonisolated(unsafe) because:
-    // 1. This is set once at app startup before any concurrent access
-    // 2. After initialization, it's read-only
-    // 3. The underlying type is Sendable
-    nonisolated(unsafe) private static var _shared: (any ImageCompressionProviding)?
+    private static let lock: NSLock = .init()
+    private static var _shared: (any ImageCompressionProviding)?
+    private static var isConfigured: Bool = false
+
+    /// Configures the shared image compression provider instance.
+    /// - Important: Must be called exactly once during app initialization before use.
+    /// - Parameter provider: The platform-specific image compression provider.
+    public static func configure(_ provider: any ImageCompressionProviding) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !isConfigured else {
+            Log.error("ImageCompression.configure() must only be called once")
+            return
+        }
+
+        _shared = provider
+        isConfigured = true
+    }
 
     /// The shared image compression provider instance.
-    /// - Important: Must be set during app initialization before use.
+    /// - Important: `configure(_:)` must be called during app initialization before use.
     public static var shared: any ImageCompressionProviding {
-        get {
-            guard let provider = _shared else {
-                fatalError("ImageCompression.shared must be set before use")
-            }
-            return provider
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let provider = _shared else {
+            fatalError("ImageCompression.configure() must be called before use")
         }
-        set {
-            _shared = newValue
-        }
+        return provider
     }
 
     /// Resizes and compresses image to JPEG data using default cache-optimized size
@@ -87,6 +99,15 @@ public enum ImageCompression {
             image,
             maxSize: CGSize(width: cacheOptimizedSize, height: cacheOptimizedSize)
         )
+    }
+
+    /// Resets the configuration state. Only for use in tests.
+    /// - Important: This is not thread-safe and should only be called from test setup.
+    public static func resetForTesting() {
+        lock.lock()
+        defer { lock.unlock() }
+        _shared = nil
+        isConfigured = false
     }
 }
 

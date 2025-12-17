@@ -29,33 +29,47 @@ public protocol PushNotificationRegistrarProtocol: Sendable {
 ///
 /// Example usage in AppDelegate or App init:
 /// ```swift
-/// PushNotificationRegistrar.shared = IOSPushNotificationRegistrar()
+/// PushNotificationRegistrar.configure(IOSPushNotificationRegistrar())
 /// ```
 public enum PushNotificationRegistrar {
-    // Using nonisolated(unsafe) because:
-    // 1. This is set once at app startup before any concurrent access
-    // 2. After initialization, it's read-only
-    // 3. The underlying type is Sendable
-    nonisolated(unsafe) private static var _shared: (any PushNotificationRegistrarProtocol)?
+    private static let lock: NSLock = .init()
+    private static var _shared: (any PushNotificationRegistrarProtocol)?
+    private static var isConfigured: Bool = false
+
+    /// Configures the shared push notification registrar instance.
+    /// - Important: Must be called exactly once during app initialization before use.
+    /// - Parameter registrar: The platform-specific push notification registrar.
+    public static func configure(_ registrar: any PushNotificationRegistrarProtocol) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !isConfigured else {
+            Log.error("PushNotificationRegistrar.configure() must only be called once")
+            return
+        }
+
+        _shared = registrar
+        isConfigured = true
+    }
 
     /// The shared push notification registrar instance.
-    /// - Important: Must be set during app initialization before use.
+    /// - Important: `configure(_:)` must be called during app initialization before use.
     public static var shared: any PushNotificationRegistrarProtocol {
-        get {
-            guard let registrar = _shared else {
-                fatalError("PushNotificationRegistrar.shared must be set before use")
-            }
-            return registrar
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let registrar = _shared else {
+            fatalError("PushNotificationRegistrar.configure() must be called before use")
         }
-        set {
-            _shared = newValue
-        }
+        return registrar
     }
 
     /// Returns the current push token, if available.
     /// Convenience accessor for `PushNotificationRegistrar.shared.token`
     public static var token: String? {
-        _shared?.token
+        lock.lock()
+        defer { lock.unlock() }
+        return _shared?.token
     }
 
     /// Saves the push token and notifies observers of the change.
@@ -68,5 +82,14 @@ public enum PushNotificationRegistrar {
     /// Convenience accessor for `PushNotificationRegistrar.shared.requestNotificationAuthorizationIfNeeded()`
     public static func requestNotificationAuthorizationIfNeeded() async -> Bool {
         await shared.requestNotificationAuthorizationIfNeeded()
+    }
+
+    /// Resets the configuration state. Only for use in tests.
+    /// - Important: This is not thread-safe and should only be called from test setup.
+    public static func resetForTesting() {
+        lock.lock()
+        defer { lock.unlock() }
+        _shared = nil
+        isConfigured = false
     }
 }
