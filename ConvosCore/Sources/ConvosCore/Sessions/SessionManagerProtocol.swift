@@ -10,7 +10,7 @@ public protocol SessionManagerProtocol: AnyObject {
 
     // MARK: Messaging Services
 
-    func messagingService(for clientId: String, inboxId: String) -> AnyMessagingService
+    func messagingService(for clientId: String, inboxId: String) async -> AnyMessagingService
 
     // MARK: Factory methods for repositories
 
@@ -20,7 +20,7 @@ public protocol SessionManagerProtocol: AnyObject {
         for conversationId: String,
         inboxId: String,
         clientId: String
-    ) -> any ConversationRepositoryProtocol
+    ) async -> any ConversationRepositoryProtocol
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
 
@@ -34,6 +34,13 @@ public protocol SessionManagerProtocol: AnyObject {
 
     func notifyChangesInDatabase()
     func shouldDisplayNotification(for conversationId: String) async -> Bool
+
+    // MARK: - Lifecycle Management
+
+    func wakeInboxForNotification(clientId: String, inboxId: String) async
+    func wakeInboxForNotification(conversationId: String) async
+    func isInboxAwake(clientId: String) async -> Bool
+    func isInboxSleeping(clientId: String) async -> Bool
 
     // MARK: Helpers
 

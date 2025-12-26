@@ -44,9 +44,12 @@ class TestFixtures {
         // Configure logging for tests
         ConvosLog.configure(environment: .tests)
 
-        // Set up mock singletons for code that doesn't use dependency injection
-        DeviceInfo.shared = MockDeviceInfoProvider()
-        PushNotificationRegistrar.shared = MockPushNotificationRegistrarProvider()
+        // Configure mock singletons for code that doesn't use dependency injection
+        // Uses resetForTesting() to allow reconfiguration across test runs
+        DeviceInfo.resetForTesting()
+        DeviceInfo.configure(MockDeviceInfoProvider())
+        PushNotificationRegistrar.resetForTesting()
+        PushNotificationRegistrar.configure(MockPushNotificationRegistrarProvider())
     }
 
     /// Create a new XMTP client for testing

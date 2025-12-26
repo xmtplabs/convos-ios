@@ -31,27 +31,39 @@ public protocol DeviceInfoProviding: Sendable {
 ///
 /// Example usage in AppDelegate or App init:
 /// ```swift
-/// DeviceInfo.shared = IOSDeviceInfo()
+/// DeviceInfo.configure(IOSDeviceInfo())
 /// ```
 public enum DeviceInfo {
-    // Using nonisolated(unsafe) because:
-    // 1. This is set once at app startup before any concurrent access
-    // 2. After initialization, it's read-only
-    // 3. The underlying type is Sendable
-    nonisolated(unsafe) private static var _shared: (any DeviceInfoProviding)?
+    private static let lock: NSLock = .init()
+    private static var _shared: (any DeviceInfoProviding)?
+    private static var isConfigured: Bool = false
+
+    /// Configures the shared device info provider instance.
+    /// - Important: Must be called exactly once during app initialization before use.
+    /// - Parameter provider: The platform-specific device info provider.
+    public static func configure(_ provider: any DeviceInfoProviding) {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard !isConfigured else {
+            Log.error("DeviceInfo.configure() must only be called once")
+            return
+        }
+
+        _shared = provider
+        isConfigured = true
+    }
 
     /// The shared device info provider instance.
-    /// - Important: Must be set during app initialization before use.
+    /// - Important: `configure(_:)` must be called during app initialization before use.
     public static var shared: any DeviceInfoProviding {
-        get {
-            guard let provider = _shared else {
-                fatalError("DeviceInfo.shared must be set before use")
-            }
-            return provider
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let provider = _shared else {
+            fatalError("DeviceInfo.configure() must be called before use")
         }
-        set {
-            _shared = newValue
-        }
+        return provider
     }
 
     /// Returns the most appropriate device identifier.
@@ -64,5 +76,14 @@ public enum DeviceInfo {
     /// Convenience accessor for `DeviceInfo.shared.osString`
     public static var osString: String {
         shared.osString
+    }
+
+    /// Resets the configuration state. Only for use in tests.
+    /// - Important: This is not thread-safe and should only be called from test setup.
+    public static func resetForTesting() {
+        lock.lock()
+        defer { lock.unlock() }
+        _shared = nil
+        isConfigured = false
     }
 }
