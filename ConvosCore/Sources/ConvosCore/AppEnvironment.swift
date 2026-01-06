@@ -90,7 +90,7 @@ public enum AppEnvironment: Sendable {
             Log.info("Using API URL from local config: \(config.apiBaseURL)")
             return config.apiBaseURL
         case .tests:
-            return "http://localhost:4000/api/"
+            return "http://localhost:4000/api"
         case .dev(let config):
             Log.info("Using API URL from dev config: \(config.apiBaseURL)")
             return config.apiBaseURL

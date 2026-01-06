@@ -172,9 +172,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
         _ = try await inboxReady.apiClient.uploadAttachmentAndExecute(
             data: compressedImageData,
             filename: filename
-        ) { uploadedURL in
+        ) { uploadedAssetUrl in
             do {
-                try await self.updateImageUrl(uploadedURL, for: conversation.id)
+                try await self.updateImageUrl(uploadedAssetUrl, for: conversation.id)
             } catch {
                 Log.error("Failed updating conversation image URL: \(error.localizedDescription)")
             }

@@ -376,38 +376,26 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         Log.info("Starting attachment upload process for file: \(filename)")
         Log.info("File data size: \(data.count) bytes")
 
-        // Step 1: Get presigned URL from Convos API
+        // Get presigned URL from Convos API
         let presignedRequest = try authenticatedRequest(
             for: "v2/attachments/presigned",
             method: "GET",
             queryParameters: ["contentType": contentType, "filename": filename]
         )
 
-        Log.info("Getting presigned URL from: \(presignedRequest.url?.absoluteString ?? "nil")")
-
         struct PresignedResponse: Codable {
-            let url: String
+            let objectKey: String
+            let uploadUrl: String    // Upload pre-signed URL
+            let assetUrl: String     // Final asset URL
+            // Note: legacy `url` field is ignored; decoder will drop unknown keys.
         }
 
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
-        Log.info("Received presigned URL: \(presignedResponse.url)")
+        Log.info("Received presigned response for objectKey: \(presignedResponse.objectKey)")
 
-        // Step 2: Extract public URL BEFORE uploading (we already know what it will be!)
-        guard let urlComponents = URLComponents(string: presignedResponse.url) else {
-            Log.error("Failed to parse presigned URL components")
-            throw APIError.invalidURL
-        }
-
-        guard let scheme = urlComponents.scheme, let host = urlComponents.host else {
-            Log.error("Failed to extract scheme or host from presigned URL")
-            throw APIError.invalidURL
-        }
-        let publicURL = "\(scheme)://\(host)\(urlComponents.path)"
-        Log.info("Final public URL will be: \(publicURL)")
-
-        // Step 3: Upload directly to S3 using presigned URL
-        guard let s3URL = URL(string: presignedResponse.url) else {
-            Log.error("Invalid presigned URL: \(presignedResponse.url)")
+        // Upload to S3 using presigned URL
+        guard let s3URL = URL(string: presignedResponse.uploadUrl) else {
+            Log.error("Invalid presigned URL received")
             throw APIError.invalidURL
         }
 
@@ -416,9 +404,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         s3Request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         s3Request.httpBody = data
 
-        Log.info("Uploading to S3: \(s3URL.absoluteString)")
-        Log.info("S3 upload data size: \(data.count) bytes")
-        Log.info("S3 request headers: \(s3Request.allHTTPHeaderFields ?? [:])")
+        Log.info("Uploading \(data.count) bytes to S3")
 
         let (s3Data, s3Response) = try await URLSession.shared.data(for: s3Request)
 
@@ -427,8 +413,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.invalidResponse
         }
 
-        Log.info("S3 response status: \(s3HttpResponse.statusCode)")
-        Log.info("S3 response headers: \(s3HttpResponse.allHeaderFields)")
+        Log.info("S3 upload response status: \(s3HttpResponse.statusCode)")
 
         guard s3HttpResponse.statusCode == 200 else {
             Log.error("S3 upload failed with status: \(s3HttpResponse.statusCode)")
@@ -436,8 +421,15 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.serverError(nil)
         }
 
-        Log.info("Successfully uploaded to S3, public URL: \(publicURL)")
-        return publicURL
+        // Require full asset URL. Do not fallback to bare keys.
+        guard let assetUrl = URL(string: presignedResponse.assetUrl) else {
+            Log.error("Invalid assetUrl in presigned response; refusing to return non-URL")
+            throw APIError.invalidResponse
+        }
+
+        let assetPath = assetUrl.absoluteString
+        Log.info("Successfully uploaded to S3, assetUrl: \(assetPath)")
+        return assetPath
     }
 
     func uploadAttachmentAndExecute(
@@ -447,7 +439,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     ) async throws -> String {
         Log.info("Starting chained upload and execute process for file: \(filename)")
 
-        // Step 1: Upload the attachment and get the URL
+        // Upload the attachment and get the URL
         let uploadedURL = try await uploadAttachment(
             data: data,
             filename: filename,
@@ -456,7 +448,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         )
         Log.info("Upload completed successfully, URL: \(uploadedURL)")
 
-        // Step 2: Execute the provided closure with the uploaded URL
+        // Execute the provided closure with the URL
         Log.info("Executing post-upload action with URL: \(uploadedURL)")
         try await afterUpload(uploadedURL)
         Log.info("Post-upload action completed successfully")
