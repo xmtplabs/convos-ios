@@ -7,7 +7,13 @@ protocol ConvosAPIClientFactoryType {
 
 enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
     static func client(environment: AppEnvironment, overrideJWTToken: String? = nil) -> any ConvosAPIClientProtocol {
-        ConvosAPIClient(environment: environment, overrideJWTToken: overrideJWTToken)
+        guard !environment.isTestingEnvironment else {
+            return MockAPIClient()
+        }
+        return ConvosAPIClient(
+            environment: environment,
+            overrideJWTToken: overrideJWTToken
+        )
     }
 }
 
@@ -145,6 +151,21 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         )
     }
 
+    private func isJWTValid(_ token: String) -> Bool {
+        // JWT format: header.payload.signature
+        let parts = token.split(separator: ".")
+        guard parts.count == 3 else { return false }
+
+        let payload = String(parts[1])
+        guard let payloadData = try? payload.base64URLDecoded(),
+              let json = try? JSONSerialization.jsonObject(with: payloadData) as? [String: Any],
+              let exp = json["exp"] as? TimeInterval else {
+            return false
+        }
+        // Valid if expiration is more than 60 seconds from now
+        return Date(timeIntervalSince1970: exp) > Date().addingTimeInterval(60)
+    }
+
     // MARK: - Authentication
 
     /// Authenticates with the backend to obtain a JWT token
@@ -154,6 +175,18 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     /// - Returns: JWT token string
     func authenticate(appCheckToken: String,
                       retryCount: Int = 0) async throws -> String {
+        let deviceId = DeviceInfo.deviceIdentifier
+
+        // Check for existing valid JWT token first
+        if let existingToken = try? keychainService.retrieveString(
+            account: KeychainAccount.jwt(deviceId: deviceId)
+        ), !existingToken.isEmpty,
+           isJWTValid(existingToken) {
+            Log.info("Using existing JWT token from keychain")
+            return existingToken
+        }
+
+        // Token missing or expired - fetch new one
         let url = baseURL.appendingPathComponent("v2/auth/token")
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -165,7 +198,6 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             let deviceId: String
         }
 
-        let deviceId = DeviceInfo.deviceIdentifier
         let requestBody = AuthRequest(deviceId: deviceId)
         request.httpBody = try JSONEncoder().encode(requestBody)
 

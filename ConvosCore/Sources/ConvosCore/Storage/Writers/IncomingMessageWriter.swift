@@ -2,19 +2,19 @@ import Foundation
 import GRDB
 import XMTPiOS
 
-public struct IncomingMessageWriterResult {
-    public let contentType: MessageContentType
-    public let wasRemovedFromConversation: Bool
-    public let messageAlreadyExists: Bool
+struct IncomingMessageWriterResult {
+    let contentType: MessageContentType
+    let wasRemovedFromConversation: Bool
+    let messageAlreadyExists: Bool
 }
 
-public enum ExplodeSettingsResult {
+enum ExplodeSettingsResult {
     case fromSelf
     case alreadyExpired
     case applied(expiresAt: Date)
 }
 
-public protocol IncomingMessageWriterProtocol {
+protocol IncomingMessageWriterProtocol {
     func store(message: XMTPiOS.DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult
 
@@ -38,9 +38,9 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
     func store(message: DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
         let result = try await databaseWriter.write { db in
-            let sender = Member(inboxId: message.senderInboxId)
+            let sender = DBMember(inboxId: message.senderInboxId)
             try sender.save(db)
-            let senderProfile = MemberProfile(
+            let senderProfile = DBMemberProfile(
                 conversationId: conversation.id,
                 inboxId: message.senderInboxId,
                 name: nil,

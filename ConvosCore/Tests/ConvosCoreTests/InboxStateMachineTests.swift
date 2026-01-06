@@ -2,8 +2,11 @@
 import Foundation
 import GRDB
 import Testing
-import UIKit
 import XMTPiOS
+
+// MARK: - Test Helpers
+
+private let testAppLifecycle = MockAppLifecycleProvider()
 
 /// Comprehensive tests for InboxStateMachine
 ///
@@ -15,7 +18,7 @@ import XMTPiOS
 /// - Stop flow (ready → stopping → idle)
 /// - Database cleanup on deletion
 /// - Keychain management
-@Suite("InboxStateMachine Tests")
+@Suite("InboxStateMachine Tests", .serialized)
 struct InboxStateMachineTests {
 
     // MARK: - Registration Tests
@@ -37,7 +40,8 @@ struct InboxStateMachineTests {
             syncingManager: mockSync,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Start in idle state
@@ -90,7 +94,8 @@ struct InboxStateMachineTests {
             syncingManager: nil,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         await stateMachine.register(clientId: clientId)
@@ -153,7 +158,8 @@ struct InboxStateMachineTests {
             syncingManager: mockSync,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Authorize with the existing inbox
@@ -205,7 +211,8 @@ struct InboxStateMachineTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             syncingManager: nil,
             networkMonitor: networkMonitor,
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Try to authorize with wrong clientId
@@ -256,7 +263,8 @@ struct InboxStateMachineTests {
             syncingManager: mockSync,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Register and wait for ready
@@ -323,7 +331,8 @@ struct InboxStateMachineTests {
             syncingManager: mockSync,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Register and wait for ready
@@ -395,7 +404,8 @@ struct InboxStateMachineTests {
             syncingManager: mockSync,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Try to authorize with non-existent inboxId to trigger error
@@ -448,7 +458,8 @@ struct InboxStateMachineTests {
             databaseWriter: fixtures.databaseManager.dbWriter,
             syncingManager: nil,
             networkMonitor: networkMonitor,
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         actor StateCollector {
@@ -476,6 +487,8 @@ struct InboxStateMachineTests {
                     stateName = "authenticatingBackend"
                 case .ready:
                     stateName = "ready"
+                case .backgrounded:
+                    stateName = "backgrounded"
                 case .error:
                     stateName = "error"
                 case .authorizing:
@@ -532,7 +545,8 @@ struct InboxStateMachineTests {
             syncingManager: mockSync,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",  // Skip backend auth for tests
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Queue register and then stop
@@ -586,7 +600,8 @@ struct InboxStateMachineTests {
             syncingManager: mockSync,
             networkMonitor: mockNetworkMonitor,
             overrideJWTToken: "test-jwt-token",
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Register and wait for ready
@@ -663,7 +678,8 @@ struct InboxStateMachineTests {
             syncingManager: mockSync,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         // Register and wait for ready
@@ -689,8 +705,11 @@ struct InboxStateMachineTests {
 
         Log.info("Inbox ready, simulating app entering background...")
 
+        // Give the notification observer Task time to start listening
+        try await Task.sleep(for: .milliseconds(100))
+
         // Simulate app entering background
-        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.post(name: testAppLifecycle.didEnterBackgroundNotification, object: nil)
 
         // Wait for backgrounded state
         let backgroundedState = try await waitForState(stateMachine, timeout: 5) { state in
@@ -712,7 +731,7 @@ struct InboxStateMachineTests {
         Log.info("App backgrounded, sync paused. Simulating app returning to foreground...")
 
         // Simulate app entering foreground
-        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.post(name: testAppLifecycle.willEnterForegroundNotification, object: nil)
 
         // Wait for ready state again
         let foregroundState = try await waitForState(stateMachine, timeout: 5) { state in
@@ -755,7 +774,8 @@ struct InboxStateMachineTests {
             syncingManager: nil,
             networkMonitor: networkMonitor,
             overrideJWTToken: "test-jwt-token",
-            environment: .tests
+            environment: .tests,
+            appLifecycle: testAppLifecycle
         )
 
         actor StateCollector {
@@ -817,8 +837,11 @@ struct InboxStateMachineTests {
             return false
         }
 
+        // Give the notification observer Task time to start listening
+        try await Task.sleep(for: .milliseconds(100))
+
         // Simulate background
-        NotificationCenter.default.post(name: UIApplication.didEnterBackgroundNotification, object: nil)
+        NotificationCenter.default.post(name: testAppLifecycle.didEnterBackgroundNotification, object: nil)
 
         // Wait for backgrounded
         _ = try await waitForState(stateMachine, timeout: 5) { state in
@@ -827,7 +850,7 @@ struct InboxStateMachineTests {
         }
 
         // Simulate foreground
-        NotificationCenter.default.post(name: UIApplication.willEnterForegroundNotification, object: nil)
+        NotificationCenter.default.post(name: testAppLifecycle.willEnterForegroundNotification, object: nil)
 
         // Wait for ready again
         _ = try await waitForState(stateMachine, timeout: 5) { state in

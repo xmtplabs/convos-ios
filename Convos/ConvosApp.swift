@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosCoreiOS
 import SwiftUI
 import UserNotifications
 import XMTPiOS
@@ -45,9 +46,10 @@ struct ConvosApp: App {
             }
         }
 
-        self.convos = .client(environment: environment)
+        self.convos = .client(environment: environment, platformProviders: .iOS)
         self.conversationsViewModel = .init(session: convos.session)
         appDelegate.session = convos.session
+        appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
     }
 
     var body: some Scene {

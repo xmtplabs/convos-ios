@@ -1,6 +1,5 @@
 #!/bin/bash
 set -eou pipefail
 
-script_dir="$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
-docker-compose -f "${script_dir}/docker-compose.yml" -p "convos-ios" "$@"
-
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+docker-compose -f "$SCRIPT_DIR/docker-compose.yml" -p "convos-ios" "$@"

@@ -8,7 +8,7 @@ enum ConversationWriterError: Error {
     case invalidInvite(String)
 }
 
-public protocol ConversationWriterProtocol {
+protocol ConversationWriterProtocol {
     @discardableResult
     func store(conversation: XMTPiOS.Group, inboxId: String) async throws -> DBConversation
     @discardableResult
@@ -90,13 +90,13 @@ class ConversationWriter: ConversationWriterProtocol {
                 debugInfo: .empty
             )
             try conversation.save(db)
-            let memberProfile = MemberProfile(
+            let memberProfile = DBMemberProfile(
                 conversationId: draftConversationId,
                 inboxId: creatorInboxId,
                 name: nil,
                 avatar: nil
             )
-            let member = Member(inboxId: creatorInboxId)
+            let member = DBMember(inboxId: creatorInboxId)
             try member.save(db)
             try memberProfile.save(db)
 
@@ -183,7 +183,7 @@ class ConversationWriter: ConversationWriterProtocol {
         let description: String?
         let imageURLString: String?
         let expiresAt: Date?
-        let debugInfo: DBConversation.DebugInfo
+        let debugInfo: ConversationDebugInfo
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -232,11 +232,11 @@ class ConversationWriter: ConversationWriterProtocol {
     private func saveConversationToDatabase(
         dbConversation: DBConversation,
         dbMembers: [DBConversationMember],
-        memberProfiles: [MemberProfile]
+        memberProfiles: [DBMemberProfile]
     ) async throws {
         try await databaseWriter.write { [weak self] db in
             guard let self else { return }
-            let creator = Member(inboxId: dbConversation.creatorId)
+            let creator = DBMember(inboxId: dbConversation.creatorId)
             try creator.save(db)
 
             // Save conversation (handle local conversation updates)
@@ -253,14 +253,14 @@ class ConversationWriter: ConversationWriterProtocol {
             try localState.insert(db, onConflict: .ignore)
 
             // Delete old members
-            try MemberProfile
-                .filter(MemberProfile.Columns.conversationId == dbConversation.id)
+            try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == dbConversation.id)
                 .deleteAll(db)
             // Save members
             try saveMembers(dbMembers, in: db)
             // Update profiles - ensure Member exists first
             try memberProfiles.forEach { profile in
-                let member = Member(inboxId: profile.inboxId)
+                let member = DBMember(inboxId: profile.inboxId)
                 try member.save(db)
                 try profile.save(db)
             }
@@ -297,10 +297,10 @@ class ConversationWriter: ConversationWriterProtocol {
 
     private func saveMembers(_ dbMembers: [DBConversationMember], in db: Database) throws {
         for member in dbMembers {
-            try Member(inboxId: member.inboxId).save(db)
+            try DBMember(inboxId: member.inboxId).save(db)
             try member.save(db)
             // fetch from description
-            let memberProfile = MemberProfile(
+            let memberProfile = DBMemberProfile(
                 conversationId: member.conversationId,
                 inboxId: member.inboxId,
                 name: nil,
@@ -440,8 +440,8 @@ fileprivate extension XMTPiOS.ConsentState {
 }
 
 fileprivate extension XMTPiOS.ConversationDebugInfo {
-    func toDBDebugInfo() -> DBConversation.DebugInfo {
-        DBConversation.DebugInfo(
+    func toDBDebugInfo() -> ConversationDebugInfo {
+        ConversationDebugInfo(
             epoch: epoch,
             maybeForked: maybeForked,
             forkDetails: forkDetails,

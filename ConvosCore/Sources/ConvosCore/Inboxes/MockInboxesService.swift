@@ -58,17 +58,6 @@ public final class MockInboxesService: SessionManagerProtocol {
     }
 
     public func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
-        MockMessagesRepository(conversation: .mock(id: conversationId))
-    }
-}
-
-// Separate mock for ConversationsCountRepository
-class MockConversationsCountRepository: ConversationsCountRepositoryProtocol {
-    var conversationsCount: AnyPublisher<Int, Never> {
-        Just(1).eraseToAnyPublisher()
-    }
-
-    func fetchCount() throws -> Int {
-        1
+        MockMessagesRepository(conversationId: conversationId)
     }
 }

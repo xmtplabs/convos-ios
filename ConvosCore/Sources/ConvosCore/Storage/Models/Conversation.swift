@@ -1,5 +1,4 @@
 import Foundation
-import GRDB
 
 // MARK: - Conversation
 
@@ -25,7 +24,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let isDraft: Bool
     public let invite: Invite?
     public let expiresAt: Date?
-    public let debugInfo: DBConversation.DebugInfo
+    public let debugInfo: ConversationDebugInfo
 }
 
 public extension Conversation {

@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+// ConversationCustomMetadata stores custom metadata for XMTP conversations
+//
+// Encoding optimizations for compact storage:
+// - inboxId: Hex-decoded bytes (32 bytes) instead of hex string (64 chars) - saves ~32 bytes per member
+// - expiresAt: Unix sfixed64 (8 bytes) instead of protobuf Timestamp (10-16 bytes)
+// - DEFLATE compression applied if size >100 bytes (typically 20-40% reduction)
+//
+message ConversationCustomMetadata {
+    string tag = 1;
+    repeated ConversationProfile profiles = 2;
+    optional sfixed64 expiresAtUnix = 3;
+}
+
+// ConversationProfile represents a participant in the conversation
+message ConversationProfile {
+    bytes inboxId = 1;  // XMTP inbox ID as hex-decoded bytes
+    optional string name = 2;
+    optional string image = 3;
+}

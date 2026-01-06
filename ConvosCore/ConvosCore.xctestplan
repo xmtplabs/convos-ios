@@ -10,10 +10,6 @@
   ],
   "defaultOptions" : {
     "environmentVariableEntries" : [
-      {
-        "key" : "TEST_SERVER_ENABLED",
-        "value" : "true"
-      }
     ],
     "performanceAntipatternCheckerEnabled" : true
   },
@@ -29,13 +25,3 @@
   ],
   "version" : 1
 }
-
-
-
-
-
-
-
-
-
-

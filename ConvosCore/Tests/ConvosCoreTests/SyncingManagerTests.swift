@@ -305,7 +305,7 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
 }
 
 /// Comprehensive tests for SyncingManager state machine
-@Suite("SyncingManager Tests")
+@Suite("SyncingManager Tests", .serialized)
 struct SyncingManagerTests {
 
     // MARK: - Start Flow Tests
@@ -557,8 +557,8 @@ struct SyncingManagerTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Start while ready stops and restarts")
-    func testStartWhileReady() async throws {
+    @Test("Start while ready with same client is ignored")
+    func testStartWhileReadySameClient() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
         let mockAPIClient = TestableMockAPIClient()
@@ -579,14 +579,53 @@ struct SyncingManagerTests {
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
         let initialSyncCount = conversations.syncCallCount
 
-        // Start again (should stop and restart)
+        // Start again with same client (should be ignored since already ready with same inboxId)
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
+
+        // Wait a bit
+        try await Task.sleep(for: .milliseconds(100))
+
+        // Verify syncAllConversations was NOT called again (duplicate start ignored)
+        #expect(conversations.syncCallCount == initialSyncCount, "syncAllConversations should not be called again for same client")
+
+        // Clean up
+        await syncingManager.stop()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Start while ready with different client stops and restarts")
+    func testStartWhileReadyDifferentClient() async throws {
+        let fixtures = TestFixtures()
+        let mockClient1 = TestableMockClient()
+        mockClient1.inboxId = "inbox-1"
+        let mockClient2 = TestableMockClient()
+        mockClient2.inboxId = "inbox-2"
+        let mockAPIClient = TestableMockAPIClient()
+
+        let syncingManager = SyncingManager(
+            identityStore: fixtures.identityStore,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            deviceRegistrationManager: nil
+        )
+
+        // Start syncing with first client
+        await syncingManager.start(with: mockClient1, apiClient: mockAPIClient)
+
+        // Wait for ready state
+        try await Task.sleep(for: .milliseconds(200))
+
+        let conversations2 = mockClient2.conversationsProvider as! TestableMockConversations
+        #expect(conversations2.syncCallCount == 0, "Second client should not have been used yet")
+
+        // Start with different client (should stop and restart)
+        await syncingManager.start(with: mockClient2, apiClient: mockAPIClient)
 
         // Wait for restart
         try await Task.sleep(for: .milliseconds(300))
 
-        // Verify syncAllConversations was called again
-        #expect(conversations.syncCallCount > initialSyncCount, "syncAllConversations should be called again on restart")
+        // Verify syncAllConversations was called on the new client
+        #expect(conversations2.syncCallCount > 0, "syncAllConversations should be called on new client after restart")
 
         // Clean up
         await syncingManager.stop()

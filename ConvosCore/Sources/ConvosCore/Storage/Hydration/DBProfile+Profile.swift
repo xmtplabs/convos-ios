@@ -1,6 +1,6 @@
 import Foundation
 
-extension MemberProfile {
+extension DBMemberProfile {
     func hydrateProfile() -> Profile {
         Profile(
             inboxId: inboxId,

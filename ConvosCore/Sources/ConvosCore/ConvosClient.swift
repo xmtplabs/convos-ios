@@ -14,6 +14,7 @@ public final class ConvosClient {
     private let databaseManager: any DatabaseManagerProtocol
     private let environment: AppEnvironment
     public let expiredConversationsWorker: ExpiredConversationsWorkerProtocol?
+    public let platformProviders: PlatformProviders
 
     var databaseWriter: any DatabaseWriter {
         databaseManager.dbWriter
@@ -27,31 +28,34 @@ public final class ConvosClient {
         sessionManager
     }
 
-    public static func testClient() -> ConvosClient {
+    public static func testClient(platformProviders: PlatformProviders = .mock) -> ConvosClient {
         let databaseManager = MockDatabaseManager.shared
         let identityStore = MockKeychainIdentityStore()
         let sessionManager = SessionManager(
             databaseWriter: databaseManager.dbWriter,
             databaseReader: databaseManager.dbReader,
             environment: .tests,
-            identityStore: identityStore
+            identityStore: identityStore,
+            platformProviders: platformProviders
         )
         return .init(
             sessionManager: sessionManager,
             databaseManager: databaseManager,
             environment: .tests,
-            expiredConversationsWorker: nil
+            expiredConversationsWorker: nil,
+            platformProviders: platformProviders
         )
     }
 
-    public static func mock() -> ConvosClient {
+    public static func mock(platformProviders: PlatformProviders = .mock) -> ConvosClient {
         let databaseManager = MockDatabaseManager.previews
         let sessionManager = MockInboxesService()
         return .init(
             sessionManager: sessionManager,
             databaseManager: databaseManager,
             environment: .tests,
-            expiredConversationsWorker: nil
+            expiredConversationsWorker: nil,
+            platformProviders: platformProviders
         )
     }
 
@@ -59,11 +63,13 @@ public final class ConvosClient {
         sessionManager: any SessionManagerProtocol,
         databaseManager: any DatabaseManagerProtocol,
         environment: AppEnvironment,
-        expiredConversationsWorker: ExpiredConversationsWorkerProtocol?
+        expiredConversationsWorker: ExpiredConversationsWorkerProtocol?,
+        platformProviders: PlatformProviders
     ) {
         self.sessionManager = sessionManager
         self.databaseManager = databaseManager
         self.environment = environment
         self.expiredConversationsWorker = expiredConversationsWorker
+        self.platformProviders = platformProviders
     }
 }

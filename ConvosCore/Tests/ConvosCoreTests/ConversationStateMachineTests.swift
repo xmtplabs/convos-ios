@@ -4,6 +4,11 @@ import GRDB
 import Testing
 import XMTPiOS
 
+// MARK: - Test Helpers
+
+private let testEnvironment = AppEnvironment.tests
+private let testPlatformProviders = PlatformProviders.mock
+
 /// Comprehensive tests for ConversationStateMachine
 ///
 /// Tests cover:
@@ -13,7 +18,7 @@ import XMTPiOS
 /// - Delete and stop flows
 /// - State sequence observation
 /// - Multiple conversation creation
-@Suite("ConversationStateMachine Tests")
+@Suite("ConversationStateMachine Tests", .serialized)
 struct ConversationStateMachineTests {
 
     // MARK: - Test Helpers
@@ -70,12 +75,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -83,7 +89,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Start in uninitialized state
@@ -131,12 +137,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -144,7 +151,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         actor StateCollector {
@@ -208,12 +215,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -221,7 +229,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Trigger create
@@ -275,12 +283,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -288,7 +297,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Create conversation first
@@ -352,12 +361,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -365,7 +375,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Create conversation first
@@ -422,12 +432,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -435,7 +446,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Create first conversation
@@ -504,12 +515,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -517,7 +529,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         actor StateCollector {
@@ -584,12 +596,13 @@ struct ConversationStateMachineTests {
         // Setup inviter messaging service and state machine
         let inviterUnusedInboxCache = UnusedInboxCache(
             keychainService: inviterFixtures.keychainService,
-            identityStore: inviterFixtures.identityStore
+            identityStore: inviterFixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let inviterMessagingService = await inviterUnusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
             databaseReader: inviterFixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let inviterStateMachine = ConversationStateMachine(
@@ -597,7 +610,7 @@ struct ConversationStateMachineTests {
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Create conversation as inviter
@@ -645,12 +658,13 @@ struct ConversationStateMachineTests {
         // Setup joiner messaging service and state machine
         let joinerUnusedInboxCache = UnusedInboxCache(
             keychainService: joinerFixtures.keychainService,
-            identityStore: joinerFixtures.identityStore
+            identityStore: joinerFixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let joinerMessagingService = await joinerUnusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
             databaseReader: joinerFixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let joinerStateMachine = ConversationStateMachine(
@@ -658,7 +672,7 @@ struct ConversationStateMachineTests {
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Join conversation as joiner
@@ -703,12 +717,13 @@ struct ConversationStateMachineTests {
         // Setup inviter messaging service and state machine
         let inviterUnusedInboxCache = UnusedInboxCache(
             keychainService: inviterFixtures.keychainService,
-            identityStore: inviterFixtures.identityStore
+            identityStore: inviterFixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let inviterMessagingService = await inviterUnusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
             databaseReader: inviterFixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let inviterStateMachine = ConversationStateMachine(
@@ -716,7 +731,7 @@ struct ConversationStateMachineTests {
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Create conversation as inviter
@@ -775,12 +790,13 @@ struct ConversationStateMachineTests {
         // Setup joiner messaging service and state machine
         let joinerUnusedInboxCache = UnusedInboxCache(
             keychainService: joinerFixtures.keychainService,
-            identityStore: joinerFixtures.identityStore
+            identityStore: joinerFixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let joinerMessagingService = await joinerUnusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
             databaseReader: joinerFixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let joinerStateMachine = ConversationStateMachine(
@@ -788,7 +804,7 @@ struct ConversationStateMachineTests {
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Join conversation as joiner (should wait for inviter to come back online)
@@ -812,9 +828,10 @@ struct ConversationStateMachineTests {
             clientId: identity.clientId,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
             databaseReader: inviterFixtures.databaseManager.dbReader,
-            environment: .tests,
+            environment: testEnvironment,
             identityStore: inviterFixtures.identityStore,
-            startsStreamingServices: true
+            startsStreamingServices: true,
+            platformProviders: testPlatformProviders
         )
 
         Log.info("Inviter came back online")
@@ -865,12 +882,13 @@ struct ConversationStateMachineTests {
 
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -878,7 +896,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Queue multiple actions rapidly
@@ -937,12 +955,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -950,7 +969,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Create conversation
@@ -1003,12 +1022,13 @@ struct ConversationStateMachineTests {
         // Get a real messaging service from the cache
         let unusedInboxCache = UnusedInboxCache(
             keychainService: fixtures.keychainService,
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
         )
         let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let stateMachine = ConversationStateMachine(
@@ -1016,7 +1036,7 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Queue messages before creating (will be queued)
@@ -1069,7 +1089,8 @@ struct ConversationStateMachineTests {
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
             networkMonitor: inviterNetworkMonitor,
-            environment: .tests
+            environment: testEnvironment,
+            platformProviders: testPlatformProviders
         )
 
         let inviterMessagingService = MessagingService(
@@ -1077,7 +1098,7 @@ struct ConversationStateMachineTests {
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             identityStore: inviterFixtures.identityStore,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let inviterStateMachine = ConversationStateMachine(
@@ -1085,7 +1106,7 @@ struct ConversationStateMachineTests {
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Create conversation as inviter
@@ -1136,7 +1157,8 @@ struct ConversationStateMachineTests {
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
             networkMonitor: joinerNetworkMonitor,
-            environment: .tests
+            environment: testEnvironment,
+            platformProviders: testPlatformProviders
         )
 
         let joinerMessagingService = MessagingService(
@@ -1144,7 +1166,7 @@ struct ConversationStateMachineTests {
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             identityStore: joinerFixtures.identityStore,
-            environment: .tests
+            environment: testEnvironment
         )
 
         let joinerStateMachine = ConversationStateMachine(
@@ -1152,7 +1174,7 @@ struct ConversationStateMachineTests {
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            environment: .tests
+            environment: testEnvironment
         )
 
         // Join conversation as joiner

@@ -8,6 +8,7 @@ import UserNotifications
 @MainActor
 class ConvosAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     var session: (any SessionManagerProtocol)?
+    var pushNotificationRegistrar: (any PushNotificationRegistrarProtocol)?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         SentryConfiguration.configure()
@@ -23,7 +24,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCent
 
         Log.info("Received device token from APNS")
         // Store token in shared storage
-        PushNotificationRegistrar.save(token: token)
+        pushNotificationRegistrar?.save(token: token)
         Log.info("Stored device token in shared storage")
     }
 

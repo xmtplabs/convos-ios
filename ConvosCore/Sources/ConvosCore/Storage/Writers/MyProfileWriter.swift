@@ -1,10 +1,9 @@
 import Foundation
 import GRDB
-import UIKit
 
 public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
-    func update(avatar: UIImage?, conversationId: String) async throws
+    func update(avatar: ImageType?, conversationId: String) async throws
 }
 
 enum MyProfileWriterError: Error {
@@ -39,9 +38,9 @@ class MyProfileWriter: MyProfileWriterProtocol {
         let inboxId = inboxReady.client.inboxId
         let name = trimmedDisplayName.isEmpty ? nil : trimmedDisplayName
         let profile = try await databaseWriter.write { db in
-            let member = Member(inboxId: inboxId)
+            let member = DBMember(inboxId: inboxId)
             try member.save(db)
-            let profile = (try MemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) ?? .init(
+            let profile = (try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) ?? .init(
                 conversationId: conversationId,
                 inboxId: inboxId,
                 name: name,
@@ -54,7 +53,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         try await group.updateProfile(profile)
     }
 
-    func update(avatar: UIImage?, conversationId: String) async throws {
+    func update(avatar: ImageType?, conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
@@ -62,13 +61,13 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
         let inboxId = inboxReady.client.inboxId
         let profile = try await databaseWriter.write { db in
-            let member = Member(inboxId: inboxId)
+            let member = DBMember(inboxId: inboxId)
             try member.save(db)
-            if let foundProfile = try MemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) {
+            if let foundProfile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId) {
                 Log.info("Found profile: \(foundProfile)")
                 return foundProfile
             } else {
-                let profile = MemberProfile(
+                let profile = DBMemberProfile(
                     conversationId: conversationId,
                     inboxId: inboxId,
                     name: nil,
@@ -81,14 +80,14 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
         guard let avatarImage = avatar else {
             // remove avatar image URL
-            ImageCache.shared.removeImage(for: profile.hydrateProfile())
+            ImageCacheContainer.shared.removeImage(for: profile.hydrateProfile())
             let updatedProfile = profile.with(avatar: nil)
             try await group.updateProfile(updatedProfile)
             return
         }
 
         let hydratedProfile = profile.hydrateProfile()
-        guard let compressedImageData = ImageCache.shared.resizeCacheAndGetData(
+        guard let compressedImageData = ImageCacheContainer.shared.resizeCacheAndGetData(
             avatarImage,
             for: hydratedProfile
         ) else {
@@ -104,9 +103,9 @@ class MyProfileWriter: MyProfileWriterProtocol {
         let updatedProfile = profile.with(avatar: uploadedAssetUrl)
         try await group.updateProfile(updatedProfile)
 
-        // Cache the resized image with the asset URL as well
-        if let image = UIImage(data: compressedImageData) {
-            ImageCache.shared.setImage(image, for: uploadedAssetUrl)
+        // Cache the resized image with the uploaded URL as well
+        if let image = ImageType(data: compressedImageData) {
+            ImageCacheContainer.shared.setImage(image, for: uploadedAssetUrl)
         }
 
         try await databaseWriter.write { db in

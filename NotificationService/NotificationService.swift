@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosCoreiOS
 import Foundation
 import UserNotifications
 import XMTPiOS
@@ -26,8 +27,10 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
             )
         }
 
-        // Create the handler
-        return try NotificationExtensionEnvironment.createPushNotificationHandler()
+        // Create the handler with iOS platform providers
+        return try NotificationExtensionEnvironment.createPushNotificationHandler(
+            platformProviders: .iOS
+        )
     } catch {
         // Log to both console and Logger in case Logger isn't configured
         let errorMsg = "Failed to initialize global push handler: \(error.localizedDescription)"

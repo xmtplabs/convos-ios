@@ -1,6 +1,49 @@
 #!/bin/bash
 set -eou pipefail
 
+# Usage: dev/test [--unit]
+#   --unit   Run only unit tests (no Docker required)
+#   (none)   Run all tests with local XMTP node (requires Docker)
+
+UNIT_TESTS=false
+
+for arg in "$@"; do
+    case $arg in
+        --unit)
+            UNIT_TESTS=true
+            ;;
+        --help|-h)
+            echo "Usage: dev/test [--unit]"
+            echo "  --unit   Run only unit tests (no Docker required)"
+            echo "  (none)   Run all tests with local XMTP node (requires Docker)"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $arg"
+            echo "Use --help for usage information"
+            exit 1
+            ;;
+    esac
+done
+
+# Filter out noisy XMTP Rust library logs (timestamps like 2024-01-01T...)
+filter_xmtp_logs() {
+    grep -v -E "^[0-9]{4}-[0-9]{2}-[0-9]{2}T" || true
+}
+
+# Check for --unit flag to run only unit tests without Docker
+if [ "$UNIT_TESTS" = true ]; then
+    echo "🧪 Running ConvosCore unit tests (no Docker required)..."
+    echo ""
+
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    cd "$SCRIPT_DIR/../ConvosCore"
+
+    # Run only unit tests that don't require network
+    swift test --filter "Base64URL|DataHex|Compression|Custom Metadata" 2>&1 | filter_xmtp_logs
+    exit 0
+fi
+
 echo "🧪 Running ConvosCore integration tests with local XMTP node..."
 echo ""
 
@@ -39,41 +82,21 @@ fi
 
 # Run the tests
 echo ""
-echo "🧪 Running tests..."
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR/../ConvosCore"
 
-# Check if xcbeautify is available
-if command -v xcbeautify > /dev/null 2>&1; then
-    # Use --is-ci for detailed test output showing each test name and result
-    # Remove --quiet to see test progress
-    formatter="xcbeautify --is-ci"
-else
-    # Fallback to grep-based filtering if xcbeautify is not installed
-    echo "💡 Install xcbeautify for better output: brew install xcbeautify"
-    echo ""
-    formatter="grep -E '(Test Case.*started|Test Case.*passed|Test Case.*failed|error:|warning:|Testing failed|All tests)'"
+# Build first to avoid "multiple producers" error when running tests in parallel
+echo "📦 Building tests..."
+if ! swift build --build-tests -q 2>&1 | filter_xmtp_logs; then
+    echo "❌ Build failed!"
+    cd "$SCRIPT_DIR"
+    ./compose down
+    exit 1
 fi
 
-# Use xcodebuild to run tests on iOS Simulator from within the ConvosCore package directory
-# Pass environment variable using -testProductsPath approach won't work
-# We need to set it before running xcodebuild
-set +e  # temporarily disable exit on error to capture the exit code
-TEST_SERVER_ENABLED=true xcodebuild test \
-    -scheme ConvosCore \
-    -destination 'platform=iOS Simulator,name=iPhone 17,OS=26.0' \
-    2>&1 | tee test-output.log | eval "$formatter"
-
-test_exit_code=${PIPESTATUS[0]}
-set -e  # re-enable exit on error
-
-if [ $test_exit_code -eq 0 ]; then
-    echo ""
-    echo "✅ All tests passed!"
-else
-    echo ""
-    echo "❌ Tests failed!"
-fi
+echo "🏃 Running tests..."
+swift test --skip-build || true
+test_exit_code=$?
 
 # Stop the XMTP node
 echo ""

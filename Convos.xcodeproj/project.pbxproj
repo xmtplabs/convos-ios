@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		7A15D61C2EEBB0CF00627BC5 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7A15D61B2EEBB0CF00627BC5 /* ConvosCoreiOS */; };
+		7A15D61E2EECD7B700627BC5 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7A15D61D2EECD7B700627BC5 /* ConvosCoreiOS */; };
 		7A5579B02E7B4C0800882661 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7A5579AF2E7B4C0800882661 /* DifferenceKit */; };
 		7A5579B22E7B4C1900882661 /* SwiftUIIntrospect in Frameworks */ = {isa = PBXBuildFile; productRef = 7A5579B12E7B4C1900882661 /* SwiftUIIntrospect */; };
 		7A5D3E962E43B82400DA9B83 /* SwiftUIIntrospect in Frameworks */ = {isa = PBXBuildFile; productRef = 7A5D3E952E43B82400DA9B83 /* SwiftUIIntrospect */; };
@@ -109,7 +111,6 @@
 		7AC5993D2E5592FA00D65D07 /* KeychainIdentityStoreTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = KeychainIdentityStoreTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ACA8BA32DE16DE200848799 /* ConvosTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7AD5458D2E4EA89400500ADF /* ConvosCore */ = {isa = PBXFileReference; lastKnownFileType = wrapper; path = ConvosCore; sourceTree = "<group>"; };
-		7AD974562EC26F9500566BD5 /* Convos (Dev).xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = "Convos (Dev).xctestplan"; sourceTree = "<group>"; };
 		7ADC0C6E2E2977800053978A /* ConvosAppClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConvosAppClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C7C2E2977810053978A /* ConvosAppClipTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -392,6 +393,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				7A15D61E2EECD7B700627BC5 /* ConvosCoreiOS in Frameworks */,
 				7AD978712EC2741100566BD5 /* ConvosCore in Frameworks */,
 				7AD974582EC2715000566BD5 /* ConvosCore in Frameworks */,
 			);
@@ -402,6 +404,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				7A5D3E962E43B82400DA9B83 /* SwiftUIIntrospect in Frameworks */,
+				7A15D61C2EEBB0CF00627BC5 /* ConvosCoreiOS in Frameworks */,
 				7AD545902E4EA8BE00500ADF /* ConvosCore in Frameworks */,
 				D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */,
 			);
@@ -434,7 +437,6 @@
 		D8A2B6882DA4BA4B00EF8577 = {
 			isa = PBXGroup;
 			children = (
-				7AD974562EC26F9500566BD5 /* Convos (Dev).xctestplan */,
 				7AD5458D2E4EA89400500ADF /* ConvosCore */,
 				D8477AD42DCBA52F00E31E54 /* .env */,
 				D8477AD52DCBA52F00E31E54 /* .env.example */,
@@ -633,6 +635,7 @@
 			name = NotificationService;
 			packageProductDependencies = (
 				7AD5458F2E4EA8BE00500ADF /* ConvosCore */,
+				7A15D61D2EECD7B700627BC5 /* ConvosCoreiOS */,
 			);
 			productName = NotificationService;
 			productReference = D80850342DC94F4C00E708B0 /* NotificationService.appex */;
@@ -663,6 +666,7 @@
 				D8084BA82DC9193A00E708B0 /* DifferenceKit */,
 				7A5D3E952E43B82400DA9B83 /* SwiftUIIntrospect */,
 				7AD5458F2E4EA8BE00500ADF /* ConvosCore */,
+				7A15D61B2EEBB0CF00627BC5 /* ConvosCoreiOS */,
 			);
 			productName = Convos;
 			productReference = D8A2B6912DA4BA4B00EF8577 /* Convos.app */;
@@ -2145,6 +2149,14 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		7A15D61B2EEBB0CF00627BC5 /* ConvosCoreiOS */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ConvosCoreiOS;
+		};
+		7A15D61D2EECD7B700627BC5 /* ConvosCoreiOS */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = ConvosCoreiOS;
+		};
 		7A5579AF2E7B4C0800882661 /* DifferenceKit */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = D8084BA72DC9193A00E708B0 /* XCRemoteSwiftPackageReference "DifferenceKit" */;

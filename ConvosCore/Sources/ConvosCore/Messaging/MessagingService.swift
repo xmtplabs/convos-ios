@@ -28,7 +28,8 @@ final class MessagingService: MessagingServiceProtocol {
         environment: AppEnvironment,
         identityStore: any KeychainIdentityStoreProtocol,
         startsStreamingServices: Bool,
-        overrideJWTToken: String? = nil
+        overrideJWTToken: String? = nil,
+        platformProviders: PlatformProviders
     ) -> MessagingService {
         let authorizationOperation = AuthorizeInboxOperation.authorize(
             inboxId: inboxId,
@@ -38,7 +39,8 @@ final class MessagingService: MessagingServiceProtocol {
             databaseWriter: databaseWriter,
             environment: environment,
             startsStreamingServices: startsStreamingServices,
-            overrideJWTToken: overrideJWTToken
+            overrideJWTToken: overrideJWTToken,
+            platformProviders: platformProviders
         )
         return MessagingService(
             authorizationOperation: authorizationOperation,

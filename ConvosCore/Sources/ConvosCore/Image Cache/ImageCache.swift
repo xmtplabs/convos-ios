@@ -3,7 +3,6 @@ import CryptoKit
 import Foundation
 import Observation
 import os
-import SwiftUI
 
 // MARK: - Image Format
 
@@ -28,6 +27,23 @@ public protocol ImageCacheable {
     var imageCacheIdentifier: String { get }
 }
 
+// MARK: - Shared Instance
+
+/// Container for the shared image cache instance
+public enum ImageCacheContainer {
+    /// The shared image cache instance. Can be set to a mock for testing.
+    public static var shared: any ImageCacheProtocol = {
+        #if canImport(UIKit)
+        return ImageCache()
+        #else
+        return MockImageCache()
+        #endif
+    }()
+}
+
+#if canImport(UIKit)
+import SwiftUI
+
 // MARK: - Cache Configuration
 
 /// Configuration for image cache limits and sizes
@@ -48,8 +64,8 @@ private struct CacheConfiguration {
 /// Supports three-tier caching: memory → disk → network
 /// When a new image is uploaded for an object, all views showing that object update instantly.
 @Observable
-public final class ImageCache: @unchecked Sendable {
-    public static let shared: ImageCache = ImageCache()
+public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
+    public static var shared: any ImageCacheProtocol { ImageCacheContainer.shared }
 
     private let cache: NSCache<NSString, UIImage>
 
@@ -66,11 +82,11 @@ public final class ImageCache: @unchecked Sendable {
     private let cacheUpdateSubject: PassthroughSubject<String, Never> = PassthroughSubject<String, Never>()
 
     /// Publisher that emits when a specific cached image is updated
-    var cacheUpdates: AnyPublisher<String, Never> {
+    public var cacheUpdates: AnyPublisher<String, Never> {
         cacheUpdateSubject.receive(on: DispatchQueue.main).eraseToAnyPublisher()
     }
 
-    private init() {
+    init() {
         cache = NSCache<NSString, UIImage>()
         cache.countLimit = CacheConfiguration.memoryCacheCountLimit
         cache.totalCostLimit = CacheConfiguration.memoryCacheTotalCostLimit
@@ -668,3 +684,5 @@ public extension View {
             }
     }
 }
+
+#endif

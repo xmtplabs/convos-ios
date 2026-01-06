@@ -16,10 +16,10 @@ public protocol DeviceRegistrationManagerProtocol: Actor {
 
     /// Clears the device registration state from UserDefaults.
     /// Call this on logout, "Delete all data", or when you want to force re-registration.
-    static func clearRegistrationState()
+    static func clearRegistrationState(deviceInfo: any DeviceInfoProviding)
 
     /// Returns true if this device has been registered at least once.
-    static func hasRegisteredDevice() -> Bool
+    static func hasRegisteredDevice(deviceInfo: any DeviceInfoProviding) -> Bool
 }
 
 /// App-level manager for device registration with the backend.
@@ -39,11 +39,13 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
 
     private let environment: AppEnvironment
     private let apiClient: any ConvosAPIClientProtocol
+    private let platformProviders: PlatformProviders
     private var isRegistering: Bool = false
     nonisolated(unsafe) private var pushTokenObserver: NSObjectProtocol?
 
-    public init(environment: AppEnvironment) {
+    public init(environment: AppEnvironment, platformProviders: PlatformProviders) {
         self.environment = environment
+        self.platformProviders = platformProviders
         self.apiClient = ConvosAPIClientFactory.client(environment: environment)
     }
 
@@ -90,8 +92,8 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
         isRegistering = true
         defer { isRegistering = false }
 
-        let deviceId = DeviceInfo.deviceIdentifier
-        let pushToken = PushNotificationRegistrar.token
+        let deviceId = platformProviders.deviceInfo.deviceIdentifier
+        let pushToken = platformProviders.pushNotificationRegistrar.token
 
         // Get last registered token from UserDefaults (persisted across app launches)
         let lastTokenKey = "lastRegisteredDevicePushToken_\(deviceId)"
@@ -137,16 +139,16 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
 
     /// Clears the device registration state from UserDefaults.
     /// Call this on logout, "Delete all data", or when you want to force re-registration.
-    public static func clearRegistrationState() {
-        let deviceId = DeviceInfo.deviceIdentifier
+    public static func clearRegistrationState(deviceInfo: any DeviceInfoProviding) {
+        let deviceId = deviceInfo.deviceIdentifier
         UserDefaults.standard.removeObject(forKey: "lastRegisteredDevicePushToken_\(deviceId)")
         UserDefaults.standard.removeObject(forKey: "hasRegisteredDevice_\(deviceId)")
         Log.info("Cleared device registration state")
     }
 
     /// Returns true if this device has been registered at least once.
-    public static func hasRegisteredDevice() -> Bool {
-        let deviceId = DeviceInfo.deviceIdentifier
+    public static func hasRegisteredDevice(deviceInfo: any DeviceInfoProviding) -> Bool {
+        let deviceId = deviceInfo.deviceIdentifier
         return UserDefaults.standard.bool(forKey: "hasRegisteredDevice_\(deviceId)")
     }
 
@@ -168,11 +170,12 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
     }
 
     private func removePushTokenObserver() {
-        if let observer = pushTokenObserver {
-            NotificationCenter.default.removeObserver(observer)
-            pushTokenObserver = nil
-            Log.info("DeviceRegistrationManager: Removed push token observer")
+        guard let observer = pushTokenObserver else {
+            return
         }
+        NotificationCenter.default.removeObserver(observer)
+        pushTokenObserver = nil
+        Log.info("DeviceRegistrationManager: Removed push token observer")
     }
 
     private func handlePushTokenChange() async {
