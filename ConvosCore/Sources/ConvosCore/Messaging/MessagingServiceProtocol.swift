@@ -29,6 +29,7 @@ public protocol MessagingServiceProtocol: AnyObject {
     func myProfileWriter() -> any MyProfileWriterProtocol
 
     func conversationStateManager() -> any ConversationStateManagerProtocol
+    func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol
 
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol
     func conversationLocalStateWriter() -> any ConversationLocalStateWriterProtocol

@@ -62,6 +62,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationStateManager
     }
 
+    public func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol {
+        MockConversationStateManager(conversationId: conversationId)
+    }
+
     public func conversationConsentWriter() -> any ConversationConsentWriterProtocol {
         _conversationConsentWriter
     }

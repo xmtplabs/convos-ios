@@ -1071,6 +1071,364 @@ struct ConversationStateMachineTests {
         try? await fixtures.cleanup()
     }
 
+    // MARK: - UseExisting Flow Tests
+
+    @Test("UseExisting transitions to ready state with existing origin")
+    func testUseExistingFlow() async throws {
+        let fixtures = TestFixtures()
+
+        // Get a real messaging service from the cache
+        let unusedInboxCache = UnusedInboxCache(
+            keychainService: fixtures.keychainService,
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
+        )
+        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+
+        // First create a conversation so we have a valid conversationId
+        let createStateMachine = ConversationStateMachine(
+            inboxStateManager: messagingService.inboxStateManager,
+            identityStore: fixtures.identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            environment: testEnvironment
+        )
+
+        await createStateMachine.create()
+
+        var createdConversationId: String?
+        for await state in await createStateMachine.stateSequence {
+            if case .ready(let result) = state {
+                createdConversationId = result.conversationId
+                break
+            }
+        }
+
+        guard let conversationId = createdConversationId else {
+            Issue.record("Failed to create conversation")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
+        }
+
+        // Now test useExisting with a fresh state machine
+        let stateMachine = ConversationStateMachine(
+            inboxStateManager: messagingService.inboxStateManager,
+            identityStore: fixtures.identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            environment: testEnvironment
+        )
+
+        // Start in uninitialized state
+        let initialState = await stateMachine.state
+        #expect(initialState == .uninitialized)
+
+        // Trigger useExisting
+        await stateMachine.useExisting(conversationId: conversationId)
+
+        // Wait for ready state
+        var result: ConversationReadyResult?
+        for await state in await stateMachine.stateSequence {
+            switch state {
+            case .ready(let readyResult):
+                result = readyResult
+                break
+            case .error(let error):
+                Issue.record("UseExisting failed: \(error)")
+                await messagingService.stopAndDelete()
+                try? await fixtures.cleanup()
+                return
+            default:
+                continue
+            }
+
+            if result != nil {
+                break
+            }
+        }
+
+        #expect(result != nil, "Should reach ready state")
+        #expect(result?.origin == .existing, "Origin should be existing")
+        #expect(result?.conversationId == conversationId, "Should have correct conversation ID")
+
+        // Clean up
+        await messagingService.stopAndDelete()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("UseExisting allows sending messages immediately")
+    func testUseExistingWithMessages() async throws {
+        let fixtures = TestFixtures()
+
+        // Get a real messaging service from the cache
+        let unusedInboxCache = UnusedInboxCache(
+            keychainService: fixtures.keychainService,
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
+        )
+        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+
+        // First create a conversation so we have a valid conversationId
+        let createStateMachine = ConversationStateMachine(
+            inboxStateManager: messagingService.inboxStateManager,
+            identityStore: fixtures.identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            environment: testEnvironment
+        )
+
+        await createStateMachine.create()
+
+        var createdConversationId: String?
+        for await state in await createStateMachine.stateSequence {
+            if case .ready(let result) = state {
+                createdConversationId = result.conversationId
+                break
+            }
+        }
+
+        guard let conversationId = createdConversationId else {
+            Issue.record("Failed to create conversation")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
+        }
+
+        // Now test useExisting and sending messages with a fresh state machine
+        let stateMachine = ConversationStateMachine(
+            inboxStateManager: messagingService.inboxStateManager,
+            identityStore: fixtures.identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            environment: testEnvironment
+        )
+
+        // Trigger useExisting
+        await stateMachine.useExisting(conversationId: conversationId)
+
+        // Wait for ready state
+        for await state in await stateMachine.stateSequence {
+            if case .ready = state {
+                break
+            }
+        }
+
+        // Send messages after useExisting
+        await stateMachine.sendMessage(text: "Message via useExisting 1")
+        await stateMachine.sendMessage(text: "Message via useExisting 2")
+
+        // Wait for messages to be saved
+        try await waitForMessages(
+            conversationId: conversationId,
+            expectedCount: 2,
+            databaseReader: fixtures.databaseManager.dbReader
+        )
+
+        // Verify messages were saved
+        let messages = try await fixtures.databaseManager.dbReader.read { db in
+            try DBMessage
+                .filter(DBMessage.Columns.conversationId == conversationId)
+                .fetchAll(db)
+        }
+        #expect(messages.count >= 2, "Messages should be sent via useExisting")
+
+        // Clean up
+        await messagingService.stopAndDelete()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("UseExisting emits correct state sequence")
+    func testUseExistingStateSequence() async throws {
+        let fixtures = TestFixtures()
+
+        // Get a real messaging service from the cache
+        let unusedInboxCache = UnusedInboxCache(
+            keychainService: fixtures.keychainService,
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
+        )
+        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+
+        // First create a conversation
+        let createStateMachine = ConversationStateMachine(
+            inboxStateManager: messagingService.inboxStateManager,
+            identityStore: fixtures.identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            environment: testEnvironment
+        )
+
+        await createStateMachine.create()
+
+        var createdConversationId: String?
+        for await state in await createStateMachine.stateSequence {
+            if case .ready(let result) = state {
+                createdConversationId = result.conversationId
+                break
+            }
+        }
+
+        guard let conversationId = createdConversationId else {
+            Issue.record("Failed to create conversation")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
+        }
+
+        // Test useExisting state sequence
+        let stateMachine = ConversationStateMachine(
+            inboxStateManager: messagingService.inboxStateManager,
+            identityStore: fixtures.identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            environment: testEnvironment
+        )
+
+        actor StateCollector {
+            var states: [String] = []
+            func add(_ state: String) {
+                states.append(state)
+            }
+            func getStates() -> [String] {
+                states
+            }
+        }
+
+        let collector = StateCollector()
+
+        // Observe states in background
+        let observerTask = Task {
+            for await state in await stateMachine.stateSequence {
+                let stateName: String
+                switch state {
+                case .uninitialized:
+                    stateName = "uninitialized"
+                case .ready(let result) where result.origin == .existing:
+                    stateName = "ready_existing"
+                case .ready:
+                    stateName = "ready"
+                case .error:
+                    stateName = "error"
+                default:
+                    stateName = "other"
+                }
+                await collector.add(stateName)
+
+                if stateName == "ready_existing" || stateName == "error" {
+                    break
+                }
+            }
+        }
+
+        // Trigger useExisting
+        await stateMachine.useExisting(conversationId: conversationId)
+
+        // Wait for observer to finish
+        await observerTask.value
+
+        // Verify state progression - useExisting should go directly to ready
+        let observedStates = await collector.getStates()
+        #expect(observedStates.contains("ready_existing"), "Should reach ready with existing origin")
+        // Verify no intermediate states (unlike create which goes through creating)
+        #expect(!observedStates.contains("other"), "Should not have intermediate states")
+
+        // Clean up
+        await messagingService.stopAndDelete()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("UseExisting can be called after stop")
+    func testUseExistingAfterStop() async throws {
+        let fixtures = TestFixtures()
+
+        // Get a real messaging service from the cache
+        let unusedInboxCache = UnusedInboxCache(
+            keychainService: fixtures.keychainService,
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
+        )
+        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+
+        let stateMachine = ConversationStateMachine(
+            inboxStateManager: messagingService.inboxStateManager,
+            identityStore: fixtures.identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            environment: testEnvironment
+        )
+
+        // Create conversation first
+        await stateMachine.create()
+
+        var conversationId: String?
+        for await state in await stateMachine.stateSequence {
+            if case .ready(let result) = state {
+                conversationId = result.conversationId
+                break
+            }
+        }
+
+        guard let convId = conversationId else {
+            Issue.record("No conversation ID")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
+        }
+
+        // Stop the state machine
+        await stateMachine.stop()
+
+        // Wait for uninitialized state
+        for await state in await stateMachine.stateSequence {
+            if case .uninitialized = state {
+                break
+            }
+        }
+
+        // Now use useExisting with the same conversation
+        await stateMachine.useExisting(conversationId: convId)
+
+        // Wait for ready state
+        var result: ConversationReadyResult?
+        do {
+            result = try await withTimeout(seconds: 5) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready(let readyResult) = state {
+                        return readyResult
+                    }
+                }
+                throw TestError.timeout("Never reached ready state")
+            }
+        } catch {
+            Issue.record("UseExisting after stop failed: \(error)")
+        }
+
+        #expect(result != nil, "Should reach ready state after stop + useExisting")
+        #expect(result?.origin == .existing, "Origin should be existing")
+        #expect(result?.conversationId == convId, "Should have same conversation ID")
+
+        // Clean up
+        await messagingService.stopAndDelete()
+        try? await fixtures.cleanup()
+    }
+
     // MARK: - Network Disconnection Tests
 
     @Test("Messages sync after network reconnection")

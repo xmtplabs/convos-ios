@@ -104,8 +104,7 @@ class NewConversationViewModel: Identifiable {
         self.conversationViewModel = .init(
             conversation: draftConversation,
             session: session,
-            conversationStateManager: conversationStateManager,
-            myProfileRepository: conversationStateManager.draftConversationRepository.myProfileRepository
+            conversationStateManager: conversationStateManager
         )
         setupObservations()
         setupStateObservation()

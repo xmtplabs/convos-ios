@@ -104,6 +104,19 @@ final class MessagingService: MessagingServiceProtocol {
         )
     }
 
+    // MARK: Existing Conversation
+
+    func conversationStateManager(for conversationId: String) -> any ConversationStateManagerProtocol {
+        return ConversationStateManager(
+            inboxStateManager: inboxStateManager,
+            identityStore: identityStore,
+            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
+            environment: environment,
+            conversationId: conversationId
+        )
+    }
+
     // MARK: Conversations
 
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol {

@@ -72,6 +72,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
     private let stateMachine: ConversationStateMachine
 
     private var stateObservationTask: Task<Void, Never>?
+    private var initializationTask: Task<Void, Never>?
     private var observers: [WeakObserver] = []
     private var cancellables: Set<AnyCancellable> = .init()
 
@@ -86,13 +87,17 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
         identityStore: any KeychainIdentityStoreProtocol,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
-        environment: AppEnvironment
+        environment: AppEnvironment,
+        conversationId: String? = nil
     ) {
         self.inboxStateManager = inboxStateManager
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
-        self.conversationIdSubject = .init(DBConversation.generateDraftConversationId())
+
+        // Use provided conversationId or generate a new draft ID
+        let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
+        self.conversationIdSubject = .init(initialConversationId)
 
         // Initialize writers
         let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter)
@@ -133,10 +138,18 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
         )
 
         setupStateObservation()
+
+        // If using an existing conversation, transition state machine to ready
+        if let conversationId {
+            initializationTask = Task { [stateMachine] in
+                await stateMachine.useExisting(conversationId: conversationId)
+            }
+        }
     }
 
     deinit {
         stateObservationTask?.cancel()
+        initializationTask?.cancel()
         cancellables.removeAll()
         observers.removeAll()
     }
