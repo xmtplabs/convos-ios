@@ -24,6 +24,7 @@ public protocol MessagingServiceProtocol: AnyObject {
     func stop()
     func stopAndDelete()
     func stopAndDelete() async
+    func waitForDeletionComplete() async
 
     func myProfileWriter() -> any MyProfileWriterProtocol
 

@@ -1,132 +1,6 @@
 import SwiftUI
 import UIKit
 
-// MARK: - Hold To Confirm Button Style
-
-struct HoldToConfirmStyleConfig {
-    // Timing
-    var duration: TimeInterval = 2.0
-    var maxDistance: CGFloat = 20.0
-
-    // Colors
-    var backgroundColor: Color = .colorOrange
-    var pressedOverlayColor: Color = .black
-    var pressedOverlayOpacity: Double = 0.15
-    var progressIndicatorColor: Color = .white
-    var progressIndicatorStrokeColor: Color = .white.opacity(0.3)
-
-    // Layout
-    var verticalPadding: CGFloat = DesignConstants.Spacing.step4x
-    var horizontalPadding: CGFloat = DesignConstants.Spacing.step3x
-    var progressIndicatorPadding: CGFloat = DesignConstants.Spacing.step3x
-    var progressIndicatorStrokeWidth: CGFloat = 1.0
-
-    // Progress indicator
-    var showProgressIndicator: Bool = true
-
-    static let `default`: HoldToConfirmStyleConfig = .init()
-}
-
-struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
-    var config: HoldToConfirmStyleConfig = .default
-
-    // Convenience initializer for just duration
-    init(duration: TimeInterval) {
-        self.config = HoldToConfirmStyleConfig(duration: duration)
-    }
-
-    init(config: HoldToConfirmStyleConfig = .default) {
-        self.config = config
-    }
-
-    @Environment(\.isEnabled) private var isEnabled: Bool
-
-    func makeBody(configuration: Configuration) -> some View {
-        HoldToConfirmBody(
-            config: config,
-            isEnabled: isEnabled,
-            trigger: configuration.trigger,
-            label: { configuration.label }
-        )
-    }
-
-    private struct HoldToConfirmBody<Label: View>: View {
-        let config: HoldToConfirmStyleConfig
-        let isEnabled: Bool
-        let trigger: () -> Void
-        @ViewBuilder var label: () -> Label
-
-        @State private var isPressing: Bool = false
-        @State private var pressStartDate: Date?
-        @State private var didFire: Bool = false
-        @State private var frozenProgress: Double = 0
-
-        var body: some View {
-            TimelineView(.animation(paused: !isPressing)) { context in
-                let currentProgress: Double = {
-                    if let start = pressStartDate {
-                        return min(1.0, context.date.timeIntervalSince(start) / config.duration)
-                    }
-                    return frozenProgress
-                }()
-
-                label()
-                    .padding(.vertical, config.verticalPadding)
-                    .background(
-                        Capsule()
-                            .fill(config.backgroundColor)
-                            .overlay(
-                                config.pressedOverlayColor
-                                    .opacity(currentProgress > 0.0 ? config.pressedOverlayOpacity : 0.0),
-                                in: Capsule()
-                            )
-                    )
-                    .overlay(alignment: .leading) {
-                        if config.showProgressIndicator {
-                            HStack {
-                                Circle()
-                                    .stroke(config.progressIndicatorStrokeColor, lineWidth: config.progressIndicatorStrokeWidth)
-                                    .overlay(
-                                        Circle()
-                                            .fill(config.progressIndicatorColor)
-                                            .scaleEffect(currentProgress)
-                                    )
-                                Spacer()
-                            }
-                            .padding(config.progressIndicatorPadding)
-                            .opacity(isEnabled && currentProgress > 0.0 ? 1.0 : 0.0)
-                        }
-                    }
-            }
-            .onLongPressGesture(
-                minimumDuration: config.duration,
-                maximumDistance: config.maxDistance,
-                perform: {
-                    guard !didFire else { return }
-                    didFire = true
-                    frozenProgress = 1.0
-                    pressStartDate = nil
-                    trigger()
-                },
-                onPressingChanged: { pressing in
-                    isPressing = pressing
-                    if pressing {
-                        didFire = false
-                        pressStartDate = Date()
-                        frozenProgress = 0
-                    } else if !didFire {
-                        // Released early - animate back to zero
-                        withAnimation(.easeOut(duration: 0.18)) {
-                            frozenProgress = 0
-                        }
-                        pressStartDate = nil
-                    }
-                }
-            )
-        }
-    }
-}
-
 // MARK: - Explode State
 
 enum ExplodeState: Equatable {
@@ -174,15 +48,8 @@ struct ExplodeButtonAnimationConfig {
     var rippleSettleResponse: Double = 0.4
     var rippleSettleDamping: Double = 0.4
 
-    // Text shatter
-    var letterHorizontalRange: ClosedRange<Double> = 25...50
-    var letterVerticalRange: ClosedRange<Double> = 15...35
-    var letterRotationRange: ClosedRange<Double> = 15...45
-    var letterScaleRange: ClosedRange<Double> = 2.0...5.0
-    var letterBlurRadius: CGFloat = 5
-    var letterAnimationResponse: Double = 0.7
-    var letterAnimationDamping: Double = 0.3
-    var letterStaggerDelay: Double = 0.03
+    // Text shatter config
+    var shatteringTextConfig: ShatteringTextAnimationConfig = .default
 
     // Haptics
     var explodingHapticStyle: UIImpactFeedbackGenerator.FeedbackStyle = .light
@@ -194,82 +61,6 @@ struct ExplodeButtonAnimationConfig {
         config.buttonStyle.backgroundColor = .colorOrange
         return config
     }()
-}
-
-// MARK: - Shattering Text
-
-struct ShatteringText: View {
-    let text: String
-    let isExploded: Bool
-    var config: ExplodeButtonAnimationConfig = .default
-
-    @State private var letterOffsets: [CGSize] = []
-    @State private var letterRotations: [Double] = []
-    @State private var letterScales: [Double] = []
-
-    var body: some View {
-        ZStack {
-            // Regular text when not exploded
-            Text(text)
-                .opacity(isExploded ? 0 : 1)
-                .animation(.easeOut(duration: 0.1), value: isExploded)
-
-            // Shattered letters
-            HStack(spacing: 0) {
-                ForEach(Array(text.enumerated()), id: \.offset) { index, character in
-                    Text(String(character))
-                        .offset(isExploded && index < letterOffsets.count ? letterOffsets[index] : .zero)
-                        .rotationEffect(.degrees(isExploded && index < letterRotations.count ? letterRotations[index] : 0))
-                        .scaleEffect(isExploded && index < letterScales.count ? letterScales[index] : 1)
-                        .blur(radius: isExploded ? config.letterBlurRadius : 0)
-                        .opacity(isExploded ? 0.0 : 1.0)
-                        .animation(
-                            isExploded
-                            ? .spring(response: config.letterAnimationResponse, dampingFraction: config.letterAnimationDamping)
-                                .delay(Double(index) * config.letterStaggerDelay)
-                            : .none,
-                            value: isExploded
-                        )
-                }
-            }
-            .opacity(isExploded ? 1.0 : 0.0)
-            .animation(.none, value: isExploded)
-        }
-        .onAppear { generateRandomValues() }
-    }
-
-    private func generateRandomValues() {
-        let letterCount = text.count
-        let centerIndex = Double(letterCount - 1) / 2.0
-
-        // swiftlint:disable:next unused_enumerated
-        letterOffsets = text.enumerated().map { i, _ in
-            // Calculate position relative to center: -1 (leftmost) to +1 (rightmost)
-            let normalizedPosition = centerIndex > 0
-            ? (Double(i) - centerIndex) / centerIndex
-            : 0
-
-            // Horizontal: letters fly outward from center
-            let horizontalDistance = normalizedPosition * Double.random(in: config.letterHorizontalRange)
-
-            // Vertical: alternate up/down based on odd/even index
-            let verticalDirection = i.isMultiple(of: 2) ? -1.0 : 1.0
-            let verticalDistance = verticalDirection * Double.random(in: config.letterVerticalRange)
-
-            return CGSize(width: horizontalDistance, height: verticalDistance)
-        }
-
-        // swiftlint:disable:next unused_enumerated
-        letterRotations = text.enumerated().map { i, _ in
-            let centerIndex = Double(text.count - 1) / 2.0
-            let direction = Double(i) < centerIndex ? -1.0 : 1.0
-            return direction * Double.random(in: config.letterRotationRange)
-        }
-
-        letterScales = text.map { _ in
-            Double.random(in: config.letterScaleRange)
-        }
-    }
 }
 
 // MARK: - Explode Button
@@ -368,7 +159,7 @@ struct ExplodeButton: View {
                 ShatteringText(
                     text: explodingText,
                     isExploded: shouldShatter,
-                    config: config
+                    config: config.shatteringTextConfig
                 )
                 .transition(.scale.combined(with: .opacity))
             case .error(let message):

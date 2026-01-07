@@ -48,6 +48,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func stopAndDelete() async {}
 
+    public func waitForDeletionComplete() async {}
+
     public var inboxStateManager: any InboxStateManagerProtocol {
         _inboxStateManager
     }

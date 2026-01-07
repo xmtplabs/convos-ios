@@ -24,6 +24,7 @@ struct ConvosToolbarButton: View {
 // swiftlint:disable force_unwrapping
 
 struct AppSettingsView: View {
+    @Bindable var viewModel: AppSettingsViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
@@ -161,16 +162,15 @@ struct AppSettingsView: View {
                     } label: {
                         Text("Delete all app data")
                     }
-                    .confirmationDialog("", isPresented: $showingDeleteAllDataConfirmation) {
-                        Button("Delete", role: .destructive) {
-                            quicknameViewModel.delete()
-                            onDeleteAllData()
-                            dismiss()
-                        }
-
-                        Button("Cancel") {
-                            showingDeleteAllDataConfirmation = false
-                        }
+                    .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
+                        DeleteAllDataView(
+                            viewModel: viewModel,
+                            onComplete: {
+                                dismiss()
+                                onDeleteAllData()
+                            }
+                        )
+                        .interactiveDismissDisabled(viewModel.isDeleting)
                     }
                 }
             }
@@ -208,6 +208,10 @@ struct AppSettingsView: View {
 #Preview {
     let quicknameViewModel = QuicknameSettingsViewModel.shared
     NavigationStack {
-        AppSettingsView(quicknameViewModel: quicknameViewModel) {}
+        AppSettingsView(
+            viewModel: .mock,
+            quicknameViewModel: quicknameViewModel,
+            onDeleteAllData: {}
+        )
     }
 }
