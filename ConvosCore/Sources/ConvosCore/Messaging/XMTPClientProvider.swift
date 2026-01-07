@@ -1,6 +1,23 @@
 import Foundation
 import XMTPiOS
 
+/// Protocol for static XMTP operations that don't require a client instance
+public protocol XMTPStaticOperations {
+    /// Fetches the newest message metadata for the given conversation IDs
+    ///
+    /// This is a static operation that can be performed without waking up the inbox's XMTP client.
+    /// - Parameters:
+    ///   - groupIds: Array of conversation/group IDs to fetch metadata for
+    ///   - api: XMTP API options for the request
+    /// - Returns: Dictionary mapping conversation ID to its newest message metadata
+    static func getNewestMessageMetadata(
+        groupIds: [String],
+        api: ClientOptions.Api
+    ) async throws -> [String: MessageMetadata]
+}
+
+extension Client: XMTPStaticOperations {}
+
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
     func prepare(text: String) async throws -> String

@@ -95,7 +95,12 @@ extension MessagingService {
 
     /// Handles welcome message notifications by syncing from network
     /// Welcome messages are too large for push notifications, so we sync from XMTP network
-    /// Welcome messages indicate a new DM conversation with a join request
+    ///
+    /// Welcome messages are received in two scenarios:
+    /// 1. Someone accepted our invite (they sent us a DM with signed invite, we add them to group)
+    /// 2. We were added to a group (after we sent a join request DM to an inviter)
+    ///
+    /// This handler processes both cases: join requests from others and detecting new groups we've joined.
     private func handleWelcomeMessage(
         contentTopic: String,
         client: any XMTPClientProvider,
@@ -112,26 +117,88 @@ extension MessagingService {
             Log.info("Last processed welcome message \(lastProcessed.relativeShort()) ago...")
         }
 
+        // Get existing group IDs before sync to detect new groups we've been added to
+        let existingGroupIds = try await getExistingGroupIds(client: client)
+
         let joinRequestsManager = InviteJoinRequestsManager(
             identityStore: identityStore,
             databaseReader: databaseReader
         )
 
+        // Sync all conversations - this will fetch any groups we've been added to
         _ = try await client.conversationsProvider.syncAllConversations(consentStates: [.unknown])
-        let results = await joinRequestsManager.processJoinRequests(since: lastProcessed, client: client)
-        guard let result = results.first else {
-            return .droppedMessage
+
+        // Case 1: Process join requests (others accepting our invites)
+        let joinRequestResults = await joinRequestsManager.processJoinRequests(since: lastProcessed, client: client)
+        if let result = joinRequestResults.first {
+            setLastWelcomeProcessed(processTime, for: client.inboxId)
+            return .init(
+                title: result.conversationName,
+                body: "Somebody accepted your invite",
+                conversationId: result.conversationId,
+                userInfo: userInfo
+            )
         }
 
-        // Update timestamp after successful processing
-        setLastWelcomeProcessed(processTime, for: client.inboxId)
+        // Case 2: Check if we've been added to any new groups (we were the joiner)
+        if let newGroup = try await findNewGroupWeJoined(client: client, existingGroupIds: existingGroupIds) {
+            Log.info("We were added to a new group: \(newGroup.conversationId)")
+            setLastWelcomeProcessed(processTime, for: client.inboxId)
+            return .init(
+                title: newGroup.conversationName,
+                body: "Somebody approved your invite",
+                conversationId: newGroup.conversationId,
+                userInfo: userInfo
+            )
+        }
 
-        return .init(
-            title: result.conversationName,
-            body: "Somebody accepted your invite",
-            conversationId: result.conversationId,
-            userInfo: userInfo
+        // No actionable welcome message
+        return .droppedMessage
+    }
+
+    private func getExistingGroupIds(client: any XMTPClientProvider) async throws -> Set<String> {
+        let groups = try client.conversationsProvider.listGroups(
+            createdAfterNs: nil,
+            createdBeforeNs: nil,
+            lastActivityAfterNs: nil,
+            lastActivityBeforeNs: nil,
+            limit: nil,
+            consentStates: nil,
+            orderBy: .createdAt
         )
+        return Set(groups.map { $0.id })
+    }
+
+    private struct NewGroupInfo {
+        let conversationId: String
+        let conversationName: String?
+    }
+
+    private func findNewGroupWeJoined(
+        client: any XMTPClientProvider,
+        existingGroupIds: Set<String>
+    ) async throws -> NewGroupInfo? {
+        let currentGroups = try client.conversationsProvider.listGroups(
+            createdAfterNs: nil,
+            createdBeforeNs: nil,
+            lastActivityAfterNs: nil,
+            lastActivityBeforeNs: nil,
+            limit: nil,
+            consentStates: [.unknown, .allowed],
+            orderBy: .createdAt
+        )
+
+        // Find groups that are new (not in our existing set)
+        for group in currentGroups where !existingGroupIds.contains(group.id) {
+            // Check if we're NOT the creator (meaning we were added)
+            let creatorInboxId = try await group.creatorInboxId()
+            if creatorInboxId != client.inboxId {
+                let name = try? group.name()
+                return NewGroupInfo(conversationId: group.id, conversationName: name)
+            }
+        }
+
+        return nil
     }
 
     /// Decodes a text message for notification display with sender info

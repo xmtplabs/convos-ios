@@ -210,10 +210,6 @@ struct ConversationsView: View {
             ExplodeInfoView()
                 .background(.colorBackgroundRaised)
         }
-        .selfSizingSheet(isPresented: $viewModel.presentingMaxNumberOfConvosReachedInfo) {
-            MaxedOutInfoView(maxNumberOfConvos: viewModel.maxNumberOfConvos)
-                .background(.colorBackgroundRaised)
-        }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
                 viewModel.handleURL(url)

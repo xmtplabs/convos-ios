@@ -117,7 +117,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
         if let unusedService = unusedMessagingService {
             Log.info("Using pre-created unused messaging service")
 
-            // Clear ALL references IMMEDIATELY (both service and keychain)
+            // Clear references immediately (both service and keychain)
             // This must happen before any await points to prevent concurrent access
             unusedMessagingService = nil
             clearUnusedInboxFromKeychain()
@@ -205,6 +205,14 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
     }
 
     public func clearUnusedInboxFromKeychain() {
+        if let service = unusedMessagingService {
+            unusedMessagingService = nil
+            Task {
+                await service.stopAndDelete()
+            }
+            Log.debug("Stopped and cleared in-memory unused messaging service")
+        }
+
         do {
             try keychainService.delete(account: KeychainAccount.unusedInbox)
             Log.debug("Cleared unused inbox from keychain")

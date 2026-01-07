@@ -13,13 +13,13 @@ public protocol SessionManagerProtocol: AnyObject {
     // MARK: Inbox Management
 
     func addInbox() async -> AnyMessagingService
-    func deleteInbox(clientId: String) async throws
+    func deleteInbox(clientId: String, inboxId: String) async throws
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
 
     // MARK: Messaging Services
 
-    func messagingService(for clientId: String, inboxId: String) -> AnyMessagingService
+    func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService
 
     // MARK: Factory methods for repositories
 
@@ -29,7 +29,7 @@ public protocol SessionManagerProtocol: AnyObject {
         for conversationId: String,
         inboxId: String,
         clientId: String
-    ) -> any ConversationRepositoryProtocol
+    ) async throws -> any ConversationRepositoryProtocol
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
 
@@ -43,6 +43,17 @@ public protocol SessionManagerProtocol: AnyObject {
 
     func notifyChangesInDatabase()
     func shouldDisplayNotification(for conversationId: String) async -> Bool
+
+    // MARK: - Lifecycle Management
+
+    /// Sets the currently active client ID. This protects the inbox from being put to sleep during rebalancing.
+    /// Pass nil when no conversation is active (e.g., user is on conversation list).
+    func setActiveClientId(_ clientId: String?) async
+
+    func wakeInboxForNotification(clientId: String, inboxId: String) async
+    func wakeInboxForNotification(conversationId: String) async
+    func isInboxAwake(clientId: String) async -> Bool
+    func isInboxSleeping(clientId: String) async -> Bool
 
     // MARK: Helpers
 

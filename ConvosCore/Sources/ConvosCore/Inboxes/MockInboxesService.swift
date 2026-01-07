@@ -43,10 +43,7 @@ public final class MockInboxesService: SessionManagerProtocol {
         mockMessagingService
     }
 
-    public func deleteInbox(clientId: String) async throws {
-    }
-
-    public func deleteInbox(for messagingService: AnyMessagingService) async throws {
+    public func deleteInbox(clientId: String, inboxId: String) async throws {
     }
 
     public func deleteAllInboxes() async throws {
@@ -54,7 +51,7 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     // MARK: - Messaging Services
 
-    public func messagingService(for clientId: String, inboxId: String) -> AnyMessagingService {
+    public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
         mockMessagingService
     }
 
@@ -72,11 +69,27 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockInviteRepository()
     }
 
-    public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) -> any ConversationRepositoryProtocol {
+    public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }
 
     public func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
         MockMessagesRepository(conversationId: conversationId)
+    }
+
+    // MARK: - Lifecycle Management
+
+    public func setActiveClientId(_ clientId: String?) async {}
+
+    public func wakeInboxForNotification(clientId: String, inboxId: String) async {}
+
+    public func wakeInboxForNotification(conversationId: String) async {}
+
+    public func isInboxAwake(clientId: String) async -> Bool {
+        true
+    }
+
+    public func isInboxSleeping(clientId: String) async -> Bool {
+        false
     }
 }

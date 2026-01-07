@@ -2,46 +2,6 @@ import Foundation
 import GRDB
 import XMTPiOS
 
-private extension AppEnvironment {
-    var xmtpEnv: XMTPEnvironment {
-        if let network = self.xmtpNetwork {
-            switch network.lowercased() {
-            case "local": return .local
-            case "dev": return .dev
-            case "production", "prod": return .production
-            default:
-                Log.warning("Unknown xmtpNetwork '\(network)', falling back to environment default")
-            }
-        }
-
-        switch self {
-        case .local, .tests: return .local
-        case .dev: return .dev
-        case .production: return .production
-        }
-    }
-
-    var customLocalAddress: String? {
-        guard let endpoint = self.xmtpEndpoint, !endpoint.isEmpty else {
-            return nil
-        }
-        return endpoint
-    }
-
-    var isSecure: Bool {
-        switch self {
-        case .local, .tests:
-            // Support environment variable for CI
-            guard let envSecure = ProcessInfo.processInfo.environment["XMTP_IS_SECURE"] else {
-                return false
-            }
-            return envSecure.lowercased() == "true" || envSecure == "1"
-        default:
-            return true
-        }
-    }
-}
-
 extension InboxStateMachine.State {
     var isReady: Bool {
         switch self {

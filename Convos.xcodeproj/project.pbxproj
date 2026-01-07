@@ -233,6 +233,7 @@
 				"Conversation Detail/Messages/Messages View Controller/View Controller/MessagesViewController.swift",
 				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesBottomBar.swift",
 				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesInputView.swift",
+				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesMediaInputView.swift",
 				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/PreviewViewPanHandler.swift",
 				"Conversation Detail/Messages/MessagesListView/Messages List Items/MessageContainer.swift",
 				"Conversation Detail/Messages/MessagesListView/MessagesListItemType.swift",

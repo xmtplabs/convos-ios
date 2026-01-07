@@ -134,17 +134,29 @@ class ConversationViewModel {
 
     // MARK: - Init
 
-    init(
+    static func create(
         conversation: Conversation,
         session: any SessionManagerProtocol
+    ) async throws -> ConversationViewModel {
+        let messagingService = try await session.messagingService(
+            for: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+        return ConversationViewModel(
+            conversation: conversation,
+            session: session,
+            messagingService: messagingService
+        )
+    }
+
+    init(
+        conversation: Conversation,
+        session: any SessionManagerProtocol,
+        messagingService: any MessagingServiceProtocol
     ) {
         self.conversation = conversation
         self.session = session
 
-        let messagingService = session.messagingService(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
         self.conversationRepository = conversationStateManager.draftConversationRepository
@@ -481,7 +493,7 @@ class ConversationViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await session.deleteInbox(clientId: conversation.clientId)
+                try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
                 await MainActor.run {
                     self.presentingConversationSettings = false
                     self.conversation.postLeftConversationNotification()
@@ -510,7 +522,7 @@ class ConversationViewModel {
                 let expiresAt = Date()
 
                 Log.info("Sending ExplodeSettings message...")
-                let messagingService = session.messagingService(
+                let messagingService = try await session.messagingService(
                     for: conversation.clientId,
                     inboxId: conversation.inboxId
                 )
@@ -590,7 +602,7 @@ class ConversationViewModel {
     @MainActor
     func exportDebugLogs() async throws -> URL {
         // Get the XMTP client for this conversation
-        let messagingService = session.messagingService(
+        let messagingService = try await session.messagingService(
             for: conversation.clientId,
             inboxId: conversation.inboxId
         )
@@ -615,7 +627,8 @@ extension ConversationViewModel {
     static var mock: ConversationViewModel {
         return .init(
             conversation: .mock(),
-            session: MockInboxesService()
+            session: MockInboxesService(),
+            messagingService: MockMessagingService()
         )
     }
 }

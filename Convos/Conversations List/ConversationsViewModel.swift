@@ -44,6 +44,9 @@ final class ConversationsViewModel {
 
     private(set) var selectedConversationViewModel: ConversationViewModel?
 
+    @ObservationIgnored
+    private var updateSelectionTask: Task<Void, Never>?
+
     // Called whenever _selectedConversationId changes
     private func updateSelectionState() {
         let conversation = selectedConversation
@@ -52,49 +55,65 @@ final class ConversationsViewModel {
         if let conversation = conversation {
             // Update view model if needed
             if selectedConversationViewModel?.conversation.id != conversation.id {
-                selectedConversationViewModel = ConversationViewModel(
-                    conversation: conversation,
-                    session: session
-                )
-                markConversationAsRead(conversation)
+                // Cancel any pending update task
+                updateSelectionTask?.cancel()
+                updateSelectionTask = Task { [weak self] in
+                    guard let self else { return }
+                    do {
+                        let viewModel = try await ConversationViewModel.create(
+                            conversation: conversation,
+                            session: session
+                        )
+                        guard !Task.isCancelled else { return }
+                        guard self._selectedConversationId == conversation.id else { return }
+                        self.selectedConversationViewModel = viewModel
+                        self.markConversationAsRead(conversation)
+                    } catch {
+                        Log.error("Failed to create conversation view model: \(error)")
+                    }
+                }
             }
         } else {
+            updateSelectionTask?.cancel()
             selectedConversationViewModel = nil
         }
 
-        // Only post notification if the ID actually changed
+        // Only update if the selection actually changed
         if previousViewModelId != _selectedConversationId {
-            let userInfo: [AnyHashable: Any]
-            if let conversationId = _selectedConversationId {
-                userInfo = ["conversationId": conversationId]
-            } else {
-                userInfo = [:]
-            }
+            // Post notification for other observers (e.g., SyncingManager)
+            let userInfo: [AnyHashable: Any] = _selectedConversationId.map { ["conversationId": $0] } ?? [:]
             NotificationCenter.default.post(
                 name: .activeConversationChanged,
                 object: nil,
                 userInfo: userInfo
             )
+
+            // Set the active client ID to protect this inbox from being put to sleep
+            Task { [weak self] in
+                guard let self else { return }
+                await session.setActiveClientId(self.selectedConversation?.clientId)
+            }
         }
     }
 
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
             if newConversationViewModel == nil {
+                // New conversation dismissed - notify observers and reset active client ID
                 NotificationCenter.default.post(
                     name: .activeConversationChanged,
                     object: nil,
-                    userInfo: [:] // leave out conversationId
+                    userInfo: [:] // no active conversation
                 )
+                Task { [weak self] in
+                    guard let self else { return }
+                    await session.setActiveClientId(selectedConversation?.clientId)
+                }
             }
         }
     }
     var presentingExplodeInfo: Bool = false
-    let maxNumberOfConvos: Int = 50
-    var presentingMaxNumberOfConvosReachedInfo: Bool = false
-    private var maxNumberOfConvosReached: Bool {
-        conversationsCount >= maxNumberOfConvos
-    }
+
     private(set) var conversations: [Conversation] = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -178,6 +197,7 @@ final class ConversationsViewModel {
 
     deinit {
         newConversationViewModelTask?.cancel()
+        updateSelectionTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -195,10 +215,6 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
-        guard !maxNumberOfConvosReached else {
-            presentingMaxNumberOfConvosReachedInfo = true
-            return
-        }
         newConversationViewModelTask?.cancel()
         newConversationViewModelTask = Task { [weak self] in
             guard let self else { return }
@@ -213,10 +229,6 @@ final class ConversationsViewModel {
     }
 
     func onJoinConvo() {
-        guard !maxNumberOfConvosReached else {
-            presentingMaxNumberOfConvosReachedInfo = true
-            return
-        }
         newConversationViewModelTask?.cancel()
         newConversationViewModelTask = Task { [weak self] in
             guard let self else { return }
@@ -231,10 +243,6 @@ final class ConversationsViewModel {
     }
 
     private func join(from inviteCode: String) {
-        guard !maxNumberOfConvosReached else {
-            presentingMaxNumberOfConvosReachedInfo = true
-            return
-        }
         newConversationViewModelTask?.cancel()
         newConversationViewModelTask = Task { [weak self] in
             guard let self else { return }
@@ -270,7 +278,7 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await session.deleteInbox(clientId: conversation.clientId)
+                try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
 
                 // Remove cached writer for deleted inbox
                 _ = await MainActor.run { self.localStateWriters.removeValue(forKey: conversation.inboxId) }
@@ -392,7 +400,7 @@ final class ConversationsViewModel {
                     writer = localStateWriter
                 } else {
                     // Create new writer outside of MainActor context
-                    let messagingService = session.messagingService(
+                    let messagingService = try await session.messagingService(
                         for: conversation.clientId,
                         inboxId: conversation.inboxId
                     )

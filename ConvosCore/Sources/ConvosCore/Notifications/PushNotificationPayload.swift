@@ -50,22 +50,6 @@ public final class PushNotificationPayload {
     }
 }
 
-// MARK: - Notification Types
-
-public enum NotificationType: String, CaseIterable {
-    case protocolMessage = "Protocol"
-    case inviteJoinRequest = "InviteJoinRequest"
-
-    public var displayName: String {
-        switch self {
-        case .protocolMessage:
-            return "Protocol Message"
-        case .inviteJoinRequest:
-            return "Invite Join Request"
-        }
-    }
-}
-
 // MARK: - Notification Data
 
 public struct NotificationData {
@@ -104,51 +88,6 @@ public struct ProtocolNotificationData {
         self.contentTopic = dict["contentTopic"] as? String
         self.encryptedMessage = dict["encryptedMessage"] as? String
         self.messageType = dict["messageType"] as? String
-    }
-}
-
-public struct RequesterData {
-    public let id: String?
-    public let xmtpId: String?
-    public let profile: ProfileData?
-
-    public init(dictionary: [String: Any]?) {
-        guard let dict = dictionary else {
-            self.id = nil
-            self.xmtpId = nil
-            self.profile = nil
-            return
-        }
-
-        self.id = dict["id"] as? String
-        self.xmtpId = dict["xmtpId"] as? String
-        self.profile = ProfileData(dictionary: dict["profile"] as? [String: Any])
-    }
-}
-
-public struct ProfileData {
-    public let name: String?
-    public let username: String?
-    public let description: String?
-    public let avatar: String?
-
-    public init(dictionary: [String: Any]?) {
-        guard let dict = dictionary else {
-            self.name = nil
-            self.username = nil
-            self.description = nil
-            self.avatar = nil
-            return
-        }
-
-        self.name = dict["name"] as? String
-        self.username = dict["username"] as? String
-        self.description = dict["description"] as? String
-        self.avatar = dict["avatar"] as? String
-    }
-
-    public var displayNameOrUsername: String {
-        return name ?? username ?? "Somebody"
     }
 }
 
