@@ -5,14 +5,16 @@ This document contains project-specific conventions and best practices for the C
 ## Architecture & Organization
 
 ### Project Structure
-- **Main App**: SwiftUI app with UIKit integration where needed
-- **ConvosCore**: Swift Package containing core business logic, storage, and XMTP client
+- **ConvosCore**: Swift Package containing all core business logic, models, services, repositories, writers, GRDB database, and XMTP client
+- **ConvosCoreiOS**: iOS-specific implementations needed by ConvosCore (e.g., `UIImage` handling, push notification registration)
+- **Main App (Convos)**: Views and ViewModels only (SwiftUI with UIKit integration where needed)
 - **App Clips**: Separate target for lightweight experiences
 - **Notification Service**: Extension for push notification handling
 
 ### Module Architecture
-- Use `ConvosCore` for shared business logic, models, and services
-- Keep UI-specific code in the main app target
+- All business logic, models, and services go in `ConvosCore`
+- iOS-specific code that ConvosCore needs goes in `ConvosCoreiOS`
+- Views and ViewModels go in the main app target
 - Use protocols for dependency injection (e.g., `SessionManagerProtocol`)
 
 ## SwiftUI Conventions
@@ -151,10 +153,10 @@ swiftformat .
 xcodebuild test -scheme "Convos (Local)" -destination "platform=iOS Simulator,name=iPhone 17"
 
 # Build for device (Local environment)
-xcodebuild build -scheme "Convos (Local)" -configuration Debug
+xcodebuild build -scheme "Convos (Local)" -configuration Local
 
 # Clean build folder
-xcodebuild clean -scheme "Convos (Local)"
+xcodebuild clean -scheme "Convos (Local)" -configuration Local
 ```
 
 ### Xcode Project Settings
@@ -178,3 +180,81 @@ When migrating from `ObservableObject`:
 - **Prefer editing existing files** over creating new ones
 - **Follow existing patterns** in neighboring code
 - **Check dependencies** before using any library
+
+---
+
+## Claude Code Workflow
+
+This project is configured for Claude Code CLI with specialized subagents, slash commands, and MCP tools.
+
+### Slash Commands
+
+| Command | Description |
+|---------|-------------|
+| `/build` | Build the app using "Convos (Dev)" scheme |
+| `/test` | Run tests (ConvosCore by default) |
+| `/lint` | Check code with SwiftLint |
+| `/format` | Format code with SwiftFormat |
+
+### Subagents
+
+Specialized agents for different tasks. Invoke explicitly or let Claude delegate automatically.
+
+| Agent | Purpose | When to Use |
+|-------|---------|-------------|
+| `swift-architect` | Architecture decisions, module design (read-only, uses Opus) | Planning new features, major refactors |
+| `code-simplifier` | Reduce complexity, improve readability | After writing code, cleanup |
+| `swiftui-specialist` | SwiftUI views, state management | Creating/modifying UI |
+| `test-writer` | Generate unit tests | After implementing features |
+| `code-reviewer` | Review changes, check quality | Before committing |
+
+**Example usage:**
+```
+Use the swift-architect agent to review the SessionManager design
+```
+
+### MCP Tools
+
+Two MCP servers are configured in `.mcp.json`:
+
+- **XcodeBuildMCP**: Build and test the Xcode project directly
+- **ios-simulator**: Interact with the iOS Simulator (launch, screenshot, etc.)
+
+### Testing
+
+Use the `./dev/test` script for running tests. **Most tests require Docker** for the local XMTP node:
+
+```bash
+# Full test suite (starts Docker automatically)
+./dev/test
+
+# Isolated unit tests only (no Docker) - limited subset
+./dev/test --unit
+
+# Run a single test (Docker usually required)
+./dev/up  # Start Docker first
+swift test --filter "TestClassName" --package-path ConvosCore
+./dev/down  # Stop when done
+```
+
+### PRD-Driven Development
+
+Feature development follows a PRD workflow:
+
+1. Create PRD from template: `docs/TEMPLATE_PRD.md` → `docs/plans/[feature].md`
+2. Use `swift-architect` to validate technical design
+3. Implement with other agents as needed
+4. Update PRD status as work progresses
+
+### Pre-commit Hooks
+
+A pre-commit hook is available at `.claude/hooks/pre-commit.sh` that:
+- Runs SwiftFormat on staged files
+- Runs SwiftLint with auto-fix
+- Blocks commits with unfixable errors
+
+To install:
+```bash
+ln -sf ../../.claude/hooks/pre-commit.sh .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
