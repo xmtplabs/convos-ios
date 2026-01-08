@@ -9,7 +9,7 @@
     },
     "ios-simulator": {
       "command": "npx",
-      "args": ["-y", "@anthropic/ios-simulator-mcp@latest"]
+      "args": ["-y", "ios-simulator-mcp@latest"]
     }
   }
 }
