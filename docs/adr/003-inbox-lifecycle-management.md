@@ -275,6 +275,7 @@ public enum WakeReason: String {
 **Related ADRs:**
 - ADR 002: Per-Conversation Identity Model (explains why lifecycle management is needed)
 - ADR 004: Explode Feature (uses inbox deletion process for conversation explosions)
+- ADR 005: Profile Storage in Conversation Metadata (per-conversation profiles rely on per-conversation identities)
 
 ## References
 

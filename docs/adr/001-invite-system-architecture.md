@@ -191,6 +191,7 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 
 - ADR 002: Per-Conversation Identity Model (explains the per-conversation inbox architecture used for invite creators)
 - ADR 003: Inbox Lifecycle Management (explains how pre-created inboxes optimize the join flow)
+- ADR 005: Profile Storage in Conversation Metadata (also uses XMTP custom metadata, shares the 8KB appData limit)
 
 ## References
 
