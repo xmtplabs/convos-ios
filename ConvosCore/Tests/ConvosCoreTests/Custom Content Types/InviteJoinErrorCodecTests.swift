@@ -59,21 +59,6 @@ struct InviteJoinErrorCodecTests {
         #expect(decodedError.inviteTag == "invite-abc")
     }
 
-    @Test("Encode and decode singleUseConsumed error")
-    func encodeDecodeSingleUseConsumed() throws {
-        let originalError = InviteJoinError(
-            errorType: .singleUseConsumed,
-            inviteTag: "single-use-invite",
-            timestamp: Date()
-        )
-
-        let encodedContent = try codec.encode(content: originalError)
-        let decodedError: InviteJoinError = try codec.decode(content: encodedContent)
-
-        #expect(decodedError.errorType == .singleUseConsumed)
-        #expect(decodedError.inviteTag == "single-use-invite")
-    }
-
     @Test("Encode and decode unknown error type")
     func encodeDecodeUnknownErrorType() throws {
         let originalError = InviteJoinError(
@@ -141,18 +126,6 @@ struct InviteJoinErrorCodecTests {
         #expect(fallback == "Failed to join conversation")
     }
 
-    @Test("Fallback content for singleUseConsumed")
-    func fallbackSingleUseConsumed() throws {
-        let error = InviteJoinError(
-            errorType: .singleUseConsumed,
-            inviteTag: "test-tag",
-            timestamp: Date()
-        )
-
-        let fallback = try codec.fallback(content: error)
-        #expect(fallback == "This invite was already used by someone else")
-    }
-
     @Test("Fallback content for unknown error")
     func fallbackUnknown() throws {
         let error = InviteJoinError(
@@ -185,17 +158,6 @@ struct InviteJoinErrorCodecTests {
         )
 
         #expect(error.userFacingMessage == "Failed to join conversation")
-    }
-
-    @Test("User facing message for singleUseConsumed")
-    func userFacingMessageSingleUseConsumed() {
-        let error = InviteJoinError(
-            errorType: .singleUseConsumed,
-            inviteTag: "test-tag",
-            timestamp: Date()
-        )
-
-        #expect(error.userFacingMessage == "This invite was already used by someone else")
     }
 
     @Test("User facing message for unknown error")
@@ -308,7 +270,6 @@ struct InviteJoinErrorCodecTests {
     func errorTypeEquatable() {
         #expect(InviteJoinErrorType.conversationExpired == .conversationExpired)
         #expect(InviteJoinErrorType.genericFailure == .genericFailure)
-        #expect(InviteJoinErrorType.singleUseConsumed == .singleUseConsumed)
         #expect(InviteJoinErrorType.unknown("test") == .unknown("test"))
         #expect(InviteJoinErrorType.unknown("test1") != .unknown("test2"))
         #expect(InviteJoinErrorType.conversationExpired != .genericFailure)
@@ -318,7 +279,6 @@ struct InviteJoinErrorCodecTests {
     func errorTypeRawValue() {
         #expect(InviteJoinErrorType.conversationExpired.rawValue == "conversation_expired")
         #expect(InviteJoinErrorType.genericFailure.rawValue == "generic_failure")
-        #expect(InviteJoinErrorType.singleUseConsumed.rawValue == "single_use_consumed")
         #expect(InviteJoinErrorType.unknown("custom").rawValue == "custom")
     }
 
@@ -356,8 +316,7 @@ struct InviteJoinErrorCodecTests {
         let tag = "shared-tag"
         let errors = [
             InviteJoinError(errorType: .conversationExpired, inviteTag: tag, timestamp: Date()),
-            InviteJoinError(errorType: .genericFailure, inviteTag: tag, timestamp: Date()),
-            InviteJoinError(errorType: .singleUseConsumed, inviteTag: tag, timestamp: Date())
+            InviteJoinError(errorType: .genericFailure, inviteTag: tag, timestamp: Date())
         ]
 
         for error in errors {

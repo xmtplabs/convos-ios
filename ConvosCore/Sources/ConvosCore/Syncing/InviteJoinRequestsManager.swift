@@ -91,6 +91,33 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
         }
     }
 
+    /// Attempts to send a join error message back to the joiner
+    /// - Parameters:
+    ///   - errorType: The type of error that occurred
+    ///   - inviteTag: Optional invite tag for correlation
+    ///   - message: The original decoded message
+    ///   - client: The XMTP client provider
+    private func sendJoinErrorIfPossible(
+        errorType: InviteJoinErrorType,
+        inviteTag: String?,
+        message: XMTPiOS.DecodedMessage,
+        client: AnyClientProvider
+    ) async {
+        guard let tag = inviteTag else {
+            Log.warning("Cannot send join error: invite tag not available")
+            return
+        }
+
+        guard let dmConversation = try? await client.conversationsProvider.findConversation(
+            conversationId: message.conversationId
+        ) else {
+            Log.warning("Cannot send join error: DM conversation not found for message \(message.conversationId)")
+            return
+        }
+
+        await sendJoinError(errorType: errorType, inviteTag: tag, dmConversation: dmConversation)
+    }
+
     /// Process a message as a potential join request, with error handling and error message sending
     /// - Parameters:
     ///   - message: The decoded message to process
@@ -108,10 +135,6 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
            let signedInvite = try? SignedInvite.fromURLSafeSlug(text) {
             inviteTag = signedInvite.invitePayload.tag
         }
-
-        let dmConversation = try? await client.conversationsProvider.findConversation(
-            conversationId: message.conversationId
-        )
 
         do {
             if let result = try await processJoinRequestUnsafe(
@@ -136,24 +159,33 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
             return nil
         } catch InviteJoinRequestError.conversationNotFound(let id) {
             Log.error("Conversation \(id) not found for join request from \(message.senderInboxId)")
-            if let tag = inviteTag, let dm = dmConversation {
-                await sendJoinError(errorType: .conversationExpired, inviteTag: tag, dmConversation: dm)
-            }
+            await sendJoinErrorIfPossible(
+                errorType: .conversationExpired,
+                inviteTag: inviteTag,
+                message: message,
+                client: client
+            )
             return nil
         } catch InviteJoinRequestError.expiredConversation {
             Log.error("Conversation expired for join request from \(message.senderInboxId)")
-            if let tag = inviteTag, let dm = dmConversation {
-                await sendJoinError(errorType: .conversationExpired, inviteTag: tag, dmConversation: dm)
-            }
+            await sendJoinErrorIfPossible(
+                errorType: .conversationExpired,
+                inviteTag: inviteTag,
+                message: message,
+                client: client
+            )
             return nil
         } catch InviteJoinRequestError.invalidConversationType {
             Log.error("Join request targets a DM instead of a group")
             return nil
         } catch {
             Log.error("Error processing join request: \(error)")
-            if let tag = inviteTag, let dm = dmConversation {
-                await sendJoinError(errorType: .genericFailure, inviteTag: tag, dmConversation: dm)
-            }
+            await sendJoinErrorIfPossible(
+                errorType: .genericFailure,
+                inviteTag: inviteTag,
+                message: message,
+                client: client
+            )
             return nil
         }
     }

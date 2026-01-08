@@ -154,15 +154,11 @@ public actor ConversationStateMachine {
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
-        let streamProcessor = StreamProcessor(
+        self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader
         )
-        self.streamProcessor = streamProcessor
-        Task {
-            await streamProcessor.setInviteJoinErrorHandler(self)
-        }
     }
 
     deinit {

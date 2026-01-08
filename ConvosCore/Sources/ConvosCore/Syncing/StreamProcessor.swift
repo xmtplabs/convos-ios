@@ -61,14 +61,13 @@ actor StreamProcessor: StreamProcessorProtocol {
         identityStore: any KeychainIdentityStoreProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
-        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        inviteJoinErrorHandler: (any InviteJoinErrorHandler)? = nil
+        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil
     ) {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.deviceRegistrationManager = deviceRegistrationManager
-        self.inviteJoinErrorHandler = inviteJoinErrorHandler
+        self.inviteJoinErrorHandler = nil
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
         self.conversationWriter = ConversationWriter(
             identityStore: identityStore,

@@ -24,8 +24,6 @@ struct InviteJoinFailedError: DisplayError {
         switch joinError.errorType {
         case .conversationExpired:
             return "Convo no longer exists"
-        case .singleUseConsumed:
-            return "Invite already used"
         case .genericFailure, .unknown:
             return "Couldn't join"
         }

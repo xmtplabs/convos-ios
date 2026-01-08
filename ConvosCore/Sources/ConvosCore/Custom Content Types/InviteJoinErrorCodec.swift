@@ -4,7 +4,6 @@ import XMTPiOS
 public enum InviteJoinErrorType: Equatable {
     case conversationExpired
     case genericFailure
-    case singleUseConsumed
     case unknown(String)
 
     public var rawValue: String {
@@ -13,8 +12,6 @@ public enum InviteJoinErrorType: Equatable {
             return "conversation_expired"
         case .genericFailure:
             return "generic_failure"
-        case .singleUseConsumed:
-            return "single_use_consumed"
         case .unknown(let value):
             return value
         }
@@ -26,8 +23,6 @@ public enum InviteJoinErrorType: Equatable {
             self = .conversationExpired
         case "generic_failure":
             self = .genericFailure
-        case "single_use_consumed":
-            self = .singleUseConsumed
         default:
             self = .unknown(rawValue)
         }
@@ -62,8 +57,6 @@ public struct InviteJoinError: Codable, Equatable {
         switch errorType {
         case .conversationExpired:
             return "This conversation is no longer available"
-        case .singleUseConsumed:
-            return "This invite was already used by someone else"
         case .genericFailure, .unknown:
             return "Failed to join conversation"
         }
