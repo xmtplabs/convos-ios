@@ -314,6 +314,9 @@ public actor ConversationStateMachine {
             case let (.ready(previousResult), .validate(inviteCode)):
                 try await handleValidate(inviteCode: inviteCode, previousResult: previousResult)
 
+            case (.joinFailed, let .validate(inviteCode)):
+                try await handleValidate(inviteCode: inviteCode, previousResult: nil)
+
             case (let .validated(invite, placeholder, inboxReady, previousResult), .join):
                 try await handleJoin(
                     invite: invite,
@@ -322,7 +325,7 @@ public actor ConversationStateMachine {
                     previousReadyResult: previousResult
                 )
 
-            case (.ready, .delete), (.error, .delete):
+            case (.ready, .delete), (.error, .delete), (.joinFailed, .delete):
                 try await handleDelete()
 
             case (_, .stop):
