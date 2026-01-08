@@ -15,8 +15,6 @@ Convos uses a per-conversation identity model where each conversation has its ow
 - Works within XMTP's infrastructure constraints
 - Provides good UX for users who want to reuse profiles
 
-Traditional messaging apps use centralized profile servers with global user identities, which creates privacy risks through cross-conversation correlation. In Convos' decentralized model, we need a different approach.
-
 ## Decision
 
 We implemented **profile storage in XMTP conversation metadata** using the group's `appData` field. Each conversation stores member profiles in a compressed protobuf format, enabling serverless profile sharing while maintaining complete conversation isolation. A complementary **Quickname** feature provides local-only profile presets that users can quickly apply to new conversations without compromising privacy.
@@ -125,10 +123,6 @@ When you use a Quickname in a conversation:
 2. Other members see your profile for that conversation
 3. They have **no way to know** you used a Quickname vs. manually entering the same information
 4. Nothing on the network indicates profile reuse
-
-**Randomizer Feature:**
-
-Quickname includes an on-device name generator with tags like "gender neutral," "nature," "weird." No network calls - the generator runs entirely locally using preset word lists.
 
 **Location:** `Convos/Profile/QuicknameSettings.swift`, `Convos/Profile/QuicknameSettingsViewModel.swift`
 
@@ -242,7 +236,7 @@ throw ConversationCustomMetadataError.appDataLimitExceeded(
 )
 ```
 
-The app prevents the update and notifies the user. In practice, this is extremely rare - 150+ member conversations are uncommon.
+The app prevents the update and notifies the user.
 
 **Decompression Bomb Protection:**
 
