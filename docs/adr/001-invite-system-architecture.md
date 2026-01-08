@@ -176,38 +176,6 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 | Spam/fake join requests | DM blocking on invalid invites |
 | Replay attacks | Optional invite expiration and single-use flags |
 
-## Alternatives Considered
-
-### 1. Backend-Validated Invite Codes
-
-**Approach:** Generate random codes stored in database, validate on backend before allowing join.
-
-**Rejected Because:**
-- Requires centralized server
-- Single point of failure
-- Privacy concerns (backend sees all joins)
-- Against XMTP's decentralized philosophy
-
-### 2. Simple Hashed Invite Codes
-
-**Approach:** Hash conversation ID with salt, share hash as invite code.
-
-**Rejected Because:**
-- No way to revoke invites without changing conversation ID
-- Can't detect duplicate joins without additional metadata
-- Vulnerable to brute-force attacks on small conversation ID space
-- No spam prevention mechanism
-
-### 3. XMTP Install Contact Bundles
-
-**Approach:** Share contact bundles directly, let joiners request access.
-
-**Rejected Because:**
-- No metadata about conversation (name, description, image)
-- Can't prevent spam or detect duplicates
-- Poor UX for sharing (large data structures)
-- No revocation mechanism
-
 ## Related Files
 
 - `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/proto/invite.proto` - Protobuf schemas
@@ -218,6 +186,11 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 - `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift` - Metadata storage
 - `ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift` - Join request processing
 - `ConvosCore/Sources/ConvosCore/Inboxes/ConversationStateMachine.swift` - Join flow state machine
+
+## Related ADRs
+
+- ADR 002: Per-Conversation Identity Model (explains the per-conversation inbox architecture used for invite creators)
+- ADR 003: Inbox Lifecycle Management (explains how pre-created inboxes optimize the join flow)
 
 ## References
 
