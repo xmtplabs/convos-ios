@@ -1,7 +1,7 @@
 # Feature: Invite Join Error Feedback
 
 > **Status**: Draft
-> **Author**: PRD Writer
+> **Author**: @yewreeka
 > **Created**: 2026-01-07
 > **Updated**: 2026-01-07
 >
@@ -226,7 +226,7 @@ Navigation flow:
 
 ## References
 
-- ADR 001: Decentralized Invite System (/Users/jarod/Code/convos-ios/docs/adr/001-invite-system-architecture.md)
-- ExplodeSettings Codec: /Users/jarod/Code/convos-ios/ConvosCore/Sources/ConvosCore/Custom Content Types/ExplodeSettingsCodec.swift
-- InviteJoinRequestsManager: /Users/jarod/Code/convos-ios/ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift
-- ConversationStateMachine: /Users/jarod/Code/convos-ios/ConvosCore/Sources/ConvosCore/Inboxes/ConversationStateMachine.swift
+- ADR 001: Decentralized Invite System (`docs/adr/001-invite-system-architecture.md`)
+- ExplodeSettings Codec: `ConvosCore/Sources/ConvosCore/Custom Content Types/ExplodeSettingsCodec.swift`
+- InviteJoinRequestsManager: `ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift`
+- ConversationStateMachine: `ConvosCore/Sources/ConvosCore/Inboxes/ConversationStateMachine.swift`
