@@ -237,6 +237,7 @@ This ensures complete data removal when a conversation is deleted.
 
 **Related ADRs:**
 - ADR 003: Inbox Lifecycle Management (for pre-creation cache, LRU eviction, sleep/wake patterns)
+- ADR 004: Explode Feature (explains how destroying an inbox destroys the conversation's cryptographic identity)
 
 ## References
 
