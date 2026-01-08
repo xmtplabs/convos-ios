@@ -182,8 +182,7 @@ Navigation flow:
 - [ ] Ensure error details are accessible for UI layer
 - [ ] Note: UI implementation will be done manually outside this plan
 
-### Phase 5: Edge Cases and Polish
-- [ ] Handle multiple rapid join attempts (ensure proper error matching by invite tag)
+### Phase 5: Documentation
 - [ ] Update documentation (ADRs, CLAUDE.md if needed)
 
 ## Testing Strategy
@@ -199,7 +198,6 @@ Navigation flow:
   - End-to-end error flow (creator detects error → joiner receives message)
   - Error delivery through XMTP message stream
   - Multiple error types in sequence
-  - Error matching by invite tag
 
 - Manual testing:
   - Explode a conversation, then have someone try to join via old invite (conversation expired error)
