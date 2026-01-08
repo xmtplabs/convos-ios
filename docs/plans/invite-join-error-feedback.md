@@ -50,8 +50,9 @@ This creates a poor UX where users don't understand why they cannot join a conve
 Acceptance criteria:
 - [ ] When creator's client detects a join request error, it sends an error message via the same DM channel
 - [ ] Joiner's client receives and processes the error message
-- [ ] Joiner sees a clear error state explaining what went wrong
+- [ ] ViewModel exposes error state with specific error type
 - [ ] Error state replaces the "waiting for approval" loading state
+- [ ] User is informed to request another invite from the inviter (no retry mechanism)
 
 ### As a joiner, I want to see specific error messages so I can take appropriate action
 
@@ -59,7 +60,8 @@ Acceptance criteria:
 - [ ] Conversation expired: "This conversation is no longer available"
 - [ ] Generic failure: "Failed to join conversation"
 - [ ] Single-use invite consumed (future): "This invite was already used by someone else"
-- [ ] Error messages are user-friendly and actionable
+- [ ] Error messages are user-friendly
+- [ ] User understands they need to request another invite from the inviter
 
 ### As a creator, I want failed join requests to automatically notify the joiner without manual intervention
 
@@ -136,15 +138,24 @@ Screens affected:
 - **Join Flow Screen** (main app): Currently shows "Waiting for approval" loading state
 
 New states needed:
-- Error state displaying specific error message based on `InviteJoinError.errorType`
-- Action button: "Try Another Invite" or "Go Back"
+- Error state when join fails
+- User will be prompted to request another invite from the inviter (no retry mechanism)
+
+**UI Implementation:**
+- UI work will be done manually (not part of this PRD implementation)
+- ViewModel should expose the error state and error type
+- Specific UI design for error state is TBD
+- Error messages should communicate:
+  - Conversation expired: "This conversation is no longer available"
+  - Generic failure: "Failed to join conversation"
+  - Single-use consumed (future): "This invite was already used by someone else"
 
 Navigation flow:
 1. User enters invite code
 2. State machine transitions to `.validated` → `.joining`
 3. If error message received, transition to `.joinFailed(error)`
-4. ViewModel exposes error details to view
-5. View shows error UI with appropriate message and action
+4. ViewModel exposes error details
+5. View layer will handle error display (design TBD)
 
 ## Implementation Plan
 
@@ -166,17 +177,14 @@ Navigation flow:
 - [ ] Add state machine logic to transition to error state
 - [ ] Add integration tests for error flow
 
-### Phase 4: UI Integration
-- [ ] Create error state UI components in main app
-- [ ] Update ViewModel to expose error details
-- [ ] Add user-friendly error messages
-- [ ] Handle "try again" and "go back" actions
-- [ ] Add UI tests for error scenarios
+### Phase 4: ViewModel Integration
+- [ ] Update ViewModel to expose error state and error type
+- [ ] Ensure error details are accessible for UI layer
+- [ ] Note: UI implementation will be done manually outside this plan
 
 ### Phase 5: Edge Cases and Polish
-- [ ] Handle multiple rapid join attempts
-- [ ] Add retry logic for error message delivery failures (if needed)
-- [ ] Update documentation
+- [ ] Handle multiple rapid join attempts (ensure proper error matching by invite tag)
+- [ ] Update documentation (ADRs, CLAUDE.md if needed)
 
 ## Testing Strategy
 
@@ -185,19 +193,22 @@ Navigation flow:
   - Error type matching and forward compatibility
   - `InviteJoinRequestsManager` error detection
   - State machine state transitions
+  - ViewModel error state exposure
 
 - Integration tests for:
   - End-to-end error flow (creator detects error → joiner receives message)
-  - Offline joiner receiving error on reconnect
+  - Error delivery through XMTP message stream
   - Multiple error types in sequence
+  - Error matching by invite tag
 
 - Manual testing:
   - Explode a conversation, then have someone try to join via old invite (conversation expired error)
-  - Simulate generic failure (e.g., malformed join request), verify error message
+  - Simulate generic failure (e.g., malformed join request), verify error reaches ViewModel
   - Test with poor network conditions
   - Test across different app versions (forward compatibility)
   - Test manual cancellation: cancel join attempt, verify arriving error is dropped
   - Single-use invite testing will be added when that feature is implemented
+  - Note: UI-level testing will be done manually as part of separate UI work
 
 ## Risks & Mitigations
 
