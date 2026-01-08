@@ -10,6 +10,10 @@
     "ios-simulator": {
       "command": "npx",
       "args": ["-y", "ios-simulator-mcp@latest"]
+    },
+    "xmtp-docs": {
+      "command": "npx",
+      "args": ["-y", "@xmtp/docs-mcp@latest"]
     }
   }
 }
