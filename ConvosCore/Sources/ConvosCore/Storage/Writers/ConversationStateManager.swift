@@ -184,6 +184,11 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
             hasError = false
             errorMessage = nil
 
+        case .joinFailed(_, let error):
+            isReady = false
+            hasError = true
+            errorMessage = error.userFacingMessage
+
         case .error(let error):
             isReady = false
             hasError = true

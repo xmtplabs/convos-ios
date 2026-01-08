@@ -173,6 +173,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
         isPaused = false
         resumeCallCount += 1
     }
+
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
+    }
 }
 
 /// Mock implementation of NetworkMonitor for testing

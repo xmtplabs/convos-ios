@@ -225,6 +225,16 @@ extension XMTPiOS.Conversation: MessageSender {
         Log.info("ExplodeSettings message sent successfully")
     }
 
+    public func sendInviteJoinError(_ error: InviteJoinError) async throws {
+        Log.info("Sending InviteJoinError message with errorType: \(error.errorType.rawValue), inviteTag: \(error.inviteTag)")
+        let codec = InviteJoinErrorCodec()
+        try await send(
+            content: error,
+            options: .init(contentType: codec.contentType)
+        )
+        Log.info("InviteJoinError message sent successfully")
+    }
+
     public func prepare(text: String) async throws -> String {
         return try await prepareMessage(content: text)
     }

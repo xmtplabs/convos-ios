@@ -9,6 +9,7 @@ public protocol SyncingManagerProtocol: Actor {
     func stop() async
     func pause() async
     func resume() async
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
 }
 
 /// Wrapper for client and API client parameters used in state transitions
@@ -560,6 +561,10 @@ actor SyncingManager: SyncingManagerProtocol {
     func setActiveConversationId(_ conversationId: String?) {
         // Update the active conversation
         activeConversationId = conversationId
+    }
+
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
+        await streamProcessor.setInviteJoinErrorHandler(handler)
     }
 
     // MARK: - Notification Observers

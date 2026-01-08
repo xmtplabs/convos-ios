@@ -17,6 +17,25 @@ struct GenericDisplayError: DisplayError {
     let description: String
 }
 
+struct InviteJoinFailedError: DisplayError {
+    let joinError: InviteJoinError
+
+    var title: String {
+        switch joinError.errorType {
+        case .conversationExpired:
+            return "Convo no longer exists"
+        case .singleUseConsumed:
+            return "Invite already used"
+        case .genericFailure, .unknown:
+            return "Couldn't join"
+        }
+    }
+
+    var description: String {
+        joinError.userFacingMessage
+    }
+}
+
 @MainActor
 @Observable
 class NewConversationViewModel: Identifiable {
@@ -296,6 +315,13 @@ class NewConversationViewModel: Identifiable {
             conversationViewModel.isWaitingForInviteAcceptance = false
             isCreatingConversation = false
             currentError = nil
+
+        case .joinFailed(_, let error):
+            qrScannerViewModel.resetScanning()
+            conversationViewModel.isWaitingForInviteAcceptance = false
+            isCreatingConversation = false
+            let joinError = InviteJoinFailedError(joinError: error)
+            handleError(joinError)
 
         case .error(let error):
             qrScannerViewModel.resetScanning()

@@ -41,6 +41,9 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
         notifyObservers()
     }
 
+    public func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
+    }
+
     public func addObserver(_ observer: any InboxStateObserver) {
         observers.removeAll { $0.observer == nil }
         observers.append(WeakStateObserver(observer: observer))
