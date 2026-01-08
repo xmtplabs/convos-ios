@@ -18,9 +18,12 @@ When invoked:
 
 ## Architectural Principles for Convos
 
-This codebase follows these patterns:
-- **ConvosCore**: Swift Package containing core business logic, storage, GRDB database, and XMTP client
-- **Main App**: SwiftUI app with UIKit integration where needed
+### Module Architecture (Fixed Rules)
+- **ConvosCore**: All core functionality, business logic, models, services, repositories, writers, GRDB database, XMTP client
+- **ConvosCoreiOS**: iOS-specific implementations needed by ConvosCore (e.g., `UIImage` handling, push notification registration)
+- **Main App (Convos)**: Views and ViewModels only
+
+### Design Patterns
 - **Protocol-based DI**: Use protocols for dependency injection (e.g., `SessionManagerProtocol`)
 - **Repository Pattern**: Data access through repositories (e.g., `ConversationsRepository`)
 - **Writers for Mutations**: Separate writer classes for database mutations
@@ -39,9 +42,8 @@ For any architectural task:
 
 Provide recommendations as:
 1. **Summary**: Brief overview of the architectural approach
-2. **Module Design**: Where code should live (ConvosCore vs App)
-3. **Protocols**: Any new protocols needed
-4. **Dependencies**: How it connects to existing code
-5. **Risks**: Potential issues or technical debt
+2. **Components**: New protocols, classes, or services needed (logic goes in ConvosCore, iOS-specific in ConvosCoreiOS, views/viewmodels in main app)
+3. **Dependencies**: How it connects to existing code
+4. **Risks**: Potential issues or technical debt
 
 Never provide code implementations - that's for other agents. Focus on the "what" and "why", not the "how".

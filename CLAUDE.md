@@ -5,14 +5,16 @@ This document contains project-specific conventions and best practices for the C
 ## Architecture & Organization
 
 ### Project Structure
-- **Main App**: SwiftUI app with UIKit integration where needed
-- **ConvosCore**: Swift Package containing core business logic, storage, and XMTP client
+- **ConvosCore**: Swift Package containing all core business logic, models, services, repositories, writers, GRDB database, and XMTP client
+- **ConvosCoreiOS**: iOS-specific implementations needed by ConvosCore (e.g., `UIImage` handling, push notification registration)
+- **Main App (Convos)**: Views and ViewModels only (SwiftUI with UIKit integration where needed)
 - **App Clips**: Separate target for lightweight experiences
 - **Notification Service**: Extension for push notification handling
 
 ### Module Architecture
-- Use `ConvosCore` for shared business logic, models, and services
-- Keep UI-specific code in the main app target
+- All business logic, models, and services go in `ConvosCore`
+- iOS-specific code that ConvosCore needs goes in `ConvosCoreiOS`
+- Views and ViewModels go in the main app target
 - Use protocols for dependency injection (e.g., `SessionManagerProtocol`)
 
 ## SwiftUI Conventions

@@ -40,9 +40,10 @@ Acceptance criteria:
 
 How does this feature fit into the existing architecture?
 
-- **Module**: Where does this code live? (ConvosCore vs App)
 - **Dependencies**: What existing code does it depend on?
 - **New Components**: What new protocols, classes, or views are needed?
+
+Note: Core logic/services → ConvosCore, iOS-specific implementations → ConvosCoreiOS, Views/ViewModels → Main App
 
 ### Data Model
 
