@@ -127,29 +127,20 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
         message: XMTPiOS.DecodedMessage,
         client: AnyClientProvider
     ) async -> JoinRequestResult? {
-        let dbMessage = try? message.dbRepresentation()
-        let messageText = dbMessage?.text
-
-        var inviteTag: String?
-        if let text = messageText,
-           let signedInvite = try? SignedInvite.fromURLSafeSlug(text) {
-            inviteTag = signedInvite.invitePayload.tag
-        }
+        let inviteTag = extractInviteTag(from: message)
 
         do {
-            if let result = try await processJoinRequestUnsafe(
+            guard let result = try await processJoinRequestUnsafe(
                 message: message,
                 client: client
-            ) {
-                Log.info("Successfully added \(message.senderInboxId) to conversation \(result.conversationId)")
-                return result
+            ) else {
+                return nil
             }
-            return nil
-        } catch InviteJoinRequestError.missingTextContent {
-            // Silently skip - not a join request
-            return nil
-        } catch InviteJoinRequestError.invalidInviteFormat {
-            // Silently skip - not a join request
+
+            Log.info("Successfully added \(message.senderInboxId) to conversation \(result.conversationId)")
+            return result
+        } catch InviteJoinRequestError.missingTextContent,
+                InviteJoinRequestError.invalidInviteFormat {
             return nil
         } catch InviteJoinRequestError.invalidSignature {
             Log.error("Invalid signature in join request from \(message.senderInboxId)")
@@ -188,6 +179,15 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
             )
             return nil
         }
+    }
+
+    private func extractInviteTag(from message: XMTPiOS.DecodedMessage) -> String? {
+        guard let dbMessage = try? message.dbRepresentation(),
+              let text = dbMessage.text,
+              let signedInvite = try? SignedInvite.fromURLSafeSlug(text) else {
+            return nil
+        }
+        return signedInvite.invitePayload.tag
     }
 
     /// Process a message as a potential join request (unsafe - throws errors without sending error messages)
@@ -235,7 +235,6 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
 
         let creatorInboxId = signedInvite.invitePayload.creatorInboxIdString
 
-        // validate that the invite contains a non-empty creator inbox ID
         guard !creatorInboxId.isEmpty else {
             await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
             throw InviteJoinRequestError.malformedInboxId
@@ -250,22 +249,14 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
 
         let publicKey = identity.keys.privateKey.publicKey.secp256K1Uncompressed.bytes
 
-        // Verify the signature - explicitly handle both failure and errors
-        let verifiedSignature: Bool
         do {
-            verifiedSignature = try signedInvite.verify(with: publicKey)
+            guard try signedInvite.verify(with: publicKey) else {
+                Log.error("Signature verification failed for invite from \(senderInboxId) - blocking DM")
+                await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
+                throw InviteJoinRequestError.invalidSignature
+            }
         } catch {
-            // Verification threw an exception (e.g., malformed signature, invalid key format)
-            // This is different from a signature that doesn't match
             Log.error("Exception during signature verification for invite from \(senderInboxId): \(error) - blocking DM")
-            await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
-            throw InviteJoinRequestError.invalidSignature
-        }
-
-        // Explicitly check that verification succeeded
-        guard verifiedSignature == true else {
-            // Signature verification returned false - signature doesn't match
-            Log.error("Signature verification failed for invite from \(senderInboxId) - blocking DM")
             await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
             throw InviteJoinRequestError.invalidSignature
         }
@@ -390,16 +381,12 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
     private func processMessages(for dm: XMTPiOS.Dm, client: AnyClientProvider) async throws -> JoinRequestResult? {
         let messages = try await dm.messages(afterNs: nil)
             .filter { message in
-                guard let encodedContentType = try? message.encodedContent.type else {
+                guard let encodedContentType = try? message.encodedContent.type,
+                      encodedContentType == ContentTypeText,
+                      message.senderInboxId != client.inboxId else {
                     return false
                 }
-
-                switch encodedContentType {
-                case ContentTypeText:
-                    return message.senderInboxId != client.inboxId
-                default:
-                    return false
-                }
+                return true
             }
         Log.info("Found \(messages.count) messages as possible join requests")
 
@@ -446,30 +433,16 @@ extension XMTPiOS.Dm {
     /// - Parameter clientInboxId: The inbox ID of the current client (to verify sender)
     /// - Returns: A SignedInvite if the last message is a valid text invite, nil otherwise
     func lastMessageAsSignedInvite(sentBy clientInboxId: String) async -> SignedInvite? {
-        guard let lastMessage = try? await self.lastMessage() else {
-            return nil
-        }
-
-        let content: String? = try? lastMessage.content()
-        Log.info("Received last message: \(content ?? "nil") sender: \(lastMessage.senderInboxId)")
-
-        // Only check messages sent by us
-        guard lastMessage.senderInboxId == clientInboxId else {
-            return nil
-        }
-
-        // Only check text messages
-        guard let encodedContentType = try? lastMessage.encodedContent.type,
-              encodedContentType == ContentTypeText else {
-            return nil
-        }
-
-        // Try to parse as text and then as SignedInvite
-        guard let text: String = try? lastMessage.content(),
+        guard let lastMessage = try? await self.lastMessage(),
+              lastMessage.senderInboxId == clientInboxId,
+              let encodedContentType = try? lastMessage.encodedContent.type,
+              encodedContentType == ContentTypeText,
+              let text: String = try? lastMessage.content(),
               let invite = try? SignedInvite.fromURLSafeSlug(text) else {
             return nil
         }
 
+        Log.info("Received last message: \(text) sender: \(lastMessage.senderInboxId)")
         return invite
     }
 }

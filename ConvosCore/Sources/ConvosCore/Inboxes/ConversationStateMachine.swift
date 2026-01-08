@@ -293,25 +293,26 @@ public actor ConversationStateMachine {
     private func processAction(_ action: Action) async {
         do {
             switch (_state, action) {
-            case (.uninitialized, .create):
-                try await handleCreate()
-            case (.error, .create):
-                handleStop()
+            case (.uninitialized, .create), (.error, .create):
+                if case .error = _state {
+                    handleStop()
+                }
                 try await handleCreate()
 
-            case (.uninitialized, let .useExisting(conversationId)):
-                handleUseExisting(conversationId: conversationId)
-            case (.error, let .useExisting(conversationId)):
-                handleStop()
+            case (.uninitialized, let .useExisting(conversationId)), (.error, let .useExisting(conversationId)):
+                if case .error = _state {
+                    handleStop()
+                }
                 handleUseExisting(conversationId: conversationId)
 
-            case (.uninitialized, let .validate(inviteCode)):
+            case (.uninitialized, let .validate(inviteCode)), (.error, let .validate(inviteCode)):
+                if case .error = _state {
+                    handleStop()
+                }
                 try await handleValidate(inviteCode: inviteCode, previousResult: nil)
+
             case let (.ready(previousResult), .validate(inviteCode)):
                 try await handleValidate(inviteCode: inviteCode, previousResult: previousResult)
-            case let (.error, .validate(inviteCode)):
-                handleStop()
-                try await handleValidate(inviteCode: inviteCode, previousResult: nil)
 
             case (let .validated(invite, placeholder, inboxReady, previousResult), .join):
                 try await handleJoin(
@@ -331,9 +332,7 @@ public actor ConversationStateMachine {
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
             }
         } catch is CancellationError {
-            // Task was cancelled - this is expected behavior from stop/delete
             Log.info("Action \(action) cancelled")
-            // Don't emit error state - the cancelling method already handled state transition
         } catch {
             Log.error("Failed state transition \(_state) -> \(action): \(error.localizedDescription)")
             let displayableError: Error = (error is DisplayError ? error :
@@ -423,9 +422,7 @@ public actor ConversationStateMachine {
             existingIdentity = nil
         }
 
-        // In case cleanup failed while deleting an inbox/conversation
-        if existingConversation != nil,
-           existingIdentity == nil {
+        if existingConversation != nil, existingIdentity == nil {
             Log.warning("Found existing conversation for identity that does not exist, deleting...")
             _ = try await databaseWriter.write { db in
                 try DBConversation
@@ -553,34 +550,25 @@ public actor ConversationStateMachine {
             observationTask = nil
 
             Log.info("Conversation joined successfully: \(conversationId)")
-            // Unregister error handler before transitioning to ready
             await inboxStateManager.setInviteJoinErrorHandler(nil)
-            // Transition to ready state
             emitStateChange(.ready(ConversationReadyResult(
                 conversationId: conversationId,
                 origin: .joined
             )))
         } catch is CancellationError {
-            // Task was cancelled (e.g., from handleStop/handleDelete/deinit)
             observationTask = nil
             Log.info("Conversation join observation cancelled")
-            // If we're already in joinFailed state, don't propagate the error
-            // The join failure is already being handled
-            if case .joinFailed = _state {
-                Log.info("Already in joinFailed state, not propagating cancellation")
-                return
+            guard case .joinFailed = _state else {
+                throw CancellationError()
             }
-            throw CancellationError()  // Propagate instead of swallowing
+            Log.info("Already in joinFailed state, not propagating cancellation")
         } catch {
             observationTask = nil
             Log.error("Error waiting for conversation to join: \(error)")
-            // If we're already in joinFailed state, don't throw timeout error
-            // The join failure is already being handled
-            if case .joinFailed = _state {
-                Log.info("Already in joinFailed state, not throwing timeout error")
-                return
+            guard case .joinFailed = _state else {
+                throw ConversationStateMachineError.timedOut
             }
-            throw ConversationStateMachineError.timedOut
+            Log.info("Already in joinFailed state, not throwing timeout error")
         }
     }
 
@@ -667,11 +655,10 @@ public actor ConversationStateMachine {
             try await cleanUp(
                 conversationId: previousResult.conversationId,
                 client: client,
-                apiClient: apiClient,
+                apiClient: apiClient
             )
         } catch {
             Log.error("Failed to clean up previous conversation: \(error)")
-            // Continue with transition even if cleanup fails
         }
     }
 

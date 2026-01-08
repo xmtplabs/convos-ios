@@ -103,15 +103,11 @@ public struct InviteJoinErrorCodec: ContentCodec {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
 
-        do {
-            return try decoder.decode(InviteJoinError.self, from: content.content)
-        } catch {
-            throw InviteJoinErrorCodecError.invalidJSONFormat
-        }
+        return try decoder.decode(InviteJoinError.self, from: content.content)
     }
 
     public func fallback(content: InviteJoinError) throws -> String? {
-        return content.userFacingMessage
+        content.userFacingMessage
     }
 
     public func shouldPush(content: InviteJoinError) throws -> Bool {
