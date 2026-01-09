@@ -33,7 +33,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var isAvatarEncrypted: Bool {
-        avatarSalt != nil && avatarNonce != nil
+        avatarSalt?.count == 32 && avatarNonce?.count == 12
     }
 
     public var displayName: String {
