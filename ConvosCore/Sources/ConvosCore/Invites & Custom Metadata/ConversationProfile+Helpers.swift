@@ -9,11 +9,21 @@ extension ConversationProfile {
         inboxID.hexEncodedString()
     }
 
+    /// Returns the effective image URL (prefers encrypted, falls back to legacy)
+    public var effectiveImageUrl: String? {
+        if hasEncryptedImage {
+            return encryptedImage.url
+        } else if hasImage {
+            return image
+        }
+        return nil
+    }
+
     /// Failable initializer with hex-encoded inbox ID string
     /// - Parameters:
     ///   - inboxIdString: Hex-encoded inbox ID (XMTP v3 format)
     ///   - name: Optional display name
-    ///   - imageUrl: Optional avatar URL
+    ///   - imageUrl: Optional avatar URL (legacy unencrypted)
     /// - Returns: ConversationProfile if inbox ID is valid hex, nil otherwise
     public init?(inboxIdString: String, name: String? = nil, imageUrl: String? = nil) {
         guard let inboxIdBytes = Data(hexString: inboxIdString), !inboxIdBytes.isEmpty else {
@@ -33,5 +43,28 @@ extension ConversationProfile {
         } else {
             self.clearImage()
         }
+    }
+
+    /// Failable initializer with encrypted image reference
+    /// - Parameters:
+    ///   - inboxIdString: Hex-encoded inbox ID (XMTP v3 format)
+    ///   - name: Optional display name
+    ///   - encryptedImageRef: Encrypted image reference
+    /// - Returns: ConversationProfile if inbox ID is valid hex, nil otherwise
+    public init?(inboxIdString: String, name: String? = nil, encryptedImageRef: EncryptedImageRef) {
+        guard let inboxIdBytes = Data(hexString: inboxIdString), !inboxIdBytes.isEmpty else {
+            return nil
+        }
+
+        self.init()
+        self.inboxID = inboxIdBytes
+
+        if let name = name {
+            self.name = name
+        } else {
+            self.clearName()
+        }
+        self.encryptedImage = encryptedImageRef
+        self.clearImage()
     }
 }

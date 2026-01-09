@@ -23,7 +23,7 @@ import XMTPiOS
 extension XMTPiOS.Group {
     private static let appDataByteLimit: Int = 8 * 1024
 
-    private var currentCustomMetadata: ConversationCustomMetadata {
+    var currentCustomMetadata: ConversationCustomMetadata {
         get throws {
             do {
                 let currentAppData = try self.appData()
@@ -51,6 +51,49 @@ extension XMTPiOS.Group {
     public func updateExpiresAt(date: Date) async throws {
         var customMetadata = try currentCustomMetadata
         customMetadata.expiresAtUnix = Int64(date.timeIntervalSince1970)
+        try await updateMetadata(customMetadata)
+    }
+
+    // MARK: - Image Encryption Key Management
+
+    public var imageEncryptionKey: Data? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasImageEncryptionKey else { return nil }
+            return metadata.imageEncryptionKey
+        }
+    }
+
+    @discardableResult
+    public func ensureImageEncryptionKey() async throws -> Data {
+        let initialMetadata = try currentCustomMetadata
+        if initialMetadata.hasImageEncryptionKey {
+            return initialMetadata.imageEncryptionKey
+        }
+
+        let newKey = try ImageEncryption.generateGroupKey()
+        var updatedMetadata = initialMetadata
+        updatedMetadata.imageEncryptionKey = newKey
+        try await updateMetadata(updatedMetadata)
+
+        let finalMetadata = try currentCustomMetadata
+        guard finalMetadata.hasImageEncryptionKey else {
+            throw ImageEncryptionError.keyGenerationFailed
+        }
+        return finalMetadata.imageEncryptionKey
+    }
+
+    public var encryptedGroupImage: EncryptedImageRef? {
+        get throws {
+            let metadata = try currentCustomMetadata
+            guard metadata.hasEncryptedGroupImage else { return nil }
+            return metadata.encryptedGroupImage
+        }
+    }
+
+    public func updateEncryptedGroupImage(_ encryptedRef: EncryptedImageRef) async throws {
+        var customMetadata = try currentCustomMetadata
+        customMetadata.encryptedGroupImage = encryptedRef
         try await updateMetadata(customMetadata)
     }
 
@@ -97,12 +140,28 @@ extension XMTPiOS.Group {
     var memberProfiles: [DBMemberProfile] {
         get throws {
             let customMetadata = try currentCustomMetadata
-            return customMetadata.profiles.map {
-                .init(
+            return customMetadata.profiles.map { profile in
+                let avatarUrl: String?
+                let salt: Data?
+                let nonce: Data?
+
+                if profile.hasEncryptedImage {
+                    avatarUrl = profile.encryptedImage.url
+                    salt = profile.encryptedImage.salt
+                    nonce = profile.encryptedImage.nonce
+                } else {
+                    avatarUrl = profile.hasImage ? profile.image : nil
+                    salt = nil
+                    nonce = nil
+                }
+
+                return .init(
                     conversationId: id,
-                    inboxId: $0.inboxIdString,
-                    name: $0.hasName ? $0.name : nil,
-                    avatar: $0.hasImage ? $0.image : nil
+                    inboxId: profile.inboxIdString,
+                    name: profile.hasName ? profile.name : nil,
+                    avatar: avatarUrl,
+                    avatarSalt: salt,
+                    avatarNonce: nonce
                 )
             }
         }
@@ -117,7 +176,7 @@ extension XMTPiOS.Group {
         try await updateMetadata(customMetadata)
     }
 
-    private func updateMetadata(_ metadata: ConversationCustomMetadata) async throws {
+    func updateMetadata(_ metadata: ConversationCustomMetadata) async throws {
         let encodedMetadata = try metadata.toCompactString()
         let byteCount = encodedMetadata.lengthOfBytes(using: .utf8)
         guard byteCount <= Self.appDataByteLimit else {

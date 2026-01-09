@@ -79,7 +79,6 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         guard let avatarImage = avatar else {
-            // remove avatar image URL
             ImageCacheContainer.shared.removeImage(for: profile.hydrateProfile())
             let updatedProfile = profile.with(avatar: nil)
             try await group.updateProfile(updatedProfile)
@@ -94,22 +93,48 @@ class MyProfileWriter: MyProfileWriterProtocol {
             throw MyProfileWriterError.imageCompressionFailed
         }
 
+        let groupKey = try await group.ensureImageEncryptionKey()
+        let encryptedPayload = try ImageEncryption.encrypt(
+            imageData: compressedImageData,
+            groupKey: groupKey
+        )
+
         let uploadedAssetUrl = try await inboxReady.apiClient.uploadAttachment(
-            data: compressedImageData,
-            filename: "p-\(UUID().uuidString).jpg",
-            contentType: "image/jpeg",
+            data: encryptedPayload.ciphertext,
+            filename: "ep-\(UUID().uuidString).enc",
+            contentType: "application/octet-stream",
             acl: "public-read"
         )
-        let updatedProfile = profile.with(avatar: uploadedAssetUrl)
-        try await group.updateProfile(updatedProfile)
 
-        // Cache the resized image with the uploaded URL as well
+        var encryptedRef = EncryptedImageRef()
+        encryptedRef.url = uploadedAssetUrl
+        encryptedRef.salt = encryptedPayload.salt
+        encryptedRef.nonce = encryptedPayload.nonce
+
+        guard let conversationProfile = ConversationProfile(
+            inboxIdString: inboxId,
+            name: profile.name,
+            encryptedImageRef: encryptedRef
+        ) else {
+            throw ConversationCustomMetadataError.invalidInboxIdHex(inboxId)
+        }
+
+        var customMetadata = try group.currentCustomMetadata
+        customMetadata.upsertProfile(conversationProfile)
+        try await group.updateMetadata(customMetadata)
+
+        let updatedProfile = profile.with(
+            avatar: uploadedAssetUrl,
+            salt: encryptedPayload.salt,
+            nonce: encryptedPayload.nonce
+        )
+
         if let image = ImageType(data: compressedImageData) {
             ImageCacheContainer.shared.setImage(image, for: uploadedAssetUrl)
         }
 
         try await databaseWriter.write { db in
-            Log.info("Updated avatar for profile: \(updatedProfile)")
+            Log.info("Updated encrypted avatar for profile: \(updatedProfile)")
             try updatedProfile.save(db)
         }
     }

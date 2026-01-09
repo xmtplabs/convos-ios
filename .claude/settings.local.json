@@ -7,6 +7,8 @@
   },
   "enabledMcpjsonServers": [
     "XcodeBuildMCP",
-    "ios-simulator"
-  ]
+    "ios-simulator",
+    "xmtp-docs"
+  ],
+  "enableAllProjectMcpServers": true
 }
