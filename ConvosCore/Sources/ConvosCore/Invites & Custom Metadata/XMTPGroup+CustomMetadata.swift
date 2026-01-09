@@ -49,9 +49,12 @@ extension XMTPiOS.Group {
     }
 
     public func updateExpiresAt(date: Date) async throws {
-        var customMetadata = try currentCustomMetadata
-        customMetadata.expiresAtUnix = Int64(date.timeIntervalSince1970)
-        try await updateMetadata(customMetadata)
+        let expiresAtUnix = Int64(date.timeIntervalSince1970)
+        try await atomicUpdateMetadata { metadata in
+            metadata.expiresAtUnix = expiresAtUnix
+        } verify: { metadata in
+            metadata.hasExpiresAtUnix && metadata.expiresAtUnix == expiresAtUnix
+        }
     }
 
     // MARK: - Image Encryption Key Management
@@ -66,21 +69,23 @@ extension XMTPiOS.Group {
 
     @discardableResult
     public func ensureImageEncryptionKey() async throws -> Data {
-        let initialMetadata = try currentCustomMetadata
-        if initialMetadata.hasImageEncryptionKey {
-            return initialMetadata.imageEncryptionKey
+        if let existingKey = try imageEncryptionKey {
+            return existingKey
         }
 
         let newKey = try ImageEncryption.generateGroupKey()
-        var updatedMetadata = initialMetadata
-        updatedMetadata.imageEncryptionKey = newKey
-        try await updateMetadata(updatedMetadata)
+        try await atomicUpdateMetadata { metadata in
+            if !metadata.hasImageEncryptionKey {
+                metadata.imageEncryptionKey = newKey
+            }
+        } verify: { metadata in
+            metadata.hasImageEncryptionKey
+        }
 
-        let finalMetadata = try currentCustomMetadata
-        guard finalMetadata.hasImageEncryptionKey else {
+        guard let finalKey = try imageEncryptionKey else {
             throw ImageEncryptionError.keyGenerationFailed
         }
-        return finalMetadata.imageEncryptionKey
+        return finalKey
     }
 
     public var encryptedGroupImage: EncryptedImageRef? {
@@ -92,9 +97,11 @@ extension XMTPiOS.Group {
     }
 
     public func updateEncryptedGroupImage(_ encryptedRef: EncryptedImageRef) async throws {
-        var customMetadata = try currentCustomMetadata
-        customMetadata.encryptedGroupImage = encryptedRef
-        try await updateMetadata(customMetadata)
+        try await atomicUpdateMetadata { metadata in
+            metadata.encryptedGroupImage = encryptedRef
+        } verify: { metadata in
+            metadata.hasEncryptedGroupImage && metadata.encryptedGroupImage.url == encryptedRef.url
+        }
     }
 
     // This should only be done by the conversation creator
@@ -102,10 +109,17 @@ extension XMTPiOS.Group {
     // The tag is used by the invitee to verify the conversation they've been added to
     // is the one that corresponds to the invite they are requesting to join
     public func ensureInviteTag() async throws {
-        var customMetadata = try currentCustomMetadata
-        guard customMetadata.tag.isEmpty else { return }
-        customMetadata.tag = try generateSecureRandomString(length: 10)
-        try await updateMetadata(customMetadata)
+        let existingTag = try inviteTag
+        guard existingTag.isEmpty else { return }
+
+        let newTag = try generateSecureRandomString(length: 10)
+        try await atomicUpdateMetadata { metadata in
+            if metadata.tag.isEmpty {
+                metadata.tag = newTag
+            }
+        } verify: { metadata in
+            !metadata.tag.isEmpty
+        }
     }
 
     /// Generates a cryptographically secure random string of specified length
@@ -171,9 +185,35 @@ extension XMTPiOS.Group {
         guard let conversationProfile = profile.conversationProfile else {
             throw ConversationCustomMetadataError.invalidInboxIdHex(profile.inboxId)
         }
-        var customMetadata = try currentCustomMetadata
-        customMetadata.upsertProfile(conversationProfile)
-        try await updateMetadata(customMetadata)
+        try await atomicUpdateMetadata { metadata in
+            metadata.upsertProfile(conversationProfile)
+        } verify: { metadata in
+            metadata.profiles.contains { $0.inboxIdString == profile.inboxId }
+        }
+    }
+
+    private func atomicUpdateMetadata(
+        maxRetries: Int = 3,
+        modify: (inout ConversationCustomMetadata) -> Void,
+        verify: (ConversationCustomMetadata) -> Bool
+    ) async throws {
+        for attempt in 0..<maxRetries {
+            var metadata = try currentCustomMetadata
+            modify(&metadata)
+            try await updateMetadata(metadata)
+
+            let finalMetadata = try currentCustomMetadata
+            if verify(finalMetadata) {
+                return
+            }
+
+            if attempt < maxRetries - 1 {
+                let delayMs = UInt64(50_000_000 * (attempt + 1))
+                try await Task.sleep(nanoseconds: delayMs)
+                Log.warning("Metadata update verification failed, retrying (attempt \(attempt + 1)/\(maxRetries))")
+            }
+        }
+        throw ConversationCustomMetadataError.metadataUpdateFailed
     }
 
     func updateMetadata(_ metadata: ConversationCustomMetadata) async throws {

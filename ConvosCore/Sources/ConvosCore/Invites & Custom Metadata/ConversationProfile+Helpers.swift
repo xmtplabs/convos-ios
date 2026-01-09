@@ -9,9 +9,12 @@ extension ConversationProfile {
         inboxID.hexEncodedString()
     }
 
-    /// Returns the effective image URL (prefers encrypted, falls back to legacy)
+    /// Returns the effective image URL (prefers encrypted if valid, falls back to legacy)
     public var effectiveImageUrl: String? {
-        if hasEncryptedImage, !encryptedImage.url.isEmpty {
+        if hasEncryptedImage,
+           !encryptedImage.url.isEmpty,
+           encryptedImage.salt.count == 32,
+           encryptedImage.nonce.count == 12 {
             return encryptedImage.url
         }
         if hasImage {

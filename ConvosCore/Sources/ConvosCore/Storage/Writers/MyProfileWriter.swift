@@ -109,28 +109,13 @@ class MyProfileWriter: MyProfileWriterProtocol {
             acl: "public-read"
         )
 
-        var encryptedRef = EncryptedImageRef()
-        encryptedRef.url = uploadedAssetUrl
-        encryptedRef.salt = encryptedPayload.salt
-        encryptedRef.nonce = encryptedPayload.nonce
-
-        guard let conversationProfile = ConversationProfile(
-            inboxIdString: inboxId,
-            name: profile.name,
-            encryptedImageRef: encryptedRef
-        ) else {
-            throw ConversationCustomMetadataError.invalidInboxIdHex(inboxId)
-        }
-
-        var customMetadata = try group.currentCustomMetadata
-        customMetadata.upsertProfile(conversationProfile)
-        try await group.updateMetadata(customMetadata)
-
         let updatedProfile = profile.with(
             avatar: uploadedAssetUrl,
             salt: encryptedPayload.salt,
             nonce: encryptedPayload.nonce
         )
+
+        try await group.updateProfile(updatedProfile)
 
         if let image = ImageType(data: compressedImageData) {
             ImageCacheContainer.shared.setImage(image, for: uploadedAssetUrl)
