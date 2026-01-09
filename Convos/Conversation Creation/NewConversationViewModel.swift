@@ -6,31 +6,20 @@ import SwiftUI
 
 struct IdentifiableError: Identifiable {
     let id: UUID = UUID()
-    let error: DisplayError
-
-    var title: String { error.title }
-    var description: String { error.description }
-}
-
-struct GenericDisplayError: DisplayError {
     let title: String
     let description: String
-}
+    let retryAction: RetryAction?
 
-struct InviteJoinFailedError: DisplayError {
-    let joinError: InviteJoinError
-
-    var title: String {
-        switch joinError.errorType {
-        case .conversationExpired:
-            return "Convo no longer exists"
-        case .genericFailure, .unknown:
-            return "Couldn't join"
-        }
+    init(title: String, description: String, retryAction: RetryAction? = nil) {
+        self.title = title
+        self.description = description
+        self.retryAction = retryAction
     }
 
-    var description: String {
-        joinError.userFacingMessage
+    init(error: DisplayError, retryAction: RetryAction? = nil) {
+        self.title = error.title
+        self.description = error.description
+        self.retryAction = retryAction ?? (error as? RetryableDisplayError)?.retryAction
     }
 }
 
@@ -54,7 +43,6 @@ class NewConversationViewModel: Identifiable {
     var displayError: IdentifiableError? {
         didSet {
             qrScannerViewModel.presentingInvalidInviteSheet = displayError != nil
-            // Reset scanner when dismissing the error sheet to allow immediate re-scanning
             if oldValue != nil && displayError == nil {
                 qrScannerViewModel.resetScanTimer()
                 qrScannerViewModel.resetScanning()
@@ -66,7 +54,6 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
-    // State tracking
     private(set) var isCreatingConversation: Bool = false
     private(set) var currentError: Error?
     private(set) var conversationState: ConversationStateMachine.State = .uninitialized
@@ -84,6 +71,8 @@ class NewConversationViewModel: Identifiable {
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
     private var stateObserverHandle: ConversationStateObserverHandle?
+    @ObservationIgnored
+    private var dismissAction: DismissAction?
 
     // MARK: - Init
 
@@ -173,7 +162,6 @@ class NewConversationViewModel: Identifiable {
             guard let self else { return }
             guard !Task.isCancelled else { return }
             do {
-                // Request to join - this will trigger state changes through the observer
                 try await conversationStateManager.joinConversation(inviteCode: inviteCode)
                 guard !Task.isCancelled else { return }
 
@@ -204,6 +192,41 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
+    func setDismissAction(_ action: DismissAction) {
+        dismissAction = action
+    }
+
+    func dismissWithDeletion() {
+        displayError = nil
+        currentError = nil
+        isCreatingConversation = false
+        conversationViewModel.isWaitingForInviteAcceptance = false
+        deleteConversation()
+        dismissAction?()
+    }
+
+    func retryAction(_ action: RetryAction) {
+        displayError = nil
+        switch action {
+        case .createConversation:
+            newConversationTask = Task { [weak self] in
+                guard let self else { return }
+                guard !Task.isCancelled else { return }
+                do {
+                    try await conversationStateManager.createConversation()
+                } catch {
+                    Log.error("Error retrying conversation creation: \(error.localizedDescription)")
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run { [weak self] in
+                        self?.handleCreationError(error)
+                    }
+                }
+            }
+        case .joinConversation(let inviteCode):
+            joinConversation(inviteCode: inviteCode)
+        }
+    }
+
     // MARK: - Private
 
     @MainActor
@@ -221,15 +244,13 @@ class NewConversationViewModel: Identifiable {
                 showingFullScreenScanner = true
             }
 
-            // Set the display error
             if let displayError = error as? DisplayError {
                 self.displayError = IdentifiableError(error: displayError)
             } else {
-                // Fallback for non-DisplayError errors
-                self.displayError = IdentifiableError(error: GenericDisplayError(
+                self.displayError = IdentifiableError(
                     title: "Failed joining",
                     description: "Please try again."
-                ))
+                )
             }
         }
     }
@@ -331,41 +352,110 @@ class NewConversationViewModel: Identifiable {
             currentError = nil
 
         case .joinFailed(_, let error):
-            qrScannerViewModel.resetScanning()
-            conversationViewModel.isWaitingForInviteAcceptance = false
-            isCreatingConversation = false
-            let joinError = InviteJoinFailedError(joinError: error)
-            handleError(joinError)
+            handleJoinFailedState(error)
 
         case .error(let error):
-            qrScannerViewModel.resetScanning()
-            conversationViewModel.isWaitingForInviteAcceptance = false
-            isCreatingConversation = false
-            currentError = error
-            if startedWithFullscreenScanner {
-                conversationViewModel.showsInfoView = false
-            }
-            Log.error("Conversation state error: \(error.localizedDescription)")
-            // Handle specific error types
-            handleError(error)
+            handleErrorState(error)
         }
     }
 
     @MainActor
-    private func handleError(_ error: Error) {
-        // Set the display error
+    private func handleJoinFailedState(_ error: InviteJoinError) {
+        qrScannerViewModel.resetScanning()
+        conversationViewModel.isWaitingForInviteAcceptance = false
+        isCreatingConversation = false
+
+        let inviteCode = extractInviteCode(from: conversationState)
+        let isRetryable = error.errorType == .genericFailure && inviteCode != nil
+
+        let title: String
+        let description = error.userFacingMessage
+        let retryAction: RetryAction?
+
+        if isRetryable, let inviteCode {
+            title = "Couldn't join"
+            retryAction = .joinConversation(inviteCode: inviteCode)
+        } else {
+            title = error.errorType == .conversationExpired ? "Convo no longer exists" : "Couldn't join"
+            retryAction = nil
+        }
+
+        displayError = IdentifiableError(title: title, description: description, retryAction: retryAction)
+    }
+
+    @MainActor
+    private func handleErrorState(_ error: Error) {
+        qrScannerViewModel.resetScanning()
+        conversationViewModel.isWaitingForInviteAcceptance = false
+        isCreatingConversation = false
+        currentError = error
+
+        if startedWithFullscreenScanner {
+            conversationViewModel.showsInfoView = false
+        }
+
+        Log.error("Conversation state error: \(error.localizedDescription)")
+
+        guard let stateMachineError = error as? ConversationStateMachineError else {
+            showGenericError(error)
+            return
+        }
+
+        switch stateMachineError {
+        case .timedOut, .stateMachineError:
+            showRetryableError(for: stateMachineError)
+        default:
+            if let displayError = error as? DisplayError {
+                self.displayError = IdentifiableError(error: displayError)
+            } else {
+                showGenericError(error)
+            }
+        }
+    }
+
+    @MainActor
+    private func showRetryableError(for error: ConversationStateMachineError) {
+        let inviteCode = extractInviteCode(from: conversationState)
+
+        if let inviteCode {
+            displayError = IdentifiableError(
+                title: "Couldn't join",
+                description: "Connection timed out. Please check your network and try again.",
+                retryAction: .joinConversation(inviteCode: inviteCode)
+            )
+        } else {
+            displayError = IdentifiableError(
+                title: "Couldn't create",
+                description: "Failed to create conversation. Please try again.",
+                retryAction: .createConversation
+            )
+        }
+    }
+
+    @MainActor
+    private func showGenericError(_ error: Error) {
         if let displayError = error as? DisplayError {
             self.displayError = IdentifiableError(error: displayError)
         } else {
-            // Fallback for non-DisplayError errors
-            self.displayError = IdentifiableError(error: GenericDisplayError(
+            self.displayError = IdentifiableError(
                 title: "Failed creating",
                 description: "Please try again."
-            ))
+            )
         }
 
         if startedWithFullscreenScanner {
             showingFullScreenScanner = true
+        }
+    }
+
+    private func extractInviteCode(from state: ConversationStateMachine.State) -> String? {
+        switch state {
+        case .validating(let inviteCode):
+            return inviteCode
+        case .validated(let invite, _, _, _), .joining(let invite, _):
+            return try? invite.toURLSafeSlug()
+        default:
+            return nil
         }
     }
 

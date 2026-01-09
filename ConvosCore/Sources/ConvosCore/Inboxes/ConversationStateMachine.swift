@@ -806,6 +806,15 @@ public protocol DisplayError: Error {
     var description: String { get }
 }
 
+public enum RetryAction: Equatable {
+    case createConversation
+    case joinConversation(inviteCode: String)
+}
+
+public protocol RetryableDisplayError: DisplayError {
+    var retryAction: RetryAction { get }
+}
+
 // MARK: - Errors
 
 public enum ConversationStateMachineError: Error {
