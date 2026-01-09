@@ -54,7 +54,7 @@ public actor EncryptedImageService: EncryptedImageServiceProtocol {
             throw ImageEncryptionError.missingEncryptionKey
         }
 
-        guard let key = try group.imageEncryptionKey else {
+        guard let key = try group.imageEncryptionKey, !key.isEmpty else {
             throw ImageEncryptionError.missingEncryptionKey
         }
 

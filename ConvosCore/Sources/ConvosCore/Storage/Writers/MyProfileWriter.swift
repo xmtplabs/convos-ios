@@ -80,7 +80,10 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
         guard let avatarImage = avatar else {
             ImageCacheContainer.shared.removeImage(for: profile.hydrateProfile())
-            let updatedProfile = profile.with(avatar: nil)
+            let updatedProfile = profile.with(avatar: nil, salt: nil, nonce: nil)
+            try await databaseWriter.write { db in
+                try updatedProfile.save(db)
+            }
             try await group.updateProfile(updatedProfile)
             return
         }

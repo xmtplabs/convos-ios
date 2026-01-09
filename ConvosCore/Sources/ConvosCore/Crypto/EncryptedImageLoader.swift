@@ -29,7 +29,10 @@ public struct EncryptedImageParams: Sendable {
 
 public enum EncryptedImageLoader {
     public static func loadAndDecrypt(params: EncryptedImageParams) async throws -> Data {
-        let (ciphertext, _) = try await URLSession.shared.data(from: params.url)
+        let (ciphertext, response) = try await URLSession.shared.data(from: params.url)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
 
         let plaintext = try ImageEncryption.decrypt(
             ciphertext: ciphertext,

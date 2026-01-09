@@ -11,9 +11,10 @@ extension ConversationProfile {
 
     /// Returns the effective image URL (prefers encrypted, falls back to legacy)
     public var effectiveImageUrl: String? {
-        if hasEncryptedImage {
+        if hasEncryptedImage, !encryptedImage.url.isEmpty {
             return encryptedImage.url
-        } else if hasImage {
+        }
+        if hasImage {
             return image
         }
         return nil

@@ -77,11 +77,16 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
 
                 let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(params: params)
 
-                if let image = ImageType(data: decryptedData) {
-                    ImageCacheContainer.shared.setImage(image, for: urlString)
-                    Log.info("Prefetched encrypted profile image for: \(profile.inboxId)")
-                    return
+                guard let image = ImageType(data: decryptedData) else {
+                    throw NSError(
+                        domain: "EncryptedImagePrefetcher",
+                        code: -1,
+                        userInfo: [NSLocalizedDescriptionKey: "Failed to create image from decrypted data"]
+                    )
                 }
+                ImageCacheContainer.shared.setImage(image, for: urlString)
+                Log.info("Prefetched encrypted profile image for: \(profile.inboxId)")
+                return
             } catch {
                 lastError = error
                 if attempt < Self.maxRetryAttempts - 1 {

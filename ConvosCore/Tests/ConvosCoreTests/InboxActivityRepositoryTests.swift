@@ -5,7 +5,6 @@ import Testing
 
 @Suite("InboxActivityRepository Tests", .serialized)
 struct InboxActivityRepositoryTests {
-
     // MARK: - Activity Query Tests
 
     @Test("allInboxActivities returns activities sorted by lastActivity descending")

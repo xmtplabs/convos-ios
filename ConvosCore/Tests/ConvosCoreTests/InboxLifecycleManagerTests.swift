@@ -5,7 +5,6 @@ import Testing
 
 @Suite("InboxLifecycleManager Tests", .serialized)
 struct InboxLifecycleManagerTests {
-
     // MARK: - Basic Wake/Sleep Tests
 
     @Test("Wake adds inbox to awake set")
