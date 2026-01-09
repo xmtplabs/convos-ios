@@ -17,6 +17,25 @@ This document contains project-specific conventions and best practices for the C
 - Views and ViewModels go in the main app target
 - Use protocols for dependency injection (e.g., `SessionManagerProtocol`)
 
+### XMTP SDK Abstraction Pattern
+To enable testability and avoid tight coupling to the XMTP iOS SDK, Convos uses protocol wrappers around XMTP types:
+
+- **`XMTPClientProvider`**: Protocol that mirrors the XMTP SDK's client interface
+- Allows dependency injection of mock XMTP clients in tests
+- Prevents direct usage of XMTP SDK types throughout the codebase
+- Enables testing without requiring live XMTP network connections
+
+**Pattern:**
+```swift
+// ✅ Good - Use the protocol wrapper
+func myFunction(client: any XMTPClientProvider) { }
+
+// ❌ Bad - Direct XMTP SDK usage
+func myFunction(client: XMTPiOS.Client) { }
+```
+
+This pattern applies to other XMTP types as well - prefer protocol wrappers for dependency injection and testability.
+
 ## SwiftUI Conventions
 
 ### State Management
@@ -242,9 +261,16 @@ swift test --filter "TestClassName" --package-path ConvosCore
 Feature development follows a PRD workflow:
 
 1. Create PRD from template: `docs/TEMPLATE_PRD.md` → `docs/plans/[feature].md`
-2. Use `swift-architect` to validate technical design
-3. Implement with other agents as needed
-4. Update PRD status as work progresses
+2. Use `prd-writer` agent to draft the PRD (problem statement, user stories, high-level approach)
+3. Use `swift-architect` agent to design detailed technical implementation
+4. Implement with other agents as needed
+5. Update PRD status as work progresses
+
+**PRD Guidelines:**
+- PRDs focus on **what** and **why**, not detailed **how**
+- Avoid prescriptive code implementations in PRDs
+- Leave technical design specifics to `swift-architect` agent
+- Reference relevant ADRs for architectural context
 
 ### Pre-commit Hooks
 

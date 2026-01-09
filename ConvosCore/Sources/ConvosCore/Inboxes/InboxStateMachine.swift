@@ -271,6 +271,11 @@ public actor InboxStateMachine {
         }
     }
 
+    public func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
+        guard let syncingManager else { return }
+        await syncingManager.setInviteJoinErrorHandler(handler)
+    }
+
     // MARK: - Private
 
     private func enqueueAction(_ action: Action) {
@@ -907,7 +912,8 @@ public actor InboxStateMachine {
                 AttachmentCodec(),
                 RemoteAttachmentCodec(),
                 GroupUpdatedCodec(),
-                ExplodeSettingsCodec()
+                ExplodeSettingsCodec(),
+                InviteJoinErrorCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,

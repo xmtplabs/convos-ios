@@ -25,10 +25,18 @@ echo "📝 Checking ${STAGED_SWIFT_FILES}"
 # Check if SwiftFormat is available
 if command -v swiftformat &> /dev/null; then
     echo "🎨 Running SwiftFormat..."
-    echo "$STAGED_SWIFT_FILES" | xargs swiftformat
+    while IFS= read -r file; do
+        if [ -f "$file" ]; then
+            swiftformat "$file"
+        fi
+    done <<< "$STAGED_SWIFT_FILES"
 
     # Re-add formatted files
-    echo "$STAGED_SWIFT_FILES" | xargs git add
+    while IFS= read -r file; do
+        if [ -f "$file" ]; then
+            git add "$file"
+        fi
+    done <<< "$STAGED_SWIFT_FILES"
 else
     echo -e "${YELLOW}⚠ SwiftFormat not found, skipping formatting${NC}"
 fi
@@ -39,20 +47,24 @@ if command -v swiftlint &> /dev/null; then
 
     # Run SwiftLint with auto-fix on staged files
     LINT_ERRORS=0
-    for file in $STAGED_SWIFT_FILES; do
+    while IFS= read -r file; do
         if [ -f "$file" ]; then
-            swiftlint lint --fix --path "$file" 2>/dev/null || true
+            swiftlint lint --fix "$file" 2>/dev/null || true
 
             # Check for remaining errors
-            if ! swiftlint lint --quiet --path "$file" 2>/dev/null; then
+            if ! swiftlint lint --quiet "$file" 2>/dev/null; then
                 LINT_ERRORS=$((LINT_ERRORS + 1))
                 echo -e "${RED}✗ Lint errors in: $file${NC}"
             fi
         fi
-    done
+    done <<< "$STAGED_SWIFT_FILES"
 
     # Re-add files after auto-fix
-    echo "$STAGED_SWIFT_FILES" | xargs git add
+    while IFS= read -r file; do
+        if [ -f "$file" ]; then
+            git add "$file"
+        fi
+    done <<< "$STAGED_SWIFT_FILES"
 
     if [ $LINT_ERRORS -gt 0 ]; then
         echo -e "${RED}✗ SwiftLint found errors that couldn't be auto-fixed${NC}"

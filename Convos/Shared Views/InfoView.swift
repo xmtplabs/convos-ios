@@ -3,6 +3,7 @@ import SwiftUI
 struct InfoView: View {
     let title: String
     let description: String
+    var onDismiss: (() -> Void)?
 
     @Environment(\.dismiss) var dismiss: DismissAction
 
@@ -17,7 +18,11 @@ struct InfoView: View {
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {
-                    dismiss()
+                    if let onDismiss {
+                        onDismiss()
+                    } else {
+                        dismiss()
+                    }
                 } label: {
                     Text("Got it")
                 }

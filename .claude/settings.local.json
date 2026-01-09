@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(xcpretty:*)",
-      "Bash(gt submit:*)"
+      "Bash(gt submit:*)",
+      "Bash(timeout 60 swift test:*)"
     ]
   },
   "enabledMcpjsonServers": [
