@@ -70,6 +70,7 @@ public actor EncryptedImageService: EncryptedImageServiceProtocol {
     }
 }
 
+// KeyCache is @unchecked Sendable because NSCache is internally thread-safe
 private final class KeyCache: @unchecked Sendable {
     private let cache: NSCache<NSString, NSData> = .init()
 
