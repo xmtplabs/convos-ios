@@ -35,6 +35,7 @@ public actor ConversationStateMachine {
         case join
         case delete
         case stop
+        case reset
     }
 
     public enum State: Equatable {
@@ -52,6 +53,15 @@ public actor ConversationStateMachine {
         case ready(ConversationReadyResult)
         case deleting
         case error(Error)
+
+        public var isReadyOrJoining: Bool {
+            switch self {
+            case .ready, .joining:
+                return true
+            default:
+                return false
+            }
+        }
 
         public static func == (lhs: State, rhs: State) -> Bool {
             switch (lhs, rhs) {
@@ -240,6 +250,12 @@ public actor ConversationStateMachine {
         enqueueAction(.delete)
     }
 
+    func reset() {
+        // Cancel current task immediately to unblock the action queue
+        currentTask?.cancel()
+        enqueueAction(.reset)
+    }
+
     func stop() {
         // Cancel current task immediately to unblock the action queue
         currentTask?.cancel()
@@ -327,6 +343,9 @@ public actor ConversationStateMachine {
 
             case (.ready, .delete), (.error, .delete), (.joinFailed, .delete):
                 try await handleDelete()
+
+            case (.error, .reset), (.joinFailed, .reset):
+                handleReset()
 
             case (_, .stop):
                 handleStop()
@@ -729,6 +748,18 @@ public actor ConversationStateMachine {
     }
 
     private func handleStop() {
+        messageStreamContinuation?.finish()
+        messageProcessingTask?.cancel()
+        observationTask?.cancel()
+        observationTask = nil
+        isProcessing = false
+        Task {
+            await inboxStateManager.setInviteJoinErrorHandler(nil)
+        }
+        emitStateChange(.uninitialized)
+    }
+
+    private func handleReset() {
         messageStreamContinuation?.finish()
         messageProcessingTask?.cancel()
         observationTask?.cancel()

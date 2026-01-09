@@ -58,6 +58,10 @@ class NewConversationViewModel: Identifiable {
             if oldValue != nil && displayError == nil {
                 qrScannerViewModel.resetScanTimer()
                 qrScannerViewModel.resetScanning()
+                resetTask?.cancel()
+                resetTask = Task { [weak self] in
+                    await self?.conversationStateManager.resetFromError()
+                }
             }
         }
     }
@@ -74,6 +78,8 @@ class NewConversationViewModel: Identifiable {
     private var newConversationTask: Task<Void, Error>?
     @ObservationIgnored
     private var joinConversationTask: Task<Void, Error>?
+    @ObservationIgnored
+    private var resetTask: Task<Void, Never>?
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
@@ -151,6 +157,7 @@ class NewConversationViewModel: Identifiable {
         cancellables.removeAll()
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
+        resetTask?.cancel()
         stateObserverHandle?.cancel()
     }
 
@@ -234,6 +241,25 @@ class NewConversationViewModel: Identifiable {
     }
 
     @MainActor
+    private func resetUIState() {
+        messagesTopBarTrailingItem = .scan
+        messagesTopBarTrailingItemEnabled = false
+        messagesTextFieldEnabled = false
+        shouldConfirmDeletingConversation = true
+        conversationViewModel.untitledConversationPlaceholder = "New convo"
+        conversationViewModel.isWaitingForInviteAcceptance = false
+        isCreatingConversation = false
+        currentError = nil
+        qrScannerViewModel.resetScanning()
+
+        if startedWithFullscreenScanner {
+            conversationViewModel.showsInfoView = false
+        } else {
+            conversationViewModel.showsInfoView = true
+        }
+    }
+
+    @MainActor
     private func setupStateObservation() {
         stateObserverHandle = conversationStateManager.observeState { [weak self] state in
             self?.handleStateChange(state)
@@ -246,17 +272,7 @@ class NewConversationViewModel: Identifiable {
 
         switch state {
         case .uninitialized:
-            conversationViewModel.isWaitingForInviteAcceptance = false
-            isCreatingConversation = false
-            messagesTopBarTrailingItemEnabled = false
-            messagesTextFieldEnabled = false
-            if startedWithFullscreenScanner {
-                conversationViewModel.showsInfoView = false
-            } else {
-                conversationViewModel.showsInfoView = true
-            }
-            currentError = nil
-            qrScannerViewModel.resetScanning()
+            resetUIState()
 
         case .creating:
             isCreatingConversation = true
@@ -377,9 +393,9 @@ class NewConversationViewModel: Identifiable {
         )
         .eraseToAnyPublisher()
         .receive(on: DispatchQueue.main)
-        .first()
         .sink { [weak self] in
             guard let self else { return }
+            guard conversationState.isReadyOrJoining else { return }
             messagesTopBarTrailingItem = .share
             shouldConfirmDeletingConversation = false
             conversationViewModel.untitledConversationPlaceholder = "Untitled"

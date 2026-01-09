@@ -19,6 +19,9 @@ public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWr
     @MainActor func removeObserver(_ observer: ConversationStateObserver)
     @MainActor func observeState(_ handler: @escaping (ConversationStateMachine.State) -> Void) -> ConversationStateObserverHandle
 
+    // Error Recovery
+    func resetFromError() async
+
     // Dependencies
     var myProfileWriter: any MyProfileWriterProtocol { get }
     var draftConversationRepository: any DraftConversationRepositoryProtocol { get }
@@ -256,6 +259,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
     public func delete() async throws {
         try await inboxStateManager.delete()
         await stateMachine.delete()
+    }
+
+    public func resetFromError() async {
+        await stateMachine.reset()
     }
 }
 
