@@ -5,7 +5,6 @@ import Testing
 
 @Suite("SessionManager Tests", .serialized)
 struct SessionManagerTests {
-
     // MARK: - Wake Inbox by Conversation ID Tests
 
     @Test("wakeInboxForNotification wakes sleeping client by conversation ID")

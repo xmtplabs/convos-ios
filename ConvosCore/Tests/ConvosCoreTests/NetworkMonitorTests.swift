@@ -13,7 +13,6 @@ import Testing
 /// - Edge cases and error handling
 @Suite("NetworkMonitor Tests", .serialized)
 struct NetworkMonitorTests {
-
     // MARK: - Basic Functionality Tests
 
     @Test("NetworkMonitor initializes with unknown status")

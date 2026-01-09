@@ -20,7 +20,6 @@ private let testPlatformProviders = PlatformProviders.mock
 /// - Multiple conversation creation
 @Suite("ConversationStateMachine Tests", .serialized)
 struct ConversationStateMachineTests {
-
     // MARK: - Test Helpers
 
     /// Waits for messages to be saved to the database by polling with a timeout
@@ -105,7 +104,6 @@ struct ConversationStateMachineTests {
             switch state {
             case .ready(let readyResult):
                 result = readyResult
-                break
             case .error(let error):
                 Issue.record("Creation failed: \(error)")
                 // Clean up and return early on error
@@ -1137,7 +1135,6 @@ struct ConversationStateMachineTests {
             switch state {
             case .ready(let readyResult):
                 result = readyResult
-                break
             case .error(let error):
                 Issue.record("UseExisting failed: \(error)")
                 await messagingService.stopAndDelete()

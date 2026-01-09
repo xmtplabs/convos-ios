@@ -3,13 +3,26 @@ import Foundation
 public struct Profile: Codable, Identifiable, Hashable, Sendable {
     public var id: String { inboxId }
     public let inboxId: String
+    public let conversationId: String?
     public let name: String?
     public let avatar: String?
+    public let avatarSalt: Data?
+    public let avatarNonce: Data?
 
-    public init(inboxId: String, name: String?, avatar: String?) {
+    public init(
+        inboxId: String,
+        conversationId: String? = nil,
+        name: String?,
+        avatar: String?,
+        avatarSalt: Data? = nil,
+        avatarNonce: Data? = nil
+    ) {
         self.inboxId = inboxId
+        self.conversationId = conversationId
         self.name = name
         self.avatar = avatar
+        self.avatarSalt = avatarSalt
+        self.avatarNonce = avatarNonce
     }
 
     public var avatarURL: URL? {
@@ -19,12 +32,23 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         return url
     }
 
+    public var isAvatarEncrypted: Bool {
+        avatarSalt?.count == 32 && avatarNonce?.count == 12
+    }
+
     public var displayName: String {
         name ?? "Somebody"
     }
 
     public func with(inboxId: String) -> Profile {
-        .init(inboxId: inboxId, name: name, avatar: avatar)
+        .init(
+            inboxId: inboxId,
+            conversationId: conversationId,
+            name: name,
+            avatar: avatar,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce
+        )
     }
 
     public static func empty(inboxId: String = "") -> Profile {
