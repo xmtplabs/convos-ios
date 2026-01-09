@@ -12,6 +12,7 @@ public protocol EncryptedImageServiceProtocol: Sendable {
 public actor EncryptedImageService: EncryptedImageServiceProtocol {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let keyCache: KeyCache
+    private var inflightFetches: [String: Task<Data, Error>] = [:]
 
     public init(inboxStateManager: any InboxStateManagerProtocol) {
         self.inboxStateManager = inboxStateManager
@@ -41,9 +42,24 @@ public actor EncryptedImageService: EncryptedImageServiceProtocol {
             return cachedKey
         }
 
-        let key = try await fetchGroupKey(for: conversationId)
-        keyCache.set(key, for: conversationId)
-        return key
+        if let existingTask = inflightFetches[conversationId] {
+            return try await existingTask.value
+        }
+
+        let task = Task {
+            try await self.fetchGroupKey(for: conversationId)
+        }
+        inflightFetches[conversationId] = task
+
+        do {
+            let key = try await task.value
+            keyCache.set(key, for: conversationId)
+            inflightFetches.removeValue(forKey: conversationId)
+            return key
+        } catch {
+            inflightFetches.removeValue(forKey: conversationId)
+            throw error
+        }
     }
 
     private func fetchGroupKey(for conversationId: String) async throws -> Data {

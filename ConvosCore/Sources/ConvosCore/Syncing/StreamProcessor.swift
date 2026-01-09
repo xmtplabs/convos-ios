@@ -103,7 +103,11 @@ actor StreamProcessor: StreamProcessorProtocol {
         if creatorInboxId == client.inboxId {
             // we created the conversation, update permissions, set inviteTag, and generate encryption key
             try await conversation.ensureInviteTag()
-            try await conversation.ensureImageEncryptionKey()
+            do {
+                try await conversation.ensureImageEncryptionKey()
+            } catch {
+                Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
+            }
             let permissions = try conversation.permissionPolicySet()
             if permissions.addMemberPolicy != .allow {
                 // by default allow all members to invite others

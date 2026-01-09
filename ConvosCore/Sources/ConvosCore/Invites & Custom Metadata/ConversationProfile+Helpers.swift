@@ -1,6 +1,14 @@
 import Foundation
 import SwiftProtobuf
 
+// MARK: - EncryptedImageRef + Validation
+
+extension EncryptedImageRef {
+    public var isValid: Bool {
+        !url.isEmpty && salt.count == 32 && nonce.count == 12
+    }
+}
+
 // MARK: - ConversationProfile + Helpers
 
 extension ConversationProfile {
@@ -11,10 +19,7 @@ extension ConversationProfile {
 
     /// Returns the effective image URL (prefers encrypted if valid, falls back to legacy)
     public var effectiveImageUrl: String? {
-        if hasEncryptedImage,
-           !encryptedImage.url.isEmpty,
-           encryptedImage.salt.count == 32,
-           encryptedImage.nonce.count == 12 {
+        if hasEncryptedImage, encryptedImage.isValid {
             return encryptedImage.url
         }
         if hasImage {

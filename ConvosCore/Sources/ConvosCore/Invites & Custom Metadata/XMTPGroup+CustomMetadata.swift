@@ -91,7 +91,10 @@ extension XMTPiOS.Group {
     public var encryptedGroupImage: EncryptedImageRef? {
         get throws {
             let metadata = try currentCustomMetadata
-            guard metadata.hasEncryptedGroupImage else { return nil }
+            guard metadata.hasEncryptedGroupImage,
+                  metadata.encryptedGroupImage.isValid else {
+                return nil
+            }
             return metadata.encryptedGroupImage
         }
     }
@@ -100,7 +103,10 @@ extension XMTPiOS.Group {
         try await atomicUpdateMetadata { metadata in
             metadata.encryptedGroupImage = encryptedRef
         } verify: { metadata in
-            metadata.hasEncryptedGroupImage && metadata.encryptedGroupImage.url == encryptedRef.url
+            metadata.hasEncryptedGroupImage &&
+            metadata.encryptedGroupImage.url == encryptedRef.url &&
+            metadata.encryptedGroupImage.salt == encryptedRef.salt &&
+            metadata.encryptedGroupImage.nonce == encryptedRef.nonce
         }
     }
 
@@ -159,7 +165,7 @@ extension XMTPiOS.Group {
                 let salt: Data?
                 let nonce: Data?
 
-                if profile.hasEncryptedImage {
+                if profile.hasEncryptedImage, profile.encryptedImage.isValid {
                     avatarUrl = profile.encryptedImage.url
                     salt = profile.encryptedImage.salt
                     nonce = profile.encryptedImage.nonce
@@ -192,6 +198,27 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// Performs an optimistic concurrency update on group metadata with verification.
+    ///
+    /// This uses a read-modify-write pattern with post-write verification:
+    /// 1. Read current metadata
+    /// 2. Apply modifications
+    /// 3. Write to XMTP
+    /// 4. Re-read and verify the change persisted
+    /// 5. Retry with exponential backoff if verification fails
+    ///
+    /// **Concurrency Model:**
+    /// - Not truly atomic - concurrent writes can overwrite each other
+    /// - Verification catches most conflicts (verification fails → retry)
+    /// - Callers should include idempotency checks in `modify` closure
+    ///   (e.g., `if !metadata.hasKey { metadata.key = newKey }`)
+    /// - Suitable for infrequent, user-initiated operations
+    ///
+    /// - Parameters:
+    ///   - maxRetries: Maximum retry attempts (default: 3)
+    ///   - modify: Closure to modify the metadata
+    ///   - verify: Closure to verify the modification persisted
+    /// - Throws: `ConversationCustomMetadataError.metadataUpdateFailed` if all retries exhausted
     private func atomicUpdateMetadata(
         maxRetries: Int = 3,
         modify: (inout ConversationCustomMetadata) -> Void,

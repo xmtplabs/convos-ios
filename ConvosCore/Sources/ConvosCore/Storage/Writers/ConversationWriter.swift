@@ -367,21 +367,19 @@ class ConversationWriter: ConversationWriterProtocol {
         let encryptedProfiles = profiles.filter { $0.avatarSalt != nil && $0.avatarNonce != nil }
         guard !encryptedProfiles.isEmpty else { return }
 
-        Task.detached(priority: .background) {
-            do {
-                guard let groupKey = try group.imageEncryptionKey else {
-                    Log.info("No image encryption key for group, skipping prefetch")
-                    return
-                }
+        let groupKey: Data? = try? group.imageEncryptionKey
 
-                let prefetcher = EncryptedImagePrefetcher()
-                await prefetcher.prefetchProfileImages(
-                    profiles: encryptedProfiles,
-                    groupKey: groupKey
-                )
-            } catch {
-                Log.error("Failed to prefetch encrypted images: \(error)")
+        Task.detached(priority: .background) {
+            guard let groupKey else {
+                Log.info("No image encryption key for group, skipping prefetch")
+                return
             }
+
+            let prefetcher = EncryptedImagePrefetcher()
+            await prefetcher.prefetchProfileImages(
+                profiles: encryptedProfiles,
+                groupKey: groupKey
+            )
         }
     }
 }

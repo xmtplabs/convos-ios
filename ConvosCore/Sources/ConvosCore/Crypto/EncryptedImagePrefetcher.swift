@@ -43,9 +43,8 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
     private func filterUncachedProfiles(_ profiles: [DBMemberProfile]) async -> [DBMemberProfile] {
         var uncached: [DBMemberProfile] = []
         for profile in profiles {
-            guard let urlString = profile.avatar,
-                  profile.avatarSalt != nil,
-                  profile.avatarNonce != nil else {
+            guard profile.hasValidEncryptedAvatar,
+                  let urlString = profile.avatar else {
                 continue
             }
 
@@ -57,7 +56,8 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
     }
 
     private func prefetchWithRetry(profile: DBMemberProfile, groupKey: Data) async {
-        guard let urlString = profile.avatar,
+        guard profile.hasValidEncryptedAvatar,
+              let urlString = profile.avatar,
               let url = URL(string: urlString),
               let salt = profile.avatarSalt,
               let nonce = profile.avatarNonce else {

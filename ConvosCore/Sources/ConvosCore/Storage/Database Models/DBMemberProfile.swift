@@ -111,4 +111,13 @@ extension DBMemberProfile {
             avatarNonce: nonce
         )
     }
+
+    var hasValidEncryptedAvatar: Bool {
+        guard let salt = avatarSalt,
+              let nonce = avatarNonce,
+              avatar != nil else {
+            return false
+        }
+        return salt.count == 32 && nonce.count == 12
+    }
 }

@@ -50,7 +50,10 @@ extension ConversationCustomMetadata {
 
 extension DBMemberProfile {
     var conversationProfile: ConversationProfile? {
-        if let salt = avatarSalt, let nonce = avatarNonce, let url = avatar {
+        if hasValidEncryptedAvatar,
+           let url = avatar,
+           let salt = avatarSalt,
+           let nonce = avatarNonce {
             var encryptedRef = EncryptedImageRef()
             encryptedRef.url = url
             encryptedRef.salt = salt

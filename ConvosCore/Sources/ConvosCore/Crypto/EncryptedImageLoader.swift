@@ -15,9 +15,8 @@ public struct EncryptedImageParams: Sendable {
 
     public init?(encryptedRef: EncryptedImageRef, groupKey: Data?) {
         guard let groupKey = groupKey,
-              let url = URL(string: encryptedRef.url),
-              !encryptedRef.salt.isEmpty,
-              !encryptedRef.nonce.isEmpty else {
+              encryptedRef.isValid,
+              let url = URL(string: encryptedRef.url) else {
             return nil
         }
         self.url = url
