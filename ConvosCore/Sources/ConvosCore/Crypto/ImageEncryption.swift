@@ -111,9 +111,9 @@ public enum ImageEncryptionError: Error, LocalizedError {
             return "Failed to decrypt image"
         case .missingEncryptionKey:
             return "Group encryption key not found"
-        case .invalidSaltLength(let expected, let actual):
+        case let .invalidSaltLength(expected, actual):
             return "Invalid salt length: expected \(expected), got \(actual)"
-        case .invalidNonceLength(let expected, let actual):
+        case let .invalidNonceLength(expected, actual):
             return "Invalid nonce length: expected \(expected), got \(actual)"
         }
     }

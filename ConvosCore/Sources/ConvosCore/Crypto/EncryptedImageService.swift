@@ -71,7 +71,7 @@ public actor EncryptedImageService: EncryptedImageServiceProtocol {
 }
 
 private final class KeyCache: @unchecked Sendable {
-    private let cache = NSCache<NSString, NSData>()
+    private let cache: NSCache<NSString, NSData> = .init()
 
     init() {
         cache.countLimit = 100
