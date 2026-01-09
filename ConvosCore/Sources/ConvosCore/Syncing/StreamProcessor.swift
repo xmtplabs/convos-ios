@@ -101,8 +101,9 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let creatorInboxId = try await conversation.creatorInboxId()
         if creatorInboxId == client.inboxId {
-            // we created the conversation, update permissions and set inviteTag
+            // we created the conversation, update permissions, set inviteTag, and generate encryption key
             try await conversation.ensureInviteTag()
+            try await conversation.ensureImageEncryptionKey()
             let permissions = try conversation.permissionPolicySet()
             if permissions.addMemberPolicy != .allow {
                 // by default allow all members to invite others
