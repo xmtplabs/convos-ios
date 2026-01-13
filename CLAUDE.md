@@ -284,3 +284,65 @@ To install:
 ln -sf ../../.claude/hooks/pre-commit.sh .git/hooks/pre-commit
 chmod +x .git/hooks/pre-commit
 ```
+
+### Parallel Task Management
+
+The `convos-task` script (`.claude/scripts/convos-task`) automates working on multiple features simultaneously using git worktrees and Graphite.
+
+**Setup:**
+```bash
+# Add to PATH in ~/.zshrc or ~/.bashrc
+export PATH="$HOME/Code/convos-ios/.claude/scripts:$PATH"
+alias ct="convos-task"
+```
+
+**Why this matters for Claude Code:**
+- Each worktree is a **separate Claude Code session** with independent conversation history
+- Allows working on multiple features without losing context or switching branches
+- Integrates with Graphite's stacking workflow
+
+**Basic Usage:**
+```bash
+# Create new task (creates worktree + Graphite branch + launches Claude)
+convos-task new my-feature-name
+
+# Or stack on specific parent
+convos-task new my-feature main
+
+# List all active tasks
+convos-task list
+
+# Switch to existing task (opens Claude in new terminal)
+convos-task switch my-feature-name
+
+# Submit PR via Graphite
+convos-task submit my-feature-name
+
+# Sync with Graphite stack
+convos-task sync my-feature-name
+
+# Clean up when done (removes worktree + branch)
+convos-task cleanup my-feature-name
+```
+
+**Workflow Example:**
+```bash
+# Main repo: working on retry-errors
+cd ~/Code/convos-ios
+
+# Start parallel task in new worktree
+convos-task new push-notifications
+# → Opens new terminal with Claude at ~/Code/convos-ios-push-notifications
+# → Branch stacked on current branch via Graphite
+
+# Continue working on retry-errors in original session
+# Work on push-notifications in new session
+# Both Claude sessions are completely independent
+```
+
+**Key Points:**
+- Each worktree has its own conversation history (no context sharing between sessions)
+- Worktrees share the same `.claude/` configuration, MCP tools, and hooks
+- Docker services (e.g., local XMTP node) are shared across worktrees
+- Graphite branches are automatically stacked on current branch unless parent specified
+- Use `ct` as shorthand for `convos-task`

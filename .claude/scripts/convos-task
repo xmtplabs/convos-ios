@@ -1,0 +1,340 @@
+#!/bin/bash
+# Convos iOS task management with git worktrees + Graphite
+
+set -e
+
+# Detect repo location dynamically
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MAIN_REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
+REPO_NAME="$(basename "$MAIN_REPO")"
+BASE_DIR="$(dirname "$MAIN_REPO")"
+
+# Colors (only use if output is a terminal)
+if [ -t 1 ]; then
+    GREEN='\033[0;32m'
+    BLUE='\033[0;34m'
+    YELLOW='\033[1;33m'
+    RED='\033[0;31m'
+    NC='\033[0m' # No Color
+else
+    GREEN=''
+    BLUE=''
+    YELLOW=''
+    RED=''
+    NC=''
+fi
+
+cmd_new() {
+    local TASK_NAME="$1"
+    local PARENT_BRANCH="$2"
+
+    if [ -z "$TASK_NAME" ]; then
+        echo -e "${RED}Usage: convos-task new <task-name> [parent-branch]${NC}"
+        echo "Example: convos-task new push-notifications"
+        echo "Example: convos-task new push-notifications main"
+        exit 1
+    fi
+
+    # Validate task name format
+    if [[ ! "$TASK_NAME" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+        echo -e "${RED}Error: Task name must contain only letters, numbers, hyphens, and underscores${NC}"
+        echo "Invalid: '$TASK_NAME'"
+        exit 1
+    fi
+
+    WORKTREE_DIR="$BASE_DIR/$REPO_NAME-$TASK_NAME"
+
+    # Check if worktree already exists
+    if [ -d "$WORKTREE_DIR" ]; then
+        echo -e "${RED}Error: Worktree already exists at $WORKTREE_DIR${NC}"
+        exit 1
+    fi
+
+    cd "$MAIN_REPO"
+
+    # Store original branch to return to it later
+    ORIGINAL_BRANCH=$(git branch --show-current)
+
+    # If parent branch specified, checkout first
+    if [ -n "$PARENT_BRANCH" ]; then
+        echo -e "${BLUE}Checking out parent branch: $PARENT_BRANCH${NC}"
+        git checkout "$PARENT_BRANCH"
+        ORIGINAL_BRANCH="$PARENT_BRANCH"
+    fi
+
+    echo -e "${BLUE}Creating Graphite branch: $TASK_NAME${NC}"
+
+    # Create branch with Graphite (this stacks it on current branch)
+    gt branch create "$TASK_NAME" --no-interactive || {
+        echo -e "${RED}Failed to create Graphite branch${NC}"
+        exit 1
+    }
+
+    # Get the current branch name (Graphite may have modified it)
+    BRANCH_NAME=$(git branch --show-current)
+
+    echo -e "${BLUE}Creating worktree at $WORKTREE_DIR${NC}"
+
+    # Go back to original branch before creating worktree
+    git checkout "$ORIGINAL_BRANCH"
+
+    # Create worktree pointing to the new branch
+    git worktree add "$WORKTREE_DIR" "$BRANCH_NAME"
+
+    echo -e "${GREEN}✅ Created worktree and Graphite branch${NC}"
+    echo -e "${BLUE}📁 Location: $WORKTREE_DIR${NC}"
+    echo -e "${BLUE}🌿 Branch: $BRANCH_NAME${NC}"
+
+    # Show stack info
+    cd "$WORKTREE_DIR"
+    echo -e "\n${BLUE}Graphite stack:${NC}"
+    gt log short 2>/dev/null || gt stack 2>/dev/null || echo "Run 'gt stack' to see stack"
+
+    # Launch Claude Code in new terminal (Ghostty)
+    echo -e "\n${BLUE}Launching Claude Code...${NC}"
+
+    if command -v ghostty &> /dev/null; then
+        ghostty --working-directory="$WORKTREE_DIR" -e bash -c "echo '🚀 Starting Claude Code for task: $TASK_NAME' && claude" &
+    else
+        echo -e "${YELLOW}⚠️  Ghostty not found, falling back to Terminal${NC}"
+        osascript -e "tell application \"Terminal\"
+            do script \"cd $WORKTREE_DIR && echo '🚀 Starting Claude Code for task: $TASK_NAME' && claude\"
+            activate
+        end tell"
+    fi
+
+    echo -e "${GREEN}✅ Claude Code launched in new terminal${NC}"
+}
+
+cmd_list() {
+    echo -e "${BLUE}Active worktrees:${NC}\n"
+
+    cd "$MAIN_REPO"
+
+    local WORKTREE_PATH=""
+    local BRANCH=""
+
+    git worktree list --porcelain | while IFS= read -r line; do
+        case "$line" in
+            worktree\ *)
+                WORKTREE_PATH="${line#worktree }"
+                ;;
+            branch\ *)
+                BRANCH="${line#branch refs/heads/}"
+                ;;
+            "")
+                # Empty line indicates end of worktree entry
+                if [ -n "$BRANCH" ]; then
+                    echo -e "${GREEN}📁 $WORKTREE_PATH${NC}"
+                    echo -e "   🌿 Branch: $BRANCH"
+
+                    # Try to get Graphite info
+                    if [ -d "$WORKTREE_PATH" ]; then
+                        (cd "$WORKTREE_PATH" && {
+                            PARENT=$(gt log short 2>/dev/null | grep "↓" | head -1 | awk '{print $NF}' || echo "")
+                            if [ -n "$PARENT" ]; then
+                                echo -e "   📚 Parent: $PARENT"
+                            fi
+                        })
+                    fi
+                    echo ""
+                fi
+                # Reset for next entry
+                WORKTREE_PATH=""
+                BRANCH=""
+                ;;
+        esac
+    done
+}
+
+cmd_switch() {
+    local TASK_NAME="$1"
+
+    if [ -z "$TASK_NAME" ]; then
+        echo -e "${RED}Usage: convos-task switch <task-name>${NC}"
+        echo "Tip: Run 'convos-task list' to see available tasks"
+        exit 1
+    fi
+
+    WORKTREE_DIR="$BASE_DIR/$REPO_NAME-$TASK_NAME"
+
+    if [ ! -d "$WORKTREE_DIR" ]; then
+        echo -e "${RED}Error: Worktree not found at $WORKTREE_DIR${NC}"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Launching Claude Code for task: $TASK_NAME${NC}"
+
+    if command -v ghostty &> /dev/null; then
+        ghostty --working-directory="$WORKTREE_DIR" -e claude &
+    else
+        echo -e "${YELLOW}⚠️  Ghostty not found, falling back to Terminal${NC}"
+        osascript -e "tell application \"Terminal\"
+            do script \"cd $WORKTREE_DIR && claude\"
+            activate
+        end tell"
+    fi
+}
+
+cmd_submit() {
+    local TASK_NAME="$1"
+
+    if [ -z "$TASK_NAME" ]; then
+        # If no task name, assume we're in a worktree
+        if [[ "$(pwd)" == *"$REPO_NAME-"* ]]; then
+            echo -e "${BLUE}Submitting current branch...${NC}"
+            gt submit
+        else
+            echo -e "${RED}Usage: convos-task submit <task-name>${NC}"
+            echo "Or run from within a worktree directory"
+            exit 1
+        fi
+    else
+        WORKTREE_DIR="$BASE_DIR/$REPO_NAME-$TASK_NAME"
+
+        if [ ! -d "$WORKTREE_DIR" ]; then
+            echo -e "${RED}Error: Worktree not found at $WORKTREE_DIR${NC}"
+            exit 1
+        fi
+
+        cd "$WORKTREE_DIR"
+        echo -e "${BLUE}Submitting task: $TASK_NAME${NC}"
+        gt submit
+    fi
+}
+
+cmd_sync() {
+    local TASK_NAME="$1"
+
+    if [ -z "$TASK_NAME" ]; then
+        if [[ "$(pwd)" == *"$REPO_NAME-"* ]]; then
+            echo -e "${BLUE}Syncing current worktree...${NC}"
+            gt sync
+        else
+            echo -e "${RED}Usage: convos-task sync <task-name>${NC}"
+            echo "Or run from within a worktree directory"
+            exit 1
+        fi
+    else
+        WORKTREE_DIR="$BASE_DIR/$REPO_NAME-$TASK_NAME"
+
+        if [ ! -d "$WORKTREE_DIR" ]; then
+            echo -e "${RED}Error: Worktree not found at $WORKTREE_DIR${NC}"
+            exit 1
+        fi
+
+        cd "$WORKTREE_DIR"
+        echo -e "${BLUE}Syncing task: $TASK_NAME${NC}"
+        gt sync
+    fi
+}
+
+cmd_cleanup() {
+    local TASK_NAME="$1"
+
+    if [ -z "$TASK_NAME" ]; then
+        echo -e "${RED}Usage: convos-task cleanup <task-name>${NC}"
+        exit 1
+    fi
+
+    WORKTREE_DIR="$BASE_DIR/$REPO_NAME-$TASK_NAME"
+
+    if [ ! -d "$WORKTREE_DIR" ]; then
+        echo -e "${RED}Error: Worktree not found at $WORKTREE_DIR${NC}"
+        exit 1
+    fi
+
+    cd "$WORKTREE_DIR"
+    BRANCH_NAME=$(git branch --show-current)
+
+    echo -e "${YELLOW}⚠️  About to remove worktree and Graphite branch:${NC}"
+    echo -e "   📁 Worktree: $WORKTREE_DIR"
+    echo -e "   🌿 Branch: $BRANCH_NAME"
+    echo ""
+    read -p "Are you sure? (y/N): " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        cd "$MAIN_REPO"
+
+        # Remove worktree
+        echo -e "${BLUE}Removing worktree...${NC}"
+        git worktree remove "$WORKTREE_DIR" --force
+
+        # Delete Graphite branch
+        echo -e "${BLUE}Deleting Graphite branch...${NC}"
+        if ! gt branch delete "$BRANCH_NAME" --force 2>&1; then
+            echo -e "${YELLOW}⚠️  Graphite delete failed, using git directly${NC}"
+            git branch -D "$BRANCH_NAME"
+        fi
+
+        echo -e "${GREEN}✅ Cleaned up task: $TASK_NAME${NC}"
+    else
+        echo -e "${BLUE}Cancelled.${NC}"
+    fi
+}
+
+cmd_help() {
+    cat << EOF
+${BLUE}Convos iOS Task Management${NC}
+
+Manage parallel tasks using git worktrees + Graphite
+
+${GREEN}Commands:${NC}
+  new <task-name> [parent]  Create new worktree and Graphite branch
+  list                      List all active worktrees
+  switch <task-name>        Open Claude Code in existing worktree
+  submit [task-name]        Submit PR via Graphite (gt submit)
+  sync [task-name]          Sync with Graphite stack (gt sync)
+  cleanup <task-name>       Remove worktree and branch
+  help                      Show this help
+
+${GREEN}Examples:${NC}
+  convos-task new push-notifications
+  convos-task new bug-fix main
+  convos-task list
+  convos-task submit push-notifications
+  convos-task cleanup push-notifications
+
+${GREEN}Workflow:${NC}
+  1. ${BLUE}convos-task new my-feature${NC}     # Creates worktree + launches Claude
+  2. Work on feature in Claude Code...
+  3. ${BLUE}convos-task submit my-feature${NC}   # Submit PR via Graphite
+  4. ${BLUE}convos-task cleanup my-feature${NC}  # Remove when done
+
+${YELLOW}Notes:${NC}
+  - Each worktree is a separate Claude Code session
+  - Graphite branches are automatically stacked
+  - Use 'gt stack' in worktree to see stack structure
+EOF
+}
+
+# Main command dispatcher
+case "$1" in
+    new)
+        cmd_new "$2" "$3"
+        ;;
+    list|ls)
+        cmd_list
+        ;;
+    switch|open)
+        cmd_switch "$2"
+        ;;
+    submit|pr)
+        cmd_submit "$2"
+        ;;
+    sync)
+        cmd_sync "$2"
+        ;;
+    cleanup|done|rm)
+        cmd_cleanup "$2"
+        ;;
+    help|--help|-h|"")
+        cmd_help
+        ;;
+    *)
+        echo -e "${RED}Unknown command: $1${NC}"
+        echo "Run 'convos-task help' for usage"
+        exit 1
+        ;;
+esac
