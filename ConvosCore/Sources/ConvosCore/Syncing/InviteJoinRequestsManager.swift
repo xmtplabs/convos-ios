@@ -22,7 +22,7 @@ protocol InviteJoinRequestsManagerProtocol {
     func processJoinRequest(
         message: XMTPiOS.DecodedMessage,
         client: AnyClientProvider
-    ) async throws -> JoinRequestResult?
+    ) async -> JoinRequestResult?
     func processJoinRequests(
         since: Date?,
         client: AnyClientProvider
@@ -68,29 +68,82 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
 
     // MARK: - Public
 
-    /// Process a message as a potential join request, with error handling
+    /// Send an invite join error message back to the joiner via DM
+    /// - Parameters:
+    ///   - errorType: The type of error that occurred
+    ///   - inviteTag: The invite tag for correlation
+    ///   - dmConversation: The DM conversation to send the error through
+    private func sendJoinError(
+        errorType: InviteJoinErrorType,
+        inviteTag: String,
+        dmConversation: XMTPiOS.Conversation
+    ) async {
+        do {
+            let error = InviteJoinError(
+                errorType: errorType,
+                inviteTag: inviteTag,
+                timestamp: Date()
+            )
+            try await dmConversation.sendInviteJoinError(error)
+            Log.info("Sent invite join error (\(errorType.rawValue)) to joiner")
+        } catch {
+            Log.error("Failed to send invite join error: \(error)")
+        }
+    }
+
+    /// Attempts to send a join error message back to the joiner
+    /// - Parameters:
+    ///   - errorType: The type of error that occurred
+    ///   - inviteTag: Optional invite tag for correlation
+    ///   - message: The original decoded message
+    ///   - client: The XMTP client provider
+    private func sendJoinErrorIfPossible(
+        errorType: InviteJoinErrorType,
+        inviteTag: String?,
+        message: XMTPiOS.DecodedMessage,
+        client: AnyClientProvider
+    ) async {
+        guard let tag = inviteTag else {
+            Log.warning("Cannot send join error: invite tag not available")
+            return
+        }
+
+        guard let dmConversation = try? await client.conversationsProvider.findConversation(
+            conversationId: message.conversationId
+        ) else {
+            Log.warning("Cannot send join error: DM conversation not found for message \(message.conversationId)")
+            return
+        }
+
+        await sendJoinError(errorType: errorType, inviteTag: tag, dmConversation: dmConversation)
+    }
+
+    /// Process a message as a potential join request, with error handling and error message sending
     /// - Parameters:
     ///   - message: The decoded message to process
     ///   - client: The XMTP client provider
     /// - Returns: The result if successful, nil otherwise
-    private func processJoinRequestSafely(
+    func processJoinRequest(
         message: XMTPiOS.DecodedMessage,
         client: AnyClientProvider
     ) async -> JoinRequestResult? {
+        let inviteTag = extractInviteTag(from: message)
+
         do {
-            if let result = try await processJoinRequest(
+            guard let result = try await processJoinRequestUnsafe(
                 message: message,
                 client: client
-            ) {
-                Log.info("Successfully added \(message.senderInboxId) to conversation \(result.conversationId)")
-                return result
+            ) else {
+                return nil
             }
+
+            Log.info("Successfully added \(message.senderInboxId) to conversation \(result.conversationId)")
+            return result
+        } catch InviteJoinRequestError.missingTextContent,
+                InviteJoinRequestError.invalidInviteFormat {
             return nil
-        } catch InviteJoinRequestError.missingTextContent {
-            // Silently skip - not a join request
-            return nil
-        } catch InviteJoinRequestError.invalidInviteFormat {
-            // Silently skip - not a join request
+        } catch InviteJoinRequestError.expired {
+            Log.info("Invite expired for join request from \(message.senderInboxId)")
             return nil
         } catch InviteJoinRequestError.invalidSignature {
             Log.error("Invalid signature in join request from \(message.senderInboxId)")
@@ -100,22 +153,53 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
             return nil
         } catch InviteJoinRequestError.conversationNotFound(let id) {
             Log.error("Conversation \(id) not found for join request from \(message.senderInboxId)")
+            await sendJoinErrorIfPossible(
+                errorType: .conversationExpired,
+                inviteTag: inviteTag,
+                message: message,
+                client: client
+            )
+            return nil
+        } catch InviteJoinRequestError.expiredConversation {
+            Log.error("Conversation expired for join request from \(message.senderInboxId)")
+            await sendJoinErrorIfPossible(
+                errorType: .conversationExpired,
+                inviteTag: inviteTag,
+                message: message,
+                client: client
+            )
             return nil
         } catch InviteJoinRequestError.invalidConversationType {
             Log.error("Join request targets a DM instead of a group")
             return nil
         } catch {
             Log.error("Error processing join request: \(error)")
+            await sendJoinErrorIfPossible(
+                errorType: .genericFailure,
+                inviteTag: inviteTag,
+                message: message,
+                client: client
+            )
             return nil
         }
     }
 
-    /// Process a message as a potential join request
+    private func extractInviteTag(from message: XMTPiOS.DecodedMessage) -> String? {
+        guard let dbMessage = try? message.dbRepresentation(),
+              let text = dbMessage.text,
+              let signedInvite = try? SignedInvite.fromURLSafeSlug(text) else {
+            return nil
+        }
+        return signedInvite.invitePayload.tag
+    }
+
+    /// Process a message as a potential join request (unsafe - throws errors without sending error messages)
     /// - Parameters:
     ///   - message: The decoded message to process
     ///   - client: The XMTP client provider
     /// - Returns: The conversation details (ID and name) that the sender was added to, or nil if not a valid join request
-    func processJoinRequest(
+    /// - Throws: InviteJoinRequestError if the request is invalid
+    private func processJoinRequestUnsafe(
         message: XMTPiOS.DecodedMessage,
         client: AnyClientProvider
     ) async throws -> JoinRequestResult? {
@@ -154,7 +238,6 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
 
         let creatorInboxId = signedInvite.invitePayload.creatorInboxIdString
 
-        // validate that the invite contains a non-empty creator inbox ID
         guard !creatorInboxId.isEmpty else {
             await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
             throw InviteJoinRequestError.malformedInboxId
@@ -169,22 +252,16 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
 
         let publicKey = identity.keys.privateKey.publicKey.secp256K1Uncompressed.bytes
 
-        // Verify the signature - explicitly handle both failure and errors
-        let verifiedSignature: Bool
         do {
-            verifiedSignature = try signedInvite.verify(with: publicKey)
+            guard try signedInvite.verify(with: publicKey) else {
+                Log.error("Signature verification failed for invite from \(senderInboxId) - blocking DM")
+                await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
+                throw InviteJoinRequestError.invalidSignature
+            }
+        } catch let error as InviteJoinRequestError {
+            throw error
         } catch {
-            // Verification threw an exception (e.g., malformed signature, invalid key format)
-            // This is different from a signature that doesn't match
             Log.error("Exception during signature verification for invite from \(senderInboxId): \(error) - blocking DM")
-            await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
-            throw InviteJoinRequestError.invalidSignature
-        }
-
-        // Explicitly check that verification succeeded
-        guard verifiedSignature == true else {
-            // Signature verification returned false - signature doesn't match
-            Log.error("Signature verification failed for invite from \(senderInboxId) - blocking DM")
             await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
             throw InviteJoinRequestError.invalidSignature
         }
@@ -309,22 +386,18 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol {
     private func processMessages(for dm: XMTPiOS.Dm, client: AnyClientProvider) async throws -> JoinRequestResult? {
         let messages = try await dm.messages(afterNs: nil)
             .filter { message in
-                guard let encodedContentType = try? message.encodedContent.type else {
+                guard let encodedContentType = try? message.encodedContent.type,
+                      encodedContentType == ContentTypeText,
+                      message.senderInboxId != client.inboxId else {
                     return false
                 }
-
-                switch encodedContentType {
-                case ContentTypeText:
-                    return message.senderInboxId != client.inboxId
-                default:
-                    return false
-                }
+                return true
             }
         Log.info("Found \(messages.count) messages as possible join requests")
 
         // Process each message and return first successful result for this DM
         for message in messages {
-            if let result = await self.processJoinRequestSafely(
+            if let result = await self.processJoinRequest(
                 message: message,
                 client: client
             ) {
@@ -365,30 +438,16 @@ extension XMTPiOS.Dm {
     /// - Parameter clientInboxId: The inbox ID of the current client (to verify sender)
     /// - Returns: A SignedInvite if the last message is a valid text invite, nil otherwise
     func lastMessageAsSignedInvite(sentBy clientInboxId: String) async -> SignedInvite? {
-        guard let lastMessage = try? await self.lastMessage() else {
-            return nil
-        }
-
-        let content: String? = try? lastMessage.content()
-        Log.info("Received last message: \(content ?? "nil") sender: \(lastMessage.senderInboxId)")
-
-        // Only check messages sent by us
-        guard lastMessage.senderInboxId == clientInboxId else {
-            return nil
-        }
-
-        // Only check text messages
-        guard let encodedContentType = try? lastMessage.encodedContent.type,
-              encodedContentType == ContentTypeText else {
-            return nil
-        }
-
-        // Try to parse as text and then as SignedInvite
-        guard let text: String = try? lastMessage.content(),
+        guard let lastMessage = try? await self.lastMessage(),
+              lastMessage.senderInboxId == clientInboxId,
+              let encodedContentType = try? lastMessage.encodedContent.type,
+              encodedContentType == ContentTypeText,
+              let text: String = try? lastMessage.content(),
               let invite = try? SignedInvite.fromURLSafeSlug(text) else {
             return nil
         }
 
+        Log.info("Received last message: \(text) sender: \(lastMessage.senderInboxId)")
         return invite
     }
 }

@@ -120,6 +120,11 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
         notifyObservers(currentState)
     }
 
+    public func resetFromError() async {
+        currentState = .uninitialized
+        notifyObservers(currentState)
+    }
+
     // MARK: - Test Helpers
 
     /// Manually update the state and notify observers

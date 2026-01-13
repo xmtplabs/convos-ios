@@ -12,6 +12,7 @@ public protocol InboxStateManagerProtocol: AnyObject {
     func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult
     func delete() async throws
     func waitForDeletionComplete() async
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async throws
 
     func addObserver(_ observer: InboxStateObserver)
     func removeObserver(_ observer: InboxStateObserver)
@@ -129,6 +130,13 @@ public final class InboxStateManager: InboxStateManagerProtocol {
             return
         }
         await stateMachine.waitForDeletionComplete()
+    }
+
+    public func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async throws {
+        guard let stateMachine = stateMachine else {
+            throw InboxStateError.inboxNotReady
+        }
+        await stateMachine.setInviteJoinErrorHandler(handler)
     }
 
     public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {

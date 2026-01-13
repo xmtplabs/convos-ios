@@ -35,6 +35,7 @@ public actor ConversationStateMachine {
         case join
         case delete
         case stop
+        case reset
     }
 
     public enum State: Equatable {
@@ -48,9 +49,19 @@ public actor ConversationStateMachine {
             previousReadyResult: ConversationReadyResult?
         )
         case joining(invite: SignedInvite, placeholder: ConversationReadyResult)
+        case joinFailed(inviteTag: String, error: InviteJoinError)
         case ready(ConversationReadyResult)
         case deleting
         case error(Error)
+
+        public var isReadyOrJoining: Bool {
+            switch self {
+            case .ready, .joining:
+                return true
+            default:
+                return false
+            }
+        }
 
         public static func == (lhs: State, rhs: State) -> Bool {
             switch (lhs, rhs) {
@@ -60,6 +71,8 @@ public actor ConversationStateMachine {
                 return true
             case let (.joining(lhsInvite, _), .joining(rhsInvite, _)):
                 return lhsInvite.invitePayload.conversationToken == rhsInvite.invitePayload.conversationToken
+            case let (.joinFailed(lhsTag, _), .joinFailed(rhsTag, _)):
+                return lhsTag == rhsTag
             case let (.validating(lhsCode), .validating(rhsCode)):
                 return lhsCode == rhsCode
             case let (.validated(lhsInvite, _, lhsInbox, _), .validated(rhsInvite, _, rhsInbox, _)):
@@ -237,6 +250,12 @@ public actor ConversationStateMachine {
         enqueueAction(.delete)
     }
 
+    func reset() {
+        // Cancel current task immediately to unblock the action queue
+        currentTask?.cancel()
+        enqueueAction(.reset)
+    }
+
     func stop() {
         // Cancel current task immediately to unblock the action queue
         currentTask?.cancel()
@@ -290,24 +309,29 @@ public actor ConversationStateMachine {
     private func processAction(_ action: Action) async {
         do {
             switch (_state, action) {
-            case (.uninitialized, .create):
-                try await handleCreate()
-            case (.error, .create):
-                handleStop()
+            case (.uninitialized, .create), (.error, .create):
+                if case .error = _state {
+                    await handleStop()
+                }
                 try await handleCreate()
 
-            case (.uninitialized, let .useExisting(conversationId)):
-                handleUseExisting(conversationId: conversationId)
-            case (.error, let .useExisting(conversationId)):
-                handleStop()
+            case (.uninitialized, let .useExisting(conversationId)), (.error, let .useExisting(conversationId)):
+                if case .error = _state {
+                    await handleStop()
+                }
                 handleUseExisting(conversationId: conversationId)
 
-            case (.uninitialized, let .validate(inviteCode)):
+            case (.uninitialized, let .validate(inviteCode)), (.error, let .validate(inviteCode)):
+                if case .error = _state {
+                    await handleStop()
+                }
                 try await handleValidate(inviteCode: inviteCode, previousResult: nil)
+
             case let (.ready(previousResult), .validate(inviteCode)):
                 try await handleValidate(inviteCode: inviteCode, previousResult: previousResult)
-            case let (.error, .validate(inviteCode)):
-                handleStop()
+
+            case (.joinFailed, let .validate(inviteCode)):
+                await handleStop()
                 try await handleValidate(inviteCode: inviteCode, previousResult: nil)
 
             case (let .validated(invite, placeholder, inboxReady, previousResult), .join):
@@ -318,19 +342,20 @@ public actor ConversationStateMachine {
                     previousReadyResult: previousResult
                 )
 
-            case (.ready, .delete), (.error, .delete):
+            case (.ready, .delete), (.error, .delete), (.joinFailed, .delete):
                 try await handleDelete()
 
+            case (.error, .reset), (.joinFailed, .reset):
+                await handleReset()
+
             case (_, .stop):
-                handleStop()
+                await handleStop()
 
             default:
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
             }
         } catch is CancellationError {
-            // Task was cancelled - this is expected behavior from stop/delete
             Log.info("Action \(action) cancelled")
-            // Don't emit error state - the cancelling method already handled state transition
         } catch {
             Log.error("Failed state transition \(_state) -> \(action): \(error.localizedDescription)")
             let displayableError: Error = (error is DisplayError ? error :
@@ -420,9 +445,7 @@ public actor ConversationStateMachine {
             existingIdentity = nil
         }
 
-        // In case cleanup failed while deleting an inbox/conversation
-        if existingConversation != nil,
-           existingIdentity == nil {
+        if existingConversation != nil, existingIdentity == nil {
             Log.warning("Found existing conversation for identity that does not exist, deleting...")
             _ = try await databaseWriter.write { db in
                 try DBConversation
@@ -506,6 +529,9 @@ public actor ConversationStateMachine {
     ) async throws {
         emitStateChange(.joining(invite: invite, placeholder: placeholder))
 
+        // Register ourselves as the error handler for invite join errors when app is active
+        try await inboxStateManager.setInviteJoinErrorHandler(self)
+
         Log.info("Requesting to join conversation...")
 
         let apiClient = inboxReady.apiClient
@@ -547,20 +573,34 @@ public actor ConversationStateMachine {
             observationTask = nil
 
             Log.info("Conversation joined successfully: \(conversationId)")
-            // Transition to ready state
+            await clearInviteJoinErrorHandler()
+
+            guard case .joining(let currentInvite, _) = _state,
+                  currentInvite.invitePayload.tag == invite.invitePayload.tag else {
+                Log.info("State changed from joining before ready emission, skipping")
+                return
+            }
+
             emitStateChange(.ready(ConversationReadyResult(
                 conversationId: conversationId,
                 origin: .joined
             )))
         } catch is CancellationError {
-            // Task was cancelled (e.g., from handleStop/handleDelete/deinit)
             observationTask = nil
+            await clearInviteJoinErrorHandler()
             Log.info("Conversation join observation cancelled")
-            throw CancellationError()  // Propagate instead of swallowing
+            guard case .joinFailed = _state else {
+                throw CancellationError()
+            }
+            Log.info("Already in joinFailed state, not propagating cancellation")
         } catch {
             observationTask = nil
+            await clearInviteJoinErrorHandler()
             Log.error("Error waiting for conversation to join: \(error)")
-            throw ConversationStateMachineError.timedOut
+            guard case .joinFailed = _state else {
+                throw ConversationStateMachineError.timedOut
+            }
+            Log.info("Already in joinFailed state, not throwing timeout error")
         }
     }
 
@@ -605,6 +645,9 @@ public actor ConversationStateMachine {
 
         emitStateChange(.deleting)
 
+        // Unregister error handler if we were in joining state
+        await clearInviteJoinErrorHandler()
+
         // Cancel observation tasks and stop accepting new messages
         // Note: currentTask is already cancelled by delete() - don't cancel ourselves!
         messageStreamContinuation?.finish()
@@ -644,11 +687,10 @@ public actor ConversationStateMachine {
             try await cleanUp(
                 conversationId: previousResult.conversationId,
                 client: client,
-                apiClient: apiClient,
+                apiClient: apiClient
             )
         } catch {
             Log.error("Failed to clean up previous conversation: \(error)")
-            // Continue with transition even if cleanup fails
         }
     }
 
@@ -715,13 +757,29 @@ public actor ConversationStateMachine {
         }
     }
 
-    private func handleStop() {
+    private func handleStop() async {
+        await cleanUpState()
+    }
+
+    private func handleReset() async {
+        await cleanUpState()
+    }
+
+    private func cleanUpState() async {
         messageStreamContinuation?.finish()
         messageProcessingTask?.cancel()
         observationTask?.cancel()
         observationTask = nil
-        isProcessing = false
+        await clearInviteJoinErrorHandler()
         emitStateChange(.uninitialized)
+    }
+
+    private func clearInviteJoinErrorHandler() async {
+        do {
+            try await inboxStateManager.setInviteJoinErrorHandler(nil)
+        } catch {
+            Log.debug("Failed to clear invite join error handler: \(error)")
+        }
     }
 
     private func subscribeToConversationTopics(
@@ -757,6 +815,15 @@ public actor ConversationStateMachine {
 public protocol DisplayError: Error {
     var title: String { get }
     var description: String { get }
+}
+
+public enum RetryAction: Equatable {
+    case createConversation
+    case joinConversation(inviteCode: String)
+}
+
+public protocol RetryableDisplayError: DisplayError {
+    var retryAction: RetryAction { get }
 }
 
 // MARK: - Errors
@@ -808,5 +875,33 @@ extension ConversationStateMachineError: DisplayError {
         case .timedOut:
             return "Joining the convo failed."
         }
+    }
+}
+
+// MARK: - InviteJoinErrorHandler
+
+extension ConversationStateMachine: InviteJoinErrorHandler {
+    public func handleInviteJoinError(_ error: InviteJoinError) async {
+        guard case .joining(let invite, _) = _state,
+              error.inviteTag == invite.invitePayload.tag else {
+            Log.info("Ignoring InviteJoinError for non-matching inviteTag or non-joining state")
+            return
+        }
+
+        Log.info("Transitioning to joinFailed state for inviteTag: \(error.inviteTag)")
+
+        observationTask?.cancel()
+        observationTask = nil
+
+        // Unregister error handler before transitioning to joinFailed
+        await clearInviteJoinErrorHandler()
+
+        guard case .joining(let currentInvite, _) = _state,
+              currentInvite.invitePayload.tag == error.inviteTag else {
+            Log.info("State changed after error handler cleanup, not emitting joinFailed")
+            return
+        }
+
+        emitStateChange(.joinFailed(inviteTag: error.inviteTag, error: error))
     }
 }

@@ -24,6 +24,8 @@ protocol StreamProcessorProtocol: Actor {
         apiClient: any ConvosAPIClientProtocol,
         activeConversationId: String?
     ) async
+
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
 }
 
 /// Processes conversations and messages from XMTP streams
@@ -51,6 +53,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let consentStates: [ConsentState] = [.allowed, .unknown]
+    private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
 
     // MARK: - Initialization
 
@@ -64,6 +67,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.deviceRegistrationManager = deviceRegistrationManager
+        self.inviteJoinErrorHandler = nil
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
         self.conversationWriter = ConversationWriter(
             identityStore: identityStore,
@@ -79,6 +83,10 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Public Interface
+
+    func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) {
+        self.inviteJoinErrorHandler = handler
+    }
 
     func processConversation(
         _ conversation: any ConversationSender,
@@ -141,15 +149,16 @@ actor StreamProcessor: StreamProcessorProtocol {
 
             switch conversation {
             case .dm:
-                do {
-                    _ = try await joinRequestsManager.processJoinRequest(
-                        message: message,
-                        client: client
-                    )
-                    Log.info("Processed potential join request: \(message.id)")
-                } catch {
-                    Log.error("Failed processing join request: \(error)")
+                if let inviteJoinError = decodeInviteJoinError(from: message) {
+                    await handleInviteJoinError(inviteJoinError, senderInboxId: message.senderInboxId)
+                    return
                 }
+
+                _ = await joinRequestsManager.processJoinRequest(
+                    message: message,
+                    client: client
+                )
+                Log.info("Processed potential join request: \(message.id)")
             case .group(let conversation):
                 do {
                     guard try await shouldProcessConversation(conversation, client: client) else {
@@ -195,6 +204,33 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Private Helpers
+
+    /// Decodes an InviteJoinError from a decoded message
+    /// - Parameter message: The decoded message to check
+    /// - Returns: The decoded InviteJoinError if present, nil otherwise
+    private func decodeInviteJoinError(from message: DecodedMessage) -> InviteJoinError? {
+        guard let encodedContentType = try? message.encodedContent.type,
+              encodedContentType == ContentTypeInviteJoinError else {
+            return nil
+        }
+
+        guard let content = try? message.content() as Any,
+              let inviteJoinError = content as? InviteJoinError else {
+            Log.error("Failed to extract InviteJoinError content")
+            return nil
+        }
+
+        return inviteJoinError
+    }
+
+    /// Handles an InviteJoinError by routing it to the error handler
+    /// - Parameters:
+    ///   - error: The invite join error to handle
+    ///   - senderInboxId: The inbox ID of the message sender
+    private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
+        Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
+        await inviteJoinErrorHandler?.handleInviteJoinError(error)
+    }
 
     /// Processes ExplodeSettings and handles conversation cleanup if expired.
     /// - Parameters:

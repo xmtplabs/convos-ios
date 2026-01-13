@@ -249,24 +249,18 @@ extension MessagingService {
                 databaseReader: databaseReader
             )
 
-            do {
-                if let result = try await joinRequestsManager.processJoinRequest(message: decodedMessage, client: client) {
-                    // Valid join request - show notification
-                    return .init(
-                        title: result.conversationName,
-                        body: "Somebody accepted your invite",
-                        conversationId: result.conversationId,
-                        userInfo: userInfo
-                    )
-                }
-            } catch {
-                // Not a valid join request - block the DM to prevent spam
-                Log.warning("DM is not a valid join request, blocking conversation")
-                try? await conversation.updateConsentState(state: .denied)
-                return .droppedMessage
+            if let result = await joinRequestsManager.processJoinRequest(message: decodedMessage, client: client) {
+                // Valid join request - show notification
+                return .init(
+                    title: result.conversationName,
+                    body: "Somebody accepted your invite",
+                    conversationId: result.conversationId,
+                    userInfo: userInfo
+                )
             }
 
-            // Shouldn't reach here, but if we do, drop the notification
+            // Not a valid join request or already processed - drop the notification
+            // Note: Invalid requests are already blocked by processJoinRequest
             return .droppedMessage
         case .group(let group):
             return try await handleGroupMessage(
