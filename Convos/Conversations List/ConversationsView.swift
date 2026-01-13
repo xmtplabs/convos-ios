@@ -53,13 +53,25 @@ struct ConversationsView: View {
                             }
 
                             ConversationsListItem(conversation: conversation)
+                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                                    let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
+                                    Button(action: toggleReadAction) {
+                                        Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
+                                    }
+                                    .tint(.blue)
+                                }
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    Button {
-                                        conversationPendingDeletion = conversation
-                                    } label: {
+                                    let deleteAction = { conversationPendingDeletion = conversation }
+                                    Button(action: deleteAction) {
                                         Image(systemName: "trash")
                                     }
                                     .tint(.colorCaution)
+
+                                    let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
+                                    Button(action: toggleMuteAction) {
+                                        Image(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
+                                    }
+                                    .tint(.colorPurpleMute)
                                 }
                                 .confirmationDialog(
                                     "This convo will be deleted immediately.",

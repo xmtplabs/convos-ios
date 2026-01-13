@@ -49,7 +49,7 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
 
                         if isUnread {
                             Circle()
-                                .fill(Color.black)
+                                .fill(Color.primary)
                                 .frame(width: 12, height: 12)
                         }
                     }

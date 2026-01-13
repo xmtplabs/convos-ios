@@ -1,5 +1,5 @@
 {
-  "originHash" : "df8554405a502e36e51fdb0bebcb9a297114369c6f20c3a375f9619ddcb6b1f0",
+  "originHash" : "e0fada6cb0f0f4982159fb96bde9f47760513d8c34443d77b7f29831686082f5",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -195,8 +195,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log",
       "state" : {
-        "revision" : "ce592ae52f982c847a4efc0dd881cc9eb32d29f2",
-        "version" : "1.6.4"
+        "revision" : "bc386b95f2a16ccd0150a8235e7c69eab2b866ca",
+        "version" : "1.8.0"
       }
     },
     {

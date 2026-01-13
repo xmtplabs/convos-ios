@@ -65,4 +65,8 @@ public extension Conversation {
             ]
         )
     }
+
+    var xmtpGroupTopic: String {
+        id.xmtpGroupTopicFormat
+    }
 }

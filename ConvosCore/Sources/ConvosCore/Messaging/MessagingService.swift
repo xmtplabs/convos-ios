@@ -175,4 +175,26 @@ final class MessagingService: MessagingServiceProtocol {
             afterUpload: afterUpload
         )
     }
+
+    func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws {
+        let result = try await inboxStateManager.waitForInboxReadyResult()
+        let topic = conversationId.xmtpGroupTopicFormat
+        let localStateWriter = conversationLocalStateWriter()
+
+        if enabled {
+            let deviceId = DeviceInfo.deviceIdentifier
+            try await result.apiClient.subscribeToTopics(
+                deviceId: deviceId,
+                clientId: clientId,
+                topics: [topic]
+            )
+        } else {
+            try await result.apiClient.unsubscribeFromTopics(
+                clientId: clientId,
+                topics: [topic]
+            )
+        }
+
+        try await localStateWriter.setMuted(!enabled, for: conversationId)
+    }
 }

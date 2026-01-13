@@ -117,6 +117,7 @@ class NewConversationViewModel: Identifiable {
         self.conversationViewModel = .init(
             conversation: draftConversation,
             session: session,
+            messagingService: messagingService,
             conversationStateManager: conversationStateManager
         )
         setupObservations()

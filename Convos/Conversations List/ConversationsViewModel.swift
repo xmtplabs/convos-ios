@@ -382,6 +382,48 @@ final class ConversationsViewModel {
         }
     }
 
+    func toggleMute(conversation: Conversation) {
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+        let currentlyMuted = conversation.isMuted
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messagingService = try await session.messagingService(
+                    for: clientId,
+                    inboxId: inboxId
+                )
+                let shouldEnableNotifications = currentlyMuted
+                try await messagingService.setConversationNotificationsEnabled(shouldEnableNotifications, for: conversationId)
+            } catch {
+                Log.error("Failed toggling mute for conversation \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func toggleReadState(conversation: Conversation) {
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+        let currentlyUnread = conversation.isUnread
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messagingService = try await session.messagingService(
+                    for: clientId,
+                    inboxId: inboxId
+                )
+                let writer = messagingService.conversationLocalStateWriter()
+                try await writer.setUnread(!currentlyUnread, for: conversationId)
+            } catch {
+                Log.error("Failed toggling read state for conversation \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func markConversationAsRead(_ conversation: Conversation) {
         Task { [weak self] in
             guard let self else { return }

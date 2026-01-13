@@ -9,6 +9,7 @@ class ConversationViewModel {
     // MARK: - Private
 
     private let session: any SessionManagerProtocol
+    private let messagingService: any MessagingServiceProtocol
     private let conversationStateManager: any ConversationStateManagerProtocol
     private let outgoingMessageWriter: any OutgoingMessageWriterProtocol
     private let consentWriter: any ConversationConsentWriterProtocol
@@ -61,6 +62,10 @@ class ConversationViewModel {
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
     var joinEnabled: Bool = true
+    var notificationsEnabled: Bool {
+        get { !conversation.isMuted }
+        set { setNotificationsEnabled(newValue) }
+    }
 
     // Editing state flags
     var isEditingDisplayName: Bool {
@@ -156,6 +161,7 @@ class ConversationViewModel {
     ) {
         self.conversation = conversation
         self.session = session
+        self.messagingService = messagingService
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -198,10 +204,12 @@ class ConversationViewModel {
     init(
         conversation: Conversation,
         session: any SessionManagerProtocol,
+        messagingService: any MessagingServiceProtocol,
         conversationStateManager: any ConversationStateManagerProtocol
     ) {
         self.conversation = conversation
         self.session = session
+        self.messagingService = messagingService
 
         // Extract dependencies from conversation state manager
         self.conversationStateManager = conversationStateManager
@@ -485,6 +493,17 @@ class ConversationViewModel {
                 try await metadataWriter.removeMembers([member.profile.inboxId], from: conversation.id)
             } catch {
                 Log.error("Error removing member: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func setNotificationsEnabled(_ enabled: Bool) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await messagingService.setConversationNotificationsEnabled(enabled, for: conversation.id)
+            } catch {
+                Log.error("Error updating notification settings: \(error.localizedDescription)")
             }
         }
     }

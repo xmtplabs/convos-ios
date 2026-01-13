@@ -45,6 +45,8 @@ public protocol MessagingServiceProtocol: AnyObject {
         filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String
+
+    func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
 }
 
 public extension MessagingServiceProtocol {

@@ -99,4 +99,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         try await afterUpload(uploadedURL)
         return uploadedURL
     }
+
+    public func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws {
+        try await _conversationLocalStateWriter.setMuted(!enabled, for: conversationId)
+    }
 }

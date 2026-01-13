@@ -181,8 +181,8 @@ struct ConversationInfoView: View {
                         title: "Notifications",
                         subtitle: nil
                     ) {
-                        SoonLabel()
-                        // Toggle("", isOn: $viewModel.notificationsEnabled)
+                        Toggle("", isOn: $viewModel.notificationsEnabled)
+                            .labelsHidden()
                     }
 
                     FeatureRowItem(
