@@ -2,7 +2,7 @@ import AVFoundation
 import SwiftUI
 
 struct QRScannerView: UIViewRepresentable {
-    let viewModel: QRScannerViewModel
+    unowned let viewModel: QRScannerViewModel
 
     class Coordinator {
         var orientationObserver: Any?
