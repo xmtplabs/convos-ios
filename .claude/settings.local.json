@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcpretty:*)",
+      "Bash(gt submit:*)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "XcodeBuildMCP",
+    "ios-simulator"
+  ]
+}

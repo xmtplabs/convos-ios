@@ -16,7 +16,6 @@
 		7AD20CA42E5A8F0B00F68E6E /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AC5995B2E5593C300D65D07 /* ConvosCore */; };
 		7AD545902E4EA8BE00500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
 		7AD545942E4EA8F300500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD545932E4EA8F300500ADF /* ConvosCore */; };
-		7AD974582EC2715000566BD5 /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD974572EC2715000566BD5 /* ConvosCore */; };
 		7AD978712EC2741100566BD5 /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
 		D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D8084BA82DC9193A00E708B0 /* DifferenceKit */; };
 		D808503C2DC94F4C00E708B0 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D80850342DC94F4C00E708B0 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
@@ -233,7 +232,6 @@
 				"Conversation Detail/Messages/Messages View Controller/View Controller/MessagesViewController.swift",
 				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesBottomBar.swift",
 				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesInputView.swift",
-				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesMediaInputView.swift",
 				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/PreviewViewPanHandler.swift",
 				"Conversation Detail/Messages/MessagesListView/Messages List Items/MessageContainer.swift",
 				"Conversation Detail/Messages/MessagesListView/MessagesListItemType.swift",
@@ -396,7 +394,6 @@
 			files = (
 				7A15D61E2EECD7B700627BC5 /* ConvosCoreiOS in Frameworks */,
 				7AD978712EC2741100566BD5 /* ConvosCore in Frameworks */,
-				7AD974582EC2715000566BD5 /* ConvosCore in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -726,7 +723,6 @@
 				D80BAEE72DB2F1CD00C2FB42 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
 				D8084BA72DC9193A00E708B0 /* XCRemoteSwiftPackageReference "DifferenceKit" */,
 				7A5D3E942E43B82400DA9B83 /* XCRemoteSwiftPackageReference "swiftui-introspect" */,
-				7AD20B552E5A21AE00F68E6E /* XCLocalSwiftPackageReference "ConvosCore" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = D8A2B6922DA4BA4B00EF8577 /* Products */;
@@ -2115,13 +2111,6 @@
 		};
 /* End XCConfigurationList section */
 
-/* Begin XCLocalSwiftPackageReference section */
-		7AD20B552E5A21AE00F68E6E /* XCLocalSwiftPackageReference "ConvosCore" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ConvosCore;
-		};
-/* End XCLocalSwiftPackageReference section */
-
 /* Begin XCRemoteSwiftPackageReference section */
 		7A5D3E942E43B82400DA9B83 /* XCRemoteSwiftPackageReference "swiftui-introspect" */ = {
 			isa = XCRemoteSwiftPackageReference;
@@ -2187,11 +2176,6 @@
 		};
 		7AD545932E4EA8F300500ADF /* ConvosCore */ = {
 			isa = XCSwiftPackageProductDependency;
-			productName = ConvosCore;
-		};
-		7AD974572EC2715000566BD5 /* ConvosCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 7AD20B552E5A21AE00F68E6E /* XCLocalSwiftPackageReference "ConvosCore" */;
 			productName = ConvosCore;
 		};
 		D8084BA82DC9193A00E708B0 /* DifferenceKit */ = {

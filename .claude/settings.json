@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(swiftlint:*)",
+      "Bash(swiftformat:*)",
+      "Bash(xcodebuild:*)",
+      "Bash(swift build:*)",
+      "Bash(swift test:*)",
+      "Bash(make:*)",
+      "Bash(git status)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "mcp__XcodeBuildMCP__*",
+      "mcp__ios-simulator__*"
+    ],
+    "deny": []
+  }
+}

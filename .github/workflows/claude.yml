@@ -12,11 +12,14 @@ on:
 
 jobs:
   claude:
+    # Skip draft PRs - only run on ready-for-review PRs
     if: |
-      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/claude')) ||
-      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/claude')) ||
-      (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '/claude')) ||
-      (github.event_name == 'issues' && (contains(github.event.issue.body || '', '/claude') || contains(github.event.issue.title, '/claude')))
+      (
+        (github.event_name == 'issue_comment' && contains(github.event.comment.body, '/claude') && github.event.issue.draft != true) ||
+        (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '/claude') && github.event.pull_request.draft != true) ||
+        (github.event_name == 'pull_request_review' && contains(github.event.review.body || '', '/claude') && github.event.pull_request.draft != true) ||
+        (github.event_name == 'issues' && (contains(github.event.issue.body || '', '/claude') || contains(github.event.issue.title, '/claude')))
+      )
     runs-on: ubuntu-latest
     permissions:
       contents: read
