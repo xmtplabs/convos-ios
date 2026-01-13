@@ -263,7 +263,7 @@ cmd_cleanup() {
 
         # Delete Graphite branch
         echo -e "${BLUE}Deleting Graphite branch...${NC}"
-        if ! gt branch delete "$BRANCH_NAME" --force 2>&1; then
+        if ! gt delete "$BRANCH_NAME" --force 2>&1; then
             echo -e "${YELLOW}⚠️  Graphite delete failed, using git directly${NC}"
             git branch -D "$BRANCH_NAME"
         fi
