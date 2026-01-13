@@ -90,11 +90,11 @@ cmd_new() {
     echo -e "\n${BLUE}Graphite stack:${NC}"
     gt log short 2>/dev/null || gt stack 2>/dev/null || echo "Run 'gt stack' to see stack"
 
-    # Launch Claude Code in new terminal (Ghostty)
+    # Launch Claude Code in new tab (Ghostty)
     echo -e "\n${BLUE}Launching Claude Code...${NC}"
 
     if command -v ghostty &> /dev/null; then
-        ghostty --working-directory="$WORKTREE_DIR" -e bash -c "echo '🚀 Starting Claude Code for task: $TASK_NAME' && claude" &
+        ghostty --new-tab --working-directory="$WORKTREE_DIR" -e bash -c "echo '🚀 Starting Claude Code for task: $TASK_NAME' && claude" &
     else
         echo -e "${YELLOW}⚠️  Ghostty not found, falling back to Terminal${NC}"
         osascript -e "tell application \"Terminal\"
@@ -103,7 +103,7 @@ cmd_new() {
         end tell"
     fi
 
-    echo -e "${GREEN}✅ Claude Code launched in new terminal${NC}"
+    echo -e "${GREEN}✅ Claude Code launched in new tab${NC}"
 }
 
 cmd_list() {
@@ -166,7 +166,7 @@ cmd_switch() {
     echo -e "${BLUE}Launching Claude Code for task: $TASK_NAME${NC}"
 
     if command -v ghostty &> /dev/null; then
-        ghostty --working-directory="$WORKTREE_DIR" -e claude &
+        ghostty --new-tab --working-directory="$WORKTREE_DIR" -e claude &
     else
         echo -e "${YELLOW}⚠️  Ghostty not found, falling back to Terminal${NC}"
         osascript -e "tell application \"Terminal\"
@@ -305,6 +305,7 @@ ${GREEN}Workflow:${NC}
 ${YELLOW}Notes:${NC}
   - Each worktree is a separate Claude Code session
   - Graphite branches are automatically stacked
+  - Claude Code opens in a new Ghostty tab
   - Use 'gt stack' in worktree to see stack structure
 EOF
 }
