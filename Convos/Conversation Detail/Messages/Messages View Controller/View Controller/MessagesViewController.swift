@@ -690,6 +690,7 @@ extension MessagesViewController: MessageReactionMenuCoordinatorDelegate {
             return MessageReactionMenuViewModel()
         }
         let item = dataSource.sections[indexPath.section].cells[indexPath.item]
+        currentReactionMessageId = nil
         if case .messages(let group) = item, let lastMessage = group.allMessages.last {
             currentReactionMessageId = lastMessage.base.id
         }
