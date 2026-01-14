@@ -6,6 +6,25 @@ import Testing
 @Suite("SessionManager Tests", .serialized)
 struct SessionManagerTests {
 
+    private enum TestError: Error {
+        case timeout(String)
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(1),
+        interval: Duration = .milliseconds(10),
+        condition: () async -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if await condition() {
+                return
+            }
+            try await Task.sleep(for: interval)
+        }
+        throw TestError.timeout("Condition not met within \(timeout)")
+    }
+
     // MARK: - Wake Inbox by Conversation ID Tests
 
     @Test("wakeInboxForNotification wakes sleeping client by conversation ID")
@@ -210,14 +229,15 @@ struct SessionManagerTests {
     func testWakeCorrectClientAmongMultiple() async throws {
         let fixtures = try await makeTestFixtures()
 
-        // Insert two inboxes with their conversations
-        let clientId1 = "client-1"
-        let inboxId1 = "inbox-1"
-        let conversationId1 = "conversation-1"
+        // Use unique IDs to avoid cross-test interference
+        let testId = UUID().uuidString.prefix(8)
+        let clientId1 = "wake-test-client1-\(testId)"
+        let inboxId1 = "wake-test-inbox1-\(testId)"
+        let conversationId1 = "wake-test-conv1-\(testId)"
 
-        let clientId2 = "client-2"
-        let inboxId2 = "inbox-2"
-        let conversationId2 = "conversation-2"
+        let clientId2 = "wake-test-client2-\(testId)"
+        let inboxId2 = "wake-test-inbox2-\(testId)"
+        let conversationId2 = "wake-test-conv2-\(testId)"
 
         try await fixtures.databaseManager.dbWriter.write { db in
             // Insert first inbox and conversation
@@ -265,8 +285,27 @@ struct SessionManagerTests {
             InboxActivity(clientId: clientId2, inboxId: inboxId2, lastActivity: Date(), conversationCount: 1),
         ]
 
+        // Ensure clean starting state - both inboxes should be asleep
+        if await fixtures.lifecycleManager.isAwake(clientId: clientId1) {
+            await fixtures.lifecycleManager.sleep(clientId: clientId1)
+        }
+        if await fixtures.lifecycleManager.isAwake(clientId: clientId2) {
+            await fixtures.lifecycleManager.sleep(clientId: clientId2)
+        }
+
+        // Verify both are asleep before starting
+        let client1InitiallyAwake = await fixtures.lifecycleManager.isAwake(clientId: clientId1)
+        let client2InitiallyAwake = await fixtures.lifecycleManager.isAwake(clientId: clientId2)
+        #expect(!client1InitiallyAwake, "Client 1 should start asleep")
+        #expect(!client2InitiallyAwake, "Client 2 should start asleep")
+
         // Wake the second inbox using its conversation ID
         await fixtures.sessionManager.wakeInboxForNotification(conversationId: conversationId2)
+
+        // Wait for wake operation to complete with polling
+        try await waitUntil {
+            await fixtures.lifecycleManager.isAwake(clientId: clientId2)
+        }
 
         // Verify only the second inbox is awake
         let client1Awake = await fixtures.lifecycleManager.isAwake(clientId: clientId1)

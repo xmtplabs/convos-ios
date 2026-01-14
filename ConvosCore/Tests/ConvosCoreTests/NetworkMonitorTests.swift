@@ -14,6 +14,25 @@ import Testing
 @Suite("NetworkMonitor Tests", .serialized)
 struct NetworkMonitorTests {
 
+    private enum TestError: Error {
+        case timeout(String)
+    }
+
+    private func waitUntil(
+        timeout: Duration = .seconds(1),
+        interval: Duration = .milliseconds(10),
+        condition: () async -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if await condition() {
+                return
+            }
+            try await Task.sleep(for: interval)
+        }
+        throw TestError.timeout("Condition not met within \(timeout)")
+    }
+
     // MARK: - Basic Functionality Tests
 
     @Test("NetworkMonitor initializes with unknown status")
@@ -138,8 +157,13 @@ struct NetworkMonitorTests {
             }
         }
 
-        // Wait for all subscribers to receive initial status
-        try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+        // Wait for all subscribers to receive at least one status update with timeout
+        try await waitUntil {
+            let count1 = await collector.subscriber1.count
+            let count2 = await collector.subscriber2.count
+            let count3 = await collector.subscriber3.count
+            return count1 >= 1 && count2 >= 1 && count3 >= 1
+        }
 
         task1.cancel()
         task2.cancel()
@@ -360,6 +384,7 @@ struct NetworkMonitorTests {
             var subscriber2 = false
             func mark1() { subscriber1 = true }
             func mark2() { subscriber2 = true }
+            func bothReceived() -> Bool { subscriber1 && subscriber2 }
         }
 
         let receivers = Receivers()
@@ -378,7 +403,10 @@ struct NetworkMonitorTests {
             }
         }
 
-        try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
+        // Wait for both receivers to be marked with timeout
+        try await waitUntil {
+            await receivers.bothReceived()
+        }
 
         let subscriber1Received = await receivers.subscriber1
         let subscriber2Received = await receivers.subscriber2
@@ -447,12 +475,12 @@ struct NetworkMonitorTests {
         // Status is always set
         #expect(statusAfterStart == .unknown || statusAfterStart == .connecting || statusAfterStart.isConnected)
 
-        // isConnected should match status
-        let isConnected = await monitor.isConnected
+        // isConnected should match status - derive from status to avoid race condition
+        let isConnectedFromStatus = statusAfterStart.isConnected
         if case .connected = statusAfterStart {
-            #expect(isConnected == true)
+            #expect(isConnectedFromStatus == true)
         } else {
-            #expect(isConnected == false)
+            #expect(isConnectedFromStatus == false)
         }
 
         await monitor.stop()

@@ -1538,10 +1538,10 @@ struct ConversationStateMachineTests {
         // Join conversation as joiner
         await joinerStateMachine.join(inviteCode: invite.urlSlug)
 
-        // Wait for joiner to be ready
+        // Wait for joiner to be ready (increased timeout to account for XMTP node load)
         var joinerConversationId: String?
         do {
-            joinerConversationId = try await withTimeout(seconds: 30) {
+            joinerConversationId = try await withTimeout(seconds: 60) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):
