@@ -1,4 +1,5 @@
 {
+  "enableAllProjectMcpServers": true,
   "permissions": {
     "allow": [
       "Bash(swiftlint:*)",
@@ -22,7 +23,9 @@
       "Glob",
       "Grep",
       "mcp__XcodeBuildMCP__*",
-      "mcp__ios-simulator__*"
+      "mcp__ios-simulator__*",
+      "mcp__xmtp-docs__*",
+      "mcp__notion__*"
     ],
     "deny": []
   }
