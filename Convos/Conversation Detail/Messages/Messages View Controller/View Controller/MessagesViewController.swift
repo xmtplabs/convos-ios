@@ -685,6 +685,10 @@ extension MessagesViewController: UIGestureRecognizerDelegate {
 extension MessagesViewController: MessageReactionMenuCoordinatorDelegate {
     func messageReactionMenuViewModel(_ coordinator: MessageReactionMenuCoordinator,
                                       for indexPath: IndexPath) -> MessageReactionMenuViewModel {
+        guard dataSource.sections.indices.contains(indexPath.section),
+              dataSource.sections[indexPath.section].cells.indices.contains(indexPath.item) else {
+            return MessageReactionMenuViewModel()
+        }
         let item = dataSource.sections[indexPath.section].cells[indexPath.item]
         if case .messages(let group) = item, let lastMessage = group.allMessages.last {
             currentReactionMessageId = lastMessage.base.id
