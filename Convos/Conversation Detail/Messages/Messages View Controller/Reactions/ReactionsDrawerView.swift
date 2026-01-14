@@ -38,6 +38,7 @@ struct ReactionsDrawerView: View {
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
         .padding(.bottom, DesignConstants.Spacing.step3x)
+        .frame(minHeight: 160)
     }
 }
 

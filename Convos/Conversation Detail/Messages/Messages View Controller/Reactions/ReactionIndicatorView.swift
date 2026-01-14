@@ -34,8 +34,6 @@ struct ReactionIndicatorView: View {
                 }
             }
             .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
         }
     }
 }
