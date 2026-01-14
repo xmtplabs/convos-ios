@@ -53,6 +53,10 @@ public extension Conversation {
         return "\(totalCount) \(totalCount == 1 ? "member" : "members")"
     }
 
+    var shouldShowQuickEdit: Bool {
+        (hasJoined && members.count <= 1) || isDraft
+    }
+
     /// Posts a notification that the current user has left this conversation.
     func postLeftConversationNotification() {
         NotificationCenter.default.post(

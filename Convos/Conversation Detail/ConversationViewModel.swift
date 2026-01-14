@@ -55,9 +55,7 @@ class ConversationViewModel {
     }
     var untitledConversationPlaceholder: String = "Untitled"
     var conversationInfoSubtitle: String {
-        (
-            !conversation.hasJoined || conversation.members.count > 1
-        ) && !conversation.isDraft ? conversation.membersCountString : "Customize"
+        conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
     }
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
@@ -324,7 +322,11 @@ class ConversationViewModel {
     }
 
     func onConversationInfoTap(focusCoordinator: FocusCoordinator) {
-        focusCoordinator.moveFocus(to: .conversationName)
+        if conversation.shouldShowQuickEdit {
+            focusCoordinator.moveFocus(to: .conversationName)
+        } else {
+            presentingConversationSettings = true
+        }
     }
 
     func onConversationNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
