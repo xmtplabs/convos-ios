@@ -37,19 +37,7 @@ extension DBMessage {
             }
 
         case .reaction:
-            let originalMessage: String = "original"
-            switch contentType {
-            case .attachments:
-                text = "\(optionalSender)sent \(attachmentsString)"
-            case .text:
-                text = "\(senderString)\(emoji ?? "")'d \(originalMessage)"
-            case .emoji:
-                text = "\(senderString)\(emoji ?? "")'d \(self.emoji ?? "")"
-            case .update:
-                text = ""
-            case .invite:
-                text = "\(optionalSender)\(emoji ?? "")'d an invite"
-            }
+            text = "\(senderString)\(emoji ?? "") a message"
         }
         return .init(text: text, createdAt: date)
     }
