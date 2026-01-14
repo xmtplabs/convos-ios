@@ -123,11 +123,29 @@ final class ConversationsViewModel {
         }
     }
 
+    enum ConversationFilter {
+        case all
+        case unread
+    }
+
+    var activeFilter: ConversationFilter = .all
+
     var pinnedConversations: [Conversation] {
         conversations.filter { $0.isPinned }.filter { $0.kind == .group } // @jarodl temporarily filtering out dms
     }
+
     var unpinnedConversations: [Conversation] {
-        conversations.filter { !$0.isPinned }.filter { $0.kind == .group } // @jarodl temporarily filtering out dms
+        let baseConversations = conversations.filter { !$0.isPinned }.filter { $0.kind == .group } // @jarodl temporarily filtering out dms
+        switch activeFilter {
+        case .all:
+            return baseConversations
+        case .unread:
+            return baseConversations.filter { $0.isUnread }
+        }
+    }
+
+    var hasUnpinnedConversations: Bool {
+        conversations.contains { !$0.isPinned && $0.kind == .group }
     }
 
     private(set) var hasCreatedMoreThanOneConvo: Bool {
@@ -343,6 +361,11 @@ final class ConversationsViewModel {
                 if let selectedId = _selectedConversationId,
                    !conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
+                }
+
+                // Reset filter only when base conversations list is empty (not when filtered list is empty)
+                if !conversations.contains(where: { !$0.isPinned && $0.kind == .group }) {
+                    activeFilter = .all
                 }
             }
             .store(in: &cancellables)

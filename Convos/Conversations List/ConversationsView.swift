@@ -130,10 +130,26 @@ struct ConversationsView: View {
                     )
 
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button("Filter", systemImage: "line.3.horizontal.decrease") {
-                            //
+                        Menu {
+                            let allAction = { viewModel.activeFilter = .all }
+                            Button(action: allAction) {
+                                Label("All", systemImage: viewModel.activeFilter == .all ? "checkmark" : "")
+                            }
+
+                            let unreadAction = {
+                                viewModel.activeFilter = viewModel.activeFilter == .unread ? .all : .unread
+                            }
+                            Button(action: unreadAction) {
+                                Label("Unread", systemImage: viewModel.activeFilter == .unread ? "checkmark" : "")
+                            }
+                        } label: {
+                            Label(
+                                "Filter",
+                                systemImage: viewModel.activeFilter == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease"
+                            )
+                            .foregroundStyle(viewModel.activeFilter == .unread ? .blue : .primary)
                         }
-                        .disabled(true)
+                        .disabled(!viewModel.hasUnpinnedConversations)
                     }
                     .matchedTransitionSource(
                         id: "filter-view-transition-source",
