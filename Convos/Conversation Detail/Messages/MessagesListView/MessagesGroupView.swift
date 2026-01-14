@@ -3,9 +3,10 @@ import SwiftUI
 
 struct MessagesGroupView: View {
     let group: MessagesGroup
-    let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
+    let onTapReactions: (AnyMessage) -> Void
+    let onDoubleTap: (AnyMessage) -> Void
 
     @State private var isAppearing: Bool = true
 
@@ -66,9 +67,10 @@ struct MessagesGroupView: View {
                     MessagesGroupItemView(
                         message: message,
                         bubbleType: bubbleType,
-                        onTapMessage: onTapMessage,
                         onTapAvatar: onTapAvatar,
-                        onTapInvite: onTapInvite
+                        onTapInvite: onTapInvite,
+                        onTapReactions: onTapReactions,
+                        onDoubleTap: onDoubleTap
                     )
                     .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
@@ -125,9 +127,10 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockIncoming,
-            onTapMessage: { _ in },
             onTapAvatar: { _ in },
-            onTapInvite: { _ in }
+            onTapInvite: { _ in },
+            onTapReactions: { _ in },
+            onDoubleTap: { _ in }
         )
         .padding()
     }
@@ -138,9 +141,10 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockOutgoing,
-            onTapMessage: { _ in },
             onTapAvatar: { _ in },
-            onTapInvite: { _ in }
+            onTapInvite: { _ in },
+            onTapReactions: { _ in },
+            onDoubleTap: { _ in }
         )
         .padding()
     }
@@ -151,9 +155,10 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockMixed,
-            onTapMessage: { _ in },
             onTapAvatar: { _ in },
-            onTapInvite: { _ in }
+            onTapInvite: { _ in },
+            onTapReactions: { _ in },
+            onDoubleTap: { _ in }
         )
         .padding()
     }

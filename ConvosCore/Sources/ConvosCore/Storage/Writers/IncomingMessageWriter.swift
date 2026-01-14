@@ -37,6 +37,27 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
 
     func store(message: DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult {
+        let encodedContentType = try message.encodedContent.type
+
+        if encodedContentType == ContentTypeReaction || encodedContentType == ContentTypeReactionV2 {
+            let content = try message.content() as Any
+            if let reaction = content as? Reaction {
+                if reaction.action == .removed {
+                    return try await handleReactionRemoval(
+                        message: message,
+                        reaction: reaction,
+                        conversation: conversation
+                    )
+                } else if reaction.action == .added {
+                    return try await handleReactionAddition(
+                        message: message,
+                        reaction: reaction,
+                        conversation: conversation
+                    )
+                }
+            }
+        }
+
         let result = try await databaseWriter.write { db in
             let sender = DBMember(inboxId: message.senderInboxId)
             try sender.save(db)
@@ -91,6 +112,69 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
         }
 
         return result
+    }
+
+    private func handleReactionAddition(
+        message: DecodedMessage,
+        reaction: Reaction,
+        conversation: DBConversation
+    ) async throws -> IncomingMessageWriterResult {
+        try await databaseWriter.write { db in
+            let sender = DBMember(inboxId: message.senderInboxId)
+            try sender.save(db)
+            let senderProfile = DBMemberProfile(
+                conversationId: conversation.id,
+                inboxId: message.senderInboxId,
+                name: nil,
+                avatar: nil
+            )
+            try? senderProfile.insert(db)
+
+            let existingReaction = try DBMessage
+                .filter(DBMessage.Columns.sourceMessageId == reaction.reference)
+                .filter(DBMessage.Columns.senderId == message.senderInboxId)
+                .filter(DBMessage.Columns.emoji == reaction.emoji)
+                .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
+                .fetchOne(db)
+
+            if let existingReaction {
+                let updatedReaction = existingReaction
+                    .with(id: message.id)
+                    .with(status: .published)
+                try updatedReaction.save(db)
+                Log.info("Updated existing reaction \(existingReaction.id) with network id \(message.id)")
+            } else {
+                let dbMessage = try message.dbRepresentation()
+                try dbMessage.save(db)
+                Log.info("Saved new incoming reaction \(message.id)")
+            }
+        }
+        return IncomingMessageWriterResult(
+            contentType: .emoji,
+            wasRemovedFromConversation: false,
+            messageAlreadyExists: false
+        )
+    }
+
+    private func handleReactionRemoval(
+        message: DecodedMessage,
+        reaction: Reaction,
+        conversation: DBConversation
+    ) async throws -> IncomingMessageWriterResult {
+        try await databaseWriter.write { db in
+            let deletedCount = try DBMessage
+                .filter(DBMessage.Columns.sourceMessageId == reaction.reference)
+                .filter(DBMessage.Columns.senderId == message.senderInboxId)
+                .filter(DBMessage.Columns.emoji == reaction.emoji)
+                .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
+                .deleteAll(db)
+            Log.info("Deleted \(deletedCount) reaction(s) for message \(reaction.reference) from \(message.senderInboxId)")
+        }
+        return IncomingMessageWriterResult(
+            contentType: .emoji,
+            wasRemovedFromConversation: false,
+            messageAlreadyExists: false
+        )
     }
 
     func decodeExplodeSettings(from message: DecodedMessage) -> ExplodeSettings? {

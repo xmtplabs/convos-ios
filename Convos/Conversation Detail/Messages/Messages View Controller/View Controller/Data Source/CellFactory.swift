@@ -8,10 +8,12 @@ final class CellFactory {
                            for indexPath: IndexPath,
                            with item: MessagesListItemType,
                            onTapInvite: @escaping (MessageInvite) -> Void,
-                           onTapAvatar: @escaping (AnyMessage) -> Void) -> UICollectionViewCell {
+                           onTapAvatar: @escaping (AnyMessage) -> Void,
+                           onTapReactions: @escaping (AnyMessage) -> Void,
+                           onDoubleTap: @escaping (AnyMessage) -> Void) -> UICollectionViewCell {
         let cell = collectionView.dequeueReusableCell(withReuseIdentifier: MessagesListItemTypeCell.reuseIdentifier,
                                                       for: indexPath) as! MessagesListItemTypeCell
-        cell.setup(item: item, onTapAvatar: onTapAvatar, onTapInvite: onTapInvite)
+        cell.setup(item: item, onTapAvatar: onTapAvatar, onTapInvite: onTapInvite, onTapReactions: onTapReactions, onDoubleTap: onDoubleTap)
         return cell
     }
 }

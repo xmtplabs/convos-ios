@@ -94,13 +94,13 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable {
     static let replies: HasManyAssociation<DBMessage, DBMessage> = hasMany(
         DBMessage.self,
         key: "messageReplies",
-        using: ForeignKey([Columns.id], to: [Columns.sourceMessageId])
+        using: sourceMessageForeignKey
     ).filter(DBMessage.Columns.messageType == DBMessageType.reply.rawValue)
 
     static let reactions: HasManyAssociation<DBMessage, DBMessage> = hasMany(
         DBMessage.self,
         key: "messageReactions",
-        using: ForeignKey([Columns.id], to: [Columns.sourceMessageId]),
+        using: sourceMessageForeignKey
     ).filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
 
     static let sourceMessage: BelongsToAssociation<DBMessage, DBMessage> = belongsTo(

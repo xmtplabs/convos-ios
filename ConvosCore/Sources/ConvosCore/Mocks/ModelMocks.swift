@@ -107,7 +107,8 @@ public extension Message {
         text: String = "Mock message",
         sender: ConversationMember? = nil,
         status: MessageStatus = .published,
-        date: Date = Date()
+        date: Date = Date(),
+        reactions: [MessageReaction] = []
     ) -> Message {
         let mockSender = sender ?? .mock(isCurrentUser: false)
         let id = "mock-message-\(UUID().uuidString)"
@@ -120,7 +121,7 @@ public extension Message {
             status: status,
             content: .text(text),
             date: date,
-            reactions: []
+            reactions: reactions
         )
     }
 }

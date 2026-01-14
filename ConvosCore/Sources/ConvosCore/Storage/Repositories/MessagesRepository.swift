@@ -294,16 +294,25 @@ extension Array where Element == MessageWithDetails {
 
             let sender = dbSender.hydrateConversationMember(currentInboxId: conversation.inboxId)
             let source: MessageSource = sender.isCurrentUser ? .outgoing : .incoming
-            let reactions: [MessageReaction] = dbReactions.map {
-                .init(
-                    id: $0.clientMessageId,
+            let reactions: [MessageReaction] = try dbReactions.compactMap { dbReaction -> MessageReaction? in
+                guard let reactionSenderProfile = try DBConversationMemberProfileWithRole.fetchOne(
+                    database,
+                    conversationId: conversation.id,
+                    inboxId: dbReaction.senderId
+                ) else {
+                    return nil
+                }
+                let reactionSender = reactionSenderProfile.hydrateConversationMember(currentInboxId: conversation.inboxId)
+                let reactionSource: MessageSource = reactionSender.isCurrentUser ? .outgoing : .incoming
+                return MessageReaction(
+                    id: dbReaction.clientMessageId,
                     conversation: conversation,
-                    sender: sender,
-                    source: source,
-                    status: $0.status,
-                    content: .emoji($0.emoji ?? ""),
-                    date: Date(),
-                    emoji: $0.emoji ?? ""
+                    sender: reactionSender,
+                    source: reactionSource,
+                    status: dbReaction.status,
+                    content: .emoji(dbReaction.emoji ?? ""),
+                    date: dbReaction.date,
+                    emoji: dbReaction.emoji ?? ""
                 )
             }
             switch dbMessage.messageType {

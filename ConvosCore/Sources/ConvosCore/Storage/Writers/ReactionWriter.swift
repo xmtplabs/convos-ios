@@ -3,9 +3,10 @@ import Foundation
 import GRDB
 import XMTPiOS
 
-public protocol ReactionWriterProtocol {
+public protocol ReactionWriterProtocol: Sendable {
     func addReaction(emoji: String, to messageId: String, in conversationId: String) async throws
     func removeReaction(emoji: String, from messageId: String, in conversationId: String) async throws
+    func toggleReaction(emoji: String, to messageId: String, in conversationId: String) async throws
 }
 
 enum ReactionWriterError: Error {
@@ -34,6 +35,26 @@ final class ReactionWriter: ReactionWriterProtocol {
         try await sendReaction(emoji: emoji, to: messageId, in: conversationId, action: .removed)
     }
 
+    func toggleReaction(emoji: String, to messageId: String, in conversationId: String) async throws {
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let currentInboxId = inboxReady.client.inboxId
+
+        let existingReaction = try await databaseWriter.read { db in
+            try DBMessage
+                .filter(DBMessage.Columns.sourceMessageId == messageId)
+                .filter(DBMessage.Columns.senderId == currentInboxId)
+                .filter(DBMessage.Columns.emoji == emoji)
+                .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
+                .fetchOne(db)
+        }
+
+        if existingReaction != nil {
+            try await sendReaction(emoji: emoji, to: messageId, in: conversationId, action: .removed)
+        } else {
+            try await sendReaction(emoji: emoji, to: messageId, in: conversationId, action: .added)
+        }
+    }
+
     private func sendReaction(
         emoji: String,
         to messageId: String,
@@ -57,53 +78,81 @@ final class ReactionWriter: ReactionWriterProtocol {
 
         let reaction = Reaction(
             reference: messageId,
-            referenceInboxId: sourceMessage.senderId,
             action: action,
             content: emoji,
-            schema: .unicode
+            schema: .unicode,
+            referenceInboxId: sourceMessage.senderId
         )
 
-        let date = Date()
-        let clientMessageId = UUID().uuidString
+        switch action {
+        case .added:
+            let date = Date()
+            let clientMessageId = UUID().uuidString
 
-        try await databaseWriter.write { db in
-            let localReaction = DBMessage(
-                id: clientMessageId,
-                clientMessageId: clientMessageId,
-                conversationId: conversationId,
-                senderId: client.inboxId,
-                dateNs: date.nanosecondsSince1970,
-                date: date,
-                status: .unpublished,
-                messageType: .reaction,
-                contentType: .emoji,
-                text: nil,
-                emoji: emoji,
-                invite: nil,
-                sourceMessageId: messageId,
-                attachmentUrls: [],
-                update: nil
-            )
-            try localReaction.save(db)
-            Log.info("Saved local reaction with id: \(clientMessageId)")
-        }
-
-        do {
-            try await conversation.send(
-                content: reaction,
-                options: .init(contentType: ContentTypeReaction)
-            )
-            Log.info("Sent reaction \(emoji) to message \(messageId)")
-        } catch {
-            Log.error("Failed sending reaction: \(error.localizedDescription)")
             try await databaseWriter.write { db in
-                guard let localReaction = try DBMessage.fetchOne(db, key: clientMessageId) else {
-                    Log.warning("Local reaction not found after failing to send")
-                    return
-                }
-                try localReaction.with(status: .failed).save(db)
+                let localReaction = DBMessage(
+                    id: clientMessageId,
+                    clientMessageId: clientMessageId,
+                    conversationId: conversationId,
+                    senderId: client.inboxId,
+                    dateNs: date.nanosecondsSince1970,
+                    date: date,
+                    status: .unpublished,
+                    messageType: .reaction,
+                    contentType: .emoji,
+                    text: nil,
+                    emoji: emoji,
+                    invite: nil,
+                    sourceMessageId: messageId,
+                    attachmentUrls: [],
+                    update: nil
+                )
+                try localReaction.save(db)
+                Log.info("Saved local reaction with id: \(clientMessageId)")
             }
-            throw error
+
+            do {
+                try await conversation.send(
+                    content: reaction,
+                    options: .init(contentType: ContentTypeReaction)
+                )
+                Log.info("Sent reaction \(emoji) to message \(messageId)")
+            } catch {
+                Log.error("Failed sending reaction: \(error.localizedDescription)")
+                try await databaseWriter.write { db in
+                    guard let localReaction = try DBMessage.fetchOne(db, key: clientMessageId) else {
+                        Log.warning("Local reaction not found after failing to send")
+                        return
+                    }
+                    try localReaction.with(status: .failed).save(db)
+                }
+                throw error
+            }
+
+        case .removed:
+            try await databaseWriter.write { db in
+                try DBMessage
+                    .filter(DBMessage.Columns.sourceMessageId == messageId)
+                    .filter(DBMessage.Columns.senderId == client.inboxId)
+                    .filter(DBMessage.Columns.emoji == emoji)
+                    .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
+                    .deleteAll(db)
+                Log.info("Deleted local reaction for message \(messageId)")
+            }
+
+            do {
+                try await conversation.send(
+                    content: reaction,
+                    options: .init(contentType: ContentTypeReaction)
+                )
+                Log.info("Sent remove reaction \(emoji) for message \(messageId)")
+            } catch {
+                Log.error("Failed sending remove reaction: \(error.localizedDescription)")
+                throw error
+            }
+
+        case .unknown:
+            Log.warning("Unknown reaction action")
         }
     }
 }

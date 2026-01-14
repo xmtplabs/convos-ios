@@ -49,6 +49,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
+            onReaction: viewModel.onReaction(emoji:messageId:),
+            onTapReactions: viewModel.onTapReactions(_:),
+            onDoubleTap: viewModel.onDoubleTap(_:),
             onDisplayNameEndedEditing: {
                 viewModel.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
             },
@@ -146,6 +149,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         }
                     }
             }
+        }
+        .sheet(item: $viewModel.presentingReactionsForMessage) { message in
+            ReactionsDrawerView(message: message)
         }
     }
 }

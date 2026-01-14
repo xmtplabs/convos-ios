@@ -6,9 +6,10 @@ struct MessagesListView: View {
     @Binding var messages: [MessagesListItemType]
     let invite: Invite
     let focusCoordinator: FocusCoordinator
-    let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
+    let onTapReactions: (AnyMessage) -> Void
+    let onDoubleTap: (AnyMessage) -> Void
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -42,9 +43,10 @@ struct MessagesListView: View {
                             case .messages(let group):
                                 MessagesGroupView(
                                     group: group,
-                                    onTapMessage: onTapMessage,
                                     onTapAvatar: onTapAvatar,
-                                    onTapInvite: onTapInvite
+                                    onTapInvite: onTapInvite,
+                                    onTapReactions: onTapReactions,
+                                    onDoubleTap: onDoubleTap
                                 )
 
                             case .invite(let invite):
