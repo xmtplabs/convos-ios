@@ -217,7 +217,7 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .normal,
-                onTapAvatar: { _ in },
+        onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onTapReactions: { _ in },
         onDoubleTap: { _ in }
@@ -233,7 +233,7 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .tailed,
-                onTapAvatar: { _ in },
+        onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onTapReactions: { _ in },
         onDoubleTap: { _ in }
@@ -249,7 +249,7 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .unpublished
         ), .existing),
         bubbleType: .normal,
-                onTapAvatar: { _ in },
+        onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onTapReactions: { _ in },
         onDoubleTap: { _ in }
@@ -265,7 +265,7 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .tailed,
-                onTapAvatar: { _ in },
+        onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onTapReactions: { _ in },
         onDoubleTap: { _ in }

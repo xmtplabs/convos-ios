@@ -472,6 +472,24 @@ class ConversationViewModel {
         }
     }
 
+    func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.removeReaction(
+                    emoji: reaction.emoji,
+                    from: message.base.id,
+                    in: conversation.id
+                )
+                await MainActor.run {
+                    self.presentingReactionsForMessage = nil
+                }
+            } catch {
+                Log.error("Error removing reaction: \(error)")
+            }
+        }
+    }
+
     func onUseQuickname(_ profile: Profile, _ profileImage: UIImage?) {
         myProfileViewModel.update(using: profile, profileImage: profileImage, conversationId: conversation.id)
     }

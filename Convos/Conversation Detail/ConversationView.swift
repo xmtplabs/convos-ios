@@ -150,8 +150,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     }
             }
         }
-        .sheet(item: $viewModel.presentingReactionsForMessage) { message in
-            ReactionsDrawerView(message: message)
+        .selfSizingSheet(item: $viewModel.presentingReactionsForMessage) { message in
+            ReactionsDrawerView(message: message) { reaction in
+                viewModel.removeReaction(reaction, from: message)
+            }
         }
     }
 }

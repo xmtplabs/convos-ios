@@ -18,13 +18,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
         self.contentConfiguration = nil
     }
 
-    func setup(
-        item: MessagesListItemType,
-        onTapAvatar: @escaping ((AnyMessage) -> Void),
-        onTapInvite: @escaping ((MessageInvite) -> Void),
-        onTapReactions: @escaping ((AnyMessage) -> Void),
-        onDoubleTap: @escaping ((AnyMessage) -> Void)
-    ) {
+    func setup(item: MessagesListItemType, actions: MessageCellActions) {
         contentConfiguration = UIHostingConfiguration {
             Group {
                 switch item {
@@ -41,10 +35,10 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .messages(let group):
                     MessagesGroupView(
                         group: group,
-                        onTapAvatar: onTapAvatar,
-                        onTapInvite: onTapInvite,
-                        onTapReactions: onTapReactions,
-                        onDoubleTap: onDoubleTap
+                        onTapAvatar: actions.onTapAvatar,
+                        onTapInvite: actions.onTapInvite,
+                        onTapReactions: actions.onTapReactions,
+                        onDoubleTap: actions.onDoubleTap
                     )
 
                 case .invite(let invite):

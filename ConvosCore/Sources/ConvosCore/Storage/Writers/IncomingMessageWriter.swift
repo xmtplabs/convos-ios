@@ -138,11 +138,9 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
                 .fetchOne(db)
 
             if let existingReaction {
-                let updatedReaction = existingReaction
-                    .with(id: message.id)
-                    .with(status: .published)
+                let updatedReaction = existingReaction.with(status: .published)
                 try updatedReaction.save(db)
-                Log.info("Updated existing reaction \(existingReaction.id) with network id \(message.id)")
+                Log.info("Updated existing reaction \(existingReaction.id) status to published")
             } else {
                 let dbMessage = try message.dbRepresentation()
                 try dbMessage.save(db)

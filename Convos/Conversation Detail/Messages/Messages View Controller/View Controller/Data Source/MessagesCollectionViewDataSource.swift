@@ -46,10 +46,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = sections[indexPath.section].cells[indexPath.item]
-        return CellFactory.createCell(
-            in: collectionView,
-            for: indexPath,
-            with: item,
+        let actions = MessageCellActions(
             onTapInvite: { [weak self] invite in
                 Log.info("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
@@ -63,6 +60,12 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onDoubleTap: { [weak self] message in
                 self?.onDoubleTap?(message)
             }
+        )
+        return CellFactory.createCell(
+            in: collectionView,
+            for: indexPath,
+            with: item,
+            actions: actions
         )
     }
 }

@@ -3,83 +3,106 @@ import SwiftUI
 
 struct ReactionsDrawerView: View {
     let message: AnyMessage
-    @Environment(\.dismiss) private var dismiss: DismissAction
+    let onRemoveReaction: ((MessageReaction) -> Void)?
 
-    private var groupedReactions: [(emoji: String, senders: [ConversationMember])] {
-        var groups: [String: [ConversationMember]] = [:]
-        for reaction in message.base.reactions {
-            groups[reaction.emoji, default: []].append(reaction.sender)
+    init(message: AnyMessage, onRemoveReaction: ((MessageReaction) -> Void)? = nil) {
+        self.message = message
+        self.onRemoveReaction = onRemoveReaction
+    }
+
+    private var sortedReactions: [MessageReaction] {
+        message.base.reactions.sorted { first, second in
+            if first.sender.isCurrentUser && !second.sender.isCurrentUser {
+                return true
+            }
+            if !first.sender.isCurrentUser && second.sender.isCurrentUser {
+                return false
+            }
+            return false
         }
-        return groups.map { (emoji: $0.key, senders: $0.value) }
-            .sorted { $0.senders.count > $1.senders.count }
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(groupedReactions, id: \.emoji) { group in
-                    Section {
-                        ForEach(group.senders, id: \.id) { sender in
-                            HStack(spacing: DesignConstants.Spacing.step3x) {
-                                ProfileAvatarView(
-                                    profile: sender.profile,
-                                    profileImage: nil,
-                                    useSystemPlaceholder: false
-                                )
-                                .frame(width: 40.0, height: 40.0)
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            Text("Reactions")
+                .font(.system(.largeTitle))
+                .fontWeight(.bold)
+                .padding(.bottom, DesignConstants.Spacing.step2x)
 
-                                if sender.isCurrentUser {
-                                    Text("You")
-                                        .font(.body)
-                                        .foregroundStyle(.colorTextPrimary)
-                                } else {
-                                    Text(sender.profile.displayName.capitalized)
-                                        .font(.body)
-                                        .foregroundStyle(.colorTextPrimary)
-                                }
-
-                                Spacer()
-                            }
-                            .padding(.vertical, DesignConstants.Spacing.stepX)
-                        }
-                    } header: {
-                        HStack(spacing: DesignConstants.Spacing.stepX) {
-                            Text(group.emoji)
-                                .font(.title2)
-                            Text("\(group.senders.count)")
-                                .font(.headline)
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                    }
-                }
-            }
-            .listStyle(.insetGrouped)
-            .navigationTitle("Reactions")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    let action = { dismiss() }
-                    Button(action: action) {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                }
+            ForEach(sortedReactions, id: \.id) { reaction in
+                ReactionRowView(
+                    reaction: reaction,
+                    onRemove: reaction.sender.isCurrentUser ? { onRemoveReaction?(reaction) } : nil
+                )
             }
         }
-        .presentationDetents([.medium, .large])
-        .presentationDragIndicator(.visible)
+        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .padding(.bottom, DesignConstants.Spacing.step3x)
+    }
+}
+
+private struct ReactionRowView: View {
+    let reaction: MessageReaction
+    let onRemove: (() -> Void)?
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            ProfileAvatarView(
+                profile: reaction.sender.profile,
+                profileImage: nil,
+                useSystemPlaceholder: false
+            )
+            .frame(width: 40.0, height: 40.0)
+
+            VStack(alignment: .leading, spacing: 2) {
+                if reaction.sender.isCurrentUser {
+                    Text("You")
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text("Tap to remove")
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                } else {
+                    Text(reaction.sender.profile.displayName.capitalized)
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+
+            Spacer()
+
+            Text(reaction.emoji)
+                .font(.title2)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            onRemove?()
+        }
     }
 }
 
 #Preview {
+    @Previewable @State var presentingReactions: Bool = false
+
     let reactions = [
-        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Alice")),
-        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Bob")),
-        MessageReaction.mock(emoji: "😂", sender: .mock(isCurrentUser: true)),
-        MessageReaction.mock(emoji: "👍", sender: .mock(isCurrentUser: false, name: "Charlie")),
+        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: true)),
+        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Shane")),
+        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Jarod")),
+        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Andrew")),
+        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Louis")),
     ]
     let message = Message.mock(reactions: reactions)
     let anyMessage = AnyMessage.message(message, .existing)
 
-    ReactionsDrawerView(message: anyMessage)
+    VStack {
+        let action = { presentingReactions.toggle() }
+        Button(action: action) {
+            Text("Toggle")
+        }
+    }
+    .selfSizingSheet(isPresented: $presentingReactions) {
+        ReactionsDrawerView(message: anyMessage) { reaction in
+            print("Remove reaction: \(reaction.emoji)")
+        }
+    }
 }

@@ -1,17 +1,23 @@
 import ConvosCore
 import SwiftUI
 
+private struct ReactionGroup {
+    let emoji: String
+    let count: Int
+    let senders: [ConversationMember]
+}
+
 struct ReactionIndicatorView: View {
     let reactions: [MessageReaction]
     let isOutgoing: Bool
     let onTap: () -> Void
 
-    private var groupedReactions: [(emoji: String, count: Int, senders: [ConversationMember])] {
+    private var groupedReactions: [ReactionGroup] {
         var groups: [String: [ConversationMember]] = [:]
         for reaction in reactions {
             groups[reaction.emoji, default: []].append(reaction.sender)
         }
-        return groups.map { (emoji: $0.key, count: $0.value.count, senders: $0.value) }
+        return groups.map { ReactionGroup(emoji: $0.key, count: $0.value.count, senders: $0.value) }
             .sorted { $0.count > $1.count }
     }
 
