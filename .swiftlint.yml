@@ -87,7 +87,7 @@ explicit_type_interface:
   excluded:
     - local
 
-swiftlint_version: 0.62.2
+swiftlint_version: 0.63.0
 
 implicit_return:
   included:
