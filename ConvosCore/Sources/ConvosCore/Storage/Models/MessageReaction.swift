@@ -48,7 +48,7 @@ public extension MessageReaction {
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: .published,
-            content: .text(emoji),
+            content: .emoji(emoji),
             date: Date(),
             emoji: emoji
         )
