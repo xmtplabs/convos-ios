@@ -110,3 +110,6 @@ iOSInjectionProject/
 **/xcshareddata/WorkspaceSettings.xcsettings
 
 # End of https://www.toptal.com/developers/gitignore/api/swift,xcode
+
+# Claude Code local files
+.claude/.simulator_id

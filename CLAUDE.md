@@ -210,7 +210,8 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 
 | Command | Description |
 |---------|-------------|
-| `/build` | Build the app using "Convos (Dev)" scheme |
+| `/build` | Build the app (compile only) using "Convos (Dev)" scheme |
+| `/build --run` | Build and launch in an unused simulator |
 | `/test` | Run tests (ConvosCore by default) |
 | `/lint` | Check code with SwiftLint |
 | `/format` | Format code with SwiftFormat |
