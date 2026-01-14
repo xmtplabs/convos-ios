@@ -73,9 +73,13 @@ Acceptance criteria:
 - [ ] Photo Library button is always visible next to message input field
 - [ ] Tapping button opens iOS photo picker using selective permissions (no permission request needed)
 - [ ] User can select a single photo
-- [ ] Selected photo uploads in background with progress indicator
+- [ ] Selected photo appears in an expanded composer area with upload progress indicator
+- [ ] Upload begins immediately when photo is picked (not when send is tapped)
+- [ ] User can remove photo from composer before sending (tap X to delete)
 - [ ] Background upload continues even if app is backgrounded
-- [ ] Failed uploads show clear error message with retry option
+- [ ] Tapping send button sends the message with the uploaded attachment
+- [ ] If upload still in progress when send tapped, message queues and sends when upload completes
+- [ ] Failed uploads show clear error message with retry option in composer
 - [ ] Photos appear edge-to-edge in my conversation view after sending
 - [ ] Photos are compressed to under 1MB while maintaining quality for large iPhone/iPad screens
 - [ ] Photos are converted to JPEG format for compatibility
@@ -86,18 +90,17 @@ Acceptance criteria:
 - [ ] Photos display full bleed (edge-to-edge, full width) in conversation view on iPhone
 - [ ] Photos display in traditional message bubbles with max-size on iPad
 - [ ] Photo dimensions optimized for viewing on iPhone and iPad screens
-- [ ] User can access Save to Camera Roll action from photo UI
+- [ ] Long press on photo shows native iOS context menu with "Save to Photo Library" option
 
 ### As a privacy-conscious user, I want my photos to be impermanent so that I control my digital footprint
 
 Acceptance criteria:
-- [ ] Photos are encrypted in local cache on device
+- [ ] Photos are protected by iOS Data Protection (encrypted at rest by the OS)
 - [ ] Photos are not automatically saved to Camera Roll after receiving
 - [ ] User can manually save received photos to Camera Roll with explicit action
 - [ ] Photos are cached locally until conversation is deleted
-- [ ] Photos are automatically deleted from XMTP network storage after 30 days (backend-managed)
-- [ ] User receives no notification when photos are auto-deleted from network storage
-- [ ] App communicates that photos are deleted from server after 30 days
+- [ ] Photos are automatically deleted from remote storage (backend-managed expiration)
+- [ ] EXIF metadata (location, camera info, timestamps) is stripped before upload
 
 ### As a user with limited storage, I want photos to be cleaned up automatically so that I don't run out of space
 
@@ -119,17 +122,19 @@ Acceptance criteria:
 - Single photo per message (multi-photo support deferred)
 - Background upload with iOS background modes
 - Full bleed photos on iPhone, traditional bubbles on iPad
-- Backend handles 30-day deletion (iOS caches until conversation deleted)
+- Backend handles media expiration (iOS caches until conversation deleted)
 
 **Key Technical Decisions:**
 1. Use **PHPickerViewController** for selective permissions (no photo library permission needed)
 2. Implement **background upload** using iOS background tasks with progress reporting
-3. Convert all photos to **JPEG format** for compatibility
+3. Convert all photos to **JPEG format** for compatibility (also strips EXIF metadata for privacy)
 4. Target **under 1MB** file size while maintaining quality on large screens (iPhone Pro Max, iPad)
 5. **10MB hard limit** enforced client-side
 6. Use existing **Convos S3 infrastructure** for photo storage
 7. **Local photo preferences only** (not synced across devices)
-8. **Simple caching:** Photos cached locally until conversation is deleted (no age-based cleanup)
+8. **Simple caching:** Photos cached locally until conversation is deleted
+9. **XMTP handles encryption:** SDK manages all encryption for remote storage; no app-level crypto needed
+10. **iOS Data Protection:** Local cache is protected by OS-level encryption at rest (no age-based cleanup)
 
 ---
 
@@ -139,8 +144,8 @@ Acceptance criteria:
 
 **Services:**
 - `PhotoAttachmentService` - Orchestrates upload/download with XMTP RemoteAttachment
-- `PhotoStorageManager` - Local encrypted cache management
-- `PhotoCleanupService` - Background cleanup (30-day expiration, conversation deletion)
+- `PhotoStorageManager` - Local cache management (iOS Data Protection handles security)
+- `PhotoCleanupService` - Background cleanup (conversation deletion, storage limits)
 - `BackgroundUploadManager` - Manages background upload tasks with iOS background modes
 
 **Repositories:**
@@ -169,7 +174,11 @@ Acceptance criteria:
 - `PhotoBlurOverlayView` - Tap-to-reveal blur effect
 - `PhotoPreferenceSheet` - Auto-reveal preference selection
 - `PhotoInputButton` - Photo library button for input bar
-- `PhotoUploadProgressView` - Upload progress indicator
+- `ComposerAttachmentArea` - Generic container for pending attachments (extensible for future types)
+- `PhotoAttachmentView` - Photo thumbnail with upload progress and delete button
+
+**Protocols:**
+- `ComposerAttachment` - Protocol for attachment types in composer (photo, future: links, invites, etc.)
 
 **ViewModels:**
 - `ConversationViewModel` - Extended with photo sending state
@@ -213,31 +222,37 @@ Acceptance criteria:
 ```
 User selects photo from PHPicker
     ↓
-Compress to JPEG (target: <1MB, max: 10MB)
+Show photo in composer attachment area
     ↓
-Generate XMTP encryption keys (secret, salt, nonce)
+Compress to JPEG (target: <1MB, max: 10MB, strip EXIF)
     ↓
-Encrypt photo data
+XMTP SDK encrypts photo data (generates secret, salt, nonce)
     ↓
-Create PhotoMetadata record (uploadProgress: 0.0)
+Create pending attachment record (uploadProgress: 0.0)
     ↓
 Start background URLSession upload to S3
     ↓
-Update uploadProgress in real-time
+Update uploadProgress in real-time (shown in composer)
     ↓
-On completion: Create RemoteAttachment with URL
+On completion: Store RemoteAttachment URL + metadata
+    ↓
+[User taps Send button]
     ↓
 Send XMTP message with RemoteAttachment
     ↓
-Update PhotoMetadata (uploadProgress: 1.0)
+Clear composer, show message in conversation
 ```
 
+**User Actions During Upload:**
+- **Delete attachment:** Tap X on thumbnail → Cancel upload, remove from composer
+- **Send while uploading:** Message queues, sends automatically when upload completes
+- **Background app:** Upload continues in background
+
 **Failure Handling:**
-- Upload task fails → Save to retry queue with retry count
-- App terminated → Resume on next launch
-- Network unavailable → Queue for later
-- User can manually retry failed uploads (similar to message retry mechanism)
-- User deletes message → Cancel upload task
+- Upload fails → Show error state on thumbnail with retry button
+- Network unavailable → Queue for later, show pending state
+- App terminated → Resume upload on next launch
+- User can retry or delete failed attachment from composer
 
 ---
 
@@ -251,20 +266,19 @@ Documents/
     {inboxId}/
       {conversationId}/
         {messageId}/
-          original.enc      # Encrypted original
-          thumbnail.enc     # Encrypted thumbnail (300px)
-          metadata.json     # Local cache
+          original.jpg      # Decrypted photo (iOS Data Protection)
+          thumbnail.jpg     # Thumbnail (300px)
 ```
 
-**Encryption:**
-- AES-256-GCM per-photo random keys
-- Keys stored in iOS Keychain
-- Keychain account: `photo-key-{messageId}`
-- Accessibility: `kSecAttrAccessibleAfterFirstUnlock`
+**Security Model:**
+- XMTP SDK handles all encryption for remote storage (see XMTP Integration section)
+- Local files are protected by iOS Data Protection (encrypted at rest by the OS)
+- No additional app-level encryption needed for local cache
+- Files are stored in the app's private container (not accessible to other apps)
 
 **Storage Limits:**
-- Soft limit: 500MB per inbox
-- Hard limit: 1GB total
+- Soft limit: 500MB per inbox (user warning)
+- Hard limit: 1GB total (LRU eviction)
 - Cleanup triggers when exceeding soft limit
 
 #### Cleanup Strategy
@@ -287,12 +301,12 @@ Documents/
 **photoMetadata:**
 Stores photo-specific metadata for each photo message:
 - Links to message and conversation (with cascade delete)
-- Local and remote file URLs
-- Encryption key identifier (references Keychain)
+- Local file path (relative to photos directory)
+- Remote URL (for re-download if local cache cleared)
 - Photo dimensions (width, height)
 - File size and content type (always JPEG)
 - Download/upload status and progress
-- Timestamps (created, expires at 30 days on server, downloaded, last viewed)
+- Timestamps (created, downloaded, last viewed)
 
 **Indexes needed:**
 - messageId (for lookup by message)
@@ -314,41 +328,67 @@ Stores per-conversation reveal preferences (local only):
 
 ### XMTP Integration
 
+#### What the SDK Handles
+
+The XMTP SDK manages all encryption automatically via `RemoteAttachmentCodec`:
+
+- **Encryption keys**: Generates `secret`, `salt`, `nonce`, and `contentDigest`
+- **Encryption**: `RemoteAttachmentCodec.encodeEncrypted()` encrypts the attachment data
+- **Decryption**: `RemoteAttachment.decryptEncoded()` decrypts using the embedded metadata
+- **Key transport**: Encryption metadata is embedded in the XMTP message itself (E2E encrypted)
+
+The iOS app does NOT need to:
+- Generate or manage encryption keys
+- Store keys in Keychain
+- Implement any cryptographic operations
+
 #### RemoteAttachment Flow
 
 **Sending:**
 1. Compress photo to JPEG (target: under 1MB, max: 10MB)
-2. Use XMTP `RemoteAttachment.encodeEncrypted()` to encrypt
+2. Use XMTP `RemoteAttachmentCodec.encodeEncrypted()` - SDK encrypts and returns encrypted data + metadata
 3. Upload encrypted data to S3 via `ConvosAPIClient.uploadAttachment()`
-4. Create `RemoteAttachment` object:
-```swift
-RemoteAttachment(
-    url: s3URL,
-    secret: secret,  // 32 bytes
-    salt: salt,      // 32 bytes
-    nonce: nonce,    // 12 bytes
-    contentDigest: sha256Hash,
-    contentLength: encryptedSize,
-    filename: "photo.jpg"
-)
-```
+4. SDK creates `RemoteAttachment` with URL and encryption metadata
 5. Send via XMTP using `RemoteAttachmentCodec` (already registered)
 
 **Receiving:**
 1. XMTP message received with `ContentTypeRemoteAttachment`
-2. Extract URL from `attachmentUrls` field
+2. Extract `RemoteAttachment` from message (contains URL + encryption metadata)
 3. Download encrypted data from URL
-4. Decrypt using `RemoteAttachment.decryptEncoded()`
-5. Generate thumbnail
-6. Encrypt both for local storage
+4. Use `RemoteAttachment.decryptEncoded()` - SDK decrypts using embedded metadata
+5. Generate thumbnail from decrypted image
+6. Cache both locally (iOS Data Protection handles security)
 7. Update `photoMetadata.downloadStatus = .downloaded`
 
-#### S3 Configuration
+#### Reference
 
-**Backend Task:**
-- Configure S3 bucket lifecycle rule for 30-day auto-deletion
-- Existing `ConvosAPIClient.uploadAttachment()` handles presigned URLs
-- No iOS client changes needed for S3 integration
+See [XMTP RemoteAttachment Documentation](https://docs.xmtp.org/chat-apps/content-types/attachments) for SDK details.
+
+---
+
+### Backend Requirements (Out of Scope for iOS)
+
+The following requirements are handled by the backend team and are documented here for completeness. The iOS client does not implement these features.
+
+#### Remote Storage Rules
+
+**Media Expiration:**
+- All uploaded media (photos, future attachments) expires automatically after a configurable period (e.g., 30 days)
+- Backend enforces this via S3 lifecycle rules or equivalent
+- iOS client does not track or enforce remote expiration
+
+**Privacy-Preserving Design:**
+- Backend cannot map encrypted data to specific XMTP conversation/topic IDs
+- Backend stores opaque encrypted blobs with no metadata linking to conversations
+- Upload endpoint returns a URL; no conversation context is passed to backend
+
+**Open Question:** Should backend distinguish between content types (profile photos, group images, media)? This may be unnecessary if all are treated as opaque encrypted blobs. Storing less metadata is preferable, but may complicate analytics. *[NEEDS DECISION]*
+
+#### What Backend Provides to iOS
+
+- Presigned URL endpoint for uploads (`ConvosAPIClient.uploadAttachment()`)
+- HTTPS GET access to uploaded files for download
+- Automatic cleanup (iOS does not need to request deletion)
 
 ---
 
@@ -359,6 +399,7 @@ RemoteAttachment(
 - **Quality:** Sharp on large screens (iPhone Pro Max, iPad)
 - **Format:** JPEG (convert HEIC if needed)
 - **Max input:** 10MB (reject larger photos)
+- **Privacy:** Strip all EXIF metadata before upload (location, camera info, timestamps, etc.)
 
 #### Compression Algorithm
 
@@ -381,6 +422,8 @@ func compress(image: UIImage, targetBytes: Int = 1_000_000) -> Data? {
     return data
 }
 ```
+
+**Note:** Using `UIImage.jpegData()` automatically strips EXIF metadata since `UIImage` does not preserve it. This is the simplest approach for privacy-preserving compression.
 
 #### Adaptive Strategy
 
@@ -470,23 +513,46 @@ PhotoMessageView (NEW)
 - No horizontal padding
 - Vertical spacing: 8pt between consecutive photos
 
-#### Photo Input Button
+#### Composer with Attachments
 
 ```
 MessagesInputView (existing, modified)
-    ├── HStack
-    │   ├── ProfileAvatarButton (existing)
-    │   ├── PhotoInputButton (NEW) ← Photo library icon
-    │   ├── TextField (existing, slightly narrower)
-    │   └── SendButton (existing)
-    └── PhotoUploadProgressView (NEW, conditional overlay)
+    ├── ComposerAttachmentArea (NEW, conditional)
+    │   ├── ComposerAttachmentView (protocol-based, supports different types)
+    │   │   ├── PhotoAttachmentView (this phase)
+    │   │   │   ├── Image thumbnail
+    │   │   │   ├── UploadProgressView (circular progress, percentage)
+    │   │   │   └── DeleteButton (X in corner)
+    │   │   ├── (future: LinkPreviewAttachmentView)
+    │   │   ├── (future: InviteAttachmentView)
+    │   │   └── (future: other attachment types)
+    │   └── (future: multiple attachments in horizontal scroll)
+    │
+    └── HStack
+        ├── ProfileAvatarButton (existing)
+        ├── PhotoInputButton (NEW) ← Photo library icon
+        ├── TextField (existing, slightly narrower)
+        └── SendButton (existing, disabled if upload failed)
 ```
+
+**Composer Attachment Area (Extensible Design):**
+- Generic container that can hold different attachment types
+- Uses protocol-based design (`ComposerAttachment`) for extensibility
+- Future attachment types: URL previews, invite links, location, etc.
+
+**Photo Attachment View (This Phase):**
+- Shows thumbnail of selected photo
+- Upload progress displayed prominently (circular progress with percentage)
+- Delete button (X) in corner removes attachment and cancels upload
+- States: uploading (progress), completed (checkmark), failed (error + retry)
+- Collapses when attachment is removed or message is sent
 
 #### Photo Actions
 
-Save to Camera Roll action is accessible directly from the photo in the messages list:
-- Long press on photo or tap action button reveals contextual menu
-- "Save to Camera Roll" action exports photo to device Camera Roll
+Save to Photo Library is accessed via native iOS context menu:
+- Long press on photo in messages list shows native context menu
+- "Save to Photo Library" action exports photo to device Photo Library
+- Uses standard iOS context menu APIs (`.contextMenu` modifier)
 
 ---
 
@@ -499,19 +565,25 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 - Settings screen (storage management)
 
 **Navigation Flow:**
-1. User taps photo library button → Opens photo picker (PHPicker, selective permissions) → Select single photo → Background upload begins with progress indicator
-2. User receives photo (new conversation) → Sees blurred image → Taps to reveal → Preference sheet appears → Select preference → Photo displays
-3. User long presses photo or taps action button → Contextual menu appears → Select "Save to Camera Roll" to export
+1. **Sending:** User taps photo library button → Opens PHPicker → Select photo → Photo appears in composer with upload progress → User taps Send → Message sent
+2. **Canceling:** Photo in composer → User taps X on thumbnail → Upload canceled, attachment removed
+3. **Receiving (new conversation):** Photo received → Blurred image displayed → User taps to reveal → Preference sheet appears → Select preference → Photo displays
+4. **Saving:** User long presses photo → Native iOS context menu → Select "Save to Photo Library"
 
 **Visual Design Notes:**
 - **iPhone**: Edge-to-edge photos, full width of screen, no message bubble
 - **iPad**: Photos in traditional message bubbles with max-size
 - Photo dimensions optimized for iPhone and iPad viewing
 - Blur effect: Strong gaussian blur with "Tap to reveal" text overlay
-- Photo actions: Accessible via long press or action button on photo in messages list
-- "Save to Camera Roll" action: Exports photo to device Camera Roll
+- Photo actions: Native iOS context menu on long press (familiar iOS pattern)
 - Photo library button: Icon next to message input, consistent with messaging patterns
-- Upload progress: Linear progress indicator or circular progress overlay
+
+**Composer Upload Progress:**
+- Circular progress indicator overlaid on photo thumbnail
+- Shows percentage (0-100%) during upload
+- Completed state: Checkmark overlay
+- Failed state: Error icon with tap-to-retry
+- Progress updates in real-time via GRDB observation
 
 ---
 
@@ -519,13 +591,15 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 
 ### Phase 1: Foundation and Sending
 - [ ] Database migrations (photoMetadata, photoPreferences)
-- [ ] PhotoStorageManager with local encryption
-- [ ] IOSPhotoCompressor (JPEG conversion, size optimization)
+- [ ] PhotoStorageManager (local cache management)
+- [ ] IOSPhotoCompressor (JPEG conversion, EXIF stripping, size optimization)
 - [ ] PHPickerViewController integration
 - [ ] BackgroundUploadManager
 - [ ] PhotoAttachmentService.prepareForSend()
+- [ ] ComposerAttachment protocol (extensible for future attachment types)
+- [ ] ComposerAttachmentArea (generic container above text input)
+- [ ] PhotoAttachmentView (thumbnail + upload progress + delete button)
 - [ ] Photo input button in MessagesInputView
-- [ ] Upload progress UI
 - [ ] Basic PhotoMessageView (edge-to-edge display)
 
 ### Phase 2: Receiving and Blur/Reveal
@@ -538,8 +612,8 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 - [ ] Reveal gesture handling
 
 ### Phase 3: Photo Actions and Save
-- [ ] Photo contextual menu (long press or action button)
-- [ ] Save to Camera Roll action
+- [ ] Native iOS context menu on long press (`.contextMenu` modifier)
+- [ ] Save to Photo Library action via context menu
 - [ ] iPad-specific layout (photos in traditional bubbles with max-size)
 
 ### Phase 4: Cleanup and Polish
@@ -573,7 +647,7 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 - App backgrounding during upload
 
 **PhotoStorageManager:**
-- Local encryption/decryption
+- File storage and retrieval
 - Storage limit enforcement (soft: 500MB, hard: 1GB)
 - LRU eviction when limits exceeded
 - Conversation deletion cleanup
@@ -587,11 +661,11 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 
 **End-to-End Photo Sending:**
 1. Select photo from PHPicker
-2. Compress to JPEG
-3. Encrypt with XMTP
-4. Upload to S3 in background
+2. Compress to JPEG (verify EXIF stripped)
+3. Encrypt with XMTP SDK (`RemoteAttachmentCodec.encodeEncrypted()`)
+4. Upload encrypted data to S3 in background
 5. Send RemoteAttachment via XMTP
-6. Verify local cache
+6. Verify local cache created
 
 **Background Upload:**
 1. Start upload
@@ -604,7 +678,7 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 1. Create photos in conversation
 2. Delete conversation
 3. Verify all local files deleted
-4. Verify keychain keys deleted
+4. Verify database records removed
 
 **Storage Limits:**
 1. Fill storage to 500MB soft limit
@@ -613,26 +687,44 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 4. Verify LRU eviction occurs
 
 ### Manual Testing Scenarios
+
+**Composer Flow:**
+- Select photo → Verify it appears in composer attachment area
+- Verify upload progress shows on thumbnail during upload
+- Delete attachment from composer (tap X) → Verify upload cancels
+- Send message while upload in progress → Verify it queues and sends when complete
+- Test failed upload shows error state with retry option
+
+**Sending:**
 - Send single photo from library in new conversation
 - Test background upload when app is backgrounded mid-upload
-- Test upload progress UI during sending
-- Test manual retry for failed uploads
+- Verify offline photo sending queues properly
+- Test manual retry for failed uploads in composer
+
+**Receiving:**
 - Receive first photo in new conversation (verify blur, tap-to-reveal, preference sheet)
 - Receive subsequent photos with auto-reveal enabled
 - Receive subsequent photos with tap-to-reveal enabled
+
+**Display:**
 - View photo full bleed in messages list on iPhone
 - View photo in traditional bubble on iPad
-- Long press photo to open contextual menu
-- Save received photo to Camera Roll via contextual menu
-- Delete conversation and verify all photos cleaned up
-- Verify offline photo sending queues properly
+- Long press photo to show native context menu
+- Save received photo to Photo Library via context menu
+
+**Compression & Privacy:**
 - Test with very large photos (10MB limit, compression to under 1MB)
-- Test with HEIC photos from library (verify JPEG conversion)
-- Test on iPad (verify photos display in bubbles with max-size)
+- Test with HEIC photos from library (verify JPEG conversion, EXIF stripped)
+
+**Storage & Cleanup:**
+- Delete conversation and verify all photos cleaned up
 - Test storage limits (500MB soft limit warning, 1GB hard limit with LRU eviction)
 - Test with low device storage
+
+**Accessibility & Edge Cases:**
 - Test accessibility with VoiceOver
 - Test PHPicker integration (verify no permission prompt)
+- Test on iPad (verify photos display in bubbles with max-size)
 
 ---
 
@@ -645,10 +737,9 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 | GRDB | ✅ Available | For database migrations |
 | PHPickerViewController | ✅ Available | iOS 14+, selective permissions |
 | Background Tasks API | ✅ Available | iOS 13+ |
-| Keychain | ✅ Available | For encryption keys |
 
-**Action Required:**
-- Configure S3 bucket lifecycle rule for 30-day auto-deletion (backend team)
+**Action Required (Backend):**
+- Configure media expiration policy (see Backend Requirements section)
 
 ---
 
@@ -659,13 +750,11 @@ Save to Camera Roll action is accessible directly from the photo in the messages
 | Background uploads may fail if iOS terminates the task | High | Implement upload queue with retry logic; save progress to database; resume failed uploads on next app launch |
 | Photo compression quality may not be acceptable on large screens (iPhone Pro Max, iPad) | High | Test multiple compression strategies; allow slightly larger file sizes (up to 2MB) if quality suffers; use adaptive compression based on photo dimensions |
 | 10MB photo limit may be too restrictive for high-quality photos | Medium | Monitor user feedback; limit enforced to prevent excessive upload times; users can use other apps for very large photos if needed |
-| Photo encryption/decryption for local storage could impact performance | Medium | Use background threading for crypto operations; implement progressive loading for gallery view; test on minimum supported iOS device |
-| Temporary storage could grow unbounded if cleanup fails | Medium | Implement defensive storage limits (e.g., max 500MB per inbox); monitor storage in background; alert user if approaching limit |
-| Users may not understand impermanence and lose important photos | Medium | Clear UI messaging about 30-day deletion; prominent "Save to Camera Roll" action in gallery view |
+| Local storage may grow unbounded if cleanup fails | Medium | Implement defensive storage limits (500MB per inbox soft limit, 1GB hard limit); LRU eviction; user warning in Settings |
+| Users may not understand impermanence and lose important photos | Medium | Clear UI messaging about media expiration; prominent "Save to Camera Roll" action |
 | Tap-to-reveal may create friction for legitimate conversations | Low | Make preference setting easy to change; default to auto-reveal after first reveal |
-| PHPicker may have unexpected behavior on older iOS versions | Low | Test on minimum supported iOS version (iOS 26.0); PHPicker is mature API by this point |
+| PHPicker may have unexpected behavior on older iOS versions | Low | Test on minimum supported iOS version (iOS 26.0); PHPicker is mature API |
 | Upload progress may not update smoothly | Medium | Use URLSession background delegate; store progress in DB; UI observes via GRDB |
-| Local storage may grow unbounded | Medium | Enforce 500MB per inbox limit; automatic cleanup; user warning in Settings |
 
 ---
 
@@ -699,6 +788,11 @@ A: No visual indicator needed.
 4. **Video support** (separate feature)
 5. **Photo editing** (crop, filters)
 6. **Photo statistics in Settings** (storage used)
+7. **Additional composer attachment types** (via `ComposerAttachment` protocol):
+   - URL link previews
+   - Invite link previews
+   - Location sharing
+   - Contact cards
 
 ---
 
@@ -735,12 +829,12 @@ Key files for implementation:
 
 This document provides comprehensive product requirements and technical architecture for Phase 1 photo support in Convos iOS:
 
-- **Simplified scope:** Photo picker only, single photo, no screenshot detection
+- **Simplified scope:** Photo picker only, single photo per message
 - **Device-optimized UI:** Full bleed on iPhone, traditional bubbles on iPad
 - **Background upload:** Reliable upload with progress tracking and retry logic
 - **Quality focus:** Under 1MB target with quality optimization for large screens
-- **Privacy-first:** Local encryption, tap-to-reveal, backend-managed 30-day deletion
-- **Simple storage model:** Photos cached locally until conversation deleted
+- **Privacy-first:** XMTP handles encryption, EXIF metadata stripped, tap-to-reveal for new conversations
+- **Simple storage model:** Photos cached locally until conversation deleted, iOS Data Protection for security
 - **Testable:** Protocol-based design with clear module boundaries
 - **Production-ready:** Builds on existing infrastructure (S3, XMTP, GRDB)
 
