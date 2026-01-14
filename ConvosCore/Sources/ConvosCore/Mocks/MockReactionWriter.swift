@@ -25,8 +25,14 @@ public final class MockReactionWriter: ReactionWriterProtocol, @unchecked Sendab
     }
 
     public func toggleReaction(emoji: String, to messageId: String, in conversationId: String) async throws {
-        let hasExisting = reactions.contains { $0.messageId == messageId && $0.emoji == emoji && $0.action == .added }
-        if hasExisting {
+        let net = reactions.reduce(0) { acc, record in
+            guard record.messageId == messageId && record.emoji == emoji else { return acc }
+            switch record.action {
+            case .added: return acc + 1
+            case .removed: return acc - 1
+            }
+        }
+        if net > 0 {
             reactions.append(.init(emoji: emoji, messageId: messageId, conversationId: conversationId, action: .removed))
         } else {
             reactions.append(.init(emoji: emoji, messageId: messageId, conversationId: conversationId, action: .added))
