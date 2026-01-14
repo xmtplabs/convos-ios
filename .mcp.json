@@ -14,6 +14,10 @@
     "xmtp-docs": {
       "command": "npx",
       "args": ["-y", "@xmtp/docs-mcp@latest"]
+    },
+    "graphite": {
+      "command": "gt",
+      "args": ["mcp"]
     }
   }
 }

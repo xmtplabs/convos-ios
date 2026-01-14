@@ -234,11 +234,12 @@ Use the swift-architect agent to review the SessionManager design
 
 ### MCP Tools
 
-Three MCP servers are configured in `.mcp.json`:
+Four MCP servers are configured in `.mcp.json`:
 
 - **XcodeBuildMCP**: Build and test the Xcode project directly
 - **ios-simulator**: Interact with the iOS Simulator (launch, screenshot, etc.)
 - **xmtp-docs**: Search and access XMTP protocol documentation
+- **graphite**: Manage stacked PRs and branches (requires Graphite CLI v1.6.7+)
 
 ### Testing
 
@@ -257,21 +258,67 @@ swift test --filter "TestClassName" --package-path ConvosCore
 ./dev/down  # Stop when done
 ```
 
-### PRD-Driven Development
+### PRD-Driven Development with Graphite Stacking
 
-Feature development follows a PRD workflow:
+Feature development follows a PRD workflow integrated with Graphite's PR stacking:
 
-1. Create PRD from template: `docs/TEMPLATE_PRD.md` → `docs/plans/[feature].md`
-2. Use `prd-writer` agent to draft the PRD (problem statement, user stories, high-level approach)
-3. Use `swift-architect` agent to design detailed technical implementation
-4. Implement with other agents as needed
-5. Update PRD status as work progresses
+**Starting a New Feature:**
+1. Run `convos-task new feature-name` to create a new worktree and Graphite branch
+2. Use `prd-writer` agent to draft the PRD at `docs/plans/[feature].md`
+3. Commit the PRD and create the first PR in the stack (this is always the plan PR)
+4. Use `swift-architect` agent to design detailed technical implementation
+5. Stack implementation PRs on top of the plan PR
+
+**PR Stacking Strategy:**
+- **First PR**: Always the plan/PRD document
+- **Subsequent PRs**: Implementation work stacked on top of the plan
+- **Checkpoints**: Create a new stacked PR when a chunk of work is "shippable" (compiles, tests pass, represents a logical unit)
+
+**What constitutes a checkpoint:**
+- A complete model or data layer change
+- A full view/screen implementation
+- A service or repository addition
+- Any logically complete, reviewable unit of work
+
+**Graphite Commands (Claude should use these):**
+```bash
+# Create a new branch stacked on current AND commit staged changes
+gt create branch-name
+
+# Amend the current branch's commit (automatically restacks descendants)
+gt modify
+
+# Create/update PRs for all branches from trunk to current
+gt submit
+
+# Navigate the stack
+gt checkout branch-name  # Switch to specific branch
+gt up                    # Move to child branch
+gt down                  # Move to parent branch
+gt top                   # Jump to tip of stack
+gt bottom                # Jump to base of stack
+
+# Sync with remote (cleans up merged branches, updates dependents)
+gt sync
+
+# View the current stack structure
+gt log
+gt log short             # Abridged version
+```
 
 **PRD Guidelines:**
 - PRDs focus on **what** and **why**, not detailed **how**
 - Avoid prescriptive code implementations in PRDs
 - Leave technical design specifics to `swift-architect` agent
 - Reference relevant ADRs for architectural context
+
+**Example Feature Workflow:**
+```
+main
+ └── feature-name-plan        # PR 1: PRD document
+      └── feature-name-models  # PR 2: Data models
+           └── feature-name-ui # PR 3: Views and ViewModels
+```
 
 ### Pre-commit Hooks
 
@@ -347,3 +394,52 @@ convos-task new push-notifications
 - Docker services (e.g., local XMTP node) are shared across worktrees
 - Graphite branches are automatically stacked on current branch unless parent specified
 - Use `ct` as shorthand for `convos-task`
+
+### Git and Branch Management with Graphite
+
+**IMPORTANT: Claude must ALWAYS use Graphite (`gt`) commands instead of raw `git` for branch and commit management.**
+
+This ensures proper PR stacking and integration with the team's review workflow. A Graphite MCP is configured in `.mcp.json` to help Claude manage stacks automatically.
+
+**Use `gt` instead of `git` for:**
+| Instead of | Use |
+|------------|-----|
+| `git checkout -b branch && git commit` | `gt create branch-name` (creates branch + commits staged changes) |
+| `git commit --amend` | `gt modify` (amends and auto-restacks descendants) |
+| `git push` | `gt submit` (creates/updates PRs for the stack) |
+| `git checkout branch` | `gt checkout branch` |
+| `git rebase` | `gt sync` (syncs with remote, cleans merged branches) |
+| `git log` | `gt log` (shows stack structure visually) |
+
+**Key workflow difference:** With Graphite, `gt create` creates a new branch AND commits in one step. Use `-a` to stage all changes automatically, or stage manually with `git add` first.
+
+**When to create a new stacked branch:**
+1. After committing the PRD (plan document)
+2. At each logical checkpoint during implementation
+3. When switching from one concern to another (e.g., models → views)
+
+**Checkpoint criteria - create a new stacked PR when:**
+- Code compiles successfully
+- Relevant tests pass
+- Changes represent a complete, reviewable unit
+- You're about to start a different layer/concern
+
+**Example session flow:**
+```bash
+# 1. Start feature (user runs this outside Claude)
+convos-task new user-profile
+
+# 2. Claude creates PRD, commits it (use -a to stage all changes)
+gt create user-profile-plan -am "Add PRD for user profile feature"
+gt submit  # Creates first PR (the plan)
+
+# 3. Claude implements models, creates new stacked branch
+# ... implement models ...
+gt create user-profile-models -am "Add UserProfile model and repository"
+gt submit  # Creates second PR, stacked on plan
+
+# 4. Claude implements UI, creates new stacked branch
+# ... implement views ...
+gt create user-profile-ui -am "Add UserProfileView and ViewModel"
+gt submit  # Creates third PR, stacked on models
+```
