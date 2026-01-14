@@ -113,6 +113,9 @@ iOSInjectionProject/
 /*.gcno
 **/xcshareddata/WorkspaceSettings.xcsettings
 
+# Claude Code temporary resources
+claude-code-resources/
+
 # End of https://www.toptal.com/developers/gitignore/api/swift,xcode
 
 # Claude Code local files

@@ -272,6 +272,25 @@ The `/build` command automatically uses `-derivedDataPath .derivedData` to store
 - If you get module errors, delete `.derivedData/` and rebuild: `rm -rf .derivedData`
 - The `.derivedData/` folder is gitignored
 
+### Reference Resources
+
+The `claude-code-resources/` folder is a gitignored directory for temporary reference code and resources. Engineers can paste example projects, code snippets, or other materials here for Claude Code to reference during implementation.
+
+**Usage:**
+- Paste example Swift files, sample projects, or reference implementations
+- Claude Code will look here when asked to reference examples or follow patterns
+- Contents are not committed to git - purely for local/session use
+- Clean up when no longer needed
+
+**Example workflow:**
+```bash
+# Copy an example project for reference
+cp -r ~/Downloads/SamplePhotoPickerApp claude-code-resources/
+
+# Then ask Claude Code to reference it
+"Look at the photo picker implementation in claude-code-resources/SamplePhotoPickerApp and follow that pattern"
+```
+
 ### Testing
 
 Use the `./dev/test` script for running tests. **Most tests require Docker** for the local XMTP node:
