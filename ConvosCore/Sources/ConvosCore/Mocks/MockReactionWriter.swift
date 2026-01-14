@@ -1,13 +1,13 @@
 import Foundation
 
-public final class MockReactionWriter: ReactionWriterProtocol, @unchecked Sendable {
-    public struct ReactionRecord: Equatable {
+public actor MockReactionWriter: ReactionWriterProtocol {
+    public struct ReactionRecord: Equatable, Sendable {
         public let emoji: String
         public let messageId: String
         public let conversationId: String
         public let action: ReactionRecordAction
 
-        public enum ReactionRecordAction {
+        public enum ReactionRecordAction: Sendable {
             case added, removed
         }
     }

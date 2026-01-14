@@ -42,17 +42,25 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
         if encodedContentType == ContentTypeReaction || encodedContentType == ContentTypeReactionV2 {
             let content = try message.content() as Any
             if let reaction = content as? Reaction {
-                if reaction.action == .removed {
+                switch reaction.action {
+                case .removed:
                     return try await handleReactionRemoval(
                         message: message,
                         reaction: reaction,
                         conversation: conversation
                     )
-                } else if reaction.action == .added {
+                case .added:
                     return try await handleReactionAddition(
                         message: message,
                         reaction: reaction,
                         conversation: conversation
+                    )
+                case .unknown:
+                    Log.warning("Received unknown reaction action, ignoring")
+                    return IncomingMessageWriterResult(
+                        contentType: .emoji,
+                        wasRemovedFromConversation: false,
+                        messageAlreadyExists: false
                     )
                 }
             }
@@ -119,7 +127,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
         reaction: Reaction,
         conversation: DBConversation
     ) async throws -> IncomingMessageWriterResult {
-        try await databaseWriter.write { db in
+        let reactionAlreadyExists = try await databaseWriter.write { db -> Bool in
             let sender = DBMember(inboxId: message.senderInboxId)
             try sender.save(db)
             let senderProfile = DBMemberProfile(
@@ -141,16 +149,18 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol {
                 let updatedReaction = existingReaction.with(status: .published)
                 try updatedReaction.save(db)
                 Log.info("Updated existing reaction \(existingReaction.id) status to published")
+                return true
             } else {
                 let dbMessage = try message.dbRepresentation()
                 try dbMessage.save(db)
                 Log.info("Saved new incoming reaction \(message.id)")
+                return false
             }
         }
         return IncomingMessageWriterResult(
             contentType: .emoji,
             wasRemovedFromConversation: false,
-            messageAlreadyExists: false
+            messageAlreadyExists: reactionAlreadyExists
         )
     }
 

@@ -13,6 +13,7 @@ enum ReactionWriterError: Error {
     case missingClientProvider
     case conversationNotFound(conversationId: String)
     case messageNotFound(messageId: String)
+    case unknownReactionAction
 }
 
 final class ReactionWriter: ReactionWriterProtocol {
@@ -89,6 +90,20 @@ final class ReactionWriter: ReactionWriterProtocol {
             let date = Date()
             let clientMessageId = UUID().uuidString
 
+            let existingReaction = try await databaseWriter.read { db in
+                try DBMessage
+                    .filter(DBMessage.Columns.sourceMessageId == messageId)
+                    .filter(DBMessage.Columns.senderId == client.inboxId)
+                    .filter(DBMessage.Columns.emoji == emoji)
+                    .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
+                    .fetchOne(db)
+            }
+
+            if existingReaction != nil {
+                Log.info("Reaction already exists locally, skipping duplicate")
+                return
+            }
+
             try await databaseWriter.write { db in
                 let localReaction = DBMessage(
                     id: clientMessageId,
@@ -117,6 +132,14 @@ final class ReactionWriter: ReactionWriterProtocol {
                     options: .init(contentType: ContentTypeReaction)
                 )
                 Log.info("Sent reaction \(emoji) to message \(messageId)")
+
+                try await databaseWriter.write { db in
+                    guard let localReaction = try DBMessage.fetchOne(db, key: clientMessageId) else {
+                        Log.warning("Local reaction not found after send")
+                        return
+                    }
+                    try localReaction.with(status: .published).save(db)
+                }
             } catch {
                 Log.error("Failed sending reaction: \(error.localizedDescription)")
                 try await databaseWriter.write { db in
@@ -152,7 +175,8 @@ final class ReactionWriter: ReactionWriterProtocol {
             }
 
         case .unknown:
-            Log.warning("Unknown reaction action")
+            Log.error("Attempted to send unknown reaction action")
+            throw ReactionWriterError.unknownReactionAction
         }
     }
 }
