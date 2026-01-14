@@ -114,6 +114,28 @@ When the joiner is added to the new conversation, they verify that the conversat
 **Spam Prevention:**
 Invalid join requests (bad signature, malformed data, wrong creator) trigger automatic DM blocking using XMTP consent states.
 
+**Join Error Feedback:**
+When a join request fails for legitimate reasons (not spam), the creator's client sends an error message back to the joiner via the same DM channel. This uses a custom XMTP content type (`InviteJoinError`) following the same pattern as `ExplodeSettingsCodec`.
+
+Error message structure:
+- `errorType`: The type of failure (`conversationExpired`, `genericFailure`, or `unknown` for forward compatibility)
+- `inviteTag`: Correlates the error with the specific join attempt
+- `timestamp`: When the error occurred
+
+Error type mapping:
+| Join Request Error | Error Type Sent |
+|-------------------|-----------------|
+| Conversation expired/deleted | `conversationExpired` |
+| Conversation not found | `conversationExpired` |
+| Other failures | `genericFailure` |
+
+The joiner's client matches incoming errors by `inviteTag` to the pending join request and transitions the state machine to a `.joinFailed` state, displaying appropriate user-facing feedback.
+
+Key design decisions:
+- Push notifications enabled (`shouldPush: true`) to ensure delivery when joiner is offline
+- Fire-and-forget sending—error delivery failures don't block other operations
+- Unknown error types fall back to generic failure for forward compatibility
+
 ### 5. Additional Architectural Decisions
 
 **Protobuf Wire Format:**
@@ -152,6 +174,7 @@ Invalid join requests (bad signature, malformed data, wrong creator) trigger aut
 - **Secure:** Cryptographic signatures prevent forgery and tampering
 - **Duplicate-Safe:** Invite tags enable detection of existing conversations
 - **Flexible:** Support for optional expiration and single-use flags
+- **User-Friendly Failures:** Joiners receive clear feedback when join requests fail
 
 ### Negative
 
@@ -186,11 +209,14 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 - `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift` - Metadata storage
 - `ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift` - Join request processing
 - `ConvosCore/Sources/ConvosCore/Inboxes/ConversationStateMachine.swift` - Join flow state machine
+- `ConvosCore/Sources/ConvosCore/Custom Content Types/InviteJoinErrorCodec.swift` - Join error content type
+- `ConvosCore/Sources/ConvosCore/Inboxes/InviteJoinErrorHandler.swift` - Error handler protocol
 
 ## Related ADRs
 
 - ADR 002: Per-Conversation Identity Model (explains the per-conversation inbox architecture used for invite creators)
 - ADR 003: Inbox Lifecycle Management (explains how pre-created inboxes optimize the join flow)
+- ADR 004: Conversation Explode Feature (join error feedback follows the same custom content type codec pattern)
 - ADR 005: Profile Storage in Conversation Metadata (also uses XMTP custom metadata, shares the 8KB appData limit)
 
 ## References
