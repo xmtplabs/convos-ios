@@ -41,10 +41,12 @@ class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol {
 
             let pinnedOrder: Int?
             if isPinned {
-                let maxOrder = try ConversationLocalState
-                    .filter(ConversationLocalState.Columns.isPinned == true)
-                    .select(max(ConversationLocalState.Columns.pinnedOrder))
-                    .fetchOne(db) ?? 0
+                let maxOrder = try Int.fetchOne(
+                    db,
+                    ConversationLocalState
+                        .filter(ConversationLocalState.Columns.isPinned == true)
+                        .select(max(ConversationLocalState.Columns.pinnedOrder))
+                ) ?? 0
                 pinnedOrder = maxOrder + 1
             } else {
                 pinnedOrder = nil
