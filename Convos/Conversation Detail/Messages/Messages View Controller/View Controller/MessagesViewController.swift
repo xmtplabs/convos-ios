@@ -556,10 +556,7 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
     }
 
     private func updateBottomInsetForBottomBarHeight() {
-        guard isViewLoaded else {
-            Log.info("View not loading, skipping bottom inset update...")
-            return
-        }
+        guard isViewLoaded else { return }
 
         // allows the drag gesture to start above the bottom bar
         self.view.keyboardLayoutGuide.keyboardDismissPadding = bottomBarHeight
@@ -577,9 +574,9 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
 extension MessagesViewController: KeyboardListenerDelegate {
     func keyboardWillChangeFrame(info: KeyboardInfo) {
-        guard shouldHandleKeyboardFrameChange(info: info) else { return }
-
         self.lastKeyboardFrameChange = info
+
+        guard shouldHandleKeyboardFrameChange(info: info) else { return }
 
         currentInterfaceActions.options.insert(.changingKeyboardFrame)
         let newBottomInset = calculateNewBottomInset(for: info)
@@ -595,8 +592,9 @@ extension MessagesViewController: KeyboardListenerDelegate {
     }
 
     func keyboardDidChangeFrame(info: KeyboardInfo) {
-        guard currentInterfaceActions.options.contains(.changingKeyboardFrame) else { return }
-        currentInterfaceActions.options.remove(.changingKeyboardFrame)
+        if currentInterfaceActions.options.contains(.changingKeyboardFrame) {
+            currentInterfaceActions.options.remove(.changingKeyboardFrame)
+        }
     }
 
     private func shouldHandleKeyboardFrameChange(info: KeyboardInfo) -> Bool {

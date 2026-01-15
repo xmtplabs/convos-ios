@@ -38,6 +38,8 @@ struct MessagesView<BottomBarContent: View>: View {
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
+    @State private var isPhotoPickerPresented: Bool = false
+
     var body: some View {
         Group {
             MessagesViewRepresentable(
@@ -57,28 +59,26 @@ struct MessagesView<BottomBarContent: View>: View {
             .ignoresSafeArea()
         }
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: 0.0) {
-                bottomBarContent()
-                MessagesBottomBar(
-                    profile: profile,
-                    displayName: $displayName,
-                    messageText: $messageText,
-                    sendButtonEnabled: sendButtonEnabled,
-                    profileImage: $profileImage,
-                    focusState: $focusState,
-                    focusCoordinator: focusCoordinator,
-                    onboardingCoordinator: onboardingCoordinator,
-                    messagesTextFieldEnabled: messagesTextFieldEnabled,
-                    onProfilePhotoTap: onProfilePhotoTap,
-                    onSendMessage: onSendMessage,
-                    onDisplayNameEndedEditing: onDisplayNameEndedEditing,
-                    onProfileSettings: onProfileSettings
-                )
-            }
-            .background(HeightReader())
-            .onPreferenceChange(HeightPreferenceKey.self) { height in
-                bottomBarHeight = height
-            }
+            MessagesBottomBar(
+                profile: profile,
+                displayName: $displayName,
+                messageText: $messageText,
+                sendButtonEnabled: sendButtonEnabled,
+                profileImage: $profileImage,
+                isPhotoPickerPresented: $isPhotoPickerPresented,
+                focusState: $focusState,
+                focusCoordinator: focusCoordinator,
+                onboardingCoordinator: onboardingCoordinator,
+                messagesTextFieldEnabled: messagesTextFieldEnabled,
+                onProfilePhotoTap: onProfilePhotoTap,
+                onSendMessage: onSendMessage,
+                onDisplayNameEndedEditing: onDisplayNameEndedEditing,
+                onProfileSettings: onProfileSettings,
+                onBaseHeightChanged: { height in
+                    bottomBarHeight = height
+                },
+                bottomBarContent: bottomBarContent
+            )
         }
     }
 }
