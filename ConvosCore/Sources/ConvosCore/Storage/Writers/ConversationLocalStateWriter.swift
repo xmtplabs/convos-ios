@@ -9,6 +9,8 @@ public protocol ConversationLocalStateWriterProtocol {
 }
 
 class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol {
+    static let maxPinnedConversations: Int = 9
+
     private let databaseWriter: any DatabaseWriter
 
     init(databaseWriter: any DatabaseWriter) {
@@ -25,6 +27,16 @@ class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol {
         try await databaseWriter.write { db in
             guard try DBConversation.fetchOne(db, key: conversationId) != nil else {
                 throw ConversationLocalStateWriterError.conversationNotFound
+            }
+
+            if isPinned {
+                let currentPinnedCount = try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.isPinned == true)
+                    .fetchCount(db)
+
+                guard currentPinnedCount < Self.maxPinnedConversations else {
+                    throw ConversationLocalStateWriterError.pinLimitReached
+                }
             }
 
             let current = try ConversationLocalState
@@ -99,6 +111,7 @@ class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol {
     }
 }
 
-enum ConversationLocalStateWriterError: Error {
+public enum ConversationLocalStateWriterError: Error {
     case conversationNotFound
+    case pinLimitReached
 }

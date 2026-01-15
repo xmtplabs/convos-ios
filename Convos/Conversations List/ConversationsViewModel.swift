@@ -115,8 +115,6 @@ final class ConversationsViewModel {
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
-    static let maxPinnedConversations: Int = 9
-
     var conversations: [Conversation] = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -467,18 +465,11 @@ final class ConversationsViewModel {
                     inboxId: inboxId
                 )
                 let writer = messagingService.conversationLocalStateWriter()
-
-                if !currentlyPinned {
-                    let pinnedCount = try await writer.getPinnedCount()
-                    guard pinnedCount < Self.maxPinnedConversations else {
-                        await MainActor.run {
-                            self.presentingPinLimitInfo = true
-                        }
-                        return
-                    }
-                }
-
                 try await writer.setPinned(!currentlyPinned, for: conversationId)
+            } catch ConversationLocalStateWriterError.pinLimitReached {
+                await MainActor.run {
+                    self.presentingPinLimitInfo = true
+                }
             } catch {
                 Log.error("Failed toggling pin for conversation \(conversationId): \(error.localizedDescription)")
             }
