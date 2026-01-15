@@ -83,11 +83,14 @@ struct PinnedConversationsSection: View {
     }
 
     var body: some View {
-        if shouldUseGrid {
-            gridLayout
-        } else {
-            horizontalLayout
+        Group {
+            if shouldUseGrid {
+                gridLayout
+            } else {
+                horizontalLayout
+            }
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shouldUseGrid)
     }
 
     private var horizontalLayout: some View {
