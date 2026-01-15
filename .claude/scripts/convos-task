@@ -413,19 +413,33 @@ cmd_sync() {
     fi
 }
 
+is_branch_merged() {
+    local branch="$1"
+
+    # Method 1: Check if branch is merged via git (catches regular merges)
+    if git branch --merged main 2>/dev/null | sed 's/^[* ]*//' | grep -qx "$branch"; then
+        return 0
+    fi
+
+    # Method 2: Check GitHub PR status (catches squash merges)
+    if command -v gh &>/dev/null; then
+        local pr_state
+        pr_state=$(gh pr list --state merged --head "$branch" --json state --jq '.[0].state' 2>/dev/null)
+        if [ "$pr_state" = "MERGED" ]; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 cmd_prune() {
     cd "$MAIN_REPO"
 
     echo -e "${BLUE}Checking for worktrees with merged branches...${NC}\n"
 
-    # Get list of branches merged into main
-    local merged_branches
-    merged_branches=$(git branch --merged main 2>/dev/null | sed 's/^[* ]*//' | grep -v '^main$' || true)
-
-    if [ -z "$merged_branches" ]; then
-        echo -e "${GREEN}No merged branches found.${NC}"
-        return 0
-    fi
+    # Fetch latest from remote to ensure we have current state
+    git fetch origin --quiet 2>/dev/null || true
 
     # Find worktrees that correspond to merged branches
     local worktrees_to_prune=()
@@ -440,7 +454,7 @@ cmd_prune() {
             branch\ *)
                 current_branch="${line#branch refs/heads/}"
                 # Check if this branch is merged and it's not the main repo
-                if [ "$current_worktree" != "$MAIN_REPO" ] && echo "$merged_branches" | grep -qx "$current_branch"; then
+                if [ "$current_worktree" != "$MAIN_REPO" ] && [ "$current_branch" != "main" ] && is_branch_merged "$current_branch"; then
                     worktrees_to_prune+=("$current_worktree")
                     branches_to_prune+=("$current_branch")
                     # Extract task name from worktree path
