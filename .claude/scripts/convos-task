@@ -10,7 +10,7 @@ REPO_NAME="$(basename "$MAIN_REPO")"
 BASE_DIR="$(dirname "$MAIN_REPO")"
 
 # Base simulator to clone from (can be overridden with CONVOS_BASE_SIMULATOR env var)
-BASE_SIMULATOR="${CONVOS_BASE_SIMULATOR:-iPhone 16 Pro}"
+BASE_SIMULATOR="${CONVOS_BASE_SIMULATOR:-iPhone 17 Pro}"
 
 # Colors (only use if output is a terminal)
 if [ -t 1 ]; then

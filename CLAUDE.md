@@ -427,7 +427,7 @@ cat .convos-task
 #          SIMULATOR_NAME=convos-my-feature
 ```
 
-Set `CONVOS_BASE_SIMULATOR` env var to change the source simulator (default: iPhone 16 Pro).
+Set `CONVOS_BASE_SIMULATOR` env var to change the source simulator (default: iPhone 17 Pro).
 
 ### Git and Branch Management with Graphite
 
