@@ -13,7 +13,7 @@
     },
     "xmtp-docs": {
       "command": "npx",
-      "args": ["-y", "@xmtp/docs-mcp@latest"]
+      "args": ["-y", "github:xmtp/xmtp-docs-mcp"]
     },
     "graphite": {
       "command": "gt",
@@ -22,6 +22,10 @@
     "notion": {
       "type": "http",
       "url": "https://mcp.notion.com/mcp"
+    },
+    "linear": {
+      "type": "http",
+      "url": "https://mcp.linear.app/mcp"
     }
   }
 }

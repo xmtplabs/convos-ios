@@ -235,12 +235,14 @@ Use the swift-architect agent to review the SessionManager design
 
 ### MCP Tools
 
-Four MCP servers are configured in `.mcp.json`:
+Six MCP servers are configured in `.mcp.json`:
 
 - **XcodeBuildMCP**: Build and test the Xcode project directly
 - **ios-simulator**: Interact with the iOS Simulator (launch, screenshot, etc.)
 - **xmtp-docs**: Search and access XMTP protocol documentation
 - **graphite**: Manage stacked PRs and branches (requires Graphite CLI v1.6.7+)
+- **notion**: Access Notion workspace for documentation and notes
+- **linear**: Access Linear issues, projects, and roadmap for task context
 
 ### Testing
 
