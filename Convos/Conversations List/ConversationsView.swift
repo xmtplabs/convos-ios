@@ -212,9 +212,13 @@ struct ConversationsView: View {
                         )
                         .onGeometryChange(for: CGFloat.self) { geometry in
                             geometry.size.height
-                        } action: { _, newHeight in
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                        } action: { oldHeight, newHeight in
+                            if oldHeight == 0 {
                                 pinnedSectionHeight = newHeight
+                            } else {
+                                withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                    pinnedSectionHeight = newHeight
+                                }
                             }
                         }
                         .scaleEffect(pinnedSectionScale)
