@@ -10,7 +10,56 @@ REPO_NAME="$(basename "$MAIN_REPO")"
 BASE_DIR="$(dirname "$MAIN_REPO")"
 
 # Base simulator to clone from (can be overridden with CONVOS_BASE_SIMULATOR env var)
-BASE_SIMULATOR="${CONVOS_BASE_SIMULATOR:-iPhone 17 Pro}"
+# If not set, will auto-detect an available iPhone simulator
+BASE_SIMULATOR="${CONVOS_BASE_SIMULATOR:-}"
+
+find_available_simulator() {
+    # Preferred simulators in order (newest first)
+    local preferred=(
+        "iPhone 17 Pro Max"
+        "iPhone 17 Pro"
+        "iPhone 17"
+        "iPhone 16 Pro Max"
+        "iPhone 16 Pro"
+        "iPhone 16"
+        "iPhone 15 Pro Max"
+        "iPhone 15 Pro"
+        "iPhone 15"
+    )
+
+    # Get list of available simulators
+    local available
+    available=$(xcrun simctl list devices available -j 2>/dev/null | grep -o '"name" : "[^"]*"' | sed 's/"name" : "//;s/"//')
+
+    # Try preferred simulators first
+    for sim in "${preferred[@]}"; do
+        if echo "$available" | grep -qx "$sim"; then
+            echo "$sim"
+            return 0
+        fi
+    done
+
+    # Fallback: find any iPhone simulator
+    local fallback
+    fallback=$(echo "$available" | grep -E "^iPhone" | head -1)
+    if [ -n "$fallback" ]; then
+        echo "$fallback"
+        return 0
+    fi
+
+    return 1
+}
+
+get_base_simulator() {
+    # If user specified a base simulator, use it
+    if [ -n "$BASE_SIMULATOR" ]; then
+        echo "$BASE_SIMULATOR"
+        return 0
+    fi
+
+    # Otherwise, find an available one
+    find_available_simulator
+}
 
 # Colors (only use if output is a terminal)
 if [ -t 1 ]; then
@@ -42,10 +91,19 @@ create_task_simulator() {
         return 0
     fi
 
-    echo -e "${BLUE}Creating simulator: $sim_name (cloning from $BASE_SIMULATOR)${NC}"
+    local base_sim
+    base_sim=$(get_base_simulator)
 
-    if ! xcrun simctl clone "$BASE_SIMULATOR" "$sim_name" 2>/dev/null; then
-        echo -e "${YELLOW}⚠️  Could not clone simulator (base '$BASE_SIMULATOR' not found)${NC}"
+    if [ -z "$base_sim" ]; then
+        echo -e "${YELLOW}⚠️  No iPhone simulators found on this system${NC}"
+        echo -e "${YELLOW}   Install Xcode simulators or set CONVOS_BASE_SIMULATOR${NC}"
+        return 1
+    fi
+
+    echo -e "${BLUE}Creating simulator: $sim_name (cloning from $base_sim)${NC}"
+
+    if ! xcrun simctl clone "$base_sim" "$sim_name" 2>/dev/null; then
+        echo -e "${YELLOW}⚠️  Could not clone simulator '$base_sim'${NC}"
         echo -e "${YELLOW}   You can create one manually or set CONVOS_BASE_SIMULATOR${NC}"
         return 1
     fi
@@ -89,14 +147,19 @@ launch_claude_in_terminal() {
         message="echo '🚀 Starting Claude Code for task: $task_name' && "
     fi
 
-    if osascript -e 'tell application "System Events" to (name of processes) contains "iTerm2"' 2>/dev/null | grep -q "true"; then
-        osascript <<EOF
+    # Check if iTerm is available (installed)
+    if [ -d "/Applications/iTerm.app" ]; then
+        # Check if iTerm is already running (process name is "iTerm", not "iTerm2")
+        if osascript -e 'tell application "System Events" to (name of processes) contains "iTerm"' 2>/dev/null | grep -q "true"; then
+            osascript <<EOF
 tell application "iTerm"
     if (count of windows) > 0 then
         tell current window
-            create tab with default profile
-            tell current session
-                write text "cd '$dir' && ${message}claude"
+            set newTab to (create tab with default profile)
+            tell newTab
+                tell current session
+                    write text "cd '$dir' && ${message}claude"
+                end tell
             end tell
         end tell
     else
@@ -110,18 +173,20 @@ tell application "iTerm"
     activate
 end tell
 EOF
-    elif [ -d "/Applications/iTerm.app" ]; then
-        osascript <<EOF
+        else
+            # iTerm installed but not running - launch it
+            osascript <<EOF
 tell application "iTerm"
-    create window with default profile
+    activate
+    delay 0.5
     tell current window
         tell current session
             write text "cd '$dir' && ${message}claude"
         end tell
     end tell
-    activate
 end tell
 EOF
+        fi
     else
         osascript <<EOF
 tell application "Terminal"
@@ -430,7 +495,7 @@ ${YELLOW}Notes:${NC}
   - Each task gets a dedicated iOS simulator (convos-<task-name>)
   - Claude Code opens in iTerm 2 (preferred) or Terminal
   - Opens in new tab if window exists, new window otherwise
-  - Set CONVOS_BASE_SIMULATOR to change the base simulator (default: iPhone 16 Pro)
+  - Base simulator is auto-detected (set CONVOS_BASE_SIMULATOR to override)
   - Use 'gt stack' in worktree to see stack structure
 EOF
 }
