@@ -151,6 +151,9 @@ class ConversationWriter: ConversationWriterProtocol {
             memberProfiles: memberProfiles
         )
 
+        // Prefetch encrypted profile images in background
+        prefetchEncryptedImages(profiles: memberProfiles, group: conversation)
+
         // Create invite
         _ = try await inviteWriter.generate(
             for: dbConversation,
@@ -359,6 +362,26 @@ class ConversationWriter: ConversationWriterProtocol {
                 .asRequest(of: DBConversationLatestMessage.self)
                 .fetchOne(db)
             return result?.latestMessage?.dateNs
+        }
+    }
+
+    private func prefetchEncryptedImages(profiles: [DBMemberProfile], group: XMTPiOS.Group) {
+        let encryptedProfiles = profiles.filter { $0.avatarSalt != nil && $0.avatarNonce != nil }
+        guard !encryptedProfiles.isEmpty else { return }
+
+        let groupKey: Data? = try? group.imageEncryptionKey
+
+        Task.detached(priority: .background) {
+            guard let groupKey else {
+                Log.info("No image encryption key for group, skipping prefetch")
+                return
+            }
+
+            let prefetcher = EncryptedImagePrefetcher()
+            await prefetcher.prefetchProfileImages(
+                profiles: encryptedProfiles,
+                groupKey: groupKey
+            )
         }
     }
 }

@@ -32,7 +32,6 @@ func makeMessageMetadata(createdNs: Int64) -> MessageMetadata {
 
 @Suite("SleepingInboxMessageChecker Tests", .serialized)
 struct SleepingInboxMessageCheckerTests {
-
     init() {
         // Reset mock state before each test
         MockXMTPStaticOperations.reset()

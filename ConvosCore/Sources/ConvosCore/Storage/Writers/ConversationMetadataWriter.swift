@@ -159,7 +159,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-        // Resize, cache, and get JPEG data in one pass
+        guard let xmtpConversation = try await inboxReady.client.conversation(with: conversation.id),
+              case .group(let group) = xmtpConversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
+        }
+
         guard let compressedImageData = ImageCacheContainer.shared.resizeCacheAndGetData(
             image,
             for: conversation
@@ -167,18 +171,51 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
             throw ConversationMetadataWriterError.failedImageCompression
         }
 
-        let filename = "conversation-image-\(UUID().uuidString).jpg"
+        let groupKey = try await group.ensureImageEncryptionKey()
+        let encryptedPayload = try ImageEncryption.encrypt(
+            imageData: compressedImageData,
+            groupKey: groupKey
+        )
 
-        _ = try await inboxReady.apiClient.uploadAttachmentAndExecute(
-            data: compressedImageData,
-            filename: filename
-        ) { uploadedAssetUrl in
-            do {
-                try await self.updateImageUrl(uploadedAssetUrl, for: conversation.id)
-            } catch {
-                Log.error("Failed updating conversation image URL: \(error.localizedDescription)")
+        let filename = "eg-\(UUID().uuidString).enc"
+
+        let uploadedAssetUrl = try await inboxReady.apiClient.uploadAttachment(
+            data: encryptedPayload.ciphertext,
+            filename: filename,
+            contentType: "application/octet-stream",
+            acl: "public-read"
+        )
+
+        var encryptedRef = EncryptedImageRef()
+        encryptedRef.url = uploadedAssetUrl
+        encryptedRef.salt = encryptedPayload.salt
+        encryptedRef.nonce = encryptedPayload.nonce
+
+        try await group.updateEncryptedGroupImage(encryptedRef)
+        try await group.updateImageUrl(imageUrl: uploadedAssetUrl)
+
+        let updatedConversation = try await databaseWriter.write { db in
+            guard let localConversation = try DBConversation
+                .fetchOne(db, key: conversation.id) else {
+                throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
             }
+            let updatedConversation = localConversation.with(imageURLString: uploadedAssetUrl)
+            try updatedConversation.save(db)
+            return updatedConversation
         }
+
+        if let cachedImage = ImageType(data: compressedImageData) {
+            ImageCacheContainer.shared.setImage(cachedImage, for: uploadedAssetUrl)
+        }
+
+        _ = try await inviteWriter.update(
+            for: updatedConversation.id,
+            name: updatedConversation.name,
+            description: updatedConversation.description,
+            imageURL: updatedConversation.imageURLString
+        )
+
+        Log.info("Updated encrypted conversation image for \(conversation.id): \(uploadedAssetUrl)")
     }
 
     func updateImageUrl(_ imageURL: String, for conversationId: String) async throws {

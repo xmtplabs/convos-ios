@@ -20,7 +20,6 @@ private let testAppLifecycle = MockAppLifecycleProvider()
 /// - Keychain management
 @Suite("InboxStateMachine Tests", .serialized)
 struct InboxStateMachineTests {
-
     // MARK: - Registration Tests
 
     @Test("Register creates new client and reaches ready state")
@@ -106,10 +105,8 @@ struct InboxStateMachineTests {
             switch state {
             case .ready(_, let readyResult):
                 result = readyResult
-                break
-            case .error(_, let error):
+                case .error(_, let error):
                 Issue.record("Registration failed: \(error)")
-                break
             default:
                 continue
             }
@@ -171,10 +168,8 @@ struct InboxStateMachineTests {
             switch state {
             case .ready(_, let readyResult):
                 result = readyResult
-                break
-            case .error(_, let error):
+                case .error(_, let error):
                 Issue.record("Authorization failed: \(error)")
-                break
             default:
                 continue
             }
@@ -224,10 +219,8 @@ struct InboxStateMachineTests {
             switch state {
             case .error:
                 errorOccurred = true
-                break
-            case .ready:
+                case .ready:
                 Issue.record("Should not reach ready state with mismatched clientId")
-                break
             default:
                 continue
             }

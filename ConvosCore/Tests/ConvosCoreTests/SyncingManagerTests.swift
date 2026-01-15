@@ -307,7 +307,6 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
 /// Comprehensive tests for SyncingManager state machine
 @Suite("SyncingManager Tests", .serialized)
 struct SyncingManagerTests {
-
     // MARK: - Start Flow Tests
 
     @Test("Start from idle starts streams then calls syncAllConversations")

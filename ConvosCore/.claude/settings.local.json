@@ -1,0 +1,7 @@
+{
+  "enabledMcpjsonServers": [
+    "XcodeBuildMCP",
+    "ios-simulator",
+    "xmtp-docs"
+  ]
+}

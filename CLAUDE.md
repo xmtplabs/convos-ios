@@ -89,6 +89,20 @@ Key enforced rules:
 - Private over fileprivate
 - No implicitly unwrapped optionals
 
+### Guard Preference
+Prefer `guard` with early return over `if` with early return for validation and unwrapping:
+```swift
+// ✅ Good
+guard let value = optional else { return nil }
+return process(value)
+
+// ❌ Avoid
+if let value = optional {
+    return process(value)
+}
+return nil
+```
+
 ### Naming Conventions
 - ViewModels: `ConversationViewModel`, `ProfileViewModel`
 - Views: `ConversationsView`, `MessageView`

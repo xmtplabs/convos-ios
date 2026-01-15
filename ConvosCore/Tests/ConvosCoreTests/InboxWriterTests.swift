@@ -11,7 +11,6 @@ import Testing
 /// - Idempotent saves with matching clientId
 @Suite("InboxWriter Tests")
 struct InboxWriterTests {
-
     @Test("Save creates new inbox in database")
     func testSaveNewInbox() async throws {
         let fixtures = TestFixtures()
@@ -142,13 +141,3 @@ struct InboxWriterTests {
         try? await fixtures.cleanup()
     }
 }
-
-
-
-
-
-
-
-
-
-

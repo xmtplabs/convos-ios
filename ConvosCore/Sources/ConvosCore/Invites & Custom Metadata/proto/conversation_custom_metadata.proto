@@ -7,15 +7,31 @@ syntax = "proto3";
 // - expiresAt: Unix sfixed64 (8 bytes) instead of protobuf Timestamp (10-16 bytes)
 // - DEFLATE compression applied if size >100 bytes (typically 20-40% reduction)
 //
+// Image encryption (lean approach):
+// - One 32-byte AES-256 key per group (imageEncryptionKey)
+// - Per-image: URL + salt + nonce (no digest - AES-GCM auth tag provides integrity)
+// - ~48 bytes overhead per image
+//
 message ConversationCustomMetadata {
     string tag = 1;
     repeated ConversationProfile profiles = 2;
     optional sfixed64 expiresAtUnix = 3;
+    optional bytes imageEncryptionKey = 4;  // 32-byte AES-256 key for encrypting all images
+    optional EncryptedImageRef encryptedGroupImage = 5;  // Encrypted group avatar
+}
+
+// EncryptedImageRef stores encrypted image metadata
+// AES-GCM auth tag (16 bytes) is appended to ciphertext, providing integrity verification
+message EncryptedImageRef {
+    string url = 1;   // S3 URL to encrypted ciphertext
+    bytes salt = 2;   // 32-byte HKDF salt for key derivation
+    bytes nonce = 3;  // 12-byte AES-GCM nonce
 }
 
 // ConversationProfile represents a participant in the conversation
 message ConversationProfile {
     bytes inboxId = 1;  // XMTP inbox ID as hex-decoded bytes
     optional string name = 2;
-    optional string image = 3;
+    optional string image = 3;  // Legacy: plain URL (backward compatibility)
+    optional EncryptedImageRef encryptedImage = 4;  // New: encrypted image reference
 }

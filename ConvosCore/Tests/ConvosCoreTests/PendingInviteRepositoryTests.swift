@@ -5,7 +5,6 @@ import Testing
 
 @Suite("PendingInviteRepository Tests", .serialized)
 struct PendingInviteRepositoryTests {
-
     // MARK: - Pending Invite Detection Tests
 
     @Test("hasPendingInvites returns true for draft conversations with invite tag")

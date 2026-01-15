@@ -19,7 +19,6 @@ private let testEnvironment = AppEnvironment.tests
 /// - Ensuring same inbox is never consumed twice
 @Suite("UnusedInboxCache Tests")
 struct UnusedInboxCacheTests {
-
     // MARK: - Test Helpers
 
     /// Waits for an unused inbox to be ready by polling with a timeout

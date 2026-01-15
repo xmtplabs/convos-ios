@@ -28,7 +28,10 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
 /// - expiresAt: Unix sfixed64 (8 bytes) instead of protobuf Timestamp (10-16 bytes)
 /// - DEFLATE compression applied if size >100 bytes (typically 20-40% reduction)
 ///
-/// Expected size for 5-member group: ~200-300 bytes (40-60% smaller than unoptimized)
+/// Image encryption (lean approach):
+/// - One 32-byte AES-256 key per group (imageEncryptionKey)
+/// - Per-image: URL + salt + nonce (no digest - AES-GCM auth tag provides integrity)
+/// - ~48 bytes overhead per image
 public struct ConversationCustomMetadata: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
@@ -47,11 +50,54 @@ public struct ConversationCustomMetadata: Sendable {
   /// Clears the value of `expiresAtUnix`. Subsequent reads from it will return its default value.
   public mutating func clearExpiresAtUnix() {self._expiresAtUnix = nil}
 
+  /// 32-byte AES-256 key for encrypting all images
+  public var imageEncryptionKey: Data {
+    get {return _imageEncryptionKey ?? Data()}
+    set {_imageEncryptionKey = newValue}
+  }
+  /// Returns true if `imageEncryptionKey` has been explicitly set.
+  public var hasImageEncryptionKey: Bool {return self._imageEncryptionKey != nil}
+  /// Clears the value of `imageEncryptionKey`. Subsequent reads from it will return its default value.
+  public mutating func clearImageEncryptionKey() {self._imageEncryptionKey = nil}
+
+  /// Encrypted group avatar
+  public var encryptedGroupImage: EncryptedImageRef {
+    get {return _encryptedGroupImage ?? EncryptedImageRef()}
+    set {_encryptedGroupImage = newValue}
+  }
+  /// Returns true if `encryptedGroupImage` has been explicitly set.
+  public var hasEncryptedGroupImage: Bool {return self._encryptedGroupImage != nil}
+  /// Clears the value of `encryptedGroupImage`. Subsequent reads from it will return its default value.
+  public mutating func clearEncryptedGroupImage() {self._encryptedGroupImage = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _expiresAtUnix: Int64? = nil
+  fileprivate var _imageEncryptionKey: Data? = nil
+  fileprivate var _encryptedGroupImage: EncryptedImageRef? = nil
+}
+
+/// EncryptedImageRef stores encrypted image metadata
+/// AES-GCM auth tag (16 bytes) is appended to ciphertext, providing integrity verification
+public struct EncryptedImageRef: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  /// S3 URL to encrypted ciphertext
+  public var url: String = String()
+
+  /// 32-byte HKDF salt for key derivation
+  public var salt: Data = Data()
+
+  /// 12-byte AES-GCM nonce
+  public var nonce: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 /// ConversationProfile represents a participant in the conversation
@@ -72,6 +118,7 @@ public struct ConversationProfile: Sendable {
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
   public mutating func clearName() {self._name = nil}
 
+  /// Legacy: plain URL (backward compatibility)
   public var image: String {
     get {return _image ?? String()}
     set {_image = newValue}
@@ -81,19 +128,30 @@ public struct ConversationProfile: Sendable {
   /// Clears the value of `image`. Subsequent reads from it will return its default value.
   public mutating func clearImage() {self._image = nil}
 
+  /// New: encrypted image reference
+  public var encryptedImage: EncryptedImageRef {
+    get {return _encryptedImage ?? EncryptedImageRef()}
+    set {_encryptedImage = newValue}
+  }
+  /// Returns true if `encryptedImage` has been explicitly set.
+  public var hasEncryptedImage: Bool {return self._encryptedImage != nil}
+  /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
+  public mutating func clearEncryptedImage() {self._encryptedImage = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _name: String? = nil
   fileprivate var _image: String? = nil
+  fileprivate var _encryptedImage: EncryptedImageRef? = nil
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -104,6 +162,8 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
       case 1: try { try decoder.decodeSingularStringField(value: &self.tag) }()
       case 2: try { try decoder.decodeRepeatedMessageField(value: &self.profiles) }()
       case 3: try { try decoder.decodeSingularSFixed64Field(value: &self._expiresAtUnix) }()
+      case 4: try { try decoder.decodeSingularBytesField(value: &self._imageEncryptionKey) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._encryptedGroupImage) }()
       default: break
       }
     }
@@ -123,6 +183,12 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     try { if let v = self._expiresAtUnix {
       try visitor.visitSingularSFixed64Field(value: v, fieldNumber: 3)
     } }()
+    try { if let v = self._imageEncryptionKey {
+      try visitor.visitSingularBytesField(value: v, fieldNumber: 4)
+    } }()
+    try { if let v = self._encryptedGroupImage {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -130,6 +196,48 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if lhs.tag != rhs.tag {return false}
     if lhs.profiles != rhs.profiles {return false}
     if lhs._expiresAtUnix != rhs._expiresAtUnix {return false}
+    if lhs._imageEncryptionKey != rhs._imageEncryptionKey {return false}
+    if lhs._encryptedGroupImage != rhs._encryptedGroupImage {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+extension EncryptedImageRef: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "EncryptedImageRef"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}url\0\u{1}salt\0\u{1}nonce\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.url) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.salt) }()
+      case 3: try { try decoder.decodeSingularBytesField(value: &self.nonce) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.url.isEmpty {
+      try visitor.visitSingularStringField(value: self.url, fieldNumber: 1)
+    }
+    if !self.salt.isEmpty {
+      try visitor.visitSingularBytesField(value: self.salt, fieldNumber: 2)
+    }
+    if !self.nonce.isEmpty {
+      try visitor.visitSingularBytesField(value: self.nonce, fieldNumber: 3)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: EncryptedImageRef, rhs: EncryptedImageRef) -> Bool {
+    if lhs.url != rhs.url {return false}
+    if lhs.salt != rhs.salt {return false}
+    if lhs.nonce != rhs.nonce {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -137,7 +245,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
 
 extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationProfile"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}inboxId\0\u{1}name\0\u{1}image\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}inboxId\0\u{1}name\0\u{1}image\0\u{1}encryptedImage\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -148,6 +256,7 @@ extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
       case 1: try { try decoder.decodeSingularBytesField(value: &self.inboxID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self._name) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self._image) }()
+      case 4: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
       default: break
       }
     }
@@ -167,6 +276,9 @@ extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     try { if let v = self._image {
       try visitor.visitSingularStringField(value: v, fieldNumber: 3)
     } }()
+    try { if let v = self._encryptedImage {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -174,6 +286,7 @@ extension ConversationProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImpl
     if lhs.inboxID != rhs.inboxID {return false}
     if lhs._name != rhs._name {return false}
     if lhs._image != rhs._image {return false}
+    if lhs._encryptedImage != rhs._encryptedImage {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

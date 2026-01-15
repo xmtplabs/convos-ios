@@ -50,6 +50,9 @@ extension ConversationCustomMetadata {
 
 extension DBMemberProfile {
     var conversationProfile: ConversationProfile? {
-        ConversationProfile(inboxIdString: inboxId, name: name, imageUrl: avatar)
+        guard let encryptedRef = encryptedImageRef else {
+            return ConversationProfile(inboxIdString: inboxId, name: name, imageUrl: avatar)
+        }
+        return ConversationProfile(inboxIdString: inboxId, name: name, encryptedImageRef: encryptedRef)
     }
 }
