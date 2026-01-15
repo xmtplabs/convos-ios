@@ -29,40 +29,11 @@ struct PinnedConversationsSection: View {
                     }
             )
             .contextMenu {
-                Button {
-                    viewModel.togglePin(conversation: conversation)
-                } label: {
-                    Label(
-                        conversation.isPinned ? "Unpin" : "Pin",
-                        systemImage: conversation.isPinned ? "pin.slash.fill" : "pin.fill"
-                    )
-                }
-
-                Button {
-                    viewModel.toggleReadState(conversation: conversation)
-                } label: {
-                    Label(
-                        conversation.isUnread ? "Mark as Read" : "Mark as Unread",
-                        systemImage: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill"
-                    )
-                }
-
-                Button {
-                    viewModel.toggleMute(conversation: conversation)
-                } label: {
-                    Label(
-                        conversation.isMuted ? "Unmute" : "Mute",
-                        systemImage: conversation.isMuted ? "bell.fill" : "bell.slash.fill"
-                    )
-                }
-
-                Divider()
-
-                Button(role: .destructive) {
-                    conversationPendingDeletion = conversation
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
+                conversationContextMenuContent(
+                    conversation: conversation,
+                    viewModel: viewModel,
+                    onDelete: { conversationPendingDeletion = conversation }
+                )
             }
             .confirmationDialog(
                 "This convo will be deleted immediately.",

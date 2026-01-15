@@ -97,36 +97,11 @@ struct ConversationsView: View {
     func conversationListItem(_ conversation: Conversation) -> some View {
         ConversationsListItem(conversation: conversation)
             .contextMenu {
-                let togglePinAction = { viewModel.togglePin(conversation: conversation) }
-                Button(action: togglePinAction) {
-                    Label(
-                        conversation.isPinned ? "Unpin" : "Pin",
-                        systemImage: conversation.isPinned ? "pin.slash.fill" : "pin.fill"
-                    )
-                }
-
-                let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
-                Button(action: toggleReadAction) {
-                    Label(
-                        conversation.isUnread ? "Mark as Read" : "Mark as Unread",
-                        systemImage: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill"
-                    )
-                }
-
-                let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
-                Button(action: toggleMuteAction) {
-                    Label(
-                        conversation.isMuted ? "Unmute" : "Mute",
-                        systemImage: conversation.isMuted ? "bell.fill" : "bell.slash.fill"
-                    )
-                }
-
-                Divider()
-
-                let deleteAction = { conversationPendingDeletion = conversation }
-                Button(role: .destructive, action: deleteAction) {
-                    Label("Delete", systemImage: "trash")
-                }
+                conversationContextMenuContent(
+                    conversation: conversation,
+                    viewModel: viewModel,
+                    onDelete: { conversationPendingDeletion = conversation }
+                )
             }
             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                 let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
