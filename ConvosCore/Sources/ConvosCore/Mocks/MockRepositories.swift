@@ -39,6 +39,24 @@ public final class MockConversationsCountRepository: ConversationsCountRepositor
     }
 }
 
+// MARK: - Mock Pinned Conversations Count Repository
+
+public final class MockPinnedConversationsCountRepository: PinnedConversationsCountRepositoryProtocol, @unchecked Sendable {
+    public var mockCount: Int
+
+    public init(count: Int = 0) {
+        self.mockCount = count
+    }
+
+    public var pinnedCount: AnyPublisher<Int, Never> {
+        Just(mockCount).eraseToAnyPublisher()
+    }
+
+    public func fetchCount() throws -> Int {
+        mockCount
+    }
+}
+
 // MARK: - Mock Conversation Repository
 
 /// Mock implementation of ConversationRepositoryProtocol for testing

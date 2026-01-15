@@ -11,6 +11,38 @@ struct ConversationsView: View {
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @State private var conversationPendingDeletion: Conversation?
+    @State private var scrollOffset: CGFloat = 0
+    @State private var pinnedSectionHeight: CGFloat = 0
+
+    private var pinnedSectionOffset: CGFloat {
+        guard pinnedSectionHeight > 0 else { return 0 }
+
+        // With adjusted scroll offset (accounting for safe area):
+        // - At rest with spacer: scrollOffset ≈ -pinnedSectionHeight
+        // - Calculate movement relative to natural position
+        return -scrollOffset
+    }
+
+    private var pinnedSectionScale: CGFloat {
+        guard pinnedSectionHeight > 0 else { return 1.0 }
+        // Animation based on how much the section has moved from visible position
+        // offset = 0 at rest, becomes negative as it moves up
+        // Complete animation when over the height
+        let progress = min(max(-pinnedSectionOffset / pinnedSectionHeight, 0), 1)
+        // Use easing function for smoother transition
+        let easedProgress = progress * progress // quadratic easing
+        return 1.0 - (easedProgress * 0.15)
+    }
+
+    private var pinnedSectionOpacity: Double {
+        guard pinnedSectionHeight > 0 else { return 1.0 }
+        // Animation based on how much the section has moved from visible position
+        // Complete animation when over the height
+        let progress = min(max(-pinnedSectionOffset / pinnedSectionHeight, 0), 1)
+        // Use easing function for smoother transition
+        let easedProgress = progress * progress // quadratic easing
+        return 1.0 - (easedProgress * 0.5)
+    }
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
@@ -31,6 +63,127 @@ struct ConversationsView: View {
         )
     }
 
+    var conversationsList: some View {
+        List(selection: $viewModel.selectedConversationId) {
+            if !viewModel.pinnedConversations.isEmpty {
+                Color.clear.frame(height: pinnedSectionHeight)
+                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowSeparator(.hidden)
+            }
+
+            ForEach(viewModel.unpinnedConversations, id: \.id) { conversation in
+                if viewModel.unpinnedConversations.first == conversation,
+                   viewModel.unpinnedConversations.count == 1 && !viewModel.hasCreatedMoreThanOneConvo &&
+                    horizontalSizeClass == .compact {
+                    emptyConversationsView
+                        .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                        .listRowSeparator(.hidden)
+                }
+
+                conversationListItem(conversation)
+            }
+        }
+        .listStyle(.plain)
+        .onScrollGeometryChange(for: CGFloat.self) { geometry in
+            geometry.contentOffset.y + geometry.contentInsets.top
+        } action: { _, newValue in
+            withAnimation(.interactiveSpring) {
+                scrollOffset = newValue
+            }
+        }
+    }
+
+    @ViewBuilder
+    func conversationListItem(_ conversation: Conversation) -> some View {
+        ConversationsListItem(conversation: conversation)
+            .contextMenu {
+                let togglePinAction = { viewModel.togglePin(conversation: conversation) }
+                Button(action: togglePinAction) {
+                    Label(
+                        conversation.isPinned ? "Unpin" : "Pin",
+                        systemImage: conversation.isPinned ? "pin.slash.fill" : "pin.fill"
+                    )
+                }
+
+                let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
+                Button(action: toggleReadAction) {
+                    Label(
+                        conversation.isUnread ? "Mark as Read" : "Mark as Unread",
+                        systemImage: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill"
+                    )
+                }
+
+                let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
+                Button(action: toggleMuteAction) {
+                    Label(
+                        conversation.isMuted ? "Unmute" : "Mute",
+                        systemImage: conversation.isMuted ? "bell.fill" : "bell.slash.fill"
+                    )
+                }
+
+                Divider()
+
+                let deleteAction = { conversationPendingDeletion = conversation }
+                Button(role: .destructive, action: deleteAction) {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+            .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
+                Button(action: toggleReadAction) {
+                    Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
+                }
+                .tint(.blue)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                let deleteAction = { conversationPendingDeletion = conversation }
+                Button(action: deleteAction) {
+                    Image(systemName: "trash")
+                }
+                .tint(.colorCaution)
+
+                let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
+                Button(action: toggleMuteAction) {
+                    Image(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
+                }
+                .tint(.colorPurpleMute)
+            }
+            .confirmationDialog(
+                "This convo will be deleted immediately.",
+                isPresented: Binding(
+                    get: { conversationPendingDeletion?.id == conversation.id },
+                    set: { if !$0 { conversationPendingDeletion = nil } }
+                ),
+                titleVisibility: .visible
+            ) {
+                Button("Delete", role: .destructive) {
+                    viewModel.leave(conversation: conversation)
+                    conversationPendingDeletion = nil
+                }
+                Button("Cancel", role: .cancel) {
+                    conversationPendingDeletion = nil
+                }
+            }
+            .listRowSeparator(.hidden)
+            .listRowBackground(
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                    .fill(
+                        conversation.id == viewModel.selectedConversationId ||
+                        conversationPendingDeletion?.id == conversation.id
+                        ? .colorFillMinimal : .clear
+                    )
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+            )
+            .listRowInsets(
+                .init(
+                    top: 0,
+                    leading: 0,
+                    bottom: 0,
+                    trailing: 0
+                )
+            )
+    }
+
     var body: some View {
         ConversationPresenter(
             viewModel: viewModel.selectedConversationViewModel,
@@ -39,76 +192,34 @@ struct ConversationsView: View {
             sidebarColumnWidth: $sidebarWidth
         ) { focusState, coordinator in
             NavigationSplitView {
-                Group {
-                    if viewModel.unpinnedConversations.isEmpty && horizontalSizeClass == .compact {
-                        emptyConversationsViewScrollable
-                    } else {
-                        List(viewModel.unpinnedConversations, id: \.id, selection: $viewModel.selectedConversationId) { conversation in
-                            if viewModel.unpinnedConversations.first == conversation,
-                               viewModel.unpinnedConversations.count == 1 && !viewModel.hasCreatedMoreThanOneConvo &&
-                                horizontalSizeClass == .compact {
-                                emptyConversationsView
-                                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
-                                    .listRowSeparator(.hidden)
-                            }
-
-                            ConversationsListItem(conversation: conversation)
-                                .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                                    let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
-                                    Button(action: toggleReadAction) {
-                                        Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
-                                    }
-                                    .tint(.blue)
-                                }
-                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                                    let deleteAction = { conversationPendingDeletion = conversation }
-                                    Button(action: deleteAction) {
-                                        Image(systemName: "trash")
-                                    }
-                                    .tint(.colorCaution)
-
-                                    let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
-                                    Button(action: toggleMuteAction) {
-                                        Image(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
-                                    }
-                                    .tint(.colorPurpleMute)
-                                }
-                                .confirmationDialog(
-                                    "This convo will be deleted immediately.",
-                                    isPresented: Binding(
-                                        get: { conversationPendingDeletion?.id == conversation.id },
-                                        set: { if !$0 { conversationPendingDeletion = nil } }
-                                    ),
-                                    titleVisibility: .visible
-                                ) {
-                                    Button("Delete", role: .destructive) {
-                                        viewModel.leave(conversation: conversation)
-                                        conversationPendingDeletion = nil
-                                    }
-                                    Button("Cancel", role: .cancel) {
-                                        conversationPendingDeletion = nil
-                                    }
-                                }
-                                .listRowSeparator(.hidden)
-                                .listRowBackground(
-                                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-                                        .fill(
-                                            conversation.id == viewModel.selectedConversationId ||
-                                            conversationPendingDeletion?.id == conversation.id
-                                            ? .colorFillMinimal : .clear
-                                        )
-                                        .padding(.horizontal, DesignConstants.Spacing.step3x)
-                                )
-                                .listRowInsets(
-                                    .init(
-                                        top: 0,
-                                        leading: 0,
-                                        bottom: 0,
-                                        trailing: 0
-                                    )
-                                )
+                ZStack(alignment: .top) {
+                    Group {
+                        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+                            emptyConversationsViewScrollable
+                        } else {
+                            conversationsList
                         }
-                        .listStyle(.plain)
+                    }
+
+                    if !viewModel.pinnedConversations.isEmpty {
+                        PinnedConversationsSection(
+                            pinnedConversations: viewModel.pinnedConversations,
+                            viewModel: viewModel,
+                            conversationPendingDeletion: $conversationPendingDeletion,
+                            onSelectConversation: { conversation in
+                                viewModel.selectedConversationId = conversation.id
+                            }
+                        )
+                        .onGeometryChange(for: CGFloat.self) { geometry in
+                            geometry.size.height
+                        } action: { _, newHeight in
+                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
+                                pinnedSectionHeight = newHeight
+                            }
+                        }
+                        .scaleEffect(pinnedSectionScale)
+                        .opacity(pinnedSectionOpacity)
+                        .offset(y: pinnedSectionOffset)
                     }
                 }
                 .onGeometryChange(for: CGSize.self) {
@@ -238,6 +349,10 @@ struct ConversationsView: View {
             ExplodeInfoView()
                 .background(.colorBackgroundRaised)
         }
+        .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
+            PinLimitInfoView()
+                .background(.colorBackgroundRaised)
+        }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
                 viewModel.handleURL(url)
@@ -249,7 +364,33 @@ struct ConversationsView: View {
     }
 }
 
-#Preview {
+#Preview("With Many Conversations") {
+    @Previewable @State var viewModel = ConversationsViewModel.preview(
+        conversations: [
+            Conversation.mock(id: "pinned-1", name: "Ephemeral", isUnread: true, isPinned: true),
+            Conversation.mock(id: "pinned-2", name: "Shane", isUnread: false, isPinned: true),
+            Conversation.mock(id: "pinned-3", name: "Fam", isUnread: true, isPinned: true),
+            Conversation.mock(id: "convo-1", name: "Convo 84B", isUnread: true),
+            Conversation.mock(id: "convo-2", name: "NYC June 2025", isUnread: false),
+            Conversation.mock(id: "convo-3", name: "Convo 75X", isUnread: false),
+            Conversation.mock(id: "convo-4", name: "Goonies Soccer", isUnread: false),
+            Conversation.mock(id: "convo-5", name: "darick@bluesky.social", isUnread: true),
+            Conversation.mock(id: "convo-6", name: "Saul", isUnread: false),
+            Conversation.mock(id: "convo-7", name: "Convo 21Z", isUnread: false),
+            Conversation.mock(id: "convo-8", name: "Weekend Plans", isUnread: true),
+            Conversation.mock(id: "convo-9", name: "Project Team", isUnread: false),
+            Conversation.mock(id: "convo-10", name: "Random Chat", isUnread: false)
+        ]
+    )
+    let quicknameViewModel = QuicknameSettingsViewModel.shared
+
+    ConversationsView(
+        viewModel: viewModel,
+        quicknameViewModel: quicknameViewModel
+    )
+}
+
+#Preview("Original") {
     let convos = ConvosClient.mock()
     let viewModel = ConversationsViewModel(session: convos.session)
     let quicknameViewModel = QuicknameSettingsViewModel.shared

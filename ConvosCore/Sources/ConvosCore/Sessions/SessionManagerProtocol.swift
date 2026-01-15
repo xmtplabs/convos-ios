@@ -38,6 +38,7 @@ public protocol SessionManagerProtocol: AnyObject {
         for consent: [Consent],
         kinds: [ConversationKind]
     ) -> any ConversationsCountRepositoryProtocol
+    func pinnedConversationsCountRepo() -> any PinnedConversationsCountRepositoryProtocol
 
     // MARK: Notifications
 

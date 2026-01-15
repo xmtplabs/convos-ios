@@ -65,6 +65,10 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockConversationsCountRepository()
     }
 
+    public func pinnedConversationsCountRepo() -> any PinnedConversationsCountRepositoryProtocol {
+        MockPinnedConversationsCountRepository()
+    }
+
     public func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol {
         MockInviteRepository()
     }

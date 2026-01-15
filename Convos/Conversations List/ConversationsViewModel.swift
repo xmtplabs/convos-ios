@@ -113,8 +113,11 @@ final class ConversationsViewModel {
         }
     }
     var presentingExplodeInfo: Bool = false
+    var presentingPinLimitInfo: Bool = false
 
-    private(set) var conversations: [Conversation] = []
+    static let maxPinnedConversations: Int = 9
+
+    var conversations: [Conversation] = []
     private var conversationsCount: Int = 0 {
         didSet {
             if conversationsCount > 1 {
@@ -131,7 +134,10 @@ final class ConversationsViewModel {
     var activeFilter: ConversationFilter = .all
 
     var pinnedConversations: [Conversation] {
-        conversations.filter { $0.isPinned }.filter { $0.kind == .group } // @jarodl temporarily filtering out dms
+        conversations
+            .filter { $0.isPinned }
+            .filter { $0.kind == .group }
+            .sorted { ($0.pinnedOrder ?? Int.max) < ($1.pinnedOrder ?? Int.max) }
     }
 
     var unpinnedConversations: [Conversation] {
@@ -447,6 +453,38 @@ final class ConversationsViewModel {
         }
     }
 
+    func togglePin(conversation: Conversation) {
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+        let currentlyPinned = conversation.isPinned
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messagingService = try await session.messagingService(
+                    for: clientId,
+                    inboxId: inboxId
+                )
+                let writer = messagingService.conversationLocalStateWriter()
+
+                if !currentlyPinned {
+                    let pinnedCount = try await writer.getPinnedCount()
+                    guard pinnedCount < Self.maxPinnedConversations else {
+                        await MainActor.run {
+                            self.presentingPinLimitInfo = true
+                        }
+                        return
+                    }
+                }
+
+                try await writer.setPinned(!currentlyPinned, for: conversationId)
+            } catch {
+                Log.error("Failed toggling pin for conversation \(conversationId): \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func markConversationAsRead(_ conversation: Conversation) {
         Task { [weak self] in
             guard let self else { return }
@@ -494,5 +532,12 @@ extension ConversationsViewModel {
     static var mock: ConversationsViewModel {
         let client = ConvosClient.mock()
         return .init(session: client.session)
+    }
+
+    static func preview(conversations: [Conversation]) -> ConversationsViewModel {
+        let client = ConvosClient.mock()
+        let vm = ConversationsViewModel(session: client.session)
+        vm.conversations = conversations
+        return vm
     }
 }

@@ -105,7 +105,8 @@ class ConversationWriter: ConversationWriterProtocol {
                 isPinned: false,
                 isUnread: false,
                 isUnreadUpdatedAt: Date(),
-                isMuted: false
+                isMuted: false,
+                pinnedOrder: nil
             )
             try localState.save(db)
 
@@ -248,7 +249,8 @@ class ConversationWriter: ConversationWriterProtocol {
                 isPinned: false,
                 isUnread: false,
                 isUnreadUpdatedAt: Date.distantPast,
-                isMuted: false
+                isMuted: false,
+                pinnedOrder: nil
             )
             try localState.insert(db, onConflict: .ignore)
 

@@ -12,6 +12,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
         static let isUnread: Column = Column(CodingKeys.isUnread)
         static let isUnreadUpdatedAt: Column = Column(CodingKeys.isUnreadUpdatedAt)
         static let isMuted: Column = Column(CodingKeys.isMuted)
+        static let pinnedOrder: Column = Column(CodingKeys.pinnedOrder)
     }
 
     let conversationId: String
@@ -19,6 +20,7 @@ struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hash
     let isUnread: Bool
     let isUnreadUpdatedAt: Date
     let isMuted: Bool
+    let pinnedOrder: Int?
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
 
@@ -35,7 +37,8 @@ extension ConversationLocalState {
             isPinned: isPinned,
             isUnread: isUnread,
             isUnreadUpdatedAt: !isUnread ? Date() : (isUnread != self.isUnread ? Date() : isUnreadUpdatedAt),
-            isMuted: isMuted
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder
         )
     }
     func with(isPinned: Bool) -> Self {
@@ -44,7 +47,8 @@ extension ConversationLocalState {
             isPinned: isPinned,
             isUnread: isUnread,
             isUnreadUpdatedAt: isUnreadUpdatedAt,
-            isMuted: isMuted
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder
         )
     }
     func with(isMuted: Bool) -> Self {
@@ -53,7 +57,18 @@ extension ConversationLocalState {
             isPinned: isPinned,
             isUnread: isUnread,
             isUnreadUpdatedAt: isUnreadUpdatedAt,
-            isMuted: isMuted
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder
+        )
+    }
+    func with(pinnedOrder: Int?) -> Self {
+        .init(
+            conversationId: conversationId,
+            isPinned: isPinned,
+            isUnread: isUnread,
+            isUnreadUpdatedAt: isUnreadUpdatedAt,
+            isMuted: isMuted,
+            pinnedOrder: pinnedOrder
         )
     }
 }

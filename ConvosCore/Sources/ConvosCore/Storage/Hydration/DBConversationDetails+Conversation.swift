@@ -43,6 +43,7 @@ extension DBConversationDetails {
             isPinned: conversationLocalState.isPinned,
             isUnread: conversationLocalState.isUnread,
             isMuted: conversationLocalState.isMuted,
+            pinnedOrder: conversationLocalState.pinnedOrder,
             lastMessage: lastMessage,
             imageURL: imageURL,
             isDraft: conversation.isDraft,

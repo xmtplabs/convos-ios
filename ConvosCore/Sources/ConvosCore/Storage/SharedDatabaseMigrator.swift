@@ -163,6 +163,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addPinnedOrderToConversationLocalState") { db in
+            try db.alter(table: "conversationLocalState") { t in
+                t.add(column: "pinnedOrder", .integer)
+            }
+        }
+
         return migrator
     }
 }

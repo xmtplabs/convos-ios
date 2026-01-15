@@ -273,6 +273,10 @@ public final class SessionManager: SessionManagerProtocol {
         ConversationsCountRepository(databaseReader: databaseReader, consent: consent, kinds: kinds)
     }
 
+    public func pinnedConversationsCountRepo() -> any PinnedConversationsCountRepositoryProtocol {
+        PinnedConversationsCountRepository(databaseReader: databaseReader)
+    }
+
     // MARK: Notifications
 
     public func shouldDisplayNotification(for conversationId: String) async -> Bool {

@@ -9,7 +9,10 @@ public extension Conversation {
         clientId: String = "mock-client-id",
         inboxId: String = "mock-inbox-id",
         name: String? = "Mock Conversation",
-        members: [ConversationMember]? = nil
+        members: [ConversationMember]? = nil,
+        isUnread: Bool = false,
+        isPinned: Bool = false,
+        lastMessageText: String = "This is a preview of the last message"
     ) -> Conversation {
         let mockMembers = members ?? [
             .mock(isCurrentUser: true),
@@ -31,10 +34,14 @@ public extension Conversation {
             members: mockMembers,
             otherMember: mockMembers.first(where: { !$0.isCurrentUser }),
             messages: [],
-            isPinned: false,
-            isUnread: false,
+            isPinned: isPinned,
+            isUnread: isUnread,
             isMuted: false,
-            lastMessage: nil,
+            pinnedOrder: isPinned ? 0 : nil,
+            lastMessage: isUnread ? MessagePreview(
+                text: lastMessageText,
+                createdAt: Date()
+            ) : nil,
             imageURL: nil,
             isDraft: id.hasPrefix("draft-"),
             invite: nil,
@@ -61,6 +68,7 @@ public extension Conversation {
             isPinned: false,
             isUnread: false,
             isMuted: false,
+            pinnedOrder: nil,
             lastMessage: nil,
             imageURL: nil,
             isDraft: true,
