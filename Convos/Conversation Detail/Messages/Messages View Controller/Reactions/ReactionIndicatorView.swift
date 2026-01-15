@@ -18,7 +18,7 @@ struct ReactionIndicatorView: View {
 
     private var totalCount: Int {
         reactions.count
-    }   
+    }
 
     private var currentUserHasReacted: Bool {
         reactions.contains { $0.sender.isCurrentUser }
