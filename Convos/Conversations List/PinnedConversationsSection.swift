@@ -11,6 +11,12 @@ struct PinnedConversationsSection: View {
         pinnedConversations.count >= 3
     }
 
+    private var conversationRows: [[Conversation]] {
+        stride(from: 0, to: pinnedConversations.count, by: 3).map { startIndex in
+            Array(pinnedConversations[startIndex..<min(startIndex + 3, pinnedConversations.count)])
+        }
+    }
+
     @ViewBuilder
     private func conversationItem(_ conversation: Conversation) -> some View {
         PinnedConversationItem(conversation: conversation)
@@ -95,10 +101,10 @@ struct PinnedConversationsSection: View {
 
     private var gridLayout: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            ForEach(Array(stride(from: 0, to: pinnedConversations.count, by: 3)), id: \.self) { rowIndex in
+            ForEach(conversationRows, id: \.first?.id) { row in
                 HStack(spacing: DesignConstants.Spacing.step4x) {
-                    ForEach(pinnedConversations.indices.filter { $0 >= rowIndex && $0 < rowIndex + 3 }, id: \.self) { index in
-                        conversationItem(pinnedConversations[index])
+                    ForEach(row) { conversation in
+                        conversationItem(conversation)
                     }
                 }
             }
