@@ -300,7 +300,8 @@ extension Array where Element == MessageWithDetails {
                     conversationId: conversation.id,
                     inboxId: dbReaction.senderId
                 ) else {
-                    return nil
+        Log.warning("Reaction dropped: missing sender profile for inboxId \(dbReaction.senderId)")
+        return nil
                 }
                 let reactionSender = reactionSenderProfile.hydrateConversationMember(currentInboxId: conversation.inboxId)
                 let reactionSource: MessageSource = reactionSender.isCurrentUser ? .outgoing : .incoming
