@@ -13,6 +13,7 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
     public var demotedSuperAdmins: [(memberId: String, conversationId: String)] = []
     public var updatedImages: [(image: ImageType, conversation: Conversation)] = []
     public var updatedExpiresAt: [(expiresAt: Date, conversationId: String)] = []
+    public var updatedIncludeImageInPublicPreview: [(enabled: Bool, conversationId: String)] = []
 
     public init() {}
 
@@ -58,5 +59,9 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
 
     public func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws {
         updatedExpiresAt.append((expiresAt: expiresAt, conversationId: conversationId))
+    }
+
+    public func updateIncludeImageInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
+        updatedIncludeImageInPublicPreview.append((enabled: enabled, conversationId: conversationId))
     }
 }

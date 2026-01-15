@@ -22,6 +22,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let pinnedOrder: Int?
     public let lastMessage: MessagePreview?
     public let imageURL: URL?
+    public let includeImageInPublicPreview: Bool
     public let isDraft: Bool
     public let invite: Invite?
     public let expiresAt: Date?

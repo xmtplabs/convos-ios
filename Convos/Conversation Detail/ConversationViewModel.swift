@@ -104,6 +104,15 @@ class ConversationViewModel {
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
+    var isUpdatingPublicPreview: Bool = false
+    var includeImageInPublicPreview: Bool {
+        get {
+            conversation.includeImageInPublicPreview
+        }
+        set {
+            updateIncludeImageInPublicPreview(newValue)
+        }
+    }
     var showsExplodeNowButton: Bool {
         conversation.members.count > 1 && conversation.creator.isCurrentUser
     }
@@ -562,6 +571,20 @@ class ConversationViewModel {
                 try await messagingService.setConversationNotificationsEnabled(enabled, for: conversation.id)
             } catch {
                 Log.error("Error updating notification settings: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private func updateIncludeImageInPublicPreview(_ enabled: Bool) {
+        guard !isUpdatingPublicPreview else { return }
+        isUpdatingPublicPreview = true
+        Task { [weak self] in
+            guard let self else { return }
+            defer { self.isUpdatingPublicPreview = false }
+            do {
+                try await metadataWriter.updateIncludeImageInPublicPreview(enabled, for: conversation.id)
+            } catch {
+                Log.error("Error updating public preview setting: \(error.localizedDescription)")
             }
         }
     }

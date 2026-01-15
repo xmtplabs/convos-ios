@@ -44,8 +44,8 @@ extension SignedInvite {
         if let description_p = conversation.description {
             payload.description_p = description_p
         }
-        if let imageURL = conversation.imageURLString {
-            payload.imageURL = imageURL
+        if let publicImageURL = conversation.publicImageURLString {
+            payload.imageURL = publicImageURL
         }
         if let conversationExpiresAt = conversation.expiresAt {
             payload.conversationExpiresAtUnix = Int64(conversationExpiresAt.timeIntervalSince1970)

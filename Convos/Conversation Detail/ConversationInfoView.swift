@@ -150,6 +150,11 @@ struct ConversationInfoView: View {
                         }
                     }
 
+                    Toggle(isOn: $viewModel.includeImageInPublicPreview) {
+                        Text("Show photo in preview")
+                    }
+                    .disabled(viewModel.isUpdatingPublicPreview)
+
                     HStack {
                         Text("Maximum members")
 

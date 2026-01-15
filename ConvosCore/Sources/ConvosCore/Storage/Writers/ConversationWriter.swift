@@ -86,6 +86,8 @@ class ConversationWriter: ConversationWriterProtocol {
                 name: signedInvite.name,
                 description: signedInvite.description_p,
                 imageURLString: signedInvite.imageURL,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: signedInvite.conversationExpiresAt,
                 debugInfo: .empty
             )
@@ -228,6 +230,8 @@ class ConversationWriter: ConversationWriterProtocol {
             name: metadata.name,
             description: metadata.description,
             imageURLString: metadata.imageURLString,
+            publicImageURLString: nil,
+            includeImageInPublicPreview: false,
             expiresAt: metadata.expiresAt,
             debugInfo: metadata.debugInfo
         )

@@ -19,6 +19,8 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let name: Column = Column(CodingKeys.name)
         static let description: Column = Column(CodingKeys.description)
         static let imageURLString: Column = Column(CodingKeys.imageURLString)
+        static let publicImageURLString: Column = Column(CodingKeys.publicImageURLString)
+        static let includeImageInPublicPreview: Column = Column(CodingKeys.includeImageInPublicPreview)
         static let expiresAt: Column = Column(CodingKeys.expiresAt)
         static let debugInfo: Column = Column(CodingKeys.debugInfo)
     }
@@ -35,6 +37,8 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let name: String?
     let description: String?
     let imageURLString: String?
+    let publicImageURLString: String?
+    let includeImageInPublicPreview: Bool
     let expiresAt: Date?
     let debugInfo: ConversationDebugInfo
 
@@ -163,6 +167,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )
@@ -182,6 +188,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )
@@ -201,6 +209,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )
@@ -220,6 +230,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )
@@ -239,6 +251,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )
@@ -260,6 +274,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )
@@ -279,6 +295,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )
@@ -298,6 +316,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )
@@ -317,6 +337,50 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo
+        )
+    }
+
+    func with(publicImageURLString: String?) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo
+        )
+    }
+
+    func with(includeImageInPublicPreview: Bool) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo
         )

@@ -17,6 +17,7 @@ public protocol ConversationMetadataWriterProtocol {
     func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
+    func updateIncludeImageInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
 }
 
 // MARK: - Conversation Metadata Errors
@@ -171,51 +172,191 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
             throw ConversationMetadataWriterError.failedImageCompression
         }
 
+        let localConversation = try await databaseWriter.read { db in
+            try DBConversation.fetchOne(db, key: conversation.id)
+        }
+        guard let localConversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
+        }
+        let includePublicPreview = localConversation.includeImageInPublicPreview
+
         let groupKey = try await group.ensureImageEncryptionKey()
         let encryptedPayload = try ImageEncryption.encrypt(
             imageData: compressedImageData,
             groupKey: groupKey
         )
 
-        let filename = "eg-\(UUID().uuidString).enc"
+        let encryptedFilename = "eg-\(UUID().uuidString).enc"
 
-        let uploadedAssetUrl = try await inboxReady.apiClient.uploadAttachment(
+        if includePublicPreview {
+            Log.info("Uploading group image (encrypted + public preview)")
+        } else {
+            Log.info("Uploading group image (encrypted only, public preview disabled)")
+        }
+
+        let encryptedAssetUrl = try await inboxReady.apiClient.uploadAttachment(
             data: encryptedPayload.ciphertext,
-            filename: filename,
+            filename: encryptedFilename,
             contentType: "application/octet-stream",
             acl: "public-read"
         )
+        Log.info("Encrypted image uploaded: \(encryptedAssetUrl)")
+
+        let publicImageUrl: String?
+        if includePublicPreview {
+            let publicFilename = "pg-\(UUID().uuidString).jpg"
+            let uploadedUrl = try await inboxReady.apiClient.uploadAttachment(
+                data: compressedImageData,
+                filename: publicFilename,
+                contentType: "image/jpeg",
+                acl: "public-read"
+            )
+            Log.info("Public preview image uploaded: \(uploadedUrl)")
+            publicImageUrl = uploadedUrl
+        } else {
+            publicImageUrl = nil
+            Log.info("Public preview URL: none")
+        }
 
         var encryptedRef = EncryptedImageRef()
-        encryptedRef.url = uploadedAssetUrl
+        encryptedRef.url = encryptedAssetUrl
         encryptedRef.salt = encryptedPayload.salt
         encryptedRef.nonce = encryptedPayload.nonce
 
         try await group.updateEncryptedGroupImage(encryptedRef)
-        try await group.updateImageUrl(imageUrl: uploadedAssetUrl)
+        try await group.updateImageUrl(imageUrl: encryptedAssetUrl)
 
         let updatedConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation
                 .fetchOne(db, key: conversation.id) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
             }
-            let updatedConversation = localConversation.with(imageURLString: uploadedAssetUrl)
+            let updatedConversation = localConversation
+                .with(imageURLString: encryptedAssetUrl)
+                .with(publicImageURLString: localConversation.includeImageInPublicPreview ? publicImageUrl : nil)
             try updatedConversation.save(db)
             return updatedConversation
         }
 
         if let cachedImage = ImageType(data: compressedImageData) {
-            ImageCacheContainer.shared.setImage(cachedImage, for: uploadedAssetUrl)
+            ImageCacheContainer.shared.setImage(cachedImage, for: encryptedAssetUrl)
+            if let publicImageUrl {
+                ImageCacheContainer.shared.setImage(cachedImage, for: publicImageUrl)
+            }
         }
 
         _ = try await inviteWriter.update(
             for: updatedConversation.id,
             name: updatedConversation.name,
             description: updatedConversation.description,
-            imageURL: updatedConversation.imageURLString
+            imageURL: updatedConversation.publicImageURLString
         )
 
-        Log.info("Updated encrypted conversation image for \(conversation.id): \(uploadedAssetUrl)")
+        if includePublicPreview {
+            Log.info("Public preview URL set for invites")
+        }
+        Log.info("Updated encrypted conversation image for \(conversation.id): \(encryptedAssetUrl)")
+    }
+
+    func updateIncludeImageInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+
+        guard let localConversation = try await databaseWriter.read({ db in
+            try DBConversation.fetchOne(db, key: conversationId)
+        }) else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let originalImageURL = localConversation.imageURLString
+        let publicImageUrl: String?
+
+        if enabled {
+            publicImageUrl = await generatePublicPreviewUrl(
+                for: conversationId,
+                localConversation: localConversation,
+                inboxReady: inboxReady
+            )
+            if publicImageUrl == nil {
+                Log.warning("Public preview generation failed, skipping update")
+                return
+            }
+        } else {
+            publicImageUrl = nil
+            Log.info("Public preview disabled, clearing public image URL")
+        }
+
+        let updatedConversation: DBConversation? = try await databaseWriter.write { db in
+            guard let localConversation = try DBConversation
+                .fetchOne(db, key: conversationId) else {
+                throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+            }
+            if localConversation.imageURLString != originalImageURL {
+                Log.warning("Image changed during public preview update, skipping update")
+                return nil
+            }
+            let updatedConversation = localConversation
+                .with(includeImageInPublicPreview: enabled)
+                .with(publicImageURLString: publicImageUrl)
+            try updatedConversation.save(db)
+            return updatedConversation
+        }
+
+        guard let updatedConversation else { return }
+
+        _ = try await inviteWriter.update(
+            for: updatedConversation.id,
+            name: updatedConversation.name,
+            description: updatedConversation.description,
+            imageURL: updatedConversation.publicImageURLString
+        )
+
+        Log.info("Updated includeImageInPublicPreview for \(conversationId): \(enabled)")
+    }
+
+    private func generatePublicPreviewUrl(
+        for conversationId: String,
+        localConversation: DBConversation,
+        inboxReady: InboxReadyResult
+    ) async -> String? {
+        guard localConversation.imageURLString != nil else {
+            Log.info("No group image to make public")
+            return nil
+        }
+
+        guard let xmtpConversation = try? await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = xmtpConversation else {
+            Log.warning("Could not find XMTP conversation for public preview")
+            return nil
+        }
+
+        guard let encryptedRef = try? group.encryptedGroupImage,
+              let groupKey = try? group.imageEncryptionKey,
+              let encryptedURL = URL(string: encryptedRef.url) else {
+            Log.warning("No encrypted group image available for public preview")
+            return nil
+        }
+
+        do {
+            let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(
+                url: encryptedURL,
+                salt: encryptedRef.salt,
+                nonce: encryptedRef.nonce,
+                groupKey: groupKey
+            )
+
+            let publicFilename = "pg-\(UUID().uuidString).jpg"
+            let publicImageUrl = try await inboxReady.apiClient.uploadAttachment(
+                data: decryptedData,
+                filename: publicFilename,
+                contentType: "image/jpeg",
+                acl: "public-read"
+            )
+            Log.info("Public preview image uploaded: \(publicImageUrl)")
+            return publicImageUrl
+        } catch {
+            Log.warning("Failed to generate public preview: \(error.localizedDescription)")
+            return nil
+        }
     }
 
     func updateImageUrl(_ imageURL: String, for conversationId: String) async throws {

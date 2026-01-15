@@ -43,6 +43,7 @@ public extension Conversation {
                 createdAt: Date()
             ) : nil,
             imageURL: nil,
+            includeImageInPublicPreview: false,
             isDraft: id.hasPrefix("draft-"),
             invite: nil,
             expiresAt: nil,
@@ -71,6 +72,7 @@ public extension Conversation {
             pinnedOrder: nil,
             lastMessage: nil,
             imageURL: nil,
+            includeImageInPublicPreview: false,
             isDraft: true,
             invite: nil,
             expiresAt: .distantFuture,
