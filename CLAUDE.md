@@ -210,6 +210,7 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 
 | Command | Description |
 |---------|-------------|
+| `/setup` | Initialize session for convos-task (creates simulator, sets MCP defaults) |
 | `/build` | Build the app (compile only) using "Convos (Dev)" scheme |
 | `/build --run` | Build and launch in an unused simulator |
 | `/test` | Run tests (ConvosCore by default) |
@@ -416,10 +417,18 @@ convos-task new push-notifications
 ### Task Simulator Configuration
 
 When `convos-task new` creates a task, it automatically:
-1. Clones an iPhone simulator with the name `convos-<task-name>` (e.g., `convos-push-notifications`)
-2. Saves the task config to `.convos-task` file in the worktree root
+1. Saves the task config to `.convos-task` file in the worktree root
+2. Starts creating a dedicated simulator `convos-<task-name>` in the background
+3. Launches Claude Code in a new terminal tab
 
-This means each task gets its own dedicated simulator. The `/build` command should use the simulator name from `.convos-task`:
+**Session Initialization:** When Claude Code starts in a convos-task worktree:
+1. A SessionStart hook detects `.convos-task` and prompts Claude to run `/setup`
+2. Run `/setup` to:
+   - Create the simulator if it doesn't exist yet
+   - Set XcodeBuildMCP session defaults (simulator, project, scheme)
+   - Save the simulator ID for `/build` to use
+
+The `/build` command will automatically use the task's simulator from `.convos-task`:
 ```bash
 # Read task config
 cat .convos-task
@@ -427,7 +436,7 @@ cat .convos-task
 #          SIMULATOR_NAME=convos-my-feature
 ```
 
-Set `CONVOS_BASE_SIMULATOR` env var to change the source simulator (default: iPhone 17 Pro).
+Set `CONVOS_BASE_SIMULATOR` env var to change the source simulator (auto-detected by default).
 
 ### Git and Branch Management with Graphite
 

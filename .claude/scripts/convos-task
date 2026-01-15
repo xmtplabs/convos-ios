@@ -270,18 +270,27 @@ cmd_new() {
     echo -e "${BLUE}📁 Location: $WORKTREE_DIR${NC}"
     echo -e "${BLUE}🌿 Branch: $BRANCH_NAME${NC}"
 
-    # Create task-specific simulator
-    create_task_simulator "$TASK_NAME"
-    SIM_NAME=$(get_simulator_name "$TASK_NAME")
-    echo -e "${BLUE}📱 Simulator: $SIM_NAME${NC}"
-
-    # Write task config file
+    # Write task config file (includes simulator name for later use)
     write_task_config "$WORKTREE_DIR" "$TASK_NAME"
+
+    SIM_NAME=$(get_simulator_name "$TASK_NAME")
+    echo -e "${BLUE}📱 Simulator: $SIM_NAME (creating in background)${NC}"
 
     # Show stack info
     cd "$WORKTREE_DIR"
     echo -e "\n${BLUE}Graphite stack:${NC}"
     gt log short 2>/dev/null || gt stack 2>/dev/null || echo "Run 'gt stack' to see stack"
+
+    # Create simulator in background (runs in current shell, doesn't block)
+    local base_sim
+    base_sim=$(get_base_simulator)
+    if [ -n "$base_sim" ]; then
+        (
+            if ! xcrun simctl list devices | grep -q "\"$SIM_NAME\""; then
+                xcrun simctl clone "$base_sim" "$SIM_NAME" >/dev/null 2>&1
+            fi
+        ) &
+    fi
 
     echo -e "\n${BLUE}Launching Claude Code...${NC}"
     launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"

@@ -34,7 +34,10 @@ Build, launch in simulator, and notify when running:
 
 1. Check if `.claude/.simulator_id` file exists in the project root
    - If yes, read the simulator ID from it (this is the session's dedicated simulator)
-   - If no, select a new simulator (see below)
+   - If no, check if `.convos-task` file exists:
+     - If yes, read `SIMULATOR_NAME` from it and find its UUID in the simulator list
+     - If the simulator doesn't exist yet, suggest running `/setup` first
+   - If neither file exists, select a new simulator (see below)
 
 2. Call `mcp__XcodeBuildMCP__list_sims` to get all available simulators
 
