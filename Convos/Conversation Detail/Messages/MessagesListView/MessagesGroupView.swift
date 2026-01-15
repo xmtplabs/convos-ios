@@ -61,7 +61,6 @@ struct MessagesGroupView: View {
                         bubbleType: bubbleType,
                         onTapAvatar: onTapAvatar,
                         onTapInvite: onTapInvite,
-                        onTapReactions: onTapReactions,
                         onDoubleTap: onDoubleTap
                     )
                     .zIndex(100)
@@ -93,19 +92,11 @@ struct MessagesGroupView: View {
                 }
 
                 if !message.base.reactions.isEmpty {
-                    HStack {
-                        if message.base.sender.isCurrentUser {
-                            Spacer()
-                        }
-                        ReactionIndicatorView(
-                            reactions: message.base.reactions,
-                            isOutgoing: message.base.sender.isCurrentUser,
-                            onTap: { onTapReactions(message) }
-                        )
-                        if !message.base.sender.isCurrentUser {
-                            Spacer()
-                        }
-                    }
+                    ReactionIndicatorView(
+                        reactions: message.base.reactions,
+                        isOutgoing: message.base.sender.isCurrentUser,
+                        onTap: { onTapReactions(message) }
+                    )
                     .padding(.leading, message.base.sender.isCurrentUser ? 0 : avatarWidth)
                     .padding(.top, DesignConstants.Spacing.stepHalf)
                     .zIndex(50)

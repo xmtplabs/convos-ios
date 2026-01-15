@@ -6,7 +6,6 @@ struct MessagesGroupItemView: View {
     let bubbleType: MessageBubbleType
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
-    let onTapReactions: (AnyMessage) -> Void
     let onDoubleTap: (AnyMessage) -> Void
 
     @State private var isAppearing: Bool = true
@@ -210,7 +209,6 @@ private struct MultipleAttachmentsPlaceholder: View {
         bubbleType: .normal,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onTapReactions: { _ in },
         onDoubleTap: { _ in }
     )
     .padding()
@@ -226,7 +224,6 @@ private struct MultipleAttachmentsPlaceholder: View {
         bubbleType: .tailed,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onTapReactions: { _ in },
         onDoubleTap: { _ in }
     )
     .padding()
@@ -242,7 +239,6 @@ private struct MultipleAttachmentsPlaceholder: View {
         bubbleType: .normal,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onTapReactions: { _ in },
         onDoubleTap: { _ in }
     )
     .padding()
@@ -258,7 +254,6 @@ private struct MultipleAttachmentsPlaceholder: View {
         bubbleType: .tailed,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onTapReactions: { _ in },
         onDoubleTap: { _ in }
     )
     .padding()
