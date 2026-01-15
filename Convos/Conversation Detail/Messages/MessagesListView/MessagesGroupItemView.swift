@@ -118,15 +118,6 @@ struct MessagesGroupItemView: View {
                 // Updates are handled at the item level, not here
                 EmptyView()
             }
-
-            if !message.base.reactions.isEmpty {
-                ReactionIndicatorView(
-                    reactions: message.base.reactions,
-                    isOutgoing: message.base.sender.isCurrentUser,
-                    onTap: { onTapReactions(message) }
-                )
-                .padding(.top, DesignConstants.Spacing.stepHalf)
-            }
         }
         .id("messages-group-item-view-\(message.base.id)")
         .transition(

@@ -153,22 +153,22 @@ final class ReactionWriter: ReactionWriterProtocol {
             }
 
         case .removed:
-            try await databaseWriter.write { db in
-                try DBMessage
-                    .filter(DBMessage.Columns.sourceMessageId == messageId)
-                    .filter(DBMessage.Columns.senderId == client.inboxId)
-                    .filter(DBMessage.Columns.emoji == emoji)
-                    .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
-                    .deleteAll(db)
-                Log.info("Deleted local reaction for message \(messageId)")
-            }
-
             do {
                 try await conversation.send(
                     content: reaction,
                     options: .init(contentType: ContentTypeReaction)
                 )
                 Log.info("Sent remove reaction \(emoji) for message \(messageId)")
+
+                try await databaseWriter.write { db in
+                    try DBMessage
+                        .filter(DBMessage.Columns.sourceMessageId == messageId)
+                        .filter(DBMessage.Columns.senderId == client.inboxId)
+                        .filter(DBMessage.Columns.emoji == emoji)
+                        .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
+                        .deleteAll(db)
+                    Log.info("Deleted local reaction for message \(messageId)")
+                }
             } catch {
                 Log.error("Failed sending remove reaction: \(error.localizedDescription)")
                 throw error
