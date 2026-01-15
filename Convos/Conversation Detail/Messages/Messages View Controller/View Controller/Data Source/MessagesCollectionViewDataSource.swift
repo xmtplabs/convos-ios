@@ -13,6 +13,8 @@ final class MessagesCollectionViewDataSource: NSObject {
 
     var onTapAvatar: ((IndexPath) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
+    var onTapReactions: ((AnyMessage) -> Void)?
+    var onDoubleTap: ((AnyMessage) -> Void)?
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -44,16 +46,27 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = sections[indexPath.section].cells[indexPath.item]
+        let actions = MessageCellActions(
+            onTapInvite: { [weak self] invite in
+                Log.info("Tapped invite: \(invite)")
+                self?.onTapInvite?(invite)
+            },
+            onTapAvatar: { [weak self] _ in
+                self?.onTapAvatar?(indexPath)
+            },
+            onTapReactions: { [weak self] message in
+                self?.onTapReactions?(message)
+            },
+            onDoubleTap: { [weak self] message in
+                self?.onDoubleTap?(message)
+            }
+        )
         return CellFactory.createCell(
             in: collectionView,
             for: indexPath,
             with: item,
-            onTapInvite: { [weak self] invite in
-            Log.info("Tapped invite: \(invite)")
-            self?.onTapInvite?(invite)
-        }, onTapAvatar: { [weak self] _ in
-            self?.onTapAvatar?(indexPath)
-        })
+            actions: actions
+        )
     }
 }
 

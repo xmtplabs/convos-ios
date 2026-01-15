@@ -17,6 +17,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     private let _conversationMetadataWriter: any ConversationMetadataWriterProtocol
     private let _conversationPermissionsRepository: any ConversationPermissionsRepositoryProtocol
     private let _outgoingMessageWriter: any OutgoingMessageWriterProtocol
+    private let _reactionWriter: any ReactionWriterProtocol
 
     // MARK: - Initialization
 
@@ -28,7 +29,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
         conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil,
         conversationPermissionsRepository: (any ConversationPermissionsRepositoryProtocol)? = nil,
-        outgoingMessageWriter: (any OutgoingMessageWriterProtocol)? = nil
+        outgoingMessageWriter: (any OutgoingMessageWriterProtocol)? = nil,
+        reactionWriter: (any ReactionWriterProtocol)? = nil
     ) {
         self._inboxStateManager = inboxStateManager ?? MockInboxStateManager()
         self._myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
@@ -38,6 +40,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         self._conversationMetadataWriter = conversationMetadataWriter ?? MockConversationMetadataWriter()
         self._conversationPermissionsRepository = conversationPermissionsRepository ?? MockConversationPermissionsRepository()
         self._outgoingMessageWriter = outgoingMessageWriter ?? MockOutgoingMessageWriter()
+        self._reactionWriter = reactionWriter ?? MockReactionWriter()
     }
 
     // MARK: - MessagingServiceProtocol
@@ -72,6 +75,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func messageWriter(for conversationId: String) -> any OutgoingMessageWriterProtocol {
         _outgoingMessageWriter
+    }
+
+    public func reactionWriter() -> any ReactionWriterProtocol {
+        _reactionWriter
     }
 
     public func conversationLocalStateWriter() -> any ConversationLocalStateWriterProtocol {

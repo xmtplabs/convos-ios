@@ -294,18 +294,7 @@ extension Array where Element == MessageWithDetails {
 
             let sender = dbSender.hydrateConversationMember(currentInboxId: conversation.inboxId)
             let source: MessageSource = sender.isCurrentUser ? .outgoing : .incoming
-            let reactions: [MessageReaction] = dbReactions.map {
-                .init(
-                    id: $0.clientMessageId,
-                    conversation: conversation,
-                    sender: sender,
-                    source: source,
-                    status: $0.status,
-                    content: .emoji($0.emoji ?? ""),
-                    date: Date(),
-                    emoji: $0.emoji ?? ""
-                )
-            }
+            let reactions = try dbReactions.hydrateReactions(from: database, in: conversation)
             switch dbMessage.messageType {
             case .original:
                 let messageContent: MessageContent
@@ -418,6 +407,33 @@ extension Array where Element == MessageWithDetails {
         }
 
         return (messages, updatedSeenIds)
+    }
+}
+
+private extension Array where Element == DBMessage {
+    func hydrateReactions(from database: Database, in conversation: Conversation) throws -> [MessageReaction] {
+        try compactMap { dbReaction -> MessageReaction? in
+            guard let reactionSenderProfile = try DBConversationMemberProfileWithRole.fetchOne(
+                database,
+                conversationId: conversation.id,
+                inboxId: dbReaction.senderId
+            ) else {
+                Log.warning("Reaction dropped: missing sender profile for inboxId \(dbReaction.senderId)")
+                return nil
+            }
+            let reactionSender = reactionSenderProfile.hydrateConversationMember(currentInboxId: conversation.inboxId)
+            let reactionSource: MessageSource = reactionSender.isCurrentUser ? .outgoing : .incoming
+            return MessageReaction(
+                id: dbReaction.clientMessageId,
+                conversation: conversation,
+                sender: reactionSender,
+                source: reactionSource,
+                status: dbReaction.status,
+                content: .emoji(dbReaction.emoji ?? ""),
+                date: dbReaction.date,
+                emoji: dbReaction.emoji ?? ""
+            )
+        }
     }
 }
 

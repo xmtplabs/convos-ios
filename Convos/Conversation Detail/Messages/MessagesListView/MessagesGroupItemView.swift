@@ -4,9 +4,9 @@ import SwiftUI
 struct MessagesGroupItemView: View {
     let message: AnyMessage
     let bubbleType: MessageBubbleType
-    let onTapMessage: (AnyMessage) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
+    let onDoubleTap: (AnyMessage) -> Void
 
     @State private var isAppearing: Bool = true
 
@@ -26,8 +26,8 @@ struct MessagesGroupItemView: View {
                 )
                 .zIndex(200)
                 .id("bubble-\(message.base.id)")
-                .onTapGesture {
-                    onTapMessage(message)
+                .onTapGesture(count: 2) {
+                    onDoubleTap(message)
                 }
                 .scaleEffect(isAppearing ? 0.9 : 1.0)
                 .rotationEffect(
@@ -52,8 +52,8 @@ struct MessagesGroupItemView: View {
                 )
                 .zIndex(200)
                 .id("emoji-bubble-\(message.base.id)")
-                .onTapGesture {
-                    onTapMessage(message)
+                .onTapGesture(count: 2) {
+                    onDoubleTap(message)
                 }
                 .opacity(isAppearing ? 0.0 : 1.0)
                 .blur(radius: isAppearing ? 10.0 : 0.0)
@@ -102,15 +102,15 @@ struct MessagesGroupItemView: View {
             case .attachment(let url):
                 AttachmentPlaceholder(url: url, isOutgoing: message.base.sender.isCurrentUser)
                     .id(message.base.id)
-                    .onTapGesture {
-                        onTapMessage(message)
+                    .onTapGesture(count: 2) {
+                        onDoubleTap(message)
                     }
 
             case .attachments(let urls):
                 MultipleAttachmentsPlaceholder(urls: urls, isOutgoing: message.base.sender.isCurrentUser)
                     .id(message.base.id)
-                    .onTapGesture {
-                        onTapMessage(message)
+                    .onTapGesture(count: 2) {
+                        onDoubleTap(message)
                     }
 
             case .update:
@@ -207,9 +207,9 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .normal,
-        onTapMessage: { _ in },
         onTapAvatar: { _ in },
-        onTapInvite: { _ in }
+        onTapInvite: { _ in },
+        onDoubleTap: { _ in }
     )
     .padding()
 }
@@ -222,9 +222,9 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .tailed,
-        onTapMessage: { _ in },
         onTapAvatar: { _ in },
-        onTapInvite: { _ in }
+        onTapInvite: { _ in },
+        onDoubleTap: { _ in }
     )
     .padding()
 }
@@ -237,9 +237,9 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .unpublished
         ), .existing),
         bubbleType: .normal,
-        onTapMessage: { _ in },
         onTapAvatar: { _ in },
-        onTapInvite: { _ in }
+        onTapInvite: { _ in },
+        onDoubleTap: { _ in }
     )
     .padding()
 }
@@ -252,9 +252,9 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .tailed,
-        onTapMessage: { _ in },
         onTapAvatar: { _ in },
-        onTapInvite: { _ in }
+        onTapInvite: { _ in },
+        onDoubleTap: { _ in }
     )
     .padding()
 }

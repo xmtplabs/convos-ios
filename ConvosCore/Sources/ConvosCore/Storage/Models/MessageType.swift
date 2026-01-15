@@ -10,4 +10,5 @@ public protocol MessageType: Sendable {
     var status: MessageStatus { get }
     var content: MessageContent { get }
     var date: Date { get }
+    var reactions: [MessageReaction] { get }
 }

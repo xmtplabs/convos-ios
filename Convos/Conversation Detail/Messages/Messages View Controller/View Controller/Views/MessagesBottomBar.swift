@@ -110,6 +110,9 @@ struct MessagesBottomBar: View {
             onTapAvatar: { _ in },
             onLoadPreviousMessages: {},
             onTapInvite: { _ in },
+            onReaction: { _, _ in },
+            onTapReactions: { _ in },
+            onDoubleTap: { _ in },
             bottomBarHeight: bottomBarHeight
         )
         .ignoresSafeArea()

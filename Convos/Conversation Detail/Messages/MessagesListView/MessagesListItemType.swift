@@ -86,6 +86,51 @@ extension MessagesGroup {
             isLastGroupSentByCurrentUser: true
         )
     }
+
+    static var mockIncomingWithReactions: MessagesGroup {
+        let sender = ConversationMember.mock(isCurrentUser: false)
+        let reactions = [
+            MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: true)),
+            MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Alice")),
+            MessageReaction.mock(emoji: "🧠", sender: .mock(isCurrentUser: false, name: "Bob"))
+        ]
+        let messages: [AnyMessage] = [
+            .message(Message.mock(text: "Hey there!", sender: sender, status: .published), .existing),
+            .message(Message.mock(text: "How are you doing today?", sender: sender, status: .published, reactions: reactions), .existing)
+        ]
+        return MessagesGroup(
+            id: "mock-incoming-reactions-group",
+            sender: sender,
+            messages: messages,
+            unpublished: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        )
+    }
+
+    static var mockOutgoingWithReactions: MessagesGroup {
+        let sender = ConversationMember.mock(isCurrentUser: true)
+        let reactionsNotSelected = [
+            MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Alice")),
+            MessageReaction.mock(emoji: "😂", sender: .mock(isCurrentUser: false, name: "Bob"))
+        ]
+        let reactionsSelected = [
+            MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: true)),
+            MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Alice"))
+        ]
+        let messages: [AnyMessage] = [
+            .message(Message.mock(text: "I'm doing great!", sender: sender, status: .published, reactions: reactionsNotSelected), .existing),
+            .message(Message.mock(text: "Thanks for asking 😊", sender: sender, status: .published, reactions: reactionsSelected), .existing)
+        ]
+        return MessagesGroup(
+            id: "mock-outgoing-reactions-group",
+            sender: sender,
+            messages: messages,
+            unpublished: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: true
+        )
+    }
 }
 
 enum MessagesListItemType: Identifiable, Equatable, Hashable {

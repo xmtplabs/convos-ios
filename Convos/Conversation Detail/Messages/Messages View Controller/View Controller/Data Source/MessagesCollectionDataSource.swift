@@ -7,4 +7,6 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     func prepare(with collectionView: UICollectionView)
     var onTapInvite: ((MessageInvite) -> Void)? { get set }
     var onTapAvatar: ((IndexPath) -> Void)? { get set }
+    var onTapReactions: ((AnyMessage) -> Void)? { get set }
+    var onDoubleTap: ((AnyMessage) -> Void)? { get set }
 }

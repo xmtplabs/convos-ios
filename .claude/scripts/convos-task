@@ -204,7 +204,7 @@ cmd_new() {
     if [ -z "$TASK_NAME" ]; then
         echo -e "${RED}Usage: convos-task new <task-name> [parent-branch]${NC}"
         echo "Example: convos-task new push-notifications"
-        echo "Example: convos-task new push-notifications main"
+        echo "Example: convos-task new push-notifications dev"
         exit 1
     fi
 
@@ -594,7 +594,7 @@ ${GREEN}Commands:${NC}
 
 ${GREEN}Examples:${NC}
   convos-task new push-notifications
-  convos-task new bug-fix main
+  convos-task new bug-fix dev
   convos-task list
   convos-task submit push-notifications
   convos-task cleanup push-notifications

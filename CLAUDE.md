@@ -372,7 +372,7 @@ alias ct="convos-task"
 convos-task new my-feature-name
 
 # Or stack on specific parent
-convos-task new my-feature main
+convos-task new my-feature dev
 
 # List all active tasks
 convos-task list

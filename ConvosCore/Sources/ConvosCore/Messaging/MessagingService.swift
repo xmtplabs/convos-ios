@@ -138,6 +138,11 @@ final class MessagingService: MessagingServiceProtocol {
                               conversationId: conversationId)
     }
 
+    func reactionWriter() -> any ReactionWriterProtocol {
+        ReactionWriter(inboxStateManager: inboxStateManager,
+                       databaseWriter: databaseWriter)
+    }
+
     // MARK: - Group Management
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol {

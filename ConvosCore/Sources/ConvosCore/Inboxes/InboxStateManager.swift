@@ -5,7 +5,7 @@ public protocol InboxStateObserver: AnyObject {
     func inboxStateDidChange(_ state: InboxStateMachine.State)
 }
 
-public protocol InboxStateManagerProtocol: AnyObject {
+public protocol InboxStateManagerProtocol: AnyObject, Sendable {
     var currentState: InboxStateMachine.State { get }
 
     func waitForInboxReadyResult() async throws -> InboxReadyResult

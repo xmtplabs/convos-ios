@@ -15,6 +15,7 @@ class ConversationViewModel {
     private let consentWriter: any ConversationConsentWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
+    private let reactionWriter: any ReactionWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private let messagesListRepository: any MessagesListRepositoryProtocol
 
@@ -116,6 +117,7 @@ class ConversationViewModel {
     var presentingProfileForMember: ConversationMember?
     var presentingNewConversationForInvite: NewConversationViewModel?
     var presentingConversationForked: Bool = false
+    var presentingReactionsForMessage: AnyMessage?
 
     // MARK: - Onboarding
 
@@ -169,6 +171,7 @@ class ConversationViewModel {
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
+        self.reactionWriter = messagingService.reactionWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
@@ -218,6 +221,7 @@ class ConversationViewModel {
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
+        self.reactionWriter = messagingService.reactionWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
@@ -430,6 +434,58 @@ class ConversationViewModel {
                 try await outgoingMessageWriter.send(text: prevMessageText)
             } catch {
                 Log.error("Error sending message: \(error)")
+            }
+        }
+    }
+
+    func onReaction(emoji: String, messageId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.addReaction(
+                    emoji: emoji,
+                    to: messageId,
+                    in: conversation.id
+                )
+            } catch {
+                Log.error("Error sending reaction: \(error)")
+            }
+        }
+    }
+
+    func onTapReactions(_ message: AnyMessage) {
+        presentingReactionsForMessage = message
+    }
+
+    func onDoubleTap(_ message: AnyMessage) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.toggleReaction(
+                    emoji: "❤️",
+                    to: message.base.id,
+                    in: conversation.id
+                )
+            } catch {
+                Log.error("Error toggling reaction: \(error)")
+            }
+        }
+    }
+
+    func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.removeReaction(
+                    emoji: reaction.emoji,
+                    from: message.base.id,
+                    in: conversation.id
+                )
+                await MainActor.run {
+                    self.presentingReactionsForMessage = nil
+                }
+            } catch {
+                Log.error("Error removing reaction: \(error)")
             }
         }
     }

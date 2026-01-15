@@ -29,6 +29,9 @@ struct MessagesView<BottomBarContent: View>: View {
     let onSendMessage: () -> Void
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
+    let onReaction: (String, String) -> Void
+    let onTapReactions: (AnyMessage) -> Void
+    let onDoubleTap: (AnyMessage) -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
@@ -46,6 +49,9 @@ struct MessagesView<BottomBarContent: View>: View {
                 onTapAvatar: onTapAvatar,
                 onLoadPreviousMessages: onLoadPreviousMessages,
                 onTapInvite: onTapInvite,
+                onReaction: onReaction,
+                onTapReactions: onTapReactions,
+                onDoubleTap: onDoubleTap,
                 bottomBarHeight: bottomBarHeight
             )
             .ignoresSafeArea()

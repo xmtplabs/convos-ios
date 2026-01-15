@@ -133,6 +133,12 @@ final class MessagesViewController: UIViewController {
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onLoadPreviousMessages: (() -> Void)?
+    var onReaction: ((String, String) -> Void)?
+    var onTapReactions: ((AnyMessage) -> Void)?
+    var onDoubleTap: ((AnyMessage) -> Void)?
+
+    private var currentReactionMessageId: String?
+    private var reactionCancellable: AnyCancellable?
 
     deinit {
         KeyboardListener.shared.remove(delegate: self)
@@ -242,6 +248,14 @@ final class MessagesViewController: UIViewController {
         dataSource.onTapInvite = { [weak self] invite in
             guard let self = self else { return }
             self.onTapInvite?(invite)
+        }
+        dataSource.onTapReactions = { [weak self] message in
+            guard let self = self else { return }
+            self.onTapReactions?(message)
+        }
+        dataSource.onDoubleTap = { [weak self] message in
+            guard let self = self else { return }
+            self.onDoubleTap?(message)
         }
 
         setupImmediateTouchGesture()
@@ -671,7 +685,25 @@ extension MessagesViewController: UIGestureRecognizerDelegate {
 extension MessagesViewController: MessageReactionMenuCoordinatorDelegate {
     func messageReactionMenuViewModel(_ coordinator: MessageReactionMenuCoordinator,
                                       for indexPath: IndexPath) -> MessageReactionMenuViewModel {
-        MessageReactionMenuViewModel()
+        guard dataSource.sections.indices.contains(indexPath.section),
+              dataSource.sections[indexPath.section].cells.indices.contains(indexPath.item) else {
+            return MessageReactionMenuViewModel()
+        }
+        let item = dataSource.sections[indexPath.section].cells[indexPath.item]
+        currentReactionMessageId = nil
+        if case .messages(let group) = item, let lastMessage = group.allMessages.last {
+            currentReactionMessageId = lastMessage.base.id
+        }
+
+        let viewModel = MessageReactionMenuViewModel()
+        reactionCancellable = viewModel.selectedEmojiPublisher
+            .compactMap { $0 }
+            .sink { [weak self] emoji in
+                guard let self, let messageId = currentReactionMessageId else { return }
+                onReaction?(emoji, messageId)
+                currentReactionMessageId = nil
+            }
+        return viewModel
     }
 
     func messageReactionMenuCoordinatorWasPresented(_ coordinator: MessageReactionMenuCoordinator) {
@@ -682,6 +714,9 @@ extension MessagesViewController: MessageReactionMenuCoordinatorDelegate {
     func messageReactionMenuCoordinatorWasDismissed(_ coordinator: MessageReactionMenuCoordinator) {
         collectionView.isScrollEnabled = true
         currentInterfaceActions.options.remove(.showingReactionsMenu)
+        reactionCancellable?.cancel()
+        reactionCancellable = nil
+        currentReactionMessageId = nil
     }
 
     func messageReactionMenuCoordinator(_ coordinator: MessageReactionMenuCoordinator,
@@ -692,6 +727,11 @@ extension MessagesViewController: MessageReactionMenuCoordinatorDelegate {
 
     func messageReactionMenuCoordinator(_ coordinator: MessageReactionMenuCoordinator,
                                         shouldPresentMenuFor cell: PreviewableCollectionViewCell) -> Bool {
-        return false // @jarodl temporarily disable reactions
+        guard let indexPath = collectionView.indexPath(for: cell) else { return false }
+        let item = dataSource.sections[indexPath.section].cells[indexPath.item]
+        if case .messages = item {
+            return true
+        }
+        return false
     }
 }
