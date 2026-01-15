@@ -30,7 +30,7 @@ Enable users to react to messages by tapping to display a heart, providing a lig
 ### Displaying Reactions
 
 - Heart appears at the bottom-right corner of the message bubble
-- If the current user reacted, heart is filled (❤️); otherwise outlined (♡)
+- If the current user reacted, heart is filled (❤️)
 - For group chats: show a single heart with count if multiple people reacted (e.g., ❤️ 3)
 - Tapping the heart indicator opens the **Reactions Drawer**
 
@@ -192,12 +192,6 @@ Note: Reactions are sent as regular XMTP messages with `ContentTypeReaction`. Th
    - *XMTP handles this via message queuing*
 6. **Group chat display**: How to show multiple reactors?
    - *Use `referenceInboxId` to track who reacted*
-
-## Success Metrics
-
-- Reaction adoption rate (% of users who use reactions)
-- Reactions per active user per day
-- Time from feature launch to first reaction (onboarding)
 
 ## Implementation Phases
 

@@ -135,33 +135,43 @@ final class ReactionWriter: ReactionWriterProtocol {
         }
 
         // Now do network operations (can be slow, but UI already updated)
+        guard let conversation = try await client.conversation(with: conversationId) else {
+            try await markReactionFailed(clientMessageId: clientMessageId)
+            throw ReactionWriterError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let sourceMessage = try await databaseWriter.read { db in
+            try DBMessage.fetchOne(db, key: messageId)
+        }
+
+        guard let sourceMessage else {
+            try await markReactionFailed(clientMessageId: clientMessageId)
+            throw ReactionWriterError.messageNotFound(messageId: messageId)
+        }
+
+        let reaction = Reaction(
+            reference: messageId,
+            action: .added,
+            content: emoji,
+            schema: .unicode,
+            referenceInboxId: sourceMessage.senderId
+        )
+
+        // Send to network - only mark as failed if THIS fails
         do {
-            guard let conversation = try await client.conversation(with: conversationId) else {
-                throw ReactionWriterError.conversationNotFound(conversationId: conversationId)
-            }
-
-            let sourceMessage = try await databaseWriter.read { db in
-                try DBMessage.fetchOne(db, key: messageId)
-            }
-
-            guard let sourceMessage else {
-                throw ReactionWriterError.messageNotFound(messageId: messageId)
-            }
-
-            let reaction = Reaction(
-                reference: messageId,
-                action: .added,
-                content: emoji,
-                schema: .unicode,
-                referenceInboxId: sourceMessage.senderId
-            )
-
             try await conversation.send(
                 content: reaction,
                 options: .init(contentType: ContentTypeReaction)
             )
             Log.info("Sent reaction \(emoji) to message \(messageId)")
+        } catch {
+            Log.error("Failed sending reaction: \(error.localizedDescription)")
+            try await markReactionFailed(clientMessageId: clientMessageId)
+            throw error
+        }
 
+        // Update to published - if this fails, the reaction was still sent successfully
+        do {
             try await databaseWriter.write { db in
                 guard let localReaction = try DBMessage.fetchOne(db, key: clientMessageId) else {
                     Log.warning("Local reaction not found after send")
@@ -170,15 +180,18 @@ final class ReactionWriter: ReactionWriterProtocol {
                 try localReaction.with(status: .published).save(db)
             }
         } catch {
-            Log.error("Failed sending reaction: \(error.localizedDescription)")
-            try await databaseWriter.write { db in
-                guard let localReaction = try DBMessage.fetchOne(db, key: clientMessageId) else {
-                    Log.warning("Local reaction not found after failing to send")
-                    return
-                }
-                try localReaction.with(status: .failed).save(db)
+            Log.error("Failed updating reaction status to published: \(error.localizedDescription)")
+            // Don't throw - the reaction was sent successfully
+        }
+    }
+
+    private func markReactionFailed(clientMessageId: String) async throws {
+        try await databaseWriter.write { db in
+            guard let localReaction = try DBMessage.fetchOne(db, key: clientMessageId) else {
+                Log.warning("Local reaction not found when marking as failed")
+                return
             }
-            throw error
+            try localReaction.with(status: .failed).save(db)
         }
     }
 

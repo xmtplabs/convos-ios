@@ -37,7 +37,7 @@ extension DBMessage {
             }
 
         case .reaction:
-            text = "\(senderString)\(emoji ?? "") a message"
+            text = "\(senderString)\(emoji ?? "")'d a message"
         }
         return .init(text: text, createdAt: date)
     }
