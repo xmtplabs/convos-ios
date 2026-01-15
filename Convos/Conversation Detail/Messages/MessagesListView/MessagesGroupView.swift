@@ -99,7 +99,7 @@ struct MessagesGroupView: View {
                         onTap: { onTapReactions(message) }
                     )
                     .padding(.leading, message.base.sender.isCurrentUser ? 0 : avatarWidth)
-                    .padding(.top, DesignConstants.Spacing.stepHalf)
+                    .padding(.bottom, DesignConstants.Spacing.stepX)
                     .zIndex(50)
                     .id("reactions-\(message.differenceIdentifier)")
                 }
@@ -177,6 +177,34 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockMixed,
+            onTapAvatar: { _ in },
+            onTapInvite: { _ in },
+            onTapReactions: { _ in },
+            onDoubleTap: { _ in }
+        )
+        .padding()
+    }
+    .background(.colorBackgroundPrimary)
+}
+
+#Preview("Incoming With Reactions") {
+    ScrollView {
+        MessagesGroupView(
+            group: .mockIncomingWithReactions,
+            onTapAvatar: { _ in },
+            onTapInvite: { _ in },
+            onTapReactions: { _ in },
+            onDoubleTap: { _ in }
+        )
+        .padding()
+    }
+    .background(.colorBackgroundPrimary)
+}
+
+#Preview("Outgoing With Reactions") {
+    ScrollView {
+        MessagesGroupView(
+            group: .mockOutgoingWithReactions,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
