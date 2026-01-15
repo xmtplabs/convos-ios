@@ -1,9 +1,10 @@
 import Foundation
 
 extension DBMessage {
-    func hydrateMessagePreview(conversationKind: ConversationKind) -> MessagePreview {
+    func hydrateMessagePreview(conversationKind: ConversationKind, currentInboxId: String) -> MessagePreview {
         let text: String
-        let senderString: String = "Someone "
+        let isCurrentUser = senderId == currentInboxId
+        let senderString: String = isCurrentUser ? "You " : "Someone "
         let optionalSender: String = conversationKind == .group ? senderString : ""
         let attachmentsCount = attachmentUrls.count
         let attachmentsString = attachmentsCount <= 1 ? "a photo" : "\(attachmentsCount) photos"
@@ -37,7 +38,7 @@ extension DBMessage {
             }
 
         case .reaction:
-            text = "\(senderString)\(emoji ?? "")'d a message"
+            text = "\(senderString)\(emoji.map { "reacted with \($0)" } ?? "reacted to a message")"
         }
         return .init(text: text, createdAt: date)
     }
