@@ -169,6 +169,12 @@ cmd_new() {
     # Store original branch to return to it later
     ORIGINAL_BRANCH=$(git branch --show-current)
 
+    # Sync with Graphite to get latest changes before creating new branch
+    echo -e "${BLUE}Syncing with Graphite to get latest changes...${NC}"
+    gt sync --no-interactive || {
+        echo -e "${YELLOW}⚠️  gt sync failed, continuing anyway${NC}"
+    }
+
     # If parent branch specified, checkout first
     if [ -n "$PARENT_BRANCH" ]; then
         echo -e "${BLUE}Checking out parent branch: $PARENT_BRANCH${NC}"

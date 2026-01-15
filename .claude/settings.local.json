@@ -3,15 +3,20 @@
     "allow": [
       "Bash(xcpretty:*)",
       "Bash(gt submit:*)",
-      "Bash(timeout 60 swift test:*)"
+      "Bash(timeout 60 swift test:*)",
+      "mcp__graphite__learn_gt",
+      "mcp__graphite__run_gt_cmd",
+      "Edit(.claude/**)",
+      "Write(.claude/**)"
     ]
   },
+  "enableAllProjectMcpServers": true,
   "enabledMcpjsonServers": [
     "XcodeBuildMCP",
     "ios-simulator",
     "xmtp-docs",
     "graphite",
-    "notion"
-  ],
-  "enableAllProjectMcpServers": true
+    "notion",
+    "linear"
+  ]
 }

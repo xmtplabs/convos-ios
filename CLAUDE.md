@@ -411,52 +411,90 @@ convos-task new push-notifications
 - Graphite branches are automatically stacked on current branch unless parent specified
 - Use `ct` as shorthand for `convos-task`
 - **DerivedData isolation**: Each worktree uses `.derivedData/` locally to avoid build conflicts (see XcodeBuildMCP Worktree Configuration)
+- **Simulator auto-setup**: A dedicated simulator (`convos-<task-name>`) is created when the task starts
+
+### Task Simulator Configuration
+
+When `convos-task new` creates a task, it automatically:
+1. Clones an iPhone simulator with the name `convos-<task-name>` (e.g., `convos-push-notifications`)
+2. Saves the task config to `.convos-task` file in the worktree root
+
+This means each task gets its own dedicated simulator. The `/build` command should use the simulator name from `.convos-task`:
+```bash
+# Read task config
+cat .convos-task
+# Returns: TASK_NAME=my-feature
+#          SIMULATOR_NAME=convos-my-feature
+```
+
+Set `CONVOS_BASE_SIMULATOR` env var to change the source simulator (default: iPhone 16 Pro).
 
 ### Git and Branch Management with Graphite
 
-**IMPORTANT: Claude must ALWAYS use Graphite (`gt`) commands instead of raw `git` for branch and commit management.**
+This project uses Graphite for PR management. A **Graphite MCP** is configured in `.mcp.json` that Claude must use for all `gt` commands.
 
-This ensures proper PR stacking and integration with the team's review workflow. A Graphite MCP is configured in `.mcp.json` to help Claude manage stacks automatically.
+**IMPORTANT: Claude must use the Graphite MCP tool (`mcp__graphite__run_gt_cmd`) for all gt commands.** Do NOT use Bash to run gt commands directly - use the MCP tool instead.
 
-**Use `gt` instead of `git` for:**
-| Instead of | Use |
-|------------|-----|
-| `git checkout -b branch && git commit` | `gt create branch-name` (creates branch + commits staged changes) |
-| `git commit --amend` | `gt modify` (amends and auto-restacks descendants) |
-| `git push` | `gt submit` (creates/updates PRs for the stack) |
-| `git checkout branch` | `gt checkout branch` |
-| `git rebase` | `gt sync` (syncs with remote, cleans merged branches) |
-| `git log` | `gt log` (shows stack structure visually) |
+#### Workflow Overview
 
-**Key workflow difference:** With Graphite, `gt create` creates a new branch AND commits in one step. Use `-a` to stage all changes automatically, or stage manually with `git add` first.
+There are two workflows depending on task size:
 
-**When to create a new stacked branch:**
-1. After committing the PRD (plan document)
-2. At each logical checkpoint during implementation
-3. When switching from one concern to another (e.g., models → views)
+**Small/Medium Tasks (single PR):**
+1. Work on the current branch created by `convos-task new`
+2. Commit changes normally with `git add` and `git commit`
+3. When ready to submit, use `gt submit` via the Graphite MCP to create/update the PR
 
-**Checkpoint criteria - create a new stacked PR when:**
+**Large Tasks (stacked PRs):**
+For larger features that benefit from reviewable chunks, create stacked PRs:
+1. Complete a reviewable chunk of work
+2. Use `gt create` to create a new stacked branch with your changes
+3. Continue working, creating new stacked branches at each checkpoint
+4. Use `gt submit --stack` to submit the entire stack
+
+#### Using the Graphite MCP
+
+The Graphite MCP provides the `run_gt_cmd` tool. Examples:
+
+```
+# Submit current branch as PR
+mcp__graphite__run_gt_cmd with args: ["submit", "--no-interactive"]
+
+# Create a new stacked branch with staged changes
+mcp__graphite__run_gt_cmd with args: ["create", "-am", "Add user profile feature"]
+
+# View stack structure
+mcp__graphite__run_gt_cmd with args: ["log", "short"]
+
+# Sync with remote
+mcp__graphite__run_gt_cmd with args: ["sync", "--no-interactive"]
+```
+
+#### Common Graphite Commands
+
+| Command | Purpose |
+|---------|---------|
+| `gt submit` | Create/update PR for current branch |
+| `gt submit --stack` | Submit entire stack of PRs |
+| `gt create -am "msg"` | Create new stacked branch with commit |
+| `gt modify -a` | Amend current commit (restacks descendants) |
+| `gt sync` | Sync with remote, restack on latest main |
+| `gt log short` | View stack structure |
+
+#### When to Stack PRs
+
+Create a new stacked PR when:
 - Code compiles successfully
 - Relevant tests pass
 - Changes represent a complete, reviewable unit
-- You're about to start a different layer/concern
+- You're switching from one concern to another (e.g., models → views)
 
-**Example session flow:**
-```bash
-# 1. Start feature (user runs this outside Claude)
-convos-task new user-profile
+For small bug fixes or simple features, a single PR is fine - just commit normally and use `gt submit`.
 
-# 2. Claude creates PRD, commits it (use -a to stage all changes)
-gt create user-profile-plan -am "Add PRD for user profile feature"
-gt submit  # Creates first PR (the plan)
+#### Example: Large Feature with Stacked PRs
 
-# 3. Claude implements models, creates new stacked branch
-# ... implement models ...
-gt create user-profile-models -am "Add UserProfile model and repository"
-gt submit  # Creates second PR, stacked on plan
-
-# 4. Claude implements UI, creates new stacked branch
-# ... implement views ...
-gt create user-profile-ui -am "Add UserProfileView and ViewModel"
-gt submit  # Creates third PR, stacked on models
+```
+main
+ └── feature-plan        # PR 1: PRD document
+      └── feature-models  # PR 2: Data models
+           └── feature-ui # PR 3: Views and ViewModels
 ```

@@ -118,3 +118,4 @@ iOSInjectionProject/
 # Claude Code local files
 .claude/.simulator_id
 .derivedData/
+.claude/task-simulator.json
