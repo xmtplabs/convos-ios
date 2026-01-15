@@ -86,7 +86,7 @@ create_task_simulator() {
     local sim_name
     sim_name=$(get_simulator_name "$task_name")
 
-    if xcrun simctl list devices | grep -q "\"$sim_name\""; then
+    if xcrun simctl list devices | grep -q "$sim_name"; then
         echo -e "${YELLOW}Simulator '$sim_name' already exists${NC}"
         return 0
     fi
@@ -117,7 +117,7 @@ delete_task_simulator() {
     local sim_name
     sim_name=$(get_simulator_name "$task_name")
 
-    if ! xcrun simctl list devices | grep -q "\"$sim_name\""; then
+    if ! xcrun simctl list devices | grep -q "$sim_name"; then
         return 0
     fi
 
@@ -286,7 +286,7 @@ cmd_new() {
     base_sim=$(get_base_simulator)
     if [ -n "$base_sim" ]; then
         (
-            if ! xcrun simctl list devices | grep -q "\"$SIM_NAME\""; then
+            if ! xcrun simctl list devices | grep -q "$SIM_NAME"; then
                 xcrun simctl clone "$base_sim" "$SIM_NAME" >/dev/null 2>&1
             fi
         ) &

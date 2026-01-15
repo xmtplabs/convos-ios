@@ -3,11 +3,10 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "startup",
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR/.claude/hooks/session-init.sh\""
+            "command": ".claude/hooks/session-init.sh"
           }
         ]
       }
@@ -33,8 +32,10 @@
       "Bash(find:*)",
       "Bash(grep:*)",
       "Read",
+      "Read(.claude/.simulator_id)",
       "Edit",
       "Write",
+      "Write(.claude/.simulator_id)",
       "Glob",
       "Grep",
       "mcp__XcodeBuildMCP__*",
