@@ -140,12 +140,6 @@ EOF
 
 launch_claude_in_terminal() {
     local dir="$1"
-    local task_name="$2"
-    local message=""
-
-    if [ -n "$task_name" ]; then
-        message="echo '🚀 Starting Claude Code for task: $task_name' && "
-    fi
 
     # Check if iTerm is available (installed)
     if [ -d "/Applications/iTerm.app" ]; then
@@ -159,14 +153,14 @@ tell application "iTerm"
             tell current window
                 create tab with default profile
                 tell current session
-                    write text "cd '$dir' && ${message}claude"
+                    write text "cd '$dir' && claude"
                 end tell
             end tell
         else
             create window with default profile
             tell current window
                 tell current session
-                    write text "cd '$dir' && ${message}claude"
+                    write text "cd '$dir' && claude"
                 end tell
             end tell
         end if
@@ -175,7 +169,7 @@ tell application "iTerm"
         delay 0.5
         tell current window
             tell current session
-                write text "cd '$dir' && ${message}claude"
+                write text "cd '$dir' && claude"
             end tell
         end tell
     end if
@@ -187,9 +181,9 @@ tell application "Terminal"
     if (count of windows) > 0 then
         tell application "System Events" to keystroke "t" using command down
         delay 0.3
-        do script "cd '$dir' && ${message}claude" in front window
+        do script "cd '$dir' && claude" in front window
     else
-        do script "cd '$dir' && ${message}claude"
+        do script "cd '$dir' && claude"
     end if
     activate
 end tell
@@ -287,7 +281,7 @@ cmd_new() {
     fi
 
     echo -e "\n${BLUE}Launching Claude Code...${NC}"
-    launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
+    launch_claude_in_terminal "$WORKTREE_DIR"
     echo -e "${GREEN}✅ Claude Code launched${NC}"
 }
 
@@ -356,7 +350,7 @@ cmd_switch() {
     fi
 
     echo -e "${BLUE}Launching Claude Code for task: $TASK_NAME${NC}"
-    launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
+    launch_claude_in_terminal "$WORKTREE_DIR"
     echo -e "${GREEN}✅ Claude Code launched${NC}"
 }
 
