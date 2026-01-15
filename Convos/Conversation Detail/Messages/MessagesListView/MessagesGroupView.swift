@@ -45,9 +45,10 @@ struct MessagesGroupView: View {
                         .padding(.bottom, DesignConstants.Spacing.stepHalf)
                 }
 
-                let isLastPublished = message == group.messages.last
-                let isLast = message == group.unpublished.last || isLastPublished
+                let lastMessage = group.unpublished.last ?? group.messages.last
+                let isLast = message == lastMessage
                 let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
+                let isLastPublished = message == group.messages.last
                 let showsSentStatus = isLastPublished && group.isLastGroupSentByCurrentUser
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
