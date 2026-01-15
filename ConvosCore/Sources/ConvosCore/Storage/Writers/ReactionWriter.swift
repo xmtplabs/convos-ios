@@ -16,7 +16,7 @@ enum ReactionWriterError: Error {
     case unknownReactionAction
 }
 
-final class ReactionWriter: ReactionWriterProtocol {
+final class ReactionWriter: ReactionWriterProtocol, Sendable {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 
@@ -215,6 +215,11 @@ final class ReactionWriter: ReactionWriterProtocol {
                 Log.info("Optimistically deleted local reaction for message \(messageId)")
             }
             return reaction
+        }
+
+        guard deletedReaction != nil else {
+            Log.info("No local reaction to remove; skipping network call")
+            return
         }
 
         // Now send to network
