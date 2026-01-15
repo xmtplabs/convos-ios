@@ -244,6 +244,19 @@ Six MCP servers are configured in `.mcp.json`:
 - **notion**: Access Notion workspace for documentation and notes
 - **linear**: Access Linear issues, projects, and roadmap for task context
 
+### Worktree DerivedData Isolation
+
+The `/build` command automatically uses `-derivedDataPath .derivedData` to store build artifacts locally in each worktree. This prevents conflicts when multiple worktrees build the same project.
+
+**Why this matters:**
+- Prevents "module not found" errors when building extensions (e.g., NotificationService)
+- Isolates build caches between parallel worktrees
+- Each worktree can build independently without affecting others
+
+**Troubleshooting:**
+- If you get module errors, delete `.derivedData/` and rebuild: `rm -rf .derivedData`
+- The `.derivedData/` folder is gitignored
+
 ### Testing
 
 Use the `./dev/test` script for running tests. **Most tests require Docker** for the local XMTP node:
@@ -397,6 +410,7 @@ convos-task new push-notifications
 - Docker services (e.g., local XMTP node) are shared across worktrees
 - Graphite branches are automatically stacked on current branch unless parent specified
 - Use `ct` as shorthand for `convos-task`
+- **DerivedData isolation**: Each worktree uses `.derivedData/` locally to avoid build conflicts (see XcodeBuildMCP Worktree Configuration)
 
 ### Git and Branch Management with Graphite
 

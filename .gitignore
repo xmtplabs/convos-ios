@@ -116,3 +116,4 @@ iOSInjectionProject/
 
 # Claude Code local files
 .claude/.simulator_id
+.derivedData/

@@ -94,11 +94,11 @@ cmd_new() {
     echo -e "\n${BLUE}Launching Claude Code...${NC}"
 
     if command -v ghostty &> /dev/null; then
-        ghostty --new-tab --working-directory="$WORKTREE_DIR" -e bash -c "echo '🚀 Starting Claude Code for task: $TASK_NAME' && claude" &
+        ghostty --new-tab --working-directory="$WORKTREE_DIR" -e bash -c "echo '🚀 Starting Claude Code for task: $TASK_NAME' && echo '💡 Tip: Configure DerivedData isolation with: session-set-defaults derivedDataPath=.derivedData' && claude" &
     else
         echo -e "${YELLOW}⚠️  Ghostty not found, falling back to Terminal${NC}"
         osascript -e "tell application \"Terminal\"
-            do script \"cd $WORKTREE_DIR && echo '🚀 Starting Claude Code for task: $TASK_NAME' && claude\"
+            do script \"cd $WORKTREE_DIR && echo '🚀 Starting Claude Code for task: $TASK_NAME' && echo '💡 Tip: Configure DerivedData isolation with: session-set-defaults derivedDataPath=.derivedData' && claude\"
             activate
         end tell"
     fi

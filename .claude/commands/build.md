@@ -56,13 +56,16 @@ xcodebuild build \
   -project Convos.xcodeproj \
   -scheme "Convos (Dev)" \
   -destination "platform=iOS Simulator,id=SIMULATOR_ID" \
-  -configuration Dev
+  -configuration Dev \
+  -derivedDataPath .derivedData
 ```
 
 Replace:
 - `SIMULATOR_ID` with the selected simulator UUID
 - `"Convos (Dev)"` with the requested scheme if different
 - `-configuration Dev` with the appropriate config (Dev, Local, Prod)
+
+**Note:** The `-derivedDataPath .derivedData` flag stores build artifacts locally in each worktree, preventing conflicts when multiple worktrees build the same project simultaneously.
 
 ### Step 3: Launch App (for --run mode only)
 
@@ -73,10 +76,11 @@ If `--run` was specified and build succeeded:
    mcp__XcodeBuildMCP__open_sim
    ```
 
-2. Get the app path and bundle ID:
-   ```
-   mcp__XcodeBuildMCP__get_sim_app_path with platform: "iOS Simulator"
-   ```
+2. Get the app path from local DerivedData:
+   - The app bundle is located at `.derivedData/Build/Products/{Configuration}-iphonesimulator/Convos.app`
+   - For Dev scheme: `.derivedData/Build/Products/Dev-iphonesimulator/Convos.app`
+   - For Local scheme: `.derivedData/Build/Products/Local-iphonesimulator/Convos.app`
+   - For Prod scheme: `.derivedData/Build/Products/Prod-iphonesimulator/Convos.app`
 
 3. Install and launch the app with log capture:
    ```
@@ -151,7 +155,8 @@ If the build fails:
 1. Check for Swift compilation errors in the output
 2. Run `swiftlint` to check for lint issues
 3. Verify all dependencies are resolved in Package.resolved
-4. Try cleaning: `xcodebuild clean -scheme "Convos (Dev)" -configuration Dev`
+4. Try cleaning: `xcodebuild clean -scheme "Convos (Dev)" -configuration Dev -derivedDataPath .derivedData`
+5. For persistent module issues, delete `.derivedData` folder entirely: `rm -rf .derivedData`
 
 ## Session Persistence
 
@@ -159,6 +164,13 @@ The `.claude/.simulator_id` file stores the selected simulator for this worktree
 - Each Claude Code session in a worktree uses the same simulator
 - This prevents conflicts when running multiple Claude Code instances
 - The file is gitignored and local to each worktree
+
+## DerivedData Isolation
+
+Build artifacts are stored in `.derivedData/` local to each worktree:
+- Prevents "module not found" errors when multiple worktrees build simultaneously
+- Each worktree has completely isolated build caches
+- The folder is gitignored and can be safely deleted to force a clean build
 
 ## Examples
 
