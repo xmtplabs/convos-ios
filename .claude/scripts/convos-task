@@ -413,6 +413,104 @@ cmd_sync() {
     fi
 }
 
+cmd_prune() {
+    cd "$MAIN_REPO"
+
+    echo -e "${BLUE}Checking for worktrees with merged branches...${NC}\n"
+
+    # Get list of branches merged into main
+    local merged_branches
+    merged_branches=$(git branch --merged main 2>/dev/null | sed 's/^[* ]*//' | grep -v '^main$' || true)
+
+    if [ -z "$merged_branches" ]; then
+        echo -e "${GREEN}No merged branches found.${NC}"
+        return 0
+    fi
+
+    # Find worktrees that correspond to merged branches
+    local worktrees_to_prune=()
+    local branches_to_prune=()
+    local tasks_to_prune=()
+
+    while IFS= read -r line; do
+        case "$line" in
+            worktree\ *)
+                current_worktree="${line#worktree }"
+                ;;
+            branch\ *)
+                current_branch="${line#branch refs/heads/}"
+                # Check if this branch is merged and it's not the main repo
+                if [ "$current_worktree" != "$MAIN_REPO" ] && echo "$merged_branches" | grep -qx "$current_branch"; then
+                    worktrees_to_prune+=("$current_worktree")
+                    branches_to_prune+=("$current_branch")
+                    # Extract task name from worktree path
+                    local task_name="${current_worktree##*$REPO_NAME-}"
+                    tasks_to_prune+=("$task_name")
+                fi
+                ;;
+        esac
+    done < <(git worktree list --porcelain)
+
+    if [ ${#worktrees_to_prune[@]} -eq 0 ]; then
+        echo -e "${GREEN}No worktrees with merged branches found.${NC}"
+        return 0
+    fi
+
+    echo -e "${YELLOW}Found ${#worktrees_to_prune[@]} worktree(s) with merged branches:${NC}\n"
+
+    for i in "${!worktrees_to_prune[@]}"; do
+        local wt="${worktrees_to_prune[$i]}"
+        local br="${branches_to_prune[$i]}"
+        local task="${tasks_to_prune[$i]}"
+        local sim_name
+        sim_name=$(get_simulator_name "$task")
+
+        echo -e "  ${GREEN}$((i+1)).${NC} ${BLUE}$task${NC}"
+        echo -e "     📁 $wt"
+        echo -e "     🌿 $br"
+        if xcrun simctl list devices 2>/dev/null | grep -q "$sim_name"; then
+            echo -e "     📱 $sim_name"
+        fi
+        echo ""
+    done
+
+    read -p "Remove all merged worktrees? (y/N): " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        for i in "${!worktrees_to_prune[@]}"; do
+            local wt="${worktrees_to_prune[$i]}"
+            local br="${branches_to_prune[$i]}"
+            local task="${tasks_to_prune[$i]}"
+
+            echo -e "\n${BLUE}Cleaning up: $task${NC}"
+
+            # Remove worktree
+            echo -e "  Removing worktree..."
+            git worktree remove "$wt" --force 2>/dev/null || {
+                echo -e "  ${YELLOW}⚠️  Could not remove worktree, trying harder...${NC}"
+                rm -rf "$wt"
+                git worktree prune
+            }
+
+            # Delete branch
+            echo -e "  Deleting branch..."
+            if ! gt branch delete "$br" --force 2>/dev/null; then
+                git branch -D "$br" 2>/dev/null || true
+            fi
+
+            # Delete simulator
+            delete_task_simulator "$task"
+
+            echo -e "  ${GREEN}✅ Done${NC}"
+        done
+
+        echo -e "\n${GREEN}✅ Pruned ${#worktrees_to_prune[@]} merged worktree(s)${NC}"
+    else
+        echo -e "${BLUE}Cancelled.${NC}"
+    fi
+}
+
 cmd_cleanup() {
     local TASK_NAME="$1"
 
@@ -477,6 +575,7 @@ ${GREEN}Commands:${NC}
   submit [task-name]        Submit PR via Graphite (gt submit)
   sync [task-name]          Sync with Graphite stack (gt sync)
   cleanup <task-name>       Remove worktree and branch
+  prune                     Remove all worktrees with merged branches
   help                      Show this help
 
 ${GREEN}Examples:${NC}
@@ -485,6 +584,7 @@ ${GREEN}Examples:${NC}
   convos-task list
   convos-task submit push-notifications
   convos-task cleanup push-notifications
+  convos-task prune
 
 ${GREEN}Workflow:${NC}
   1. ${BLUE}convos-task new my-feature${NC}     # Creates worktree + launches Claude
@@ -522,6 +622,9 @@ case "$1" in
         ;;
     cleanup|done|rm)
         cmd_cleanup "$2"
+        ;;
+    prune)
+        cmd_prune
         ;;
     help|--help|-h|"")
         cmd_help
