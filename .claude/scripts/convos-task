@@ -149,44 +149,38 @@ launch_claude_in_terminal() {
 
     # Check if iTerm is available (installed)
     if [ -d "/Applications/iTerm.app" ]; then
-        # Check if iTerm is already running (process name is "iTerm", not "iTerm2")
-        if osascript -e 'tell application "System Events" to (name of processes) contains "iTerm"' 2>/dev/null | grep -q "true"; then
-            osascript <<EOF
+        # Use a single AppleScript that handles both running and not-running cases
+        # Note: The app is "iTerm" but the running process is "iTerm2"
+        osascript <<EOF
 tell application "iTerm"
-    if (count of windows) > 0 then
-        tell current window
-            set newTab to (create tab with default profile)
-            tell newTab
+    if application "iTerm" is running then
+        activate
+        if (count of windows) > 0 then
+            tell current window
+                create tab with default profile
                 tell current session
                     write text "cd '$dir' && ${message}claude"
                 end tell
             end tell
-        end tell
+        else
+            create window with default profile
+            tell current window
+                tell current session
+                    write text "cd '$dir' && ${message}claude"
+                end tell
+            end tell
+        end if
     else
-        create window with default profile
+        activate
+        delay 0.5
         tell current window
             tell current session
                 write text "cd '$dir' && ${message}claude"
             end tell
         end tell
     end if
-    activate
 end tell
 EOF
-        else
-            # iTerm installed but not running - launch it
-            osascript <<EOF
-tell application "iTerm"
-    activate
-    delay 0.5
-    tell current window
-        tell current session
-            write text "cd '$dir' && ${message}claude"
-        end tell
-    end tell
-end tell
-EOF
-        fi
     else
         osascript <<EOF
 tell application "Terminal"
