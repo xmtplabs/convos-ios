@@ -22,17 +22,10 @@ Enable users to react to messages by tapping to display a heart, providing a lig
 
 ### Reacting to a Message
 
-**Option A: Double-tap gesture**
+**Double-tap gesture**
 - User double-taps on a message bubble
 - Heart appears on the message with a subtle animation
 - Heart is persisted and visible to all participants
-
-**Option B: Long-press context menu**
-- User long-presses on a message
-- Context menu appears with heart option
-- Tapping heart adds the reaction
-
-**Recommendation:** Start with double-tap (Option A) as the primary gesture - it's the most intuitive and matches user expectations from Instagram/iMessage.
 
 ### Displaying Reactions
 
@@ -224,7 +217,7 @@ Note: Reactions are sent as regular XMTP messages with `ContentTypeReaction`. Th
 - ~~Handle incoming reaction messages~~ ✅ Already handled in `handleReactionContent()`
 - ~~Fetch reactions with messages~~ ✅ Already in `MessageWithDetails.messageReactions`
 - Update MessageView to display reaction indicator (heart icon)
-- Create `ReactionIndicatorView` component (filled/outlined heart + count)
+- Create `ReactionIndicatorView` component
 
 ### Phase 4: Reactions Drawer
 - Create `ReactionsDrawerView` (SwiftUI sheet)
