@@ -1,24 +1,27 @@
 import ConvosCore
 import SwiftUI
 
-private struct ReactionGroup {
-    let emoji: String
-    let count: Int
-    let senders: [ConversationMember]
-}
-
 struct ReactionIndicatorView: View {
     let reactions: [MessageReaction]
     let isOutgoing: Bool
     let onTap: () -> Void
 
-    private var groupedReactions: [ReactionGroup] {
-        var groups: [String: [ConversationMember]] = [:]
-        for reaction in reactions {
-            groups[reaction.emoji, default: []].append(reaction.sender)
+    private var uniqueEmojis: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for reaction in reactions where !seen.contains(reaction.emoji) {
+            seen.insert(reaction.emoji)
+            result.append(reaction.emoji)
         }
-        return groups.map { ReactionGroup(emoji: $0.key, count: $0.value.count, senders: $0.value) }
-            .sorted { $0.count > $1.count }
+        return result
+    }
+
+    private var totalCount: Int {
+        reactions.count
+    }
+
+    private var currentUserHasReacted: Bool {
+        reactions.contains { $0.sender.isCurrentUser }
     }
 
     var body: some View {
@@ -27,11 +30,11 @@ struct ReactionIndicatorView: View {
         } else {
             let tapAction = { onTap() }
             Button(action: tapAction) {
-                HStack(spacing: DesignConstants.Spacing.stepX) {
-                    ForEach(groupedReactions, id: \.emoji) { group in
-                        ReactionPillView(emoji: group.emoji, count: group.count)
-                    }
-                }
+                ReactionPillView(
+                    emojis: uniqueEmojis,
+                    count: totalCount,
+                    isSelected: currentUserHasReacted
+                )
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
@@ -40,65 +43,74 @@ struct ReactionIndicatorView: View {
 }
 
 private struct ReactionPillView: View {
-    let emoji: String
+    let emojis: [String]
     let count: Int
+    let isSelected: Bool
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.stepHalf) {
-            Text(emoji)
-                .font(.system(size: 14))
+            ForEach(emojis, id: \.self) { emoji in
+                Text(emoji)
+                    .font(.system(size: 16))
+            }
             if count > 1 {
                 Text("\(count)")
-                    .font(.caption)
-                    .fontWeight(.medium)
+                    .font(.system(size: 14))
                     .foregroundStyle(.colorTextSecondary)
             }
         }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
-        .padding(.vertical, DesignConstants.Spacing.stepX)
-        .background(.colorBackgroundSubtle)
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .background(isSelected ? .colorFillMinimal : .clear)
         .clipShape(Capsule())
+        .overlay(
+            Capsule()
+                .stroke(.colorBorderSubtle, lineWidth: isSelected ? 0 : 1)
+        )
     }
 }
 
-#Preview("Single Reaction") {
-    let reaction = MessageReaction.mock(emoji: "❤️")
+#Preview("Not Selected (outline)") {
+    let reactions = [
+        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Alice")),
+        MessageReaction.mock(emoji: "🧠", sender: .mock(isCurrentUser: false, name: "Bob")),
+        MessageReaction.mock(emoji: "😜", sender: .mock(isCurrentUser: false, name: "Charlie")),
+    ]
 
-    VStack(spacing: 20) {
-        ReactionIndicatorView(
-            reactions: [reaction],
-            isOutgoing: false,
-            onTap: {}
-        )
-
-        ReactionIndicatorView(
-            reactions: [reaction],
-            isOutgoing: true,
-            onTap: {}
-        )
-    }
+    ReactionIndicatorView(
+        reactions: reactions,
+        isOutgoing: false,
+        onTap: {}
+    )
     .padding()
 }
 
-#Preview("Multiple Reactions") {
+#Preview("Selected (filled)") {
+    let reactions = [
+        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: true)),
+        MessageReaction.mock(emoji: "🧠", sender: .mock(isCurrentUser: false, name: "Bob")),
+        MessageReaction.mock(emoji: "😜", sender: .mock(isCurrentUser: false, name: "Charlie")),
+    ]
+
+    ReactionIndicatorView(
+        reactions: reactions,
+        isOutgoing: false,
+        onTap: {}
+    )
+    .padding()
+}
+
+#Preview("Mixed - Some Selected") {
     let reactions = [
         MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Alice")),
         MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Bob")),
         MessageReaction.mock(emoji: "😂", sender: .mock(isCurrentUser: true)),
     ]
 
-    VStack(spacing: 20) {
-        ReactionIndicatorView(
-            reactions: reactions,
-            isOutgoing: false,
-            onTap: {}
-        )
-
-        ReactionIndicatorView(
-            reactions: reactions,
-            isOutgoing: true,
-            onTap: {}
-        )
-    }
+    ReactionIndicatorView(
+        reactions: reactions,
+        isOutgoing: false,
+        onTap: {}
+    )
     .padding()
 }

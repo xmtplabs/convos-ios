@@ -30,8 +30,10 @@ Enable users to react to messages by tapping to display a heart, providing a lig
 ### Displaying Reactions
 
 - Heart appears at the bottom-right corner of the message bubble
-- If the current user reacted, heart is filled (❤️)
-- For group chats: show a single heart with count if multiple people reacted (e.g., ❤️ 3)
+- Reactions appear within a container shape that is:
+  - outline only if you've not reacted
+  - filled if you have reacted
+- Show a single heart with count if multiple people reacted (e.g., ❤️ 3)
 - Tapping the heart indicator opens the **Reactions Drawer**
 
 ### Reactions Drawer (Sheet)
