@@ -5,10 +5,11 @@ public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setUnread(_ isUnread: Bool, for conversationId: String) async throws
     func setPinned(_ isPinned: Bool, for conversationId: String) async throws
     func setMuted(_ isMuted: Bool, for conversationId: String) async throws
-    func getPinnedCount() async throws -> Int
 }
 
 final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, @unchecked Sendable {
+    static let maxPinnedConversations: Int = 9
+
     private let databaseWriter: any DatabaseWriter
 
     init(databaseWriter: any DatabaseWriter) {
@@ -27,6 +28,16 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                 throw ConversationLocalStateWriterError.conversationNotFound
             }
 
+            if isPinned {
+                let currentPinnedCount = try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.isPinned == true)
+                    .fetchCount(db)
+
+                guard currentPinnedCount < Self.maxPinnedConversations else {
+                    throw ConversationLocalStateWriterError.pinLimitReached
+                }
+            }
+
             let current = try ConversationLocalState
                 .filter(ConversationLocalState.Columns.conversationId == conversationId)
                 .fetchOne(db)
@@ -39,29 +50,21 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     pinnedOrder: nil
                 )
 
-            let pinnedOrder: Int?
-            if isPinned {
-                let maxOrder = try ConversationLocalState
-                    .filter(ConversationLocalState.Columns.isPinned == true)
-                    .select(max(ConversationLocalState.Columns.pinnedOrder))
-                    .fetchOne(db) ?? 0
-                pinnedOrder = maxOrder + 1
+            let pinnedOrder: Int? = if isPinned {
+                (try Int.fetchOne(
+                    db,
+                    ConversationLocalState
+                        .filter(ConversationLocalState.Columns.isPinned == true)
+                        .select(max(ConversationLocalState.Columns.pinnedOrder))
+                ) ?? 0) + 1
             } else {
-                pinnedOrder = nil
+                nil
             }
 
             let updated = current
                 .with(isPinned: isPinned)
                 .with(pinnedOrder: pinnedOrder)
             try updated.save(db)
-        }
-    }
-
-    func getPinnedCount() async throws -> Int {
-        try await databaseWriter.read { db in
-            try ConversationLocalState
-                .filter(ConversationLocalState.Columns.isPinned == true)
-                .fetchCount(db)
         }
     }
 
@@ -97,6 +100,7 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
     }
 }
 
-enum ConversationLocalStateWriterError: Error {
+public enum ConversationLocalStateWriterError: Error {
     case conversationNotFound
+    case pinLimitReached
 }

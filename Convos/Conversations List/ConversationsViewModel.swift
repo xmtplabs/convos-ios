@@ -115,8 +115,6 @@ final class ConversationsViewModel {
     var presentingExplodeInfo: Bool = false
     var presentingPinLimitInfo: Bool = false
 
-    static let maxPinnedConversations: Int = 9
-
     var conversations: [Conversation] = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -169,6 +167,8 @@ final class ConversationsViewModel {
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     private var localStateWriters: [String: any ConversationLocalStateWriterProtocol] = [:]
+    @ObservationIgnored
+    private var pendingWriterCreations: [String: Task<any ConversationLocalStateWriterProtocol, Error>] = [:]
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
@@ -283,10 +283,9 @@ final class ConversationsViewModel {
     func deleteAllData() {
         selectedConversation = nil
         appSettingsViewModel.deleteAllData { [weak self] in
-            // Clear all cached writers
-            DispatchQueue.main.async {
-                self?.localStateWriters.removeAll()
-            }
+            self?.localStateWriters.removeAll()
+            self?.pendingWriterCreations.values.forEach { $0.cancel() }
+            self?.pendingWriterCreations.removeAll()
         }
     }
 
@@ -304,8 +303,9 @@ final class ConversationsViewModel {
             do {
                 try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
 
-                // Remove cached writer for deleted inbox
-                _ = await MainActor.run { self.localStateWriters.removeValue(forKey: conversation.inboxId) }
+                localStateWriters.removeValue(forKey: conversation.inboxId)
+                pendingWriterCreations[conversation.inboxId]?.cancel()
+                pendingWriterCreations.removeValue(forKey: conversation.inboxId)
             } catch {
                 Log.error("Error leaving convo: \(error.localizedDescription)")
             }
@@ -467,18 +467,11 @@ final class ConversationsViewModel {
                     inboxId: inboxId
                 )
                 let writer = messagingService.conversationLocalStateWriter()
-
-                if !currentlyPinned {
-                    let pinnedCount = try await writer.getPinnedCount()
-                    guard pinnedCount < Self.maxPinnedConversations else {
-                        await MainActor.run {
-                            self.presentingPinLimitInfo = true
-                        }
-                        return
-                    }
-                }
-
                 try await writer.setPinned(!currentlyPinned, for: conversationId)
+            } catch ConversationLocalStateWriterError.pinLimitReached {
+                await MainActor.run {
+                    self.presentingPinLimitInfo = true
+                }
             } catch {
                 Log.error("Failed toggling pin for conversation \(conversationId): \(error.localizedDescription)")
             }
@@ -489,41 +482,44 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                // Get or create the local state writer for this inbox
-                // Wrap dictionary access in MainActor.run to prevent race conditions
-                let localStateWriter: (any ConversationLocalStateWriterProtocol)? = await MainActor.run {
-                    if let existingWriter = self.localStateWriters[conversation.inboxId] {
-                        return existingWriter
-                    }
-                    return nil
-                }
-
-                let writer: any ConversationLocalStateWriterProtocol
-                if let localStateWriter {
-                    writer = localStateWriter
-                } else {
-                    // Create new writer outside of MainActor context
-                    let messagingService = try await session.messagingService(
-                        for: conversation.clientId,
-                        inboxId: conversation.inboxId
-                    )
-                    let newWriter = messagingService.conversationLocalStateWriter()
-
-                    // Store it atomically on MainActor
-                    await MainActor.run {
-                        // Check again in case another task created it while we were waiting
-                        if self.localStateWriters[conversation.inboxId] == nil {
-                            self.localStateWriters[conversation.inboxId] = newWriter
-                        }
-                    }
-
-                    writer = newWriter
-                }
-
+                let writer = try await getOrCreateWriter(for: conversation)
                 try await writer.setUnread(false, for: conversation.id)
             } catch {
                 Log.warning("Failed marking conversation as read: \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func getOrCreateWriter(for conversation: Conversation) async throws -> any ConversationLocalStateWriterProtocol {
+        let inboxId = conversation.inboxId
+        let clientId = conversation.clientId
+
+        if let existingWriter = localStateWriters[inboxId] {
+            return existingWriter
+        }
+
+        if let pendingTask = pendingWriterCreations[inboxId] {
+            return try await pendingTask.value
+        }
+
+        let creationTask = Task<any ConversationLocalStateWriterProtocol, Error> {
+            let messagingService = try await self.session.messagingService(
+                for: clientId,
+                inboxId: inboxId
+            )
+            return messagingService.conversationLocalStateWriter()
+        }
+
+        pendingWriterCreations[inboxId] = creationTask
+
+        do {
+            let newWriter = try await creationTask.value
+            localStateWriters[inboxId] = newWriter
+            pendingWriterCreations.removeValue(forKey: inboxId)
+            return newWriter
+        } catch {
+            pendingWriterCreations.removeValue(forKey: inboxId)
+            throw error
         }
     }
 }

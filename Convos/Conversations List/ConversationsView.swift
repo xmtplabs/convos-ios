@@ -23,25 +23,18 @@ struct ConversationsView: View {
         return -scrollOffset
     }
 
-    private var pinnedSectionScale: CGFloat {
-        guard pinnedSectionHeight > 0 else { return 1.0 }
-        // Animation based on how much the section has moved from visible position
-        // offset = 0 at rest, becomes negative as it moves up
-        // Complete animation when over the height
+    private var pinnedSectionProgress: CGFloat {
+        guard pinnedSectionHeight > 0 else { return 0 }
         let progress = min(max(-pinnedSectionOffset / pinnedSectionHeight, 0), 1)
-        // Use easing function for smoother transition
-        let easedProgress = progress * progress // quadratic easing
-        return 1.0 - (easedProgress * 0.15)
+        return progress * progress
+    }
+
+    private var pinnedSectionScale: CGFloat {
+        1.0 - (pinnedSectionProgress * 0.15)
     }
 
     private var pinnedSectionOpacity: Double {
-        guard pinnedSectionHeight > 0 else { return 1.0 }
-        // Animation based on how much the section has moved from visible position
-        // Complete animation when over the height
-        let progress = min(max(-pinnedSectionOffset / pinnedSectionHeight, 0), 1)
-        // Use easing function for smoother transition
-        let easedProgress = progress * progress // quadratic easing
-        return 1.0 - (easedProgress * 0.5)
+        1.0 - (pinnedSectionProgress * 0.5)
     }
 
     var focusCoordinator: FocusCoordinator {
@@ -72,9 +65,13 @@ struct ConversationsView: View {
             }
 
             ForEach(viewModel.unpinnedConversations, id: \.id) { conversation in
-                if viewModel.unpinnedConversations.first == conversation,
-                   viewModel.unpinnedConversations.count == 1 && !viewModel.hasCreatedMoreThanOneConvo &&
-                    horizontalSizeClass == .compact {
+                let isFirstAndOnly = viewModel.unpinnedConversations.first == conversation &&
+                                     viewModel.unpinnedConversations.count == 1
+                let shouldShowEmptyCTA = isFirstAndOnly &&
+                                         !viewModel.hasCreatedMoreThanOneConvo &&
+                                         horizontalSizeClass == .compact
+
+                if shouldShowEmptyCTA {
                     emptyConversationsView
                         .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                         .listRowSeparator(.hidden)
@@ -97,36 +94,11 @@ struct ConversationsView: View {
     func conversationListItem(_ conversation: Conversation) -> some View {
         ConversationsListItem(conversation: conversation)
             .contextMenu {
-                let togglePinAction = { viewModel.togglePin(conversation: conversation) }
-                Button(action: togglePinAction) {
-                    Label(
-                        conversation.isPinned ? "Unpin" : "Pin",
-                        systemImage: conversation.isPinned ? "pin.slash.fill" : "pin.fill"
-                    )
-                }
-
-                let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
-                Button(action: toggleReadAction) {
-                    Label(
-                        conversation.isUnread ? "Mark as Read" : "Mark as Unread",
-                        systemImage: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill"
-                    )
-                }
-
-                let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
-                Button(action: toggleMuteAction) {
-                    Label(
-                        conversation.isMuted ? "Unmute" : "Mute",
-                        systemImage: conversation.isMuted ? "bell.fill" : "bell.slash.fill"
-                    )
-                }
-
-                Divider()
-
-                let deleteAction = { conversationPendingDeletion = conversation }
-                Button(role: .destructive, action: deleteAction) {
-                    Label("Delete", systemImage: "trash")
-                }
+                conversationContextMenuContent(
+                    conversation: conversation,
+                    viewModel: viewModel,
+                    onDelete: { conversationPendingDeletion = conversation }
+                )
             }
             .swipeActions(edge: .leading, allowsFullSwipe: false) {
                 let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
@@ -212,7 +184,11 @@ struct ConversationsView: View {
                         )
                         .onGeometryChange(for: CGFloat.self) { geometry in
                             geometry.size.height
-                        } action: { _, newHeight in
+                        } action: { oldHeight, newHeight in
+                            guard oldHeight != 0 else {
+                                pinnedSectionHeight = newHeight
+                                return
+                            }
                             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
                                 pinnedSectionHeight = newHeight
                             }

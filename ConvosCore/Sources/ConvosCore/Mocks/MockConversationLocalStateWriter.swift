@@ -19,8 +19,4 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
     public func setMuted(_ isMuted: Bool, for conversationId: String) async throws {
         mutedStates[conversationId] = isMuted
     }
-
-    public func getPinnedCount() async throws -> Int {
-        pinnedStates.values.filter { $0 }.count
-    }
 }

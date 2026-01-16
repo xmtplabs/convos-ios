@@ -11,52 +11,26 @@ struct PinnedConversationsSection: View {
         pinnedConversations.count >= 3
     }
 
+    private var conversationRows: [[Conversation]] {
+        stride(from: 0, to: pinnedConversations.count, by: 3).map { index in
+            let endIndex = min(index + 3, pinnedConversations.count)
+            return Array(pinnedConversations[index..<endIndex])
+        }
+    }
+
     @ViewBuilder
     private func conversationItem(_ conversation: Conversation) -> some View {
+        let selectAction = { onSelectConversation(conversation) }
+
         PinnedConversationItem(conversation: conversation)
-            .id(conversation.id)
-            .contentShape(.interaction, RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
-            .simultaneousGesture(
-                TapGesture()
-                    .onEnded { _ in
-                        onSelectConversation(conversation)
-                    }
-            )
+            .contentShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
+            .onTapGesture(perform: selectAction)
             .contextMenu {
-                Button {
-                    viewModel.togglePin(conversation: conversation)
-                } label: {
-                    Label(
-                        conversation.isPinned ? "Unpin" : "Pin",
-                        systemImage: conversation.isPinned ? "pin.slash.fill" : "pin.fill"
-                    )
-                }
-
-                Button {
-                    viewModel.toggleReadState(conversation: conversation)
-                } label: {
-                    Label(
-                        conversation.isUnread ? "Mark as Read" : "Mark as Unread",
-                        systemImage: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill"
-                    )
-                }
-
-                Button {
-                    viewModel.toggleMute(conversation: conversation)
-                } label: {
-                    Label(
-                        conversation.isMuted ? "Unmute" : "Mute",
-                        systemImage: conversation.isMuted ? "bell.fill" : "bell.slash.fill"
-                    )
-                }
-
-                Divider()
-
-                Button(role: .destructive) {
-                    conversationPendingDeletion = conversation
-                } label: {
-                    Label("Delete", systemImage: "trash")
-                }
+                conversationContextMenuContent(
+                    conversation: conversation,
+                    viewModel: viewModel,
+                    onDelete: { conversationPendingDeletion = conversation }
+                )
             }
             .confirmationDialog(
                 "This convo will be deleted immediately.",
@@ -74,14 +48,18 @@ struct PinnedConversationsSection: View {
                     conversationPendingDeletion = nil
                 }
             }
+            .id(conversation.id)
     }
 
     var body: some View {
-        if shouldUseGrid {
-            gridLayout
-        } else {
-            horizontalLayout
+        Group {
+            if shouldUseGrid {
+                gridLayout
+            } else {
+                horizontalLayout
+            }
         }
+        .animation(.spring(response: 0.4, dampingFraction: 0.8), value: shouldUseGrid)
     }
 
     private var horizontalLayout: some View {
@@ -95,10 +73,10 @@ struct PinnedConversationsSection: View {
 
     private var gridLayout: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            ForEach(Array(stride(from: 0, to: pinnedConversations.count, by: 3)), id: \.self) { rowIndex in
+            ForEach(Array(conversationRows.enumerated()), id: \.offset) { _, row in
                 HStack(spacing: DesignConstants.Spacing.step4x) {
-                    ForEach(pinnedConversations.indices.filter { $0 >= rowIndex && $0 < rowIndex + 3 }, id: \.self) { index in
-                        conversationItem(pinnedConversations[index])
+                    ForEach(row) { conversation in
+                        conversationItem(conversation)
                     }
                 }
             }
