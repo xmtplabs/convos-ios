@@ -176,6 +176,13 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addEncryptedAvatarColumns") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "avatarSalt", .blob)
+                t.add(column: "avatarNonce", .blob)
+            }
+        }
+
         return migrator
     }
 }

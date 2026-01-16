@@ -58,6 +58,8 @@ struct SessionManagerTests {
                 name: "Test Conversation",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty
             ).insert(db)
@@ -117,6 +119,8 @@ struct SessionManagerTests {
                 name: "Test",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty
             ).insert(db)
@@ -150,6 +154,8 @@ struct SessionManagerTests {
                 name: "Test",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty
             ).insert(db)
@@ -191,6 +197,8 @@ struct SessionManagerTests {
                 name: "Conversation 1",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty
             ).insert(db)
@@ -210,6 +218,8 @@ struct SessionManagerTests {
                 name: "Conversation 2",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty
             ).insert(db)
@@ -255,6 +265,8 @@ struct SessionManagerTests {
                 name: "Conversation 1",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty
             ).insert(db)
@@ -274,6 +286,8 @@ struct SessionManagerTests {
                 name: "Conversation 2",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty
             ).insert(db)

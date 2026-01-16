@@ -96,11 +96,12 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
     ) async throws {
         let date = Date()
         let clientMessageId = UUID().uuidString
+        let inboxId = client.inboxId
 
         let existingReaction = try await databaseWriter.read { db in
             try DBMessage
                 .filter(DBMessage.Columns.sourceMessageId == messageId)
-                .filter(DBMessage.Columns.senderId == client.inboxId)
+                .filter(DBMessage.Columns.senderId == inboxId)
                 .filter(DBMessage.Columns.emoji == emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
                 .fetchOne(db)
@@ -117,7 +118,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
                 id: clientMessageId,
                 clientMessageId: clientMessageId,
                 conversationId: conversationId,
-                senderId: client.inboxId,
+                senderId: inboxId,
                 dateNs: date.nanosecondsSince1970,
                 date: date,
                 status: .unpublished,
@@ -201,11 +202,13 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         in conversationId: String,
         client: any XMTPClientProvider
     ) async throws {
+        let inboxId = client.inboxId
+
         // For removal, delete locally FIRST for optimistic UI
         let deletedReaction = try await databaseWriter.write { db -> DBMessage? in
             let reaction = try DBMessage
                 .filter(DBMessage.Columns.sourceMessageId == messageId)
-                .filter(DBMessage.Columns.senderId == client.inboxId)
+                .filter(DBMessage.Columns.senderId == inboxId)
                 .filter(DBMessage.Columns.emoji == emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
                 .fetchOne(db)

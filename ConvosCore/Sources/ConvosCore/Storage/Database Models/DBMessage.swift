@@ -3,11 +3,11 @@ import GRDB
 
 // MARK: - DBMessage
 
-struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable {
+struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendable {
     static let databaseTableName: String = "message"
 
-    struct Update: Codable, Hashable {
-        struct MetadataChange: Codable, Hashable {
+    struct Update: Codable, Hashable, Sendable {
+        struct MetadataChange: Codable, Hashable, Sendable {
             let field: String
             let oldValue: String?
             let newValue: String?
