@@ -68,12 +68,8 @@ class ConversationViewModel {
 
     // Editing state flags
     var isEditingDisplayName: Bool {
-        get {
-            myProfileViewModel.isEditingDisplayName
-        }
-        set {
-            myProfileViewModel.isEditingDisplayName = newValue
-        }
+        get { myProfileViewModel.isEditingDisplayName }
+        set { myProfileViewModel.isEditingDisplayName = newValue }
     }
     var isEditingConversationName: Bool = false
     var isEditingDescription: Bool = false
@@ -121,6 +117,10 @@ class ConversationViewModel {
 
     var isLocked: Bool {
         conversation.isLocked
+    }
+
+    var isFull: Bool {
+        conversation.isFull
     }
 
     var currentUserMember: ConversationMember? {

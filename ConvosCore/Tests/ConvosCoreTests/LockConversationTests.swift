@@ -184,6 +184,8 @@ struct LockConversationTests {
                 name: "Test Group",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
                 isLocked: false
@@ -274,6 +276,8 @@ struct LockConversationTests {
                 name: "Test Group",
                 description: nil,
                 imageURLString: nil,
+                publicImageURLString: nil,
+                includeImageInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
                 isLocked: true

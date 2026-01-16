@@ -31,6 +31,8 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
 }
 
 public extension Conversation {
+    static let maxMembers: Int = 150
+
     var isForked: Bool {
         debugInfo.commitLogForkStatus == .forked
     }
@@ -75,5 +77,12 @@ public extension Conversation {
 
     var xmtpGroupTopic: String {
         id.xmtpGroupTopicFormat
+    }
+
+    /// A conversation is considered full when it has reached the XMTP group limit.
+    /// When full, new invites cannot be shared. Note: members can still leave, which
+    /// would make space available again.
+    var isFull: Bool {
+        members.count >= Self.maxMembers
     }
 }

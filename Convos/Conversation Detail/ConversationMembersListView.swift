@@ -14,13 +14,8 @@ struct ConversationMembersListView: View {
                         ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
                             .frame(width: DesignConstants.ImageSizes.mediumAvatar, height: DesignConstants.ImageSizes.mediumAvatar)
 
-                        VStack(alignment: .leading) {
-                            Text(member.profile.displayName)
-                                .font(.body)
-                            Text("Role: \(member.role.rawValue), isCurrentUser: \(member.isCurrentUser)")
-                                .font(.caption2)
-                                .foregroundStyle(.colorTextSecondary)
-                        }
+                        Text(member.profile.displayName)
+                            .font(.body)
                     }
                 }
             }

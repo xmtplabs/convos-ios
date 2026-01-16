@@ -20,7 +20,7 @@ struct MessagesListView: View {
             ScrollView {
                 LazyVStack(spacing: 0.0) {
                     // Show invite or conversation info at the top
-                    if conversation.creator.isCurrentUser && !conversation.isLocked {
+                    if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                         InviteView(invite: invite)
                             .id("invite")
                     } else {

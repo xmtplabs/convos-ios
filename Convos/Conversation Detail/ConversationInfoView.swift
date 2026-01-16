@@ -70,6 +70,7 @@ struct ConversationInfoView: View {
     @State private var presentingEditView: Bool = false
     @State private var showingLockConfirmation: Bool = false
     @State private var showingLockedInfo: Bool = false
+    @State private var showingFullInfo: Bool = false
     @State private var exportedLogsURL: URL?
 
     private let maxMembersToShow: Int = 6
@@ -83,27 +84,36 @@ struct ConversationInfoView: View {
 
     @ViewBuilder
     private var convoCodeRow: some View {
-        let subtitle = if viewModel.isLocked {
+        let isUnavailable = viewModel.isLocked || viewModel.isFull
+        let subtitle = if isUnavailable {
             "None"
         } else {
             "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
         }
 
-        FeatureRowItem(
-            imageName: nil,
-            symbolName: "qrcode",
-            title: "Convo code",
-            subtitle: subtitle,
-            iconBackgroundColor: .colorFillMinimal,
-            iconForegroundColor: .colorTextPrimary
-        ) {
-            if !viewModel.isLocked, let inviteURL = viewModel.invite.inviteURL {
-                ShareLink(item: inviteURL) {
-                    Image(systemName: "square.and.arrow.up")
-                        .foregroundStyle(.colorTextSecondary)
+        Button {
+            if viewModel.isFull {
+                showingFullInfo = true
+            }
+        } label: {
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "qrcode",
+                title: "Convo code",
+                subtitle: subtitle,
+                iconBackgroundColor: .colorFillMinimal,
+                iconForegroundColor: viewModel.isFull ? .colorTextSecondary : .colorTextPrimary
+            ) {
+                if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
+                    ShareLink(item: inviteURL) {
+                        Image(systemName: "square.and.arrow.up")
+                            .foregroundStyle(.colorTextSecondary)
+                    }
                 }
             }
         }
+        .buttonStyle(.plain)
+        .disabled(viewModel.isLocked)
     }
 
     @ViewBuilder
@@ -189,8 +199,14 @@ struct ConversationInfoView: View {
                     NavigationLink {
                         ConversationMembersListView(viewModel: viewModel)
                     } label: {
-                        Text(viewModel.conversation.membersCountString)
-                            .foregroundStyle(.colorTextPrimary)
+                        HStack {
+                            Text(viewModel.conversation.membersCountString)
+                                .foregroundStyle(.colorTextPrimary)
+                            Spacer()
+                            Text(viewModel.isFull ? "Full" : "\(Conversation.maxMembers) max")
+                                .font(.footnote)
+                                .foregroundStyle(.colorTextSecondary)
+                        }
                     }
                 }
 
@@ -402,6 +418,12 @@ struct ConversationInfoView: View {
                         showingLockedInfo = false
                     }
                 )
+                .background(.colorBackgroundRaised)
+            }
+            .selfSizingSheet(isPresented: $showingFullInfo) {
+                FullConvoInfoView(onDismiss: {
+                    showingFullInfo = false
+                })
                 .background(.colorBackgroundRaised)
             }
         }

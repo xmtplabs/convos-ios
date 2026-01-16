@@ -15,6 +15,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
     @State private var presentingShareView: Bool = false
     @State private var showingLockedInfo: Bool = false
+    @State private var showingFullInfo: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -114,10 +115,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     switch messagesTopBarTrailingItem {
                     case .share:
                         Button {
-                            presentingShareView = true
+                            if viewModel.isFull {
+                                showingFullInfo = true
+                            } else {
+                                presentingShareView = true
+                            }
                         } label: {
                             Image(systemName: "square.and.arrow.up")
-                                .foregroundStyle(.colorTextPrimary)
+                                .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
                         }
                         .fullScreenCover(isPresented: $presentingShareView) {
                             ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
@@ -176,6 +181,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     showingLockedInfo = false
                 }
             )
+            .background(.colorBackgroundRaised)
+        }
+        .selfSizingSheet(isPresented: $showingFullInfo) {
+            FullConvoInfoView(onDismiss: {
+                showingFullInfo = false
+            })
             .background(.colorBackgroundRaised)
         }
     }

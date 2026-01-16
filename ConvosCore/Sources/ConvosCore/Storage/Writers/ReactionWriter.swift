@@ -220,7 +220,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
             return reaction
         }
 
-        guard deletedReaction != nil else {
+        guard let deletedReaction else {
             Log.info("No local reaction to remove; skipping network call")
             return
         }
@@ -255,11 +255,9 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         } catch {
             // Restore the reaction if network failed
             Log.error("Failed sending remove reaction: \(error.localizedDescription)")
-            if let deletedReaction {
-                try await databaseWriter.write { db in
-                    try deletedReaction.save(db)
-                    Log.info("Restored local reaction after failed removal")
-                }
+            try await databaseWriter.write { db in
+                try deletedReaction.save(db)
+                Log.info("Restored local reaction after failed removal")
             }
             throw error
         }

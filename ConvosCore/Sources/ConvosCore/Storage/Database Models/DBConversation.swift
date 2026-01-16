@@ -350,7 +350,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -371,7 +372,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -411,6 +413,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -431,6 +435,8 @@ extension DBConversation {
             name: name,
             description: description,
             imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
