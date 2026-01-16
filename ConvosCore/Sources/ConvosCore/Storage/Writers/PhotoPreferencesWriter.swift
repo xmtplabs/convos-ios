@@ -27,7 +27,7 @@ public final class PhotoPreferencesWriter: PhotoPreferencesWriterProtocol, Senda
 
     private func updatePreferences(
         for conversationId: String,
-        _ update: @escaping (DBPhotoPreferences) -> DBPhotoPreferences
+        _ update: @escaping @Sendable (DBPhotoPreferences) -> DBPhotoPreferences
     ) async throws {
         try await databaseWriter.write { db in
             guard try DBConversation.fetchOne(db, key: conversationId) != nil else {

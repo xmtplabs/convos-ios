@@ -123,7 +123,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
 #if canImport(UIKit)
 public final class MockOutgoingPhotoMessageWriter: OutgoingPhotoMessageWriterProtocol, @unchecked Sendable {
-    private let sentMessageSubject = PassthroughSubject<String, Never>()
+    private let sentMessageSubject: PassthroughSubject<String, Never> = PassthroughSubject<String, Never>()
 
     public var sentMessage: AnyPublisher<String, Never> {
         sentMessageSubject.eraseToAnyPublisher()

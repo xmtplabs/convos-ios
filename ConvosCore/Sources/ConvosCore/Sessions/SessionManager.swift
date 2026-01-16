@@ -275,6 +275,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         PhotoPreferencesWriter(databaseWriter: databaseWriter)
     }
 
+    public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
+        AttachmentLocalStateWriter(databaseWriter: databaseWriter)
+    }
+
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
         ConversationsRepository(dbReader: databaseReader, consent: consent)
     }

@@ -37,6 +37,19 @@ final class MessagesListProcessor {
 
     // MARK: - Private Methods
 
+    private static func flushGroup(
+        _ group: [AnyMessage],
+        senderId: String,
+        items: inout [MessagesListItemType],
+        lastCurrentUserIndex: inout Int?
+    ) {
+        let newGroup = createMessageGroup(messages: group, senderId: senderId, isLastGroup: false, isLastGroupSentByCurrentUser: false)
+        items.append(newGroup)
+        if case .messages(let messagesGroup) = newGroup, messagesGroup.sender.isCurrentUser {
+            lastCurrentUserIndex = items.count - 1
+        }
+    }
+
     // swiftlint:disable:next cyclomatic_complexity
     private static func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
@@ -48,131 +61,54 @@ final class MessagesListProcessor {
         var lastMessageGroupSentByCurrentUserIndex: Int?
 
         for (index, message) in messages.enumerated() {
-            // Check if this is an update message
             if case .update(let update) = message.base.content {
-                // Flush current group if exists
                 if !currentGroup.isEmpty, let senderId = currentSenderId {
-                    let group = createMessageGroup(
-                        messages: currentGroup,
-                        senderId: senderId,
-                        isLastGroup: false,
-                        isLastGroupSentByCurrentUser: false
-                    )
-                    items.append(group)
-
-                    // Track if this was sent by current user
-                    if case .messages(let messagesGroup) = group, messagesGroup.sender.isCurrentUser {
-                        lastMessageGroupSentByCurrentUserIndex = items.count - 1
-                    }
-
+                    flushGroup(currentGroup, senderId: senderId, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
                     currentGroup = []
                     currentSenderId = nil
                 }
-
-                // Add the update item with the message's origin
                 items.append(.update(id: message.base.id, update: update, origin: message.origin))
                 lastMessageDate = message.base.date
                 continue
             }
 
-            // Check if we need a date separator
             var addedDateSeparator = false
             if let lastDate = lastMessageDate {
                 let timeDifference = message.base.date.timeIntervalSince(lastDate)
                 if timeDifference > hourInSeconds {
-                    // Flush current group before adding date separator
                     if !currentGroup.isEmpty, let senderId = currentSenderId {
-                        let group = createMessageGroup(
-                            messages: currentGroup,
-                            senderId: senderId,
-                            isLastGroup: false,
-                            isLastGroupSentByCurrentUser: false
-                        )
-                        items.append(group)
-
-                        // Track if this was sent by current user
-                        if case .messages(let messagesGroup) = group, messagesGroup.sender.isCurrentUser {
-                            lastMessageGroupSentByCurrentUserIndex = items.count - 1
-                        }
-
+                        flushGroup(currentGroup, senderId: senderId, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
                         currentGroup = []
                         currentSenderId = nil
                     }
-
                     items.append(.date(DateGroup(date: message.base.date)))
                     addedDateSeparator = true
                 }
             } else if index == 0 {
-                // Add date for the first message
                 items.append(.date(DateGroup(date: message.base.date)))
                 addedDateSeparator = true
             }
 
-            // Check if this is an attachment message - attachments always get their own group
             let isAttachment = message.base.content.isAttachment
 
-            // Group messages by sender
-            // If we added a date separator, always start a new group
-            // Otherwise, only start a new group if the sender changed or this is an attachment
             if addedDateSeparator {
-                // Always start a new group after a date separator
                 currentGroup = [message]
                 currentSenderId = message.base.sender.id
             } else if isAttachment {
-                // Attachments always get their own group - flush current group first
                 if !currentGroup.isEmpty, let currentId = currentSenderId {
-                    let group = createMessageGroup(
-                        messages: currentGroup,
-                        senderId: currentId,
-                        isLastGroup: false,
-                        isLastGroupSentByCurrentUser: false
-                    )
-                    items.append(group)
-
-                    if case .messages(let messagesGroup) = group, messagesGroup.sender.isCurrentUser {
-                        lastMessageGroupSentByCurrentUserIndex = items.count - 1
-                    }
+                    flushGroup(currentGroup, senderId: currentId, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
                 }
-
-                // Add attachment as its own group
-                let attachmentGroup = createMessageGroup(
-                    messages: [message],
-                    senderId: message.base.sender.id,
-                    isLastGroup: false,
-                    isLastGroupSentByCurrentUser: false
-                )
-                items.append(attachmentGroup)
-
-                if case .messages(let messagesGroup) = attachmentGroup, messagesGroup.sender.isCurrentUser {
-                    lastMessageGroupSentByCurrentUserIndex = items.count - 1
-                }
-
-                // Reset group state
+                flushGroup([message], senderId: message.base.sender.id, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
                 currentGroup = []
                 currentSenderId = nil
             } else if let currentId = currentSenderId, currentId != message.base.sender.id {
-                // Sender changed, flush the current group
-                let group = createMessageGroup(
-                    messages: currentGroup,
-                    senderId: currentId,
-                    isLastGroup: false,
-                    isLastGroupSentByCurrentUser: false
-                )
-                items.append(group)
-
-                // Track if this was sent by current user
-                if case .messages(let messagesGroup) = group, messagesGroup.sender.isCurrentUser {
-                    lastMessageGroupSentByCurrentUserIndex = items.count - 1
-                }
-
+                flushGroup(currentGroup, senderId: currentId, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
                 currentGroup = [message]
                 currentSenderId = message.base.sender.id
             } else if !currentGroup.isEmpty && currentGroup.last?.base.content.isAttachment == true {
-                // Previous message was an attachment, start a new group
                 currentGroup = [message]
                 currentSenderId = message.base.sender.id
             } else {
-                // Same sender and no date separator, continue the group
                 currentGroup.append(message)
                 currentSenderId = message.base.sender.id
             }
@@ -180,49 +116,24 @@ final class MessagesListProcessor {
             lastMessageDate = message.base.date
         }
 
-        // Flush the last group - we know this is the last message group
         if !currentGroup.isEmpty, let senderId = currentSenderId {
             guard let firstMessage = currentGroup.first else {
                 fatalError("Cannot create message group with empty messages array")
             }
-
             let isCurrentUser = firstMessage.base.sender.isCurrentUser
-            let isLastGroupByCurrentUser = isCurrentUser
-
-            items.append(createMessageGroup(
-                messages: currentGroup,
-                senderId: senderId,
-                isLastGroup: true,
-                isLastGroupSentByCurrentUser: isLastGroupByCurrentUser
-            ))
-
-            // If this is sent by current user, update our tracking
-            if isCurrentUser {
-                lastMessageGroupSentByCurrentUserIndex = items.count - 1
-            }
+            items.append(createMessageGroup(messages: currentGroup, senderId: senderId, isLastGroup: true, isLastGroupSentByCurrentUser: isCurrentUser))
+            if isCurrentUser { lastMessageGroupSentByCurrentUserIndex = items.count - 1 }
         }
 
-        // Now update the last group sent by current user flag if it's not the last group overall
         if let lastCurrentUserIndex = lastMessageGroupSentByCurrentUserIndex {
-            // Find the actual last message group index
             var lastMessageGroupIndex: Int?
-            for (index, item) in items.enumerated().reversed() {
-                if case .messages = item {
-                    lastMessageGroupIndex = index
-                    break
-                }
+            for (idx, item) in items.enumerated().reversed() where lastMessageGroupIndex == nil {
+                if case .messages = item { lastMessageGroupIndex = idx }
             }
-
-            // If the last current user group is not the last overall group, update its flag
-            if lastCurrentUserIndex != lastMessageGroupIndex,
-               case .messages(let group) = items[lastCurrentUserIndex] {
+            if lastCurrentUserIndex != lastMessageGroupIndex, case .messages(let group) = items[lastCurrentUserIndex] {
                 let updatedGroup = MessagesGroup(
-                    id: group.id,
-                    sender: group.sender,
-                    messages: group.messages,
-                    unpublished: group.unpublished,
-                    isLastGroup: false,
-                    isLastGroupSentByCurrentUser: true
+                    id: group.id, sender: group.sender, messages: group.messages, unpublished: group.unpublished,
+                    isLastGroup: false, isLastGroupSentByCurrentUser: true
                 )
                 items[lastCurrentUserIndex] = .messages(updatedGroup)
             }

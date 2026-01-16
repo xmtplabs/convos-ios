@@ -37,7 +37,8 @@ struct MessagesView<BottomBarContent: View>: View {
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
     let shouldBlurPhotos: Bool
-    let onPhotoRevealed: () -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -59,7 +60,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 onTapReactions: onTapReactions,
                 onDoubleTap: onDoubleTap,
                 onPhotoRevealed: onPhotoRevealed,
-                onPhotoHidden: { _ in },
+                onPhotoHidden: onPhotoHidden,
                 bottomBarHeight: bottomBarHeight
             )
             .ignoresSafeArea()

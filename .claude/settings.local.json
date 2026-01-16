@@ -8,7 +8,8 @@
       "mcp__graphite__run_gt_cmd",
       "Bash(git merge:*)",
       "Bash(gt add:*)",
-      "Bash(gt continue:*)"
+      "Bash(gt continue:*)",
+      "Bash(gt log:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

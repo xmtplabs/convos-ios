@@ -240,6 +240,13 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 .tracking { [weak self] db in
                     guard let self else { return [] }
                     do {
+                        // Force tracking of AttachmentLocalState table so changes
+                        // to reveal/hide state trigger re-emission of messages
+                        let localStateCount = try AttachmentLocalState.fetchCount(db)
+                        let allLocalStates = try AttachmentLocalState.fetchAll(db)
+                        let revealedKeys = allLocalStates.filter { $0.isRevealed }.map { $0.attachmentKey }
+                        Log.info("[MessagesRepo] Observation triggered. LocalState count: \(localStateCount), revealed: \(revealedKeys)")
+
                         // Get current state safely
                         let currentState = self.stateQueue.sync { () -> LoadingState in
                             LoadingState(
@@ -308,7 +315,17 @@ extension Array where Element == MessageWithDetails {
                     }
                     messageContent = .invite(invite)
                 case .attachments:
-                    messageContent = .attachments(dbMessage.attachmentUrls)
+                    let attachmentKeys = dbMessage.attachmentUrls
+                    let localStates = try AttachmentLocalState
+                        .filter(attachmentKeys.contains(AttachmentLocalState.Columns.attachmentKey))
+                        .fetchAll(database)
+                    let statesDict = Dictionary(uniqueKeysWithValues: localStates.map { ($0.attachmentKey, $0) })
+                    let hydratedAttachments = attachmentKeys.map { key in
+                        let isRevealed = statesDict[key]?.isRevealed ?? false
+                        Log.info("[Compose] Attachment key: \(key.prefix(50))..., isRevealed: \(isRevealed), found in localStates: \(statesDict[key] != nil)")
+                        return HydratedAttachment(key: key, isRevealed: isRevealed)
+                    }
+                    messageContent = .attachments(hydratedAttachments)
                 case .emoji:
                     messageContent = .emoji(dbMessage.emoji ?? "")
                 case .update:

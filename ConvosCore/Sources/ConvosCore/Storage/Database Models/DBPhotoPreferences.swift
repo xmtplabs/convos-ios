@@ -2,13 +2,13 @@ import Foundation
 import GRDB
 
 struct DBPhotoPreferences: FetchableRecord, PersistableRecord, Codable, Hashable {
-    static let databaseTableName = "photoPreferences"
+    static let databaseTableName: String = "photoPreferences"
 
     enum Columns {
-        static let conversationId = Column(CodingKeys.conversationId)
-        static let autoReveal = Column(CodingKeys.autoReveal)
-        static let hasRevealedFirst = Column(CodingKeys.hasRevealedFirst)
-        static let updatedAt = Column(CodingKeys.updatedAt)
+        static let conversationId: Column = Column(CodingKeys.conversationId)
+        static let autoReveal: Column = Column(CodingKeys.autoReveal)
+        static let hasRevealedFirst: Column = Column(CodingKeys.hasRevealedFirst)
+        static let updatedAt: Column = Column(CodingKeys.updatedAt)
     }
 
     let conversationId: String
@@ -16,7 +16,7 @@ struct DBPhotoPreferences: FetchableRecord, PersistableRecord, Codable, Hashable
     var hasRevealedFirst: Bool
     var updatedAt: Date
 
-    static let conversation = belongsTo(DBConversation.self)
+    static let conversation: BelongsToAssociation<DBPhotoPreferences, DBConversation> = belongsTo(DBConversation.self)
 }
 
 extension DBPhotoPreferences {

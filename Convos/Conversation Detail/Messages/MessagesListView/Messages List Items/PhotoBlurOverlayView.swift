@@ -1,50 +1,26 @@
 import SwiftUI
-import UIKit
 
-struct PhotoBlurOverlayView: View {
-    let image: UIImage
-    let onReveal: () -> Void
-
+struct PhotoBlurOverlayContent: View {
     var body: some View {
-        ZStack {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .blur(radius: 30)
-                .clipped()
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Text("Tap pic to reveal")
+                .font(.caption)
+                .foregroundStyle(.white)
 
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                Image(systemName: "eye.slash.fill")
-                    .font(.title)
-                    .foregroundStyle(.white)
-
-                Text("Photo hidden")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                    .foregroundStyle(.white)
-
-                let action = { onReveal() }
-                Button(action: action) {
-                    Text("Tap to reveal")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        .padding(.vertical, DesignConstants.Spacing.step2x)
-                        .background(.white.opacity(0.2))
-                        .clipShape(Capsule())
-                }
-            }
-            .padding(DesignConstants.Spacing.step4x)
+            Image(systemName: "eye.circle.fill")
+                .font(.system(size: 20))
+                .foregroundStyle(.white)
         }
+        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+        .padding(DesignConstants.Spacing.step4x)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
 }
 
-#Preview("Blur Overlay") {
-    PhotoBlurOverlayView(
-        image: UIImage(systemName: "photo.fill") ?? UIImage(),
-        onReveal: { print("Reveal tapped") }
-    )
+#Preview("Blur Overlay Content") {
+    ZStack {
+        Color.gray
+        PhotoBlurOverlayContent()
+    }
     .frame(width: 300, height: 400)
-    .background(Color.gray.opacity(0.3))
 }

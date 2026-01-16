@@ -36,6 +36,8 @@ public protocol SessionManagerProtocol: AnyObject {
     func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol
     func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol
 
+    func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
+
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
     func conversationsCountRepo(
         for consent: [Consent],

@@ -206,6 +206,23 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("createAttachmentLocalState") { db in
+            try db.create(table: "attachmentLocalState") { t in
+                t.column("attachmentKey", .text)
+                    .notNull()
+                    .primaryKey()
+                t.column("conversationId", .text)
+                    .notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("isRevealed", .boolean)
+                    .notNull()
+                    .defaults(to: false)
+                t.column("revealedAt", .datetime)
+            }
+
+            try db.create(index: "attachmentLocalState_conversationId", on: "attachmentLocalState", columns: ["conversationId"])
+        }
+
         return migrator
     }
 }

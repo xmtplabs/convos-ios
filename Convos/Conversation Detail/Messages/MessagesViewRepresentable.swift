@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosLogging
 import SwiftUI
 
 struct MessagesViewRepresentable: UIViewControllerRepresentable {
@@ -23,6 +24,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
+        Log.info("[Representable] updateUIViewController called, setting onPhotoRevealed and onPhotoHidden")
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.bottomBarHeight = bottomBarHeight
         messagesViewController.onTapAvatar = onTapAvatar
@@ -32,8 +34,14 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapReactions = onTapReactions
         messagesViewController.onDoubleTap = onDoubleTap
         messagesViewController.shouldBlurPhotos = shouldBlurPhotos
-        messagesViewController.onPhotoRevealed = onPhotoRevealed
-        messagesViewController.onPhotoHidden = onPhotoHidden
+        messagesViewController.onPhotoRevealed = { key in
+            Log.info("[Representable] onPhotoRevealed wrapper called with key: \(key.prefix(50))...")
+            self.onPhotoRevealed(key)
+        }
+        messagesViewController.onPhotoHidden = { key in
+            Log.info("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
+            self.onPhotoHidden(key)
+        }
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,

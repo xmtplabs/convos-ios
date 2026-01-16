@@ -67,14 +67,14 @@ class OutgoingPhotoMessageWriter: OutgoingPhotoMessageWriterProtocol {
         let clientMessageId = try await sender.prepare(remoteAttachment: prepared.remoteAttachment)
 
         let date = Date()
-        try await databaseWriter.write { [weak self] db in
-            guard let self else { return }
-
+        let conversationId = self.conversationId
+        let senderId = client.inboxId
+        try await databaseWriter.write { db in
             let localMessage = DBMessage(
                 id: clientMessageId,
                 clientMessageId: clientMessageId,
                 conversationId: conversationId,
-                senderId: client.inboxId,
+                senderId: senderId,
                 dateNs: date.nanosecondsSince1970,
                 date: date,
                 status: .unpublished,

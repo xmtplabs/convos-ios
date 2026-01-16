@@ -205,3 +205,21 @@ public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @
         hasRevealedFirstValues[conversationId] = hasRevealedFirst
     }
 }
+
+// MARK: - Mock Attachment Local State Writer
+
+public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterProtocol, @unchecked Sendable {
+    public var revealedAttachments: [String: String] = [:]
+    public var hiddenKeys: Set<String> = []
+
+    public init() {}
+
+    public func markRevealed(attachmentKey: String, conversationId: String) async throws {
+        revealedAttachments[attachmentKey] = conversationId
+    }
+
+    public func markHidden(attachmentKey: String) async throws {
+        hiddenKeys.insert(attachmentKey)
+        revealedAttachments.removeValue(forKey: attachmentKey)
+    }
+}

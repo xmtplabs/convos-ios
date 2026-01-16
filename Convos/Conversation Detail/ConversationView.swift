@@ -61,8 +61,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onProfileSettings: viewModel.onProfileSettings,
             onLoadPreviousMessages: viewModel.loadPreviousMessages,
             shouldBlurPhotos: viewModel.shouldBlurPhotos,
-            onPhotoRevealed: viewModel.onPhotoRevealed,
-            onPhotoHidden: viewModel.onPhotoHidden,
+            onPhotoRevealed: viewModel.onPhotoRevealed(_:),
+            onPhotoHidden: viewModel.onPhotoHidden(_:),
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()

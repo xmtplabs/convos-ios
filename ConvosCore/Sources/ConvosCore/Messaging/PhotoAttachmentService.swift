@@ -1,7 +1,7 @@
 #if canImport(UIKit)
 import Foundation
 import UIKit
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 public enum PhotoAttachmentError: Error {
     case compressionFailed
@@ -35,7 +35,9 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     public func localCacheURL(for filename: String) -> URL {
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            fatalError("Unable to access cache directory")
+        }
         let photosDir = cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
         return photosDir.appendingPathComponent(filename)
     }
@@ -81,7 +83,9 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
     }
 
     private func saveToLocalCache(data: Data, filename: String) throws -> URL {
-        let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first!
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            throw PhotoAttachmentError.compressionFailed
+        }
         let photosDir = cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
 
         try FileManager.default.createDirectory(at: photosDir, withIntermediateDirectories: true)

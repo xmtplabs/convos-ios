@@ -38,10 +38,10 @@ public enum PhotoUploadStage: Sendable, Equatable {
 
 @Observable
 public final class PhotoUploadProgressTracker: @unchecked Sendable {
-    public static let shared = PhotoUploadProgressTracker()
+    public static let shared: PhotoUploadProgressTracker = PhotoUploadProgressTracker()
 
     private var stages: [String: PhotoUploadStage] = [:]
-    private let lock = NSLock()
+    private let lock: NSLock = NSLock()
 
     private init() {}
 

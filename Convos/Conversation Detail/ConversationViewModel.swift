@@ -20,6 +20,7 @@ class ConversationViewModel {
     private let messagesListRepository: any MessagesListRepositoryProtocol
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
+    private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
@@ -45,9 +46,7 @@ class ConversationViewModel {
         conversation.invite ?? .empty
     }
 
-    var profile: Profile {
-        myProfileViewModel.profile
-    }
+    var profile: Profile { myProfileViewModel.profile }
     var profileImage: UIImage? {
         get {
             myProfileViewModel.profileImage
@@ -222,6 +221,7 @@ class ConversationViewModel {
 
         self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
         self.photoPreferencesWriter = session.photoPreferencesWriter()
+        self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
@@ -276,6 +276,7 @@ class ConversationViewModel {
 
         self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
         self.photoPreferencesWriter = session.photoPreferencesWriter()
+        self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
@@ -535,58 +536,6 @@ class ConversationViewModel {
         }
     }
 
-    func onReaction(emoji: String, messageId: String) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await reactionWriter.addReaction(
-                    emoji: emoji,
-                    to: messageId,
-                    in: conversation.id
-                )
-            } catch {
-                Log.error("Error sending reaction: \(error)")
-            }
-        }
-    }
-
-    func onTapReactions(_ message: AnyMessage) {
-        presentingReactionsForMessage = message
-    }
-
-    func onDoubleTap(_ message: AnyMessage) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await reactionWriter.toggleReaction(
-                    emoji: "❤️",
-                    to: message.base.id,
-                    in: conversation.id
-                )
-            } catch {
-                Log.error("Error toggling reaction: \(error)")
-            }
-        }
-    }
-
-    func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await reactionWriter.removeReaction(
-                    emoji: reaction.emoji,
-                    from: message.base.id,
-                    in: conversation.id
-                )
-                await MainActor.run {
-                    self.presentingReactionsForMessage = nil
-                }
-            } catch {
-                Log.error("Error removing reaction: \(error)")
-            }
-        }
-    }
-
     func onUseQuickname(_ profile: Profile, _ profileImage: UIImage?) {
         myProfileViewModel.update(using: profile, profileImage: profileImage, conversationId: conversation.id)
     }
@@ -638,33 +587,6 @@ class ConversationViewModel {
 
     func onProfileSettings() {
         presentingProfileSettings = true
-    }
-
-    func onPhotoRevealed() {
-        if !hasRevealedFirstPhoto {
-            Task { [weak self] in
-                guard let self else { return }
-                do {
-                    try await photoPreferencesWriter.setHasRevealedFirst(true, for: conversation.id)
-                    await MainActor.run {
-                        self.presentingPhotoPreferenceSheet = true
-                    }
-                } catch {
-                    Log.error("Error setting hasRevealedFirst: \(error)")
-                }
-            }
-        }
-    }
-
-    func setAutoReveal(_ autoReveal: Bool) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await photoPreferencesWriter.setAutoReveal(autoReveal, for: conversation.id)
-            } catch {
-                Log.error("Error setting autoReveal: \(error)")
-            }
-        }
     }
 
     func remove(member: ConversationMember) {
@@ -719,6 +641,182 @@ class ConversationViewModel {
         }
     }
 
+    // MARK: - Pagination Support
+
+    /// Loads previous (older) messages
+    func loadPreviousMessages() {
+        guard hasMoreMessages else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try messagesListRepository.fetchPrevious()
+                // Messages will be delivered through the publisher
+                Log.info("Fetching previous messages")
+            } catch {
+                Log.error("Error loading previous messages: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    /// Checks if there are more messages to load
+    var hasMoreMessages: Bool { messagesListRepository.hasMoreMessages }
+
+    /// Indicates if all available messages have been loaded
+    var hasLoadedAllMessages: Bool { !messagesListRepository.hasMoreMessages }
+
+    @MainActor
+    func exportDebugLogs() async throws -> URL {
+        // Get the XMTP client for this conversation
+        let messagingService = try await session.messagingService(
+            for: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+
+        // Wait for inbox to be ready and get the client
+        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+        let client = inboxResult.client
+
+        guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
+            throw NSError(
+                domain: "ConversationViewModel",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Conversation not found"]
+            )
+        }
+
+        return try await xmtpConversation.exportDebugLogs()
+    }
+}
+
+extension ConversationViewModel {
+    static var mock: ConversationViewModel {
+        return .init(
+            conversation: .mock(),
+            session: MockInboxesService(),
+            messagingService: MockMessagingService()
+        )
+    }
+}
+
+// MARK: - Reactions
+
+extension ConversationViewModel {
+    func onReaction(emoji: String, messageId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.addReaction(
+                    emoji: emoji,
+                    to: messageId,
+                    in: conversation.id
+                )
+            } catch {
+                Log.error("Error sending reaction: \(error)")
+            }
+        }
+    }
+
+    func onTapReactions(_ message: AnyMessage) {
+        presentingReactionsForMessage = message
+    }
+
+    func onDoubleTap(_ message: AnyMessage) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.toggleReaction(
+                    emoji: "❤️",
+                    to: message.base.id,
+                    in: conversation.id
+                )
+            } catch {
+                Log.error("Error toggling reaction: \(error)")
+            }
+        }
+    }
+
+    func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.removeReaction(
+                    emoji: reaction.emoji,
+                    from: message.base.id,
+                    in: conversation.id
+                )
+                await MainActor.run {
+                    self.presentingReactionsForMessage = nil
+                }
+            } catch {
+                Log.error("Error removing reaction: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Photo Preferences
+
+extension ConversationViewModel {
+    func onPhotoRevealed(_ attachmentKey: String) {
+        Log.info("[ConversationVM] onPhotoRevealed called with key: \(attachmentKey)")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await attachmentLocalStateWriter.markRevealed(
+                    attachmentKey: attachmentKey,
+                    conversationId: conversation.id
+                )
+                Log.info("[ConversationVM] markRevealed completed for key: \(attachmentKey)")
+            } catch {
+                Log.error("Error marking photo revealed: \(error)")
+            }
+        }
+
+        if !hasRevealedFirstPhoto {
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await photoPreferencesWriter.setHasRevealedFirst(true, for: conversation.id)
+                    await MainActor.run {
+                        self.presentingPhotoPreferenceSheet = true
+                    }
+                } catch {
+                    Log.error("Error setting hasRevealedFirst: \(error)")
+                }
+            }
+        }
+    }
+
+    func onPhotoHidden(_ attachmentKey: String) {
+        Log.info("[ConversationVM] onPhotoHidden called with key: \(attachmentKey)")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await attachmentLocalStateWriter.markHidden(attachmentKey: attachmentKey)
+                Log.info("[ConversationVM] markHidden completed for key: \(attachmentKey)")
+            } catch {
+                Log.error("Error marking photo hidden: \(error)")
+            }
+        }
+    }
+
+    func setAutoReveal(_ autoReveal: Bool) {
+        autoRevealPhotos = autoReveal
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await photoPreferencesWriter.setAutoReveal(autoReveal, for: conversation.id)
+            } catch {
+                Log.error("Error setting autoReveal: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Lock & Explode
+
+extension ConversationViewModel {
     func toggleLock() {
         guard canToggleLock else { return }
 
@@ -803,66 +901,5 @@ class ConversationViewModel {
                 }
             }
         }
-    }
-
-    // MARK: - Pagination Support
-
-    /// Loads previous (older) messages
-    func loadPreviousMessages() {
-        guard hasMoreMessages else { return }
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                try messagesListRepository.fetchPrevious()
-                // Messages will be delivered through the publisher
-                Log.info("Fetching previous messages")
-            } catch {
-                Log.error("Error loading previous messages: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    /// Checks if there are more messages to load
-    var hasMoreMessages: Bool {
-        return messagesListRepository.hasMoreMessages
-    }
-
-    /// Indicates if all available messages have been loaded
-    var hasLoadedAllMessages: Bool {
-        return !messagesListRepository.hasMoreMessages
-    }
-
-    @MainActor
-    func exportDebugLogs() async throws -> URL {
-        // Get the XMTP client for this conversation
-        let messagingService = try await session.messagingService(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
-
-        // Wait for inbox to be ready and get the client
-        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-        let client = inboxResult.client
-
-        guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
-            throw NSError(
-                domain: "ConversationViewModel",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Conversation not found"]
-            )
-        }
-
-        return try await xmtpConversation.exportDebugLogs()
-    }
-}
-
-extension ConversationViewModel {
-    static var mock: ConversationViewModel {
-        return .init(
-            conversation: .mock(),
-            session: MockInboxesService(),
-            messagingService: MockMessagingService()
-        )
     }
 }

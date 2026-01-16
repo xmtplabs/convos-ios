@@ -108,29 +108,29 @@ struct MessagesGroupItemView: View {
                 )
                 .padding(.trailing, DesignConstants.Spacing.step4x)
 
-            case .attachment(let attachmentData):
+            case .attachment(let attachment):
                 AttachmentPlaceholder(
-                    attachmentData: attachmentData,
+                    attachment: attachment,
                     isOutgoing: message.base.sender.isCurrentUser,
                     profile: message.base.sender.profile,
-                    shouldBlur: shouldBlurPhotos,
-                    onReveal: { onPhotoRevealed(attachmentData) },
-                    onHide: { onPhotoHidden(attachmentData) }
+                    shouldBlurPhotos: shouldBlurPhotos,
+                    onReveal: { onPhotoRevealed(attachment.key) },
+                    onHide: { onPhotoHidden(attachment.key) }
                 )
                 .id(message.base.id)
                 .onTapGesture(count: 2) {
                     onDoubleTap(message)
                 }
 
-            case .attachments(let attachmentsData):
-                if let firstData = attachmentsData.first {
+            case .attachments(let attachments):
+                if let attachment = attachments.first {
                     AttachmentPlaceholder(
-                        attachmentData: firstData,
+                        attachment: attachment,
                         isOutgoing: message.base.sender.isCurrentUser,
                         profile: message.base.sender.profile,
-                        shouldBlur: shouldBlurPhotos,
-                        onReveal: { onPhotoRevealed(firstData) },
-                        onHide: { onPhotoHidden(firstData) }
+                        shouldBlurPhotos: shouldBlurPhotos,
+                        onReveal: { onPhotoRevealed(attachment.key) },
+                        onHide: { onPhotoHidden(attachment.key) }
                     )
                     .id(message.base.id)
                     .onTapGesture(count: 2) {
@@ -169,29 +169,33 @@ struct MessagesGroupItemView: View {
 // MARK: - Attachment Views
 
 private struct AttachmentPlaceholder: View {
-    let attachmentData: String
+    static let maxPhotoWidth: CGFloat = 430
+
+    let attachment: HydratedAttachment
     let isOutgoing: Bool
     let profile: Profile
-    let shouldBlur: Bool
+    let shouldBlurPhotos: Bool
     let onReveal: () -> Void
     let onHide: () -> Void
 
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+
     @State private var loadedImage: UIImage?
-    @State private var isLoading = true
+    @State private var isLoading: Bool = true
     @State private var loadError: Error?
-    @State private var isRevealed: Bool = false
     @State private var showingSaveSuccess: Bool = false
     @State private var showingSaveError: Bool = false
     @State private var uploadStage: PhotoUploadStage?
+    @State private var isPressed: Bool = false
 
-    private static let loader = RemoteAttachmentLoader()
+    private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
 
-    private var showBlurOverlay: Bool {
-        shouldBlur && !isOutgoing && !isRevealed
+    private var shouldBlur: Bool {
+        shouldBlurPhotos && !attachment.isRevealed
     }
 
-    private var canShowContextMenu: Bool {
-        loadedImage != nil && !showBlurOverlay
+    private var showBlurOverlay: Bool {
+        shouldBlur && !isOutgoing
     }
 
     private var showUploadProgress: Bool {
@@ -199,29 +203,27 @@ private struct AttachmentPlaceholder: View {
         return stage.isInProgress
     }
 
+    private var isRegularWidth: Bool {
+        horizontalSizeClass == .regular
+    }
+
+    private var blurRadius: CGFloat {
+        guard showBlurOverlay else { return 0 }
+        return isPressed ? 15 : 20
+    }
+
+    private var blurOpacity: Double {
+        guard showBlurOverlay else { return 1.0 }
+        return isPressed ? 0.5 : 0.3
+    }
+
     var body: some View {
         Group {
             if let image = loadedImage {
-                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-
-                    if showBlurOverlay {
-                        PhotoBlurOverlayView(image: image) {
-                            withAnimation(.easeOut(duration: 0.2)) {
-                                isRevealed = true
-                            }
-                            onReveal()
-                        }
-                    }
-
-                    if showUploadProgress, let stage = uploadStage {
-                        PhotoUploadProgressOverlay(stage: stage)
-                    }
-
-                    PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
-                }
+                photoContent(image: image)
+                    .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
+                    .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
+                    .frame(maxWidth: .infinity, alignment: isRegularWidth ? .center : .leading)
             } else if isLoading {
                 loadingPlaceholder
             } else {
@@ -229,20 +231,26 @@ private struct AttachmentPlaceholder: View {
             }
         }
         .contextMenu {
-            if canShowContextMenu, let image = loadedImage {
+            if let image = loadedImage {
                 Button {
                     saveToPhotoLibrary(image: image)
                 } label: {
                     Label("Save to Photo Library", systemImage: "square.and.arrow.down")
                 }
-                if isRevealed && !isOutgoing {
-                    Button {
-                        withAnimation(.easeOut(duration: 0.2)) {
-                            isRevealed = false
+
+                if !isOutgoing && shouldBlurPhotos {
+                    Divider()
+
+                    if shouldBlur {
+                        let revealAction = { onReveal() }
+                        Button(action: revealAction) {
+                            Label("Reveal Photo", systemImage: "eye")
                         }
-                        onHide()
-                    } label: {
-                        Label("Hide Photo", systemImage: "eye.slash")
+                    } else {
+                        let hideAction = { onHide() }
+                        Button(action: hideAction) {
+                            Label("Hide Photo", systemImage: "eye.slash")
+                        }
                     }
                 }
             }
@@ -257,10 +265,46 @@ private struct AttachmentPlaceholder: View {
         }
     }
 
+    @ViewBuilder
+    private func photoContent(image: UIImage) -> some View {
+        ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .blur(radius: showBlurOverlay ? blurRadius : 0)
+                .opacity(showBlurOverlay ? blurOpacity : 1.0)
+
+            if showBlurOverlay {
+                PhotoBlurOverlayContent()
+                    .transition(.opacity)
+            }
+
+            if showUploadProgress, let stage = uploadStage {
+                PhotoUploadProgressOverlay(stage: stage)
+            }
+
+            PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            if showBlurOverlay {
+                Log.info("[AttachmentPlaceholder] Main blur button tapped - calling onReveal()")
+                onReveal()
+            }
+        }
+        .onLongPressGesture(minimumDuration: 0, pressing: { pressing in
+            if showBlurOverlay {
+                isPressed = pressing
+            }
+        }, perform: {})
+        .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
+        .animation(.easeOut(duration: 0.15), value: isPressed)
+    }
+
     private func pollUploadProgress() async {
         guard isOutgoing else { return }
         while !Task.isCancelled {
-            let stage = PhotoUploadProgressTracker.shared.stage(for: attachmentData)
+            let stage = PhotoUploadProgressTracker.shared.stage(for: attachment.key)
             await MainActor.run {
                 uploadStage = stage
             }
@@ -299,7 +343,7 @@ private struct AttachmentPlaceholder: View {
         isLoading = true
         loadError = nil
 
-        let cacheKey = attachmentData
+        let cacheKey = attachment.key
 
         // Check ImageCache first (memory + disk with proper eviction)
         if let cachedImage = await ImageCache.shared.imageAsync(for: cacheKey) {
@@ -311,11 +355,11 @@ private struct AttachmentPlaceholder: View {
         do {
             let imageData: Data
 
-            if attachmentData.hasPrefix("file://"), let url = URL(string: attachmentData) {
+            if attachment.key.hasPrefix("file://"), let url = URL(string: attachment.key) {
                 imageData = try Data(contentsOf: url)
-            } else if attachmentData.hasPrefix("{") {
-                imageData = try await Self.loader.loadImageData(from: attachmentData)
-            } else if let url = URL(string: attachmentData) {
+            } else if attachment.key.hasPrefix("{") {
+                imageData = try await Self.loader.loadImageData(from: attachment.key)
+            } else if let url = URL(string: attachment.key) {
                 let (data, _) = try await URLSession.shared.data(from: url)
                 imageData = data
             } else {
@@ -344,6 +388,9 @@ private struct AttachmentPlaceholder: View {
             .overlay {
                 ProgressView()
             }
+            .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
+            .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
+            .frame(maxWidth: .infinity, alignment: isRegularWidth ? .center : .leading)
     }
 
     private var errorPlaceholder: some View {
@@ -360,6 +407,9 @@ private struct AttachmentPlaceholder: View {
                         .foregroundStyle(.secondary)
                 }
             }
+            .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
+            .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
+            .frame(maxWidth: .infinity, alignment: isRegularWidth ? .center : .leading)
     }
 }
 

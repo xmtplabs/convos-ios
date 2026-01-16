@@ -145,7 +145,7 @@ public extension Message {
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: status,
-            content: .attachment(url.absoluteString),
+            content: .attachment(HydratedAttachment(key: url.absoluteString)),
             date: date,
             reactions: []
         )
@@ -166,7 +166,7 @@ public extension Message {
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: status,
-            content: .attachments(urls.map { $0.absoluteString }),
+            content: .attachments(urls.map { HydratedAttachment(key: $0.absoluteString) }),
             date: date,
             reactions: []
         )
