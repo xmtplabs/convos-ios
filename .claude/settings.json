@@ -1,17 +1,4 @@
 {
-  "enableAllProjectMcpServers": true,
-  "hooks": {
-    "SessionStart": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": ".claude/hooks/session-init.sh"
-          }
-        ]
-      }
-    ]
-  },
   "permissions": {
     "allow": [
       "Bash(swiftlint:*)",
@@ -25,12 +12,24 @@
       "Bash(git status)",
       "Bash(git diff:*)",
       "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git checkout:*)",
+      "Bash(git branch:*)",
+      "Bash(git fetch:*)",
+      "Bash(git merge:*)",
       "Bash(ls:*)",
       "Bash(cat:*)",
       "Bash(head:*)",
       "Bash(tail:*)",
       "Bash(find:*)",
       "Bash(grep:*)",
+      "Bash(sed:*)",
+      "Bash(pgrep:*)",
+      "Bash(jq:*)",
+      "Bash(tr:*)",
+      "Bash(xcpretty:*)",
+      "Bash(gt:*)",
       "Read",
       "Read(.claude/.simulator_id)",
       "Edit",
@@ -41,8 +40,29 @@
       "mcp__XcodeBuildMCP__*",
       "mcp__ios-simulator__*",
       "mcp__xmtp-docs__*",
-      "mcp__notion__*"
+      "mcp__graphite__*",
+      "mcp__notion__*",
+      "mcp__linear__*"
     ],
     "deny": []
+  },
+  "enableAllProjectMcpServers": true,
+  "env": {
+    "CLAUDE_CODE_DISABLE_TERMINAL_TITLE": "1"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/session-init.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "enabledPlugins": {
+    "axiom@axiom-marketplace": true
   }
 }

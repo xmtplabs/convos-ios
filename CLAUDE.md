@@ -81,13 +81,59 @@ Use `@Previewable` for preview state variables:
 - Trailing commas in multi-line collections and parameter lists
 
 ### SwiftLint Rules
-Key enforced rules:
-- No force unwrapping
-- Prefer `first(where:)` over filter operations
-- Use explicit types for public interfaces
+
+**IMPORTANT: Always follow these rules when writing Swift code to avoid lint errors.**
+
+**Critical Rules (errors):**
+- **No force unwrapping** (`!`) - Use `guard let`, `if let`, or optional chaining
+- **No implicitly unwrapped optionals** - Use regular optionals with safe unwrapping
+- **No assertions in non-test code** - Use Logger.error or Sentry instead of `assert`, `assertionFailure`, `precondition`, `preconditionFailure`
+
+**Required Patterns:**
+- `first(where:)` over `.filter { }.first` - More efficient
+- `last(where:)` over `.filter { }.last` - More efficient
+- `sorted().first` over `sorted()[0]` - Safer
+- `contains(where:)` over `.filter { }.isEmpty == false` - Cleaner
+- Implicit return in single-expression closures (not functions)
+- Trailing closure only for single parameter closures
+- Private over fileprivate unless file-level access needed
+
+**Formatting Rules:**
 - Sort imports alphabetically
-- Private over fileprivate
-- No implicitly unwrapped optionals
+- Max line length: 200 characters
+- Max function body: 125 lines
+- Max type body: 625 lines
+- Max function parameters: 6
+- Vertical whitespace: no blank lines after opening braces or before closing braces
+- Operator usage whitespace required (e.g., `a + b` not `a+b`)
+
+**Modifier Order (strict):**
+```swift
+// Correct order:
+public override dynamic lazy final var property: Type
+private(set) public var property: Type
+```
+Order: `acl` → `setterACL` → `override` → `dynamic` → `mutators` → `lazy` → `final` → `required` → `convenience` → `typeMethods` → `owned`
+
+**Custom Rules:**
+- Name constants enums `Constant` (not `Constants`)
+- Use `enum Constant` (not `struct Constant`)
+- Put `private enum Constant` at the **bottom** of the scope, not top
+
+**File Headers:**
+- Do NOT include `// Created by...` headers - they're forbidden
+
+**Explicit Types:**
+- Required for class/struct properties, NOT for local variables:
+```swift
+// ✅ Good
+class MyClass {
+    var name: String = ""  // Explicit type required
+    func doSomething() {
+        let local = "value"  // Local can infer type
+    }
+}
+```
 
 ### Guard Preference
 Prefer `guard` with early return over `if` with early return for validation and unwrapping:
@@ -230,6 +276,7 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 | `/test` | Run tests (ConvosCore by default) |
 | `/lint` | Check code with SwiftLint |
 | `/format` | Format code with SwiftFormat |
+| `/firebase-token` | Get Firebase App Check debug token from simulator logs |
 
 ### Subagents
 
