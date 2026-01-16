@@ -14,7 +14,7 @@ public actor SleepingInboxMessageChecker {
     private let checkInterval: TimeInterval
     private let environment: AppEnvironment
     private let activityRepository: any InboxActivityRepositoryProtocol
-    private let lifecycleManager: any InboxLifecycleManagerProtocol
+    private weak var lifecycleManager: (any InboxLifecycleManagerProtocol)?
     private let appLifecycle: any AppLifecycleProviding
     private let xmtpStaticOperations: any XMTPStaticOperations.Type
 
@@ -98,8 +98,15 @@ public actor SleepingInboxMessageChecker {
     // MARK: - Private Methods
 
     private func performCheck() async throws {
+        // Capture lifecycle manager at the start to ensure consistent reference throughout
+        guard let manager = lifecycleManager else {
+            Log.debug("SleepingInboxMessageChecker: lifecycle manager deallocated, stopping checks")
+            stopPeriodicChecks()
+            return
+        }
+
         // Get sleeping client IDs
-        let sleepingClientIds = await lifecycleManager.sleepingClientIds
+        let sleepingClientIds = await manager.sleepingClientIds
         guard !sleepingClientIds.isEmpty else {
             Log.debug("SleepingInboxMessageChecker: no sleeping inboxes to check")
             return
@@ -124,7 +131,7 @@ public actor SleepingInboxMessageChecker {
         )
 
         // Get oldest awake inbox's lastActivity for comparison
-        let awakeClientIds = await lifecycleManager.awakeClientIds
+        let awakeClientIds = await manager.awakeClientIds
         let oldestAwakeLastActivity = try findOldestAwakeLastActivity(awakeClientIds: awakeClientIds)
 
         // Check each sleeping inbox
@@ -148,7 +155,7 @@ public actor SleepingInboxMessageChecker {
 
                 do {
                     if let activity = try activityRepository.inboxActivity(for: clientId) {
-                        _ = try await lifecycleManager.wake(
+                        _ = try await manager.wake(
                             clientId: clientId,
                             inboxId: activity.inboxId,
                             reason: .activityRanking
@@ -182,7 +189,7 @@ public actor SleepingInboxMessageChecker {
                     if meta.createdNs > current {
                         newestNs = meta.createdNs
                     }
-                } else if newestNs == nil {
+                } else {
                     newestNs = meta.createdNs
                 }
             }

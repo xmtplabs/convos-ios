@@ -108,7 +108,12 @@ public actor InboxStateMachine {
 
     // MARK: - State Observation
 
-    private var stateContinuations: [AsyncStream<State>.Continuation] = []
+    private struct IdentifiedContinuation {
+        let id: UUID
+        let continuation: AsyncStream<State>.Continuation
+    }
+
+    private var stateContinuations: [IdentifiedContinuation] = []
     let initialClientId: String
     private var _state: State
 
@@ -134,19 +139,24 @@ public actor InboxStateMachine {
     }
 
     var stateSequence: AsyncStream<State> {
-        AsyncStream { continuation in
+        let id = UUID()
+        return AsyncStream { continuation in
             Task { [weak self] in
-                guard let self else { return }
-                await self.addStateContinuation(continuation)
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
+                await self.addStateContinuation(continuation, id: id)
             }
         }
     }
 
-    private func addStateContinuation(_ continuation: AsyncStream<State>.Continuation) {
-        stateContinuations.append(continuation)
-        continuation.onTermination = { [weak self] _ in
-            Task {
-                await self?.removeStateContinuation(continuation)
+    private func addStateContinuation(_ continuation: AsyncStream<State>.Continuation, id: UUID) {
+        let identified = IdentifiedContinuation(id: id, continuation: continuation)
+        stateContinuations.append(identified)
+        continuation.onTermination = { [weak self, id] _ in
+            Task { [weak self] in
+                await self?.removeStateContinuation(id: id)
             }
         }
         continuation.yield(_state)
@@ -155,21 +165,29 @@ public actor InboxStateMachine {
     private func emitStateChange(_ newState: State) {
         _state = newState
 
-        // Emit to all continuations
-        for continuation in stateContinuations {
-            continuation.yield(newState)
+        // Emit to all continuations, removing any that fail
+        stateContinuations = stateContinuations.filter { identified in
+            let result = identified.continuation.yield(newState)
+            switch result {
+            case .terminated, .dropped:
+                return false
+            case .enqueued:
+                return true
+            @unknown default:
+                return true
+            }
         }
     }
 
-    private func removeStateContinuation(_ continuation: AsyncStream<State>.Continuation) {
-        stateContinuations.removeAll { $0 == continuation }
+    private func removeStateContinuation(id: UUID) {
+        stateContinuations.removeAll { $0.id == id }
     }
 
     private func cleanupContinuations() {
-        stateContinuations.removeAll { continuation in
-            continuation.finish()
-            return true
+        for identified in stateContinuations {
+            identified.continuation.finish()
         }
+        stateContinuations.removeAll()
     }
 
     // MARK: - Init
@@ -643,6 +661,9 @@ public actor InboxStateMachine {
         emitStateChange(.stopping(clientId: clientId))
         await syncingManager?.stop()
         emitStateChange(.idle(clientId: clientId))
+
+        // Clean up all state continuations to prevent memory leaks
+        cleanupContinuations()
     }
 
     private func handleEnterBackground(clientId: String, result: InboxReadyResult) async throws {

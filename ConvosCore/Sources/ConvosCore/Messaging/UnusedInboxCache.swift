@@ -51,6 +51,8 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
     private let platformProviders: PlatformProviders
     private var unusedMessagingService: MessagingService?
     private var isCreatingUnusedInbox: Bool = false
+    private var backgroundCreationTask: Task<Void, Never>?
+    private var cleanupTask: Task<Void, Never>?
 
     // MARK: - Initialization
 
@@ -135,8 +137,11 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             }
 
             // Schedule creation of a new unused inbox for next time (after consumption completes)
-            Task(priority: .background) { [weak self] in
-                guard let self else { return }
+            backgroundCreationTask?.cancel()
+            backgroundCreationTask = Task(priority: .background) { [weak self, weak databaseWriter, weak databaseReader] in
+                guard let self,
+                      let databaseWriter,
+                      let databaseReader else { return }
                 await createNewUnusedInbox(
                     databaseWriter: databaseWriter,
                     databaseReader: databaseReader,
@@ -173,8 +178,11 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
                 )
 
                 // Schedule creation of a new unused inbox for next time
-                Task(priority: .background) { [weak self] in
-                    guard let self else { return }
+                backgroundCreationTask?.cancel()
+                backgroundCreationTask = Task(priority: .background) { [weak self, weak databaseWriter, weak databaseReader] in
+                    guard let self,
+                          let databaseWriter,
+                          let databaseReader else { return }
                     await createNewUnusedInbox(
                         databaseWriter: databaseWriter,
                         databaseReader: databaseReader,
@@ -205,12 +213,18 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
     }
 
     public func clearUnusedInboxFromKeychain() {
+        // Cancel any pending background tasks
+        backgroundCreationTask?.cancel()
+        backgroundCreationTask = nil
+        cleanupTask?.cancel()
+        cleanupTask = nil
+
         if let service = unusedMessagingService {
             unusedMessagingService = nil
-            Task {
+            cleanupTask = Task {
                 await service.stopAndDelete()
             }
-            Log.debug("Stopped and cleared in-memory unused messaging service")
+            Log.debug("Scheduled cleanup of in-memory unused messaging service")
         }
 
         do {
@@ -240,8 +254,11 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
         environment: AppEnvironment
     ) async -> MessagingService {
         // Schedule creation of an unused inbox for next time
-        Task(priority: .background) { [weak self] in
-            guard let self else { return }
+        backgroundCreationTask?.cancel()
+        backgroundCreationTask = Task(priority: .background) { [weak self, weak databaseWriter, weak databaseReader] in
+            guard let self,
+                  let databaseWriter,
+                  let databaseReader else { return }
             await createNewUnusedInbox(
                 databaseWriter: databaseWriter,
                 databaseReader: databaseReader,

@@ -37,6 +37,7 @@ public final class InboxStateManager: InboxStateManagerProtocol, @unchecked Send
     private(set) weak var stateMachine: InboxStateMachine?
     private var stateTask: Task<Void, Never>?
     private var observers: [WeakObserver] = []
+    private var isObserving: Bool = false
 
     private struct WeakObserver {
         weak var observer: InboxStateObserver?
@@ -50,18 +51,28 @@ public final class InboxStateManager: InboxStateManagerProtocol, @unchecked Send
     deinit {
         observers.removeAll()
         stateTask?.cancel()
+        stateTask = nil
     }
 
     private func observe(_ stateMachine: InboxStateMachine) {
         self.stateMachine = stateMachine
         stateTask?.cancel()
+        isObserving = true
 
         stateTask = Task { [weak self] in
             guard let self else { return }
             for await state in await stateMachine.stateSequence {
+                guard !Task.isCancelled else { break }
+                guard self.isObserving else { break }
                 await self.handleStateChange(state)
             }
         }
+    }
+
+    private func stopObserving() {
+        isObserving = false
+        stateTask?.cancel()
+        stateTask = nil
     }
 
     private func handleStateChange(_ state: InboxStateMachine.State) async {
