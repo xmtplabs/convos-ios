@@ -1,3 +1,6 @@
+#if canImport(UIKit)
+import UIKit
+#endif
 import Combine
 import Foundation
 @preconcurrency import XMTPiOS
@@ -81,6 +84,12 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _reactionWriter
     }
 
+    #if canImport(UIKit)
+    public func photoMessageWriter(for conversationId: String) -> any OutgoingPhotoMessageWriterProtocol {
+        MockOutgoingPhotoMessageWriter()
+    }
+    #endif
+
     public func conversationLocalStateWriter() -> any ConversationLocalStateWriterProtocol {
         _conversationLocalStateWriter
     }
@@ -111,3 +120,20 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         try await _conversationLocalStateWriter.setMuted(!enabled, for: conversationId)
     }
 }
+
+#if canImport(UIKit)
+public final class MockOutgoingPhotoMessageWriter: OutgoingPhotoMessageWriterProtocol, @unchecked Sendable {
+    private let sentMessageSubject = PassthroughSubject<String, Never>()
+
+    public var sentMessage: AnyPublisher<String, Never> {
+        sentMessageSubject.eraseToAnyPublisher()
+    }
+
+    public init() {}
+
+    public func send(image: UIImage) async throws {
+        let mockURL = "https://example.com/photos/mock_photo.jpg"
+        sentMessageSubject.send(mockURL)
+    }
+}
+#endif

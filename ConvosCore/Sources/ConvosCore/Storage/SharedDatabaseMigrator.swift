@@ -189,6 +189,23 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("createPhotoPreferences") { db in
+            try db.create(table: "photoPreferences") { t in
+                t.column("conversationId", .text)
+                    .notNull()
+                    .primaryKey()
+                    .references("conversation", onDelete: .cascade)
+                t.column("autoReveal", .boolean)
+                    .notNull()
+                    .defaults(to: false)
+                t.column("hasRevealedFirst", .boolean)
+                    .notNull()
+                    .defaults(to: false)
+                t.column("updatedAt", .datetime)
+                    .notNull()
+            }
+        }
+
         return migrator
     }
 }

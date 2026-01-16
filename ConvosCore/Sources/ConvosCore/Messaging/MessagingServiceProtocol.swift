@@ -37,6 +37,10 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     func messageWriter(for conversationId: String) -> any OutgoingMessageWriterProtocol
     func reactionWriter() -> any ReactionWriterProtocol
 
+    #if canImport(UIKit)
+    func photoMessageWriter(for conversationId: String) -> any OutgoingPhotoMessageWriterProtocol
+    #endif
+
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
 

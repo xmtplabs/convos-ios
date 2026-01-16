@@ -170,3 +170,38 @@ public final class MockDraftConversationRepository: DraftConversationRepositoryP
         mockConversation
     }
 }
+
+// MARK: - Mock Photo Preferences Repository
+
+public final class MockPhotoPreferencesRepository: PhotoPreferencesRepositoryProtocol, @unchecked Sendable {
+    public var mockPreferences: PhotoPreferences?
+
+    public init(preferences: PhotoPreferences? = nil) {
+        self.mockPreferences = preferences
+    }
+
+    public func preferences(for conversationId: String) async throws -> PhotoPreferences? {
+        mockPreferences
+    }
+
+    public func preferencesPublisher(for conversationId: String) -> AnyPublisher<PhotoPreferences?, Never> {
+        Just(mockPreferences).eraseToAnyPublisher()
+    }
+}
+
+// MARK: - Mock Photo Preferences Writer
+
+public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @unchecked Sendable {
+    public var autoRevealValues: [String: Bool] = [:]
+    public var hasRevealedFirstValues: [String: Bool] = [:]
+
+    public init() {}
+
+    public func setAutoReveal(_ autoReveal: Bool, for conversationId: String) async throws {
+        autoRevealValues[conversationId] = autoReveal
+    }
+
+    public func setHasRevealedFirst(_ hasRevealedFirst: Bool, for conversationId: String) async throws {
+        hasRevealedFirstValues[conversationId] = hasRevealedFirst
+    }
+}

@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosLogging
 import Foundation
 import SwiftUI
 import UIKit
@@ -11,10 +12,13 @@ final class MessagesCollectionViewDataSource: NSObject {
         }
     }
 
+    var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((IndexPath) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onDoubleTap: ((AnyMessage) -> Void)?
+    var onPhotoRevealed: ((String) -> Void)?
+    var onPhotoHidden: ((String) -> Void)?
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -46,7 +50,8 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = sections[indexPath.section].cells[indexPath.item]
-        let actions = MessageCellActions(
+        let config = CellConfig(
+            shouldBlurPhotos: shouldBlurPhotos,
             onTapInvite: { [weak self] invite in
                 Log.info("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
@@ -59,13 +64,21 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onDoubleTap: { [weak self] message in
                 self?.onDoubleTap?(message)
+            },
+            onPhotoRevealed: { [weak self] attachmentData in
+                Log.info("[DataSource] onPhotoRevealed called with: \(attachmentData.prefix(50))...")
+                self?.onPhotoRevealed?(attachmentData)
+            },
+            onPhotoHidden: { [weak self] attachmentData in
+                Log.info("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
+                self?.onPhotoHidden?(attachmentData)
             }
         )
         return CellFactory.createCell(
             in: collectionView,
             for: indexPath,
             with: item,
-            actions: actions
+            config: config
         )
     }
 }

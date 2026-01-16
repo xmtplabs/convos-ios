@@ -32,6 +32,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             conversationImage: $viewModel.conversationImage,
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
+            selectedAttachmentImage: $viewModel.selectedAttachmentImage,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -59,6 +60,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             onProfileSettings: viewModel.onProfileSettings,
             onLoadPreviousMessages: viewModel.loadPreviousMessages,
+            shouldBlurPhotos: viewModel.shouldBlurPhotos,
+            onPhotoRevealed: viewModel.onPhotoRevealed,
+            onPhotoHidden: viewModel.onPhotoHidden,
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
@@ -187,6 +191,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
             FullConvoInfoView(onDismiss: {
                 showingFullInfo = false
             })
+            .background(.colorBackgroundRaised)
+        }
+        .selfSizingSheet(isPresented: $viewModel.presentingPhotoPreferenceSheet) {
+            PhotoPreferenceSheet(
+                onAutoReveal: {
+                    viewModel.setAutoReveal(true)
+                    viewModel.presentingPhotoPreferenceSheet = false
+                },
+                onAskEveryTime: {
+                    viewModel.setAutoReveal(false)
+                    viewModel.presentingPhotoPreferenceSheet = false
+                }
+            )
             .background(.colorBackgroundRaised)
         }
     }

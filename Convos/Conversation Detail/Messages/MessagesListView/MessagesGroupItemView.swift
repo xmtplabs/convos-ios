@@ -1,12 +1,18 @@
 import ConvosCore
+import ConvosLogging
+import Photos
 import SwiftUI
+import UIKit
 
 struct MessagesGroupItemView: View {
     let message: AnyMessage
     let bubbleType: MessageBubbleType
+    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onDoubleTap: (AnyMessage) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
 
     @State private var isAppearing: Bool = true
 
@@ -99,19 +105,33 @@ struct MessagesGroupItemView: View {
                     y: isAppearing ? 40 : 0
                 )
 
-            case .attachment(let url):
-                AttachmentPlaceholder(url: url, isOutgoing: message.base.sender.isCurrentUser)
-                    .id(message.base.id)
-                    .onTapGesture(count: 2) {
-                        onDoubleTap(message)
-                    }
+            case .attachment(let attachmentData):
+                AttachmentPlaceholder(
+                    attachmentData: attachmentData,
+                    isOutgoing: message.base.sender.isCurrentUser,
+                    shouldBlur: shouldBlurPhotos,
+                    onReveal: { onPhotoRevealed(attachmentData) },
+                    onHide: { onPhotoHidden(attachmentData) }
+                )
+                .id(message.base.id)
+                .onTapGesture(count: 2) {
+                    onDoubleTap(message)
+                }
 
-            case .attachments(let urls):
-                MultipleAttachmentsPlaceholder(urls: urls, isOutgoing: message.base.sender.isCurrentUser)
+            case .attachments(let attachmentsData):
+                if let firstData = attachmentsData.first {
+                    AttachmentPlaceholder(
+                        attachmentData: firstData,
+                        isOutgoing: message.base.sender.isCurrentUser,
+                        shouldBlur: shouldBlurPhotos,
+                        onReveal: { onPhotoRevealed(firstData) },
+                        onHide: { onPhotoHidden(firstData) }
+                    )
                     .id(message.base.id)
                     .onTapGesture(count: 2) {
                         onDoubleTap(message)
                     }
+                }
 
             case .update:
                 // Updates are handled at the item level, not here
@@ -141,58 +161,222 @@ struct MessagesGroupItemView: View {
     }
 }
 
-// MARK: - Placeholder Views for Attachments
+// MARK: - Attachment Views
 
 private struct AttachmentPlaceholder: View {
-    let url: URL
+    let attachmentData: String
     let isOutgoing: Bool
+    let shouldBlur: Bool
+    let onReveal: () -> Void
+    let onHide: () -> Void
+
+    @State private var loadedImage: UIImage?
+    @State private var isLoading = true
+    @State private var loadError: Error?
+    @State private var isRevealed: Bool = false
+    @State private var showingSaveSuccess: Bool = false
+    @State private var showingSaveError: Bool = false
+    @State private var uploadStage: PhotoUploadStage?
+
+    private static let loader = RemoteAttachmentLoader()
+
+    private var showBlurOverlay: Bool {
+        shouldBlur && !isOutgoing && !isRevealed
+    }
+
+    private var canShowContextMenu: Bool {
+        loadedImage != nil && !showBlurOverlay
+    }
+
+    private var showUploadProgress: Bool {
+        guard isOutgoing, let stage = uploadStage else { return false }
+        return stage.isInProgress
+    }
 
     var body: some View {
-        HStack {
-            if isOutgoing { Spacer() }
+        Group {
+            if let image = loadedImage {
+                ZStack {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
 
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.2))
-                .frame(width: 200, height: 150)
-                .overlay(
-                    VStack {
-                        Image(systemName: "photo")
-                            .font(.largeTitle)
-                            .foregroundColor(.gray)
-                        Text("Attachment")
-                            .font(.caption)
-                            .foregroundColor(.gray)
+                    if showBlurOverlay {
+                        PhotoBlurOverlayView(image: image) {
+                            withAnimation(.easeOut(duration: 0.2)) {
+                                isRevealed = true
+                            }
+                            onReveal()
+                        }
                     }
-                )
 
-            if !isOutgoing { Spacer() }
+                    if showUploadProgress, let stage = uploadStage {
+                        PhotoUploadProgressOverlay(stage: stage)
+                    }
+                }
+            } else if isLoading {
+                loadingPlaceholder
+            } else {
+                errorPlaceholder
+            }
         }
+        .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
+        .contextMenu {
+            if canShowContextMenu, let image = loadedImage {
+                Button {
+                    saveToPhotoLibrary(image: image)
+                } label: {
+                    Label("Save to Photo Library", systemImage: "square.and.arrow.down")
+                }
+                if isRevealed && !isOutgoing {
+                    Button {
+                        withAnimation(.easeOut(duration: 0.2)) {
+                            isRevealed = false
+                        }
+                        onHide()
+                    } label: {
+                        Label("Hide Photo", systemImage: "eye.slash")
+                    }
+                }
+            }
+        }
+        .sensoryFeedback(.success, trigger: showingSaveSuccess)
+        .sensoryFeedback(.error, trigger: showingSaveError)
+        .task {
+            await loadAttachment()
+        }
+        .task {
+            await pollUploadProgress()
+        }
+    }
+
+    private func pollUploadProgress() async {
+        guard isOutgoing else { return }
+        while !Task.isCancelled {
+            let stage = PhotoUploadProgressTracker.shared.stage(for: attachmentData)
+            await MainActor.run {
+                uploadStage = stage
+            }
+            if stage == nil || stage == .completed || stage == .failed {
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(100))
+        }
+    }
+
+    private func saveToPhotoLibrary(image: UIImage) {
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else {
+                Task { @MainActor in
+                    showingSaveError = true
+                }
+                return
+            }
+
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, error in
+                Task { @MainActor in
+                    if success {
+                        showingSaveSuccess = true
+                    } else {
+                        Log.error("Failed to save photo: \(error?.localizedDescription ?? "Unknown error")")
+                        showingSaveError = true
+                    }
+                }
+            }
+        }
+    }
+
+    private func loadAttachment() async {
+        isLoading = true
+        loadError = nil
+
+        let cacheKey = attachmentData
+
+        // Check ImageCache first (memory + disk with proper eviction)
+        if let cachedImage = await ImageCache.shared.imageAsync(for: cacheKey) {
+            loadedImage = cachedImage
+            isLoading = false
+            return
+        }
+
+        do {
+            let imageData: Data
+
+            if attachmentData.hasPrefix("file://"), let url = URL(string: attachmentData) {
+                imageData = try Data(contentsOf: url)
+            } else if attachmentData.hasPrefix("{") {
+                imageData = try await Self.loader.loadImageData(from: attachmentData)
+            } else if let url = URL(string: attachmentData) {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                imageData = data
+            } else {
+                throw NSError(domain: "AttachmentPlaceholder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid attachment data"])
+            }
+
+            if let image = UIImage(data: imageData) {
+                loadedImage = image
+                // Cache in ImageCache for future loads (handles disk + eviction)
+                ImageCache.shared.cacheImage(image, for: cacheKey)
+            } else {
+                throw NSError(domain: "AttachmentPlaceholder", code: 2, userInfo: [NSLocalizedDescriptionKey: "Failed to create image"])
+            }
+        } catch {
+            loadError = error
+            Log.error("Failed to load attachment: \(error)")
+        }
+
+        isLoading = false
+    }
+
+    private var loadingPlaceholder: some View {
+        Rectangle()
+            .fill(Color.gray.opacity(0.2))
+            .aspectRatio(4 / 3, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
+            .overlay {
+                ProgressView()
+            }
+    }
+
+    private var errorPlaceholder: some View {
+        Rectangle()
+            .fill(Color.gray.opacity(0.2))
+            .aspectRatio(4 / 3, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
+            .overlay {
+                VStack(spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle")
+                        .font(.title2)
+                        .foregroundStyle(.secondary)
+                    Text("Failed to load")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
     }
 }
 
-private struct MultipleAttachmentsPlaceholder: View {
-    let urls: [URL]
-    let isOutgoing: Bool
+// MARK: - Upload Progress Overlay
+
+private struct PhotoUploadProgressOverlay: View {
+    let stage: PhotoUploadStage
 
     var body: some View {
-        HStack {
-            if isOutgoing { Spacer() }
+        ZStack {
+            Color.black.opacity(0.4)
 
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.2))
-                .frame(width: 200, height: 150)
-                .overlay(
-                    VStack {
-                        Image(systemName: "photo.fill.on.rectangle.fill")
-                            .font(.largeTitle)
-                            .foregroundColor(.gray)
-                        Text("\(urls.count) Attachments")
-                            .font(.caption)
-                            .foregroundColor(.gray)
-                    }
-                )
+            VStack(spacing: 8) {
+                ProgressView()
+                    .tint(.white)
+                    .scaleEffect(1.2)
 
-            if !isOutgoing { Spacer() }
+                Text(stage.label)
+                    .font(.caption)
+                    .fontWeight(.medium)
+                    .foregroundStyle(.white)
+            }
         }
     }
 }
@@ -207,9 +391,12 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .normal,
+        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onDoubleTap: { _ in }
+        onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in }
     )
     .padding()
 }
@@ -222,9 +409,12 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .tailed,
+        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onDoubleTap: { _ in }
+        onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in }
     )
     .padding()
 }
@@ -237,9 +427,12 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .unpublished
         ), .existing),
         bubbleType: .normal,
+        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onDoubleTap: { _ in }
+        onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in }
     )
     .padding()
 }
@@ -252,9 +445,68 @@ private struct MultipleAttachmentsPlaceholder: View {
             status: .published
         ), .existing),
         bubbleType: .tailed,
+        shouldBlurPhotos: false,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onDoubleTap: { _ in }
+        onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in }
     )
     .padding()
 }
+
+// swiftlint:disable force_unwrapping
+#Preview("Single Attachment - Incoming") {
+    MessagesGroupItemView(
+        message: .message(Message.mockWithAttachment(
+            url: URL(string: "https://picsum.photos/400/300")!,
+            sender: .mock(isCurrentUser: false),
+            status: .published
+        ), .existing),
+        bubbleType: .tailed,
+        shouldBlurPhotos: false,
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in },
+        onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in }
+    )
+    .padding()
+}
+
+#Preview("Single Attachment - Outgoing") {
+    MessagesGroupItemView(
+        message: .message(Message.mockWithAttachment(
+            url: URL(string: "https://picsum.photos/400/500")!,
+            sender: .mock(isCurrentUser: true),
+            status: .published
+        ), .existing),
+        bubbleType: .tailed,
+        shouldBlurPhotos: false,
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in },
+        onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in }
+    )
+    .padding()
+}
+
+#Preview("Single Attachment - Incoming Blurred") {
+    MessagesGroupItemView(
+        message: .message(Message.mockWithAttachment(
+            url: URL(string: "https://picsum.photos/400/300")!,
+            sender: .mock(isCurrentUser: false),
+            status: .published
+        ), .existing),
+        bubbleType: .tailed,
+        shouldBlurPhotos: true,
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in },
+        onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in print("Photo revealed") },
+        onPhotoHidden: { _ in print("Photo hidden") }
+    )
+    .padding()
+}
+// swiftlint:enable force_unwrapping

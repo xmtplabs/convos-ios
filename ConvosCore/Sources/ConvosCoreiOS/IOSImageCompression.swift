@@ -89,5 +89,56 @@ public struct IOSImageCompression: ImageCompressionProviding {
         // Compress to PNG
         return resizedImage.pngData()
     }
+
+    public func compressForPhotoAttachment(
+        _ image: UIImage,
+        targetBytes: Int,
+        maxBytes: Int,
+        maxDimension: CGFloat
+    ) -> Data? {
+        let size = image.size
+        guard size.width > 0 && size.height > 0 else { return nil }
+
+        // Check if original image data exceeds max bytes
+        // We estimate by trying a high-quality JPEG first
+        if let initialData = image.jpegData(compressionQuality: 1.0),
+           initialData.count > maxBytes {
+            return nil
+        }
+
+        // Calculate target size maintaining aspect ratio
+        let targetSize: CGSize
+        if size.width <= maxDimension && size.height <= maxDimension {
+            targetSize = size
+        } else {
+            let scaleFactor = maxDimension / max(size.width, size.height)
+            targetSize = CGSize(
+                width: size.width * scaleFactor,
+                height: size.height * scaleFactor
+            )
+        }
+
+        // Resize image using UIGraphicsImageRenderer
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let resizedImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+
+        // Iteratively reduce quality until under target size
+        var quality: CGFloat = 0.85
+        let minQuality: CGFloat = 0.5
+        let qualityStep: CGFloat = 0.05
+
+        var data = resizedImage.jpegData(compressionQuality: quality)
+
+        while let currentData = data,
+              currentData.count > targetBytes,
+              quality > minQuality {
+            quality -= qualityStep
+            data = resizedImage.jpegData(compressionQuality: quality)
+        }
+
+        return data
+    }
 }
 #endif

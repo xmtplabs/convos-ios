@@ -143,6 +143,16 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                        databaseWriter: databaseWriter)
     }
 
+    #if canImport(UIKit)
+    func photoMessageWriter(for conversationId: String) -> any OutgoingPhotoMessageWriterProtocol {
+        OutgoingPhotoMessageWriter(
+            inboxStateManager: inboxStateManager,
+            databaseWriter: databaseWriter,
+            conversationId: conversationId
+        )
+    }
+    #endif
+
     // MARK: - Group Management
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol {

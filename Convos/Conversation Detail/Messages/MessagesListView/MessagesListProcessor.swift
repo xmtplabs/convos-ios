@@ -108,13 +108,48 @@ final class MessagesListProcessor {
                 addedDateSeparator = true
             }
 
+            // Check if this is an attachment message - attachments always get their own group
+            let isAttachment = message.base.content.isAttachment
+
             // Group messages by sender
             // If we added a date separator, always start a new group
-            // Otherwise, only start a new group if the sender changed
+            // Otherwise, only start a new group if the sender changed or this is an attachment
             if addedDateSeparator {
                 // Always start a new group after a date separator
                 currentGroup = [message]
                 currentSenderId = message.base.sender.id
+            } else if isAttachment {
+                // Attachments always get their own group - flush current group first
+                if !currentGroup.isEmpty, let currentId = currentSenderId {
+                    let group = createMessageGroup(
+                        messages: currentGroup,
+                        senderId: currentId,
+                        isLastGroup: false,
+                        isLastGroupSentByCurrentUser: false
+                    )
+                    items.append(group)
+
+                    if case .messages(let messagesGroup) = group, messagesGroup.sender.isCurrentUser {
+                        lastMessageGroupSentByCurrentUserIndex = items.count - 1
+                    }
+                }
+
+                // Add attachment as its own group
+                let attachmentGroup = createMessageGroup(
+                    messages: [message],
+                    senderId: message.base.sender.id,
+                    isLastGroup: false,
+                    isLastGroupSentByCurrentUser: false
+                )
+                items.append(attachmentGroup)
+
+                if case .messages(let messagesGroup) = attachmentGroup, messagesGroup.sender.isCurrentUser {
+                    lastMessageGroupSentByCurrentUserIndex = items.count - 1
+                }
+
+                // Reset group state
+                currentGroup = []
+                currentSenderId = nil
             } else if let currentId = currentSenderId, currentId != message.base.sender.id {
                 // Sender changed, flush the current group
                 let group = createMessageGroup(
@@ -130,6 +165,10 @@ final class MessagesListProcessor {
                     lastMessageGroupSentByCurrentUserIndex = items.count - 1
                 }
 
+                currentGroup = [message]
+                currentSenderId = message.base.sender.id
+            } else if !currentGroup.isEmpty && currentGroup.last?.base.content.isAttachment == true {
+                // Previous message was an attachment, start a new group
                 currentGroup = [message]
                 currentSenderId = message.base.sender.id
             } else {

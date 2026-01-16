@@ -6,7 +6,9 @@
       "Bash(timeout 60 swift test:*)",
       "Bash(git add:*)",
       "mcp__graphite__run_gt_cmd",
-      "Bash(git merge:*)"
+      "Bash(git merge:*)",
+      "Bash(gt add:*)",
+      "Bash(gt continue:*)"
     ]
   },
   "enableAllProjectMcpServers": true,

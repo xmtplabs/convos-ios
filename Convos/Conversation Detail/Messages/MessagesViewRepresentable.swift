@@ -7,12 +7,15 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let invite: Invite
     let onUserInteraction: () -> Void
     let hasLoadedAllMessages: Bool
+    let shouldBlurPhotos: Bool
     let onTapAvatar: (ConversationMember) -> Void
     let onLoadPreviousMessages: () -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onDoubleTap: (AnyMessage) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
     let bottomBarHeight: CGFloat
 
     func makeUIViewController(context: Context) -> MessagesViewController {
@@ -28,6 +31,9 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onReaction = onReaction
         messagesViewController.onTapReactions = onTapReactions
         messagesViewController.onDoubleTap = onDoubleTap
+        messagesViewController.shouldBlurPhotos = shouldBlurPhotos
+        messagesViewController.onPhotoRevealed = onPhotoRevealed
+        messagesViewController.onPhotoHidden = onPhotoHidden
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,
@@ -48,12 +54,15 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         invite: invite,
         onUserInteraction: {},
         hasLoadedAllMessages: false,
+        shouldBlurPhotos: true,
         onTapAvatar: { _ in },
         onLoadPreviousMessages: {},
         onTapInvite: { _ in },
         onReaction: { _, _ in },
         onTapReactions: { _ in },
         onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in },
         bottomBarHeight: bottomBarHeight
     )
     .ignoresSafeArea()

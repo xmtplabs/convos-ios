@@ -9,4 +9,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onTapAvatar: ((IndexPath) -> Void)? { get set }
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
     var onDoubleTap: ((AnyMessage) -> Void)? { get set }
+    var shouldBlurPhotos: Bool { get set }
+    var onPhotoRevealed: ((String) -> Void)? { get set }
+    var onPhotoHidden: ((String) -> Void)? { get set }
 }

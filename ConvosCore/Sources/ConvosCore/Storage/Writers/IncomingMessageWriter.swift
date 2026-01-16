@@ -97,6 +97,12 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 Log.info(
                     "Updated incoming message with local message \(localMessage.clientMessageId)"
                 )
+            } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id),
+                      existingMessage.hasLocalAttachments {
+                // Message exists with local attachment URLs (outgoing photo) - preserve them
+                Log.info("Preserving local attachments for message \(message.id)")
+                let updatedMessage = message.with(attachmentUrls: existingMessage.attachmentUrls)
+                try updatedMessage.save(db)
             } else {
                 do {
                     try message.save(db)

@@ -137,15 +137,24 @@ extension XMTPiOS.DecodedMessage {
                 update: nil
             )
         case ContentTypeRemoteAttachment:
-            guard let remoteAttachment = content as? RemoteAttachment else {
+            guard let remoteAttachment = contentReply.content as? RemoteAttachment else {
                 throw DecodedMessageDBRepresentationError.mismatchedContentType
             }
+            let stored = StoredRemoteAttachment(
+                url: remoteAttachment.url,
+                contentDigest: remoteAttachment.contentDigest,
+                secret: remoteAttachment.secret,
+                salt: remoteAttachment.salt,
+                nonce: remoteAttachment.nonce,
+                filename: remoteAttachment.filename
+            )
+            let json = (try? stored.toJSON()) ?? remoteAttachment.url
             return DBMessageComponents(
                 messageType: .reply,
                 contentType: .attachments,
                 sourceMessageId: sourceMessageId,
                 emoji: nil,
-                attachmentUrls: [remoteAttachment.url],
+                attachmentUrls: [json],
                 text: nil,
                 update: nil
             )
@@ -184,12 +193,23 @@ extension XMTPiOS.DecodedMessage {
         guard let remoteAttachments = content as? [RemoteAttachment] else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
+        let storedAttachments = remoteAttachments.map { attachment in
+            let stored = StoredRemoteAttachment(
+                url: attachment.url,
+                contentDigest: attachment.contentDigest,
+                secret: attachment.secret,
+                salt: attachment.salt,
+                nonce: attachment.nonce,
+                filename: attachment.filename
+            )
+            return (try? stored.toJSON()) ?? attachment.url
+        }
         return DBMessageComponents(
             messageType: .original,
             contentType: .attachments,
             sourceMessageId: nil,
             emoji: nil,
-            attachmentUrls: remoteAttachments.map { $0.url },
+            attachmentUrls: storedAttachments,
             text: nil,
             update: nil
         )
@@ -200,12 +220,21 @@ extension XMTPiOS.DecodedMessage {
         guard let remoteAttachment = content as? RemoteAttachment else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
+        let stored = StoredRemoteAttachment(
+            url: remoteAttachment.url,
+            contentDigest: remoteAttachment.contentDigest,
+            secret: remoteAttachment.secret,
+            salt: remoteAttachment.salt,
+            nonce: remoteAttachment.nonce,
+            filename: remoteAttachment.filename
+        )
+        let json = (try? stored.toJSON()) ?? remoteAttachment.url
         return DBMessageComponents(
             messageType: .original,
             contentType: .attachments,
             sourceMessageId: nil,
             emoji: nil,
-            attachmentUrls: [remoteAttachment.url],
+            attachmentUrls: [json],
             text: nil,
             update: nil
         )

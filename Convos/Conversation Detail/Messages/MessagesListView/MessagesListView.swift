@@ -6,10 +6,13 @@ struct MessagesListView: View {
     @Binding var messages: [MessagesListItemType]
     let invite: Invite
     let focusCoordinator: FocusCoordinator
+    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onDoubleTap: (AnyMessage) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -43,10 +46,13 @@ struct MessagesListView: View {
                             case .messages(let group):
                                 MessagesGroupView(
                                     group: group,
+                                    shouldBlurPhotos: shouldBlurPhotos,
                                     onTapAvatar: onTapAvatar,
                                     onTapInvite: onTapInvite,
                                     onTapReactions: onTapReactions,
-                                    onDoubleTap: onDoubleTap
+                                    onDoubleTap: onDoubleTap,
+                                    onPhotoRevealed: onPhotoRevealed,
+                                    onPhotoHidden: onPhotoHidden
                                 )
 
                             case .invite(let invite):

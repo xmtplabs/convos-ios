@@ -21,6 +21,7 @@ extension Client: XMTPStaticOperations {}
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
     func prepare(text: String) async throws -> String
+    func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func publish() async throws
     func consentState() throws -> ConsentState
 }
@@ -237,6 +238,13 @@ extension XMTPiOS.Conversation: MessageSender {
 
     public func prepare(text: String) async throws -> String {
         return try await prepareMessage(content: text)
+    }
+
+    public func prepare(remoteAttachment: RemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: remoteAttachment,
+            options: .init(contentType: ContentTypeRemoteAttachment)
+        )
     }
 
     public func publish() async throws {

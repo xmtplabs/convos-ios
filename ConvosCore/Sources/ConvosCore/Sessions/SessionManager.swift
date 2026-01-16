@@ -267,6 +267,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
     }
 
+    public func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol {
+        PhotoPreferencesRepository(databaseReader: databaseReader)
+    }
+
+    public func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol {
+        PhotoPreferencesWriter(databaseWriter: databaseWriter)
+    }
+
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
         ConversationsRepository(dbReader: databaseReader, consent: consent)
     }

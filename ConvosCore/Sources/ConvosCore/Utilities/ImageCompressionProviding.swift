@@ -32,6 +32,22 @@ public protocol ImageCompressionProviding: Sendable {
         _ image: UIImage,
         maxSize: CGSize
     ) -> Data?
+
+    /// Compresses an image for photo attachment sending with target file size.
+    /// Uses iterative quality reduction to achieve target size while maintaining quality.
+    /// EXIF metadata is automatically stripped since UIImage doesn't preserve it.
+    /// - Parameters:
+    ///   - image: The original UIImage to compress
+    ///   - targetBytes: Target file size in bytes (default: 1MB)
+    ///   - maxBytes: Maximum allowed input size (default: 10MB). Returns nil if exceeded.
+    ///   - maxDimension: Maximum dimension for resizing (default: 2048px for large screens)
+    /// - Returns: JPEG data under target size, or nil if compression fails or input too large
+    func compressForPhotoAttachment(
+        _ image: UIImage,
+        targetBytes: Int,
+        maxBytes: Int,
+        maxDimension: CGFloat
+    ) -> Data?
 }
 
 // MARK: - Shared Instance Access
@@ -98,6 +114,18 @@ public enum ImageCompression {
         shared.resizeAndCompressToPNG(
             image,
             maxSize: CGSize(width: cacheOptimizedSize, height: cacheOptimizedSize)
+        )
+    }
+
+    /// Compresses an image for photo attachment sending with target file size of 1MB.
+    /// - Parameter image: The image to compress
+    /// - Returns: JPEG data under 1MB, or nil if compression fails or input exceeds 10MB
+    public static func compressForPhotoAttachment(_ image: UIImage) -> Data? {
+        shared.compressForPhotoAttachment(
+            image,
+            targetBytes: 1_000_000,
+            maxBytes: 10_000_000,
+            maxDimension: 2048
         )
     }
 

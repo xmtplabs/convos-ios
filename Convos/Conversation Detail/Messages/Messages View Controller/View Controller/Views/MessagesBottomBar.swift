@@ -11,6 +11,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Binding var displayName: String
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
+    @Binding var selectedAttachmentImage: UIImage?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -30,7 +31,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var isExpanded: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @State private var selectedPhoto: PhotosPickerItem?
-    @State private var selectedAttachmentImage: UIImage?
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
     @Namespace private var namespace: Namespace.ID
@@ -153,6 +153,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Previewable @State var profile: Profile = .mock()
     @Previewable @State var profileName: String = ""
     @Previewable @State var messageText: String = ""
+    @Previewable @State var selectedAttachmentImage: UIImage?
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
     @Previewable @State var isPhotoPickerPresented: Bool = false
@@ -168,12 +169,15 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             invite: .mock(),
             onUserInteraction: {},
             hasLoadedAllMessages: true,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onLoadPreviousMessages: {},
             onTapInvite: { _ in },
             onReaction: { _, _ in },
             onTapReactions: { _ in },
             onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in },
             bottomBarHeight: bottomBarHeight
         )
         .ignoresSafeArea()
@@ -183,6 +187,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             profile: profile,
             displayName: $profileName,
             messageText: $messageText,
+            selectedAttachmentImage: $selectedAttachmentImage,
             sendButtonEnabled: sendButtonEnabled,
             profileImage: $profileImage,
             isPhotoPickerPresented: $isPhotoPickerPresented,

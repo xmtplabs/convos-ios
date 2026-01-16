@@ -129,6 +129,48 @@ public extension Message {
             reactions: reactions
         )
     }
+
+    static func mockWithAttachment(
+        url: URL,
+        sender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date()
+    ) -> Message {
+        let mockSender = sender ?? .mock(isCurrentUser: false)
+        let id = "mock-message-\(UUID().uuidString)"
+
+        return Message(
+            id: id,
+            conversation: .mock(),
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: .attachment(url.absoluteString),
+            date: date,
+            reactions: []
+        )
+    }
+
+    static func mockWithAttachments(
+        urls: [URL],
+        sender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date()
+    ) -> Message {
+        let mockSender = sender ?? .mock(isCurrentUser: false)
+        let id = "mock-message-\(UUID().uuidString)"
+
+        return Message(
+            id: id,
+            conversation: .mock(),
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: .attachments(urls.map { $0.absoluteString }),
+            date: date,
+            reactions: []
+        )
+    }
 }
 
 public extension ConversationUpdate {

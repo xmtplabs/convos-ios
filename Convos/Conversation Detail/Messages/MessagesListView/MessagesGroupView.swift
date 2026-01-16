@@ -3,10 +3,13 @@ import SwiftUI
 
 struct MessagesGroupView: View {
     let group: MessagesGroup
+    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onDoubleTap: (AnyMessage) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
 
     @State private var isAppearing: Bool = true
 
@@ -60,9 +63,12 @@ struct MessagesGroupView: View {
                     MessagesGroupItemView(
                         message: message,
                         bubbleType: bubbleType,
+                        shouldBlurPhotos: shouldBlurPhotos,
                         onTapAvatar: onTapAvatar,
                         onTapInvite: onTapInvite,
-                        onDoubleTap: onDoubleTap
+                        onDoubleTap: onDoubleTap,
+                        onPhotoRevealed: onPhotoRevealed,
+                        onPhotoHidden: onPhotoHidden
                     )
                     .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
@@ -149,10 +155,13 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockIncoming,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in }
         )
         .padding()
     }
@@ -163,10 +172,13 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockOutgoing,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in }
         )
         .padding()
     }
@@ -177,10 +189,13 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockMixed,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in }
         )
         .padding()
     }
@@ -191,10 +206,13 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockIncomingWithReactions,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in }
         )
         .padding()
     }
@@ -205,10 +223,13 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockOutgoingWithReactions,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in }
         )
         .padding()
     }

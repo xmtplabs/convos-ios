@@ -136,6 +136,15 @@ final class MessagesViewController: UIViewController {
     var onReaction: ((String, String) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onDoubleTap: ((AnyMessage) -> Void)?
+    var onPhotoRevealed: ((String) -> Void)?
+    var onPhotoHidden: ((String) -> Void)?
+    var shouldBlurPhotos: Bool = true {
+        didSet {
+            guard oldValue != shouldBlurPhotos else { return }
+            dataSource.shouldBlurPhotos = shouldBlurPhotos
+            collectionView.reloadData()
+        }
+    }
 
     private var currentReactionMessageId: String?
     private var reactionCancellable: AnyCancellable?
@@ -256,6 +265,12 @@ final class MessagesViewController: UIViewController {
         dataSource.onDoubleTap = { [weak self] message in
             guard let self = self else { return }
             self.onDoubleTap?(message)
+        }
+        dataSource.onPhotoRevealed = { [weak self] attachmentKey in
+            self?.onPhotoRevealed?(attachmentKey)
+        }
+        dataSource.onPhotoHidden = { [weak self] attachmentKey in
+            self?.onPhotoHidden?(attachmentKey)
         }
 
         setupImmediateTouchGesture()

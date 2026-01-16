@@ -308,9 +308,7 @@ extension Array where Element == MessageWithDetails {
                     }
                     messageContent = .invite(invite)
                 case .attachments:
-                    messageContent = .attachments(dbMessage.attachmentUrls.compactMap { urlString in
-                        URL(string: urlString)
-                    })
+                    messageContent = .attachments(dbMessage.attachmentUrls)
                 case .emoji:
                     messageContent = .emoji(dbMessage.emoji ?? "")
                 case .update:

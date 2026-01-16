@@ -18,6 +18,8 @@ class ConversationViewModel {
     private let reactionWriter: any ReactionWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private let messagesListRepository: any MessagesListRepositoryProtocol
+    private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
+    private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
@@ -97,6 +99,7 @@ class ConversationViewModel {
     }
     var isConversationImageDirty: Bool = false
     var messageText: String = ""
+    var selectedAttachmentImage: UIImage?
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
@@ -135,8 +138,9 @@ class ConversationViewModel {
         isCurrentUserSuperAdmin
     }
     var sendButtonEnabled: Bool {
-        !messageText.isEmpty
+        !messageText.isEmpty || selectedAttachmentImage != nil
     }
+    private(set) var isSendingPhoto: Bool = false
     var explodeState: ExplodeState = .ready
 
     var presentingConversationSettings: Bool = false
@@ -145,6 +149,14 @@ class ConversationViewModel {
     var presentingNewConversationForInvite: NewConversationViewModel?
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
+    var presentingPhotoPreferenceSheet: Bool = false
+
+    private(set) var autoRevealPhotos: Bool = false
+    private(set) var hasRevealedFirstPhoto: Bool = false
+
+    var shouldBlurPhotos: Bool {
+        !autoRevealPhotos
+    }
 
     // MARK: - Onboarding
 
@@ -208,6 +220,9 @@ class ConversationViewModel {
             myProfileRepository: myProfileRepository
         )
 
+        self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
+        self.photoPreferencesWriter = session.photoPreferencesWriter()
+
         do {
             self.messages = try messagesListRepository.fetchInitial()
             self.conversation = try conversationRepository.fetchConversation() ?? conversation
@@ -224,6 +239,7 @@ class ConversationViewModel {
         Log.info("Created for conversation: \(conversation.id)")
 
         observe()
+        loadPhotoPreferences()
 
         startOnboarding()
     }
@@ -258,6 +274,9 @@ class ConversationViewModel {
             myProfileRepository: myProfileRepository
         )
 
+        self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
+        self.photoPreferencesWriter = session.photoPreferencesWriter()
+
         do {
             self.messages = try messagesListRepository.fetchInitial()
             self.conversation = try conversationRepository.fetchConversation() ?? conversation
@@ -269,12 +288,27 @@ class ConversationViewModel {
         Log.info("Created for draft conversation: \(conversation.id)")
 
         observe()
+        loadPhotoPreferences()
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
     }
 
     // MARK: - Private
+
+    private func loadPhotoPreferences() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                if let prefs = try await photoPreferencesRepository.preferences(for: conversation.id) {
+                    self.autoRevealPhotos = prefs.autoReveal
+                    self.hasRevealedFirstPhoto = prefs.hasRevealedFirst
+                }
+            } catch {
+                Log.error("Error loading photo preferences: \(error)")
+            }
+        }
+    }
 
     private func observe() {
         messagesListRepository.messagesListPublisher
@@ -291,6 +325,15 @@ class ConversationViewModel {
                 guard let self else { return }
                 self.conversation = conversation
                 self.loadConversationImage(for: conversation)
+            }
+            .store(in: &cancellables)
+        photoPreferencesRepository.preferencesPublisher(for: conversation.id)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] prefs in
+                guard let self else { return }
+                self.autoRevealPhotos = prefs?.autoReveal ?? false
+                self.hasRevealedFirstPhoto = prefs?.hasRevealedFirst ?? false
             }
             .store(in: &cancellables)
     }
@@ -451,16 +494,43 @@ class ConversationViewModel {
     }
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
-        guard !messageText.isEmpty else { return }
+        let hasText = !messageText.isEmpty
+        let hasAttachment = selectedAttachmentImage != nil
+
+        guard hasText || hasAttachment else { return }
+
         let prevMessageText = messageText
+        let prevAttachmentImage = selectedAttachmentImage
+
         messageText = ""
+        selectedAttachmentImage = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
+
         Task { [weak self] in
             guard let self else { return }
-            do {
-                try await outgoingMessageWriter.send(text: prevMessageText)
-            } catch {
-                Log.error("Error sending message: \(error)")
+
+            if let attachmentImage = prevAttachmentImage {
+                do {
+                    isSendingPhoto = true
+                    let photoWriter = messagingService.photoMessageWriter(for: conversation.id)
+                    try await photoWriter.send(image: attachmentImage)
+                    isSendingPhoto = false
+                } catch {
+                    Log.error("Error sending photo: \(error)")
+                    isSendingPhoto = false
+                }
+            }
+
+            if hasText {
+                do {
+                    // Use direct message writer to ensure proper sequencing when
+                    // sending both photo and text. ConversationStateManager.send()
+                    // queues messages asynchronously which can cause race conditions.
+                    let messageWriter = messagingService.messageWriter(for: conversation.id)
+                    try await messageWriter.send(text: prevMessageText)
+                } catch {
+                    Log.error("Error sending message: \(error)")
+                }
             }
         }
     }
@@ -568,6 +638,33 @@ class ConversationViewModel {
 
     func onProfileSettings() {
         presentingProfileSettings = true
+    }
+
+    func onPhotoRevealed() {
+        if !hasRevealedFirstPhoto {
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await photoPreferencesWriter.setHasRevealedFirst(true, for: conversation.id)
+                    await MainActor.run {
+                        self.presentingPhotoPreferenceSheet = true
+                    }
+                } catch {
+                    Log.error("Error setting hasRevealedFirst: \(error)")
+                }
+            }
+        }
+    }
+
+    func setAutoReveal(_ autoReveal: Bool) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await photoPreferencesWriter.setAutoReveal(autoReveal, for: conversation.id)
+            } catch {
+                Log.error("Error setting autoReveal: \(error)")
+            }
+        }
     }
 
     func remove(member: ConversationMember) {

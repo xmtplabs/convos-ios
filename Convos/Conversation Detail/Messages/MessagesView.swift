@@ -18,6 +18,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var conversationImage: UIImage?
     @Binding var displayName: String
     @Binding var messageText: String
+    @Binding var selectedAttachmentImage: UIImage?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -35,6 +36,8 @@ struct MessagesView<BottomBarContent: View>: View {
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
+    let shouldBlurPhotos: Bool
+    let onPhotoRevealed: () -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -48,12 +51,15 @@ struct MessagesView<BottomBarContent: View>: View {
                 invite: invite,
                 onUserInteraction: onUserInteraction,
                 hasLoadedAllMessages: hasLoadedAllMessages,
+                shouldBlurPhotos: shouldBlurPhotos,
                 onTapAvatar: onTapAvatar,
                 onLoadPreviousMessages: onLoadPreviousMessages,
                 onTapInvite: onTapInvite,
                 onReaction: onReaction,
                 onTapReactions: onTapReactions,
                 onDoubleTap: onDoubleTap,
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoHidden: { _ in },
                 bottomBarHeight: bottomBarHeight
             )
             .ignoresSafeArea()
@@ -63,6 +69,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 profile: profile,
                 displayName: $displayName,
                 messageText: $messageText,
+                selectedAttachmentImage: $selectedAttachmentImage,
                 sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
                 isPhotoPickerPresented: $isPhotoPickerPresented,
