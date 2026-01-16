@@ -25,6 +25,7 @@ extension View {
 private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     @State private var sheetHeight: CGFloat = 0
+    @State private var presentationID: UUID = UUID()
     let onDismiss: (() -> Void)?
     let sheetContent: () -> SheetContent
 
@@ -45,8 +46,14 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
                             sheetHeight = height
                         }
                         .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
+                        .id(presentationID)
                 }
             )
+            .onChange(of: isPresented) { _, newValue in
+                if newValue {
+                    presentationID = UUID()
+                }
+            }
     }
 }
 
@@ -75,6 +82,7 @@ extension View {
 private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent: View>: ViewModifier {
     @Binding var item: Item?
     @State private var sheetHeight: CGFloat = 0
+    @State private var presentationID: UUID = UUID()
     let onDismiss: (() -> Void)?
     let sheetContent: (Item) -> SheetContent
 
@@ -94,8 +102,14 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
                             sheetHeight = height
                         }
                         .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
+                        .id(presentationID)
                 }
             )
+            .onChange(of: self.item?.id) { _, newValue in
+                if newValue != nil {
+                    presentationID = UUID()
+                }
+            }
     }
 }
 
