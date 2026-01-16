@@ -7,6 +7,9 @@ on:
   push:
     branches: ['main', 'dev']
 
+env:
+  SWIFTLINT_VERSION: '0.62.2'
+
 jobs:
   SwiftLint:
     name: SwiftLint
@@ -14,8 +17,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
-      - name: Install SwiftLint
-        run: brew install swiftlint
+      - name: Install SwiftLint ${{ env.SWIFTLINT_VERSION }}
+        run: |
+          curl -sL "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip" -o swiftlint.zip
+          unzip -o swiftlint.zip -d swiftlint
+          sudo mv swiftlint/swiftlint /usr/local/bin/swiftlint
+          rm -rf swiftlint swiftlint.zip
+          swiftlint version
 
       - name: Run SwiftLint
         # --strict makes warnings fail the job

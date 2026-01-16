@@ -83,15 +83,25 @@ if ! command -v brew &> /dev/null; then
     exit 1
 fi
 
-# Check and install SwiftLint
+# Check and install SwiftLint (pinned to 0.62.2 for compatibility with project)
+SWIFTLINT_VERSION="0.62.2"
+install_swiftlint() {
+    echo "Installing SwiftLint ${SWIFTLINT_VERSION}..."
+    local tmp_dir=$(mktemp -d)
+    curl -sL "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip" -o "${tmp_dir}/swiftlint.zip"
+    unzip -o "${tmp_dir}/swiftlint.zip" -d "${tmp_dir}"
+    sudo mv "${tmp_dir}/swiftlint" /usr/local/bin/swiftlint
+    rm -rf "${tmp_dir}"
+}
+
 if ! command -v swiftlint &> /dev/null; then
-    echo "Installing SwiftLint..."
-    if ! brew install swiftlint; then
-        echo "❌ Failed to install SwiftLint. Please try installing manually:"
-        echo "  brew install swiftlint"
-        exit 1
-    fi
+    install_swiftlint
+elif [[ "$(swiftlint version)" != "${SWIFTLINT_VERSION}" ]]; then
+    echo "SwiftLint version mismatch. Found $(swiftlint version), expected ${SWIFTLINT_VERSION}."
+    echo "Updating SwiftLint..."
+    install_swiftlint
 fi
+echo "✅ SwiftLint ${SWIFTLINT_VERSION} is installed"
 
 # Check and install SwiftFormat
 if ! command -v swiftformat &> /dev/null; then
