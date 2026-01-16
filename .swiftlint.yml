@@ -87,7 +87,7 @@ explicit_type_interface:
   excluded:
     - local
 
-swiftlint_version: 0.63.0
+swiftlint_version: 0.62.2
 
 implicit_return:
   included:
@@ -138,6 +138,7 @@ custom_rules:
 excluded:
   - .build/
   - "**/.build"
+  - .derivedData/
   - ConvosCore/Tests
   - ConvosTests
   - ConvosTests/Helpers
