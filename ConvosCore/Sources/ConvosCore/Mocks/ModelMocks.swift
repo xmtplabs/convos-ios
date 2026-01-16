@@ -47,7 +47,8 @@ public extension Conversation {
             isDraft: id.hasPrefix("draft-"),
             invite: nil,
             expiresAt: nil,
-            debugInfo: ConversationDebugInfo.empty
+            debugInfo: ConversationDebugInfo.empty,
+            isLocked: false
         )
     }
 
@@ -76,7 +77,8 @@ public extension Conversation {
             isDraft: true,
             invite: nil,
             expiresAt: .distantFuture,
-            debugInfo: .empty
+            debugInfo: .empty,
+            isLocked: false
         )
     }
 }

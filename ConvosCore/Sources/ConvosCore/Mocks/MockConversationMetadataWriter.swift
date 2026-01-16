@@ -14,6 +14,8 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
     public var updatedImages: [(image: ImageType, conversation: Conversation)] = []
     public var updatedExpiresAt: [(expiresAt: Date, conversationId: String)] = []
     public var updatedIncludeImageInPublicPreview: [(enabled: Bool, conversationId: String)] = []
+    public var lockedConversations: [String] = []
+    public var unlockedConversations: [String] = []
 
     public init() {}
 
@@ -63,5 +65,13 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
 
     public func updateIncludeImageInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
         updatedIncludeImageInPublicPreview.append((enabled: enabled, conversationId: conversationId))
+    }
+
+    public func lockConversation(for conversationId: String) async throws {
+        lockedConversations.append(conversationId)
+    }
+
+    public func unlockConversation(for conversationId: String) async throws {
+        unlockedConversations.append(conversationId)
     }
 }

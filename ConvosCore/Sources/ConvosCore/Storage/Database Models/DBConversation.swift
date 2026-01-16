@@ -23,6 +23,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let includeImageInPublicPreview: Column = Column(CodingKeys.includeImageInPublicPreview)
         static let expiresAt: Column = Column(CodingKeys.expiresAt)
         static let debugInfo: Column = Column(CodingKeys.debugInfo)
+        static let isLocked: Column = Column(CodingKeys.isLocked)
     }
 
     let id: String
@@ -41,6 +42,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let includeImageInPublicPreview: Bool
     let expiresAt: Date?
     let debugInfo: ConversationDebugInfo
+    let isLocked: Bool
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
         [Columns.creatorId, Columns.id],
@@ -170,7 +172,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -191,7 +194,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -212,7 +216,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -233,7 +238,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -254,7 +260,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -277,7 +284,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -298,7 +306,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -319,7 +328,8 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -382,7 +392,48 @@ extension DBConversation {
             publicImageURLString: publicImageURLString,
             includeImageInPublicPreview: includeImageInPublicPreview,
             expiresAt: expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
+        )
+    }
+
+    func with(isLocked: Bool) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked
+        )
+    }
+
+    func with(inviteTag: String) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 

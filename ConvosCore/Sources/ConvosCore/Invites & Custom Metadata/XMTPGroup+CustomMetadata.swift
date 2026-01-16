@@ -126,6 +126,14 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// Rotates the invite tag, invalidating all existing invites for this conversation.
+    /// This is used when locking a conversation to ensure no outstanding invites can be used.
+    public func rotateInviteTag() async throws {
+        var customMetadata = try currentCustomMetadata
+        customMetadata.tag = try generateSecureRandomString(length: 10)
+        try await updateMetadata(customMetadata)
+    }
+
     /// Generates a cryptographically secure random string of specified length
     /// using alphanumeric characters (a-z, A-Z, 0-9)
     private func generateSecureRandomString(length: Int) throws -> String {

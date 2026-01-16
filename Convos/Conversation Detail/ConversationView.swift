@@ -14,6 +14,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var presentingShareView: Bool = false
+    @State private var showingLockedInfo: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -102,30 +103,39 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                switch messagesTopBarTrailingItem {
-                case .share:
+                if viewModel.isLocked {
                     Button {
-                        presentingShareView = true
+                        showingLockedInfo = true
                     } label: {
-                        Image(systemName: "square.and.arrow.up")
-                            .foregroundStyle(.colorTextPrimary)
+                        Image(systemName: "lock.fill")
+                            .foregroundStyle(.colorTextSecondary)
                     }
-                    .fullScreenCover(isPresented: $presentingShareView) {
-                        ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
-                            .presentationBackground(.clear)
+                } else {
+                    switch messagesTopBarTrailingItem {
+                    case .share:
+                        Button {
+                            presentingShareView = true
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(.colorTextPrimary)
+                        }
+                        .fullScreenCover(isPresented: $presentingShareView) {
+                            ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
+                                .presentationBackground(.clear)
+                        }
+                        .disabled(!messagesTopBarTrailingItemEnabled)
+                        .transaction { transaction in
+                            transaction.disablesAnimations = true
+                        }
+                    case .scan:
+                        Button {
+                            onScanInviteCode()
+                        } label: {
+                            Image(systemName: "viewfinder")
+                        }
+                        .buttonBorderShape(.circle)
+                        .disabled(!messagesTopBarTrailingItemEnabled)
                     }
-                    .disabled(!messagesTopBarTrailingItemEnabled)
-                    .transaction { transaction in
-                        transaction.disablesAnimations = true
-                    }
-                case .scan:
-                    Button {
-                        onScanInviteCode()
-                    } label: {
-                        Image(systemName: "viewfinder")
-                    }
-                    .buttonBorderShape(.circle)
-                    .disabled(!messagesTopBarTrailingItemEnabled)
                 }
             }
         }
@@ -154,6 +164,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ReactionsDrawerView(message: message) { reaction in
                 viewModel.removeReaction(reaction, from: message)
             }
+        }
+        .selfSizingSheet(isPresented: $showingLockedInfo) {
+            LockedConvoInfoView(
+                isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
+                onUnlock: {
+                    viewModel.toggleLock()
+                    showingLockedInfo = false
+                },
+                onDismiss: {
+                    showingLockedInfo = false
+                }
+            )
+            .background(.colorBackgroundRaised)
         }
     }
 }

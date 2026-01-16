@@ -93,7 +93,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 publicImageURLString: nil,
                 includeImageInPublicPreview: false,
                 expiresAt: signedInvite.conversationExpiresAt,
-                debugInfo: .empty
+                debugInfo: .empty,
+                isLocked: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -137,6 +138,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         inboxId: String,
         withLatestMessages: Bool = false
     ) async throws -> DBConversation {
+        // Sync group to get latest state including member permission levels
+        try await conversation.sync()
+
         // Extract conversation metadata
         let metadata = try await extractConversationMetadata(from: conversation)
         let members = try await conversation.members
@@ -194,17 +198,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let imageURLString: String?
         let expiresAt: Date?
         let debugInfo: ConversationDebugInfo
+        let isLocked: Bool
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
         let debugInfo = try await conversation.getDebugInformation().toDBDebugInfo()
+        let permissionPolicy = try conversation.permissionPolicySet()
+        let isLocked = permissionPolicy.addMemberPolicy == .deny
         return ConversationMetadata(
             kind: .group,
             name: try conversation.name(),
             description: try conversation.description(),
             imageURLString: try conversation.imageUrl(),
             expiresAt: try conversation.expiresAt,
-            debugInfo: debugInfo
+            debugInfo: debugInfo,
+            isLocked: isLocked
         )
     }
 
@@ -237,7 +245,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             publicImageURLString: nil,
             includeImageInPublicPreview: false,
             expiresAt: metadata.expiresAt,
-            debugInfo: metadata.debugInfo
+            debugInfo: metadata.debugInfo,
+            isLocked: metadata.isLocked
         )
     }
 

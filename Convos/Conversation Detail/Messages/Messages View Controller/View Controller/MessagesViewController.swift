@@ -384,7 +384,7 @@ extension MessagesViewController {
 
         // Add invite or conversation info at the beginning if all messages are loaded
         if hasLoadedAllMessages {
-            if conversation.creator.isCurrentUser {
+            if conversation.creator.isCurrentUser && !conversation.isLocked {
                 cells.insert(.invite(invite), at: 0)
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)

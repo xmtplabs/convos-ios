@@ -4,6 +4,8 @@ import GRDB
 protocol InviteWriterProtocol {
     func generate(for conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool) async throws -> Invite
     func update(for conversationId: String, name: String?, description: String?, imageURL: String?) async throws -> Invite
+    func regenerate(for conversationId: String) async throws -> Invite
+    func delete(for conversationId: String) async throws
 }
 
 enum InviteWriterError: Error {
@@ -109,5 +111,26 @@ class InviteWriter: InviteWriterProtocol {
             try updatedInvite.save(db)
         }
         return updatedInvite.hydrateInvite()
+    }
+
+    func regenerate(for conversationId: String) async throws -> Invite {
+        try await delete(for: conversationId)
+
+        guard let conversation = try await databaseWriter.read({ db in
+            try DBConversation.fetchOne(db, key: conversationId)
+        }) else {
+            throw InviteWriterError.conversationNotFound
+        }
+
+        return try await generate(for: conversation, expiresAt: nil, expiresAfterUse: false)
+    }
+
+    func delete(for conversationId: String) async throws {
+        try await databaseWriter.write { db in
+            try DBInvite
+                .filter(DBInvite.Columns.conversationId == conversationId)
+                .deleteAll(db)
+        }
+        Log.info("Deleted invite for conversation: \(conversationId)")
     }
 }

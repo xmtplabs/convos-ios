@@ -18,6 +18,8 @@ public protocol ConversationMetadataWriterProtocol {
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
     func updateIncludeImageInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
+    func lockConversation(for conversationId: String) async throws
+    func unlockConversation(for conversationId: String) async throws
 }
 
 // MARK: - Conversation Metadata Errors
@@ -535,5 +537,56 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
         }
 
         Log.info("Demoted \(memberInboxId) from super admin in conversation \(conversationId)")
+    }
+
+    // MARK: - Lock/Unlock Conversation
+
+    func lockConversation(for conversationId: String) async throws {
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        try await group.updateAddMemberPermission(newPermissionOption: .deny)
+        try await group.rotateInviteTag()
+
+        try await databaseWriter.write { db in
+            guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
+                throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+            }
+            let updatedConversation = localConversation
+                .with(isLocked: true)
+                .with(inviteTag: try group.inviteTag)
+            try updatedConversation.save(db)
+            Log.info("Locked conversation \(conversationId) in local database")
+        }
+
+        _ = try await inviteWriter.regenerate(for: conversationId)
+
+        Log.info("Locked conversation \(conversationId)")
+    }
+
+    func unlockConversation(for conversationId: String) async throws {
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        try await group.updateAddMemberPermission(newPermissionOption: .allow)
+
+        try await databaseWriter.write { db in
+            guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
+                throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+            }
+            let updatedConversation = localConversation.with(isLocked: false)
+            try updatedConversation.save(db)
+            Log.info("Unlocked conversation \(conversationId) in local database")
+        }
+
+        Log.info("Unlocked conversation \(conversationId)")
     }
 }

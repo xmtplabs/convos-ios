@@ -190,7 +190,8 @@ struct PendingInviteRepositoryTests {
             publicImageURLString: nil,
             includeImageInPublicPreview: false,
             expiresAt: nil,
-            debugInfo: .empty
+            debugInfo: .empty,
+            isLocked: false
         )
     }
 }

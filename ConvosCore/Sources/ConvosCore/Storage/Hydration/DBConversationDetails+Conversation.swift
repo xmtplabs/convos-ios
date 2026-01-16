@@ -51,7 +51,8 @@ extension DBConversationDetails {
             isDraft: conversation.isDraft,
             invite: conversationInvite?.hydrateInvite(),
             expiresAt: conversation.expiresAt,
-            debugInfo: conversation.debugInfo
+            debugInfo: conversation.debugInfo,
+            isLocked: conversation.isLocked
         )
     }
 }

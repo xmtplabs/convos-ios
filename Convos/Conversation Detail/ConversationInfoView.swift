@@ -6,6 +6,8 @@ struct FeatureRowItem<AccessoryView: View>: View {
     let symbolName: String
     let title: String
     let subtitle: String?
+    var iconBackgroundColor: Color = .colorOrange
+    var iconForegroundColor: Color = .white
     @ViewBuilder let accessoryView: () -> AccessoryView
 
     var image: Image {
@@ -23,12 +25,12 @@ struct FeatureRowItem<AccessoryView: View>: View {
                     .font(.headline)
                     .padding(.horizontal, DesignConstants.Spacing.step2x)
                     .padding(.vertical, 10.0)
-                    .foregroundStyle(.white)
+                    .foregroundStyle(iconForegroundColor)
             }
             .frame(width: 40.0, height: 40.0)
             .background(
                 RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                    .fill(.colorOrange)
+                    .fill(iconBackgroundColor)
                     .aspectRatio(1.0, contentMode: .fit)
             )
 
@@ -41,6 +43,7 @@ struct FeatureRowItem<AccessoryView: View>: View {
                     Text(subtitle)
                         .font(.footnote)
                         .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
                 }
             }
 
@@ -65,6 +68,8 @@ struct ConversationInfoView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeConfirmation: Bool = false
     @State private var presentingEditView: Bool = false
+    @State private var showingLockConfirmation: Bool = false
+    @State private var showingLockedInfo: Bool = false
     @State private var exportedLogsURL: URL?
 
     private let maxMembersToShow: Int = 6
@@ -74,6 +79,66 @@ struct ConversationInfoView: View {
     }
     private var showViewAllMembers: Bool {
         viewModel.conversation.members.count > maxMembersToShow
+    }
+
+    @ViewBuilder
+    private var convoCodeRow: some View {
+        let subtitle = if viewModel.isLocked {
+            "None"
+        } else {
+            "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
+        }
+
+        FeatureRowItem(
+            imageName: nil,
+            symbolName: "qrcode",
+            title: "Convo code",
+            subtitle: subtitle,
+            iconBackgroundColor: .colorFillMinimal,
+            iconForegroundColor: .colorTextPrimary
+        ) {
+            if !viewModel.isLocked, let inviteURL = viewModel.invite.inviteURL {
+                ShareLink(item: inviteURL) {
+                    Image(systemName: "square.and.arrow.up")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var lockRow: some View {
+        FeatureRowItem(
+            imageName: nil,
+            symbolName: "lock.fill",
+            title: "Lock",
+            subtitle: "Nobody new can join",
+            iconBackgroundColor: .colorFillMinimal,
+            iconForegroundColor: .colorTextPrimary
+        ) {
+            if viewModel.isCurrentUserSuperAdmin {
+                Toggle("", isOn: Binding(
+                    get: { viewModel.isLocked },
+                    set: { newValue in
+                        if newValue {
+                            showingLockConfirmation = true
+                        } else {
+                            showingLockedInfo = true
+                        }
+                    }
+                ))
+                .labelsHidden()
+            } else {
+                Toggle("", isOn: .constant(viewModel.isLocked))
+                    .labelsHidden()
+                    .disabled(true)
+                    .onTapGesture {
+                        if viewModel.isLocked {
+                            showingLockedInfo = true
+                        }
+                    }
+            }
+        }
     }
 
     var body: some View {
@@ -130,50 +195,14 @@ struct ConversationInfoView: View {
                 }
 
                 Section {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)
-                                .font(.caption)
-                                .foregroundStyle(.colorTextSecondary)
-                            Text(viewModel.invite.urlSlug)
-                                .foregroundStyle(.colorTextPrimary)
-                                .lineLimit(1)
-                        }
-
-                        Spacer()
-
-                        if let inviteURL = viewModel.invite.inviteURL {
-                            ShareLink(item: inviteURL) {
-                                Image(systemName: "square.and.arrow.up")
-                                    .foregroundStyle(.colorTextSecondary)
-                            }
-                        }
-                    }
+                    convoCodeRow
 
                     Toggle(isOn: $viewModel.includeImageInPublicPreview) {
                         Text("Show photo in preview")
                     }
                     .disabled(viewModel.isUpdatingPublicPreview)
 
-                    HStack {
-                        Text("Maximum members")
-
-                        Spacer()
-                        Text("∞")
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                    .opacity(0.5)
-                    .disabled(true)
-
-                    Toggle(isOn: $viewModel.joinEnabled) {
-                        Text("Lock membership")
-                    }
-                    .opacity(0.5)
-                    .disabled(true)
-                } header: {
-                    Text("Invitations")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.colorTextSecondary)
+                    lockRow
                 } footer: {
                     Text("No one new can join the convo when it's locked")
                         .foregroundStyle(.colorTextSecondary)
@@ -349,6 +378,31 @@ struct ConversationInfoView: View {
                         dismiss()
                     }
                 }
+            }
+            .selfSizingSheet(isPresented: $showingLockConfirmation) {
+                LockConvoConfirmationView(
+                    onLock: {
+                        viewModel.toggleLock()
+                        showingLockConfirmation = false
+                    },
+                    onCancel: {
+                        showingLockConfirmation = false
+                    }
+                )
+                .background(.colorBackgroundRaised)
+            }
+            .selfSizingSheet(isPresented: $showingLockedInfo) {
+                LockedConvoInfoView(
+                    isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
+                    onUnlock: {
+                        viewModel.toggleLock()
+                        showingLockedInfo = false
+                    },
+                    onDismiss: {
+                        showingLockedInfo = false
+                    }
+                )
+                .background(.colorBackgroundRaised)
             }
         }
     }

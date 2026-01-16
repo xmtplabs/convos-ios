@@ -116,6 +116,24 @@ class ConversationViewModel {
     var showsExplodeNowButton: Bool {
         conversation.members.count > 1 && conversation.creator.isCurrentUser
     }
+
+    // MARK: - Lock Conversation
+
+    var isLocked: Bool {
+        conversation.isLocked
+    }
+
+    var currentUserMember: ConversationMember? {
+        conversation.members.first(where: { $0.isCurrentUser })
+    }
+
+    var isCurrentUserSuperAdmin: Bool {
+        currentUserMember?.role == .superAdmin
+    }
+
+    var canToggleLock: Bool {
+        isCurrentUserSuperAdmin
+    }
     var sendButtonEnabled: Bool {
         !messageText.isEmpty
     }
@@ -600,6 +618,25 @@ class ConversationViewModel {
                 }
             } catch {
                 Log.error("Error leaving convo: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func toggleLock() {
+        guard canToggleLock else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                if isLocked {
+                    try await metadataWriter.unlockConversation(for: conversation.id)
+                    Log.info("Unlocked conversation: \(conversation.id)")
+                } else {
+                    try await metadataWriter.lockConversation(for: conversation.id)
+                    Log.info("Locked conversation: \(conversation.id)")
+                }
+            } catch {
+                Log.error("Error toggling lock for conversation: \(error.localizedDescription)")
             }
         }
     }

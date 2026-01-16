@@ -61,7 +61,8 @@ struct SessionManagerTests {
                 publicImageURLString: nil,
                 includeImageInPublicPreview: false,
                 expiresAt: nil,
-                debugInfo: .empty
+                debugInfo: .empty,
+                isLocked: false
             ).insert(db)
         }
 
@@ -122,7 +123,8 @@ struct SessionManagerTests {
                 publicImageURLString: nil,
                 includeImageInPublicPreview: false,
                 expiresAt: nil,
-                debugInfo: .empty
+                debugInfo: .empty,
+                isLocked: false
             ).insert(db)
         }
 
@@ -157,7 +159,8 @@ struct SessionManagerTests {
                 publicImageURLString: nil,
                 includeImageInPublicPreview: false,
                 expiresAt: nil,
-                debugInfo: .empty
+                debugInfo: .empty,
+                isLocked: false
             ).insert(db)
         }
 
@@ -200,7 +203,8 @@ struct SessionManagerTests {
                 publicImageURLString: nil,
                 includeImageInPublicPreview: false,
                 expiresAt: nil,
-                debugInfo: .empty
+                debugInfo: .empty,
+                isLocked: false
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -221,7 +225,8 @@ struct SessionManagerTests {
                 publicImageURLString: nil,
                 includeImageInPublicPreview: false,
                 expiresAt: nil,
-                debugInfo: .empty
+                debugInfo: .empty,
+                isLocked: false
             ).insert(db)
         }
 
@@ -268,7 +273,8 @@ struct SessionManagerTests {
                 publicImageURLString: nil,
                 includeImageInPublicPreview: false,
                 expiresAt: nil,
-                debugInfo: .empty
+                debugInfo: .empty,
+                isLocked: false
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -289,7 +295,8 @@ struct SessionManagerTests {
                 publicImageURLString: nil,
                 includeImageInPublicPreview: false,
                 expiresAt: nil,
-                debugInfo: .empty
+                debugInfo: .empty,
+                isLocked: false
             ).insert(db)
         }
 

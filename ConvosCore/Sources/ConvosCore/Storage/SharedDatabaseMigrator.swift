@@ -183,6 +183,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addIsLockedToConversation") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "isLocked", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }
