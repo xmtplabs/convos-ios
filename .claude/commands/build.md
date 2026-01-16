@@ -52,23 +52,24 @@ Build, launch in simulator, and notify when running:
 
 ### Step 2: Build with xcodebuild
 
-Use xcodebuild directly for reliable builds:
+**IMPORTANT:** Always use xcodebuild directly via Bash with `-derivedDataPath .derivedData`. The MCP `build_sim` tool has known issues with app extension targets (NotificationService) failing to find module dependencies.
 
 ```bash
 xcodebuild build \
   -project Convos.xcodeproj \
   -scheme "Convos (Dev)" \
   -destination "platform=iOS Simulator,id=SIMULATOR_ID" \
-  -configuration Dev \
   -derivedDataPath .derivedData
 ```
 
 Replace:
 - `SIMULATOR_ID` with the selected simulator UUID
 - `"Convos (Dev)"` with the requested scheme if different
-- `-configuration Dev` with the appropriate config (Dev, Local, Prod)
 
-**Note:** The `-derivedDataPath .derivedData` flag stores build artifacts locally in each worktree, preventing conflicts when multiple worktrees build the same project simultaneously.
+**Why xcodebuild via Bash:**
+- MCP `build_sim` fails with extension targets (NotificationService can't find ConvosCore modules)
+- Direct xcodebuild works reliably with local `.derivedData` path
+- The `-derivedDataPath .derivedData` flag ensures worktree isolation
 
 ### Step 3: Launch App (for --run mode only)
 
@@ -122,7 +123,7 @@ If the build fails:
 1. Check for Swift compilation errors in the output
 2. Run `swiftlint` to check for lint issues
 3. Verify all dependencies are resolved in Package.resolved
-4. Try cleaning: `xcodebuild clean -scheme "Convos (Dev)" -configuration Dev -derivedDataPath .derivedData`
+4. Try cleaning: `xcodebuild clean -scheme "Convos (Dev)" -derivedDataPath .derivedData`
 5. For persistent module issues, delete `.derivedData` folder entirely: `rm -rf .derivedData`
 
 ## Session Persistence
