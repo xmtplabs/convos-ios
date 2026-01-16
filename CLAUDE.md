@@ -2,6 +2,8 @@
 
 This document contains project-specific conventions and best practices for the Convos iOS codebase.
 
+> **Designers**: If you're a designer using Claude Code, see [.claude/DESIGNER.md](.claude/DESIGNER.md) for simplified instructions and quality gates.
+
 ## Architecture & Organization
 
 ### Project Structure

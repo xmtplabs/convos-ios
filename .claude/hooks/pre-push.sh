@@ -19,6 +19,23 @@
 
 set -euo pipefail
 
+# Protected branches - direct pushes are not allowed
+PROTECTED_BRANCHES=("main" "dev")
+
+# Check if pushing to a protected branch
+current_branch=$(git symbolic-ref --short HEAD 2>/dev/null || echo "")
+for protected in "${PROTECTED_BRANCHES[@]}"; do
+	if [ "$current_branch" = "$protected" ]; then
+		echo "❌ Direct push to '$protected' is not allowed"
+		echo ""
+		echo "Please create a feature branch and submit a PR:"
+		echo "  git checkout -b feature/your-feature-name"
+		echo "  git push -u origin feature/your-feature-name"
+		echo "  gt submit  # or create PR via GitHub"
+		exit 1
+	fi
+done
+
 # Check if SwiftLint is installed
 if ! command -v swiftlint &> /dev/null; then
 	echo "❌ SwiftLint is not installed"
