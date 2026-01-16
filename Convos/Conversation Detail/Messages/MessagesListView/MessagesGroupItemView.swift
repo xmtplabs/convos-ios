@@ -49,6 +49,7 @@ struct MessagesGroupItemView: View {
                     : 0,
                     y: isAppearing ? 40 : 0
                 )
+                .padding(.trailing, DesignConstants.Spacing.step4x)
 
             case .emoji(let text):
                 EmojiBubble(
@@ -77,6 +78,7 @@ struct MessagesGroupItemView: View {
                     : 0,
                     y: isAppearing ? 40 : 0
                 )
+                .padding(.trailing, DesignConstants.Spacing.step4x)
 
             case .invite(let invite):
                 MessageInviteContainerView(
@@ -104,11 +106,13 @@ struct MessagesGroupItemView: View {
                     : 0,
                     y: isAppearing ? 40 : 0
                 )
+                .padding(.trailing, DesignConstants.Spacing.step4x)
 
             case .attachment(let attachmentData):
                 AttachmentPlaceholder(
                     attachmentData: attachmentData,
                     isOutgoing: message.base.sender.isCurrentUser,
+                    profile: message.base.sender.profile,
                     shouldBlur: shouldBlurPhotos,
                     onReveal: { onPhotoRevealed(attachmentData) },
                     onHide: { onPhotoHidden(attachmentData) }
@@ -123,6 +127,7 @@ struct MessagesGroupItemView: View {
                     AttachmentPlaceholder(
                         attachmentData: firstData,
                         isOutgoing: message.base.sender.isCurrentUser,
+                        profile: message.base.sender.profile,
                         shouldBlur: shouldBlurPhotos,
                         onReveal: { onPhotoRevealed(firstData) },
                         onHide: { onPhotoHidden(firstData) }
@@ -166,6 +171,7 @@ struct MessagesGroupItemView: View {
 private struct AttachmentPlaceholder: View {
     let attachmentData: String
     let isOutgoing: Bool
+    let profile: Profile
     let shouldBlur: Bool
     let onReveal: () -> Void
     let onHide: () -> Void
@@ -196,7 +202,7 @@ private struct AttachmentPlaceholder: View {
     var body: some View {
         Group {
             if let image = loadedImage {
-                ZStack {
+                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -213,6 +219,8 @@ private struct AttachmentPlaceholder: View {
                     if showUploadProgress, let stage = uploadStage {
                         PhotoUploadProgressOverlay(stage: stage)
                     }
+
+                    PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
                 }
             } else if isLoading {
                 loadingPlaceholder
@@ -220,7 +228,6 @@ private struct AttachmentPlaceholder: View {
                 errorPlaceholder
             }
         }
-        .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
         .contextMenu {
             if canShowContextMenu, let image = loadedImage {
                 Button {
@@ -334,7 +341,6 @@ private struct AttachmentPlaceholder: View {
         Rectangle()
             .fill(Color.gray.opacity(0.2))
             .aspectRatio(4 / 3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
             .overlay {
                 ProgressView()
             }
@@ -344,7 +350,6 @@ private struct AttachmentPlaceholder: View {
         Rectangle()
             .fill(Color.gray.opacity(0.2))
             .aspectRatio(4 / 3, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
             .overlay {
                 VStack(spacing: 8) {
                     Image(systemName: "exclamationmark.triangle")
@@ -378,6 +383,35 @@ private struct PhotoUploadProgressOverlay: View {
                     .foregroundStyle(.white)
             }
         }
+    }
+}
+
+// MARK: - Sender Label Overlay
+
+private struct PhotoSenderLabel: View {
+    let profile: Profile
+    let isOutgoing: Bool
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            ProfileAvatarView(
+                profile: profile,
+                profileImage: nil,
+                useSystemPlaceholder: false
+            )
+            .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
+            .overlay(
+                Circle()
+                    .strokeBorder(Color.colorVibrantQuaternary, lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+
+            Text(profile.displayName)
+                .font(.caption)
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+        }
+        .padding(DesignConstants.Spacing.step4x)
     }
 }
 

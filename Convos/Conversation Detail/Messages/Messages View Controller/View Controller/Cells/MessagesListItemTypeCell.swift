@@ -26,11 +26,13 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     TextTitleContentView(title: dateGroup.value, profile: nil)
                         .id(dateGroup.differenceIdentifier)
                         .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .update(_, let update, _):
                     TextTitleContentView(title: update.summary, profile: update.profile)
                         .id(update.differenceIdentifier)
                         .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .messages(let group):
                     MessagesGroupView(
@@ -47,10 +49,12 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .invite(let invite):
                     InviteView(invite: invite)
                         .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .conversationInfo(let conversation):
                     ConversationInfoPreview(conversation: conversation)
                         .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)
