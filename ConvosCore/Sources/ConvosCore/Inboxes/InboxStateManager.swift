@@ -28,7 +28,7 @@ public protocol InboxStateManagerProtocol: AnyObject, Sendable {
 /// waiting for ready states, reauthorization flows, and provides both protocol-based
 /// and closure-based observation patterns.
 @Observable
-public final class InboxStateManager: InboxStateManagerProtocol {
+public final class InboxStateManager: InboxStateManagerProtocol, @unchecked Sendable {
     public private(set) var currentState: InboxStateMachine.State
     public private(set) var isReady: Bool = false
     public private(set) var hasError: Bool = false

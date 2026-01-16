@@ -1,5 +1,5 @@
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 /// Builds XMTP API options for the given environment
 ///

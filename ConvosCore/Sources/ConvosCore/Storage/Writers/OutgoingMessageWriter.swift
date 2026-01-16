@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 public protocol OutgoingMessageWriterProtocol {
     var sentMessage: AnyPublisher<String, Never> { get }
@@ -50,27 +50,27 @@ class OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let clientMessageId: String = try await sender.prepare(text: text)
 
         let date = Date()
-        try await databaseWriter.write { [weak self] db in
-            guard let self else { return }
+        let conversationId = self.conversationId
+        let inboxId = client.inboxId
+        let isContentEmoji = text.allCharactersEmoji
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let invite = MessageInvite.from(text: text)
 
-            let isContentEmoji = text.allCharactersEmoji
-            let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
-            let invite = MessageInvite.from(text: text)
+        let contentType: MessageContentType
+        if isContentEmoji {
+            contentType = .emoji
+        } else if invite != nil {
+            contentType = .invite
+        } else {
+            contentType = .text
+        }
 
-            let contentType: MessageContentType
-            if isContentEmoji {
-                contentType = .emoji
-            } else if invite != nil {
-                contentType = .invite
-            } else {
-                contentType = .text
-            }
-
+        try await databaseWriter.write { db in
             let localMessage = DBMessage(
                 id: clientMessageId,
                 clientMessageId: clientMessageId,
                 conversationId: conversationId,
-                senderId: client.inboxId,
+                senderId: inboxId,
                 dateNs: date.nanosecondsSince1970,
                 date: date,
                 status: .unpublished,

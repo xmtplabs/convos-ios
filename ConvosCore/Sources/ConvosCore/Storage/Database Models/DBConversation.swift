@@ -4,7 +4,7 @@ import GRDB
 // MARK: - DBConversation
 
 struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable, Hashable {
-    static var databaseTableName: String = "conversation"
+    static let databaseTableName: String = "conversation"
 
     enum Columns {
         static let id: Column = Column(CodingKeys.id)
@@ -119,7 +119,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         .annotated { max($0.dateNs) }
         .group(\.conversationId)
 
-    static let lastMessageCTE: CommonTableExpression<DBMessage> = CommonTableExpression<DBMessage>(
+    nonisolated(unsafe) static let lastMessageCTE: CommonTableExpression<DBMessage> = CommonTableExpression<DBMessage>(
         named: "conversationLastMessage",
         request: lastMessageRequest
     )

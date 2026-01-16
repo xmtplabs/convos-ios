@@ -1,7 +1,7 @@
 import Foundation
 
 /// Represents decoded notification content from NSE processing
-public struct DecodedNotificationContent {
+public struct DecodedNotificationContent: @unchecked Sendable {
     public let title: String?
     public let body: String
     public let conversationId: String?
@@ -30,7 +30,7 @@ public struct DecodedNotificationContent {
 }
 
 /// Represents the payload structure of a push notification
-public final class PushNotificationPayload {
+public final class PushNotificationPayload: @unchecked Sendable {
     public let clientId: String?
     public let notificationData: NotificationData?
     public let apiJWT: String?
@@ -52,7 +52,7 @@ public final class PushNotificationPayload {
 
 // MARK: - Notification Data
 
-public struct NotificationData {
+public struct NotificationData: Sendable {
     public let protocolData: ProtocolNotificationData?
 
     public init(dictionary: [String: Any]?) {
@@ -67,7 +67,7 @@ public struct NotificationData {
 
 // MARK: - Protocol Notification Data
 
-public struct ProtocolNotificationData {
+public struct ProtocolNotificationData: Sendable {
     public let contentTopic: String?
     public let encryptedMessage: String?
     public let messageType: String?

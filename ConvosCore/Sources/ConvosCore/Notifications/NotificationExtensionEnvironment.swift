@@ -7,7 +7,7 @@ enum NotificationExtensionEnvironmentError: Error {
 /// Helper for notification extensions to get the correct environment configuration
 public struct NotificationExtensionEnvironment {
     // Cache the environment after first successful retrieval
-    private static var cachedEnvironment: AppEnvironment?
+    nonisolated(unsafe) private static var cachedEnvironment: AppEnvironment?
 
     /// Gets the environment configuration stored by the main app
     /// The NSE expects the main app to have stored its configuration in the shared keychain

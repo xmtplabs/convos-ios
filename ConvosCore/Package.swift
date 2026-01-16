@@ -43,7 +43,7 @@ let package = Package(
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
             ],
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
                 // Define DEBUG - will be active based on Xcode's SWIFT_ACTIVE_COMPILATION_CONDITIONS
                 .define("DEBUG", .when(configuration: .debug)),
                 // Disable optimization for debug builds to enable proper debugging
@@ -60,7 +60,7 @@ let package = Package(
             ],
             path: "Sources/ConvosCoreiOS",
             swiftSettings: [
-                .swiftLanguageMode(.v5),
+                .swiftLanguageMode(.v6),
                 .define("DEBUG", .when(configuration: .debug)),
                 .unsafeFlags(["-Onone"], .when(configuration: .debug)),
             ],

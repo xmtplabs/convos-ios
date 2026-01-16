@@ -1,6 +1,6 @@
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 // MARK: - Protocol
 
@@ -18,9 +18,14 @@ public protocol SyncingManagerProtocol: Actor {
 /// - XMTPClientProvider wraps XMTPiOS.Client which is not Sendable
 /// - However, XMTP Client is designed for concurrent use (async/await API)
 /// - All access is properly isolated through actors in the state machine
-struct SyncClientParams: @unchecked Sendable {
-    let client: AnyClientProvider
-    let apiClient: any ConvosAPIClientProtocol
+public struct SyncClientParams: @unchecked Sendable {
+    public let client: AnyClientProvider
+    public let apiClient: any ConvosAPIClientProtocol
+
+    public init(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) {
+        self.client = client
+        self.apiClient = apiClient
+    }
 }
 
 /// Manages real-time synchronization of conversations and messages
@@ -99,7 +104,9 @@ actor SyncingManager: SyncingManagerProtocol {
     private var currentTask: Task<Void, Never>?
 
     // Notification handling
-    private var notificationObservers: [NSObjectProtocol] = []
+    // Safe to use nonisolated(unsafe) because the array is only mutated during actor-isolated
+    // setup, and deinit only runs after all actor tasks complete (no concurrent access possible).
+    nonisolated(unsafe) private var notificationObservers: [NSObjectProtocol] = []
     private var notificationTask: Task<Void, Never>?
 
     // MARK: - Initialization
@@ -261,25 +268,7 @@ actor SyncingManager: SyncingManagerProtocol {
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
             }
         } catch {
-            // Cancel all running tasks before entering error state
-            syncTask?.cancel()
-            messageStreamTask?.cancel()
-            conversationStreamTask?.cancel()
-
-            // Wait for cancellation to complete
-            if let task = syncTask {
-                _ = await task.value
-                syncTask = nil
-            }
-            if let task = messageStreamTask {
-                _ = await task.value
-                messageStreamTask = nil
-            }
-            if let task = conversationStreamTask {
-                _ = await task.value
-                conversationStreamTask = nil
-            }
-
+            await cancelAndAwaitTasks()
             Log.error("Failed state transition \(_state) -> \(action): \(error.localizedDescription)")
             emitStateChange(.error(error))
         }
@@ -305,23 +294,23 @@ actor SyncingManager: SyncingManagerProtocol {
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
-        messageStreamTask = Task { [weak self] in
+        messageStreamTask = Task { [weak self, params] in
             guard let self else { return }
-            await self.runMessageStream(client: client, apiClient: apiClient)
+            await self.runMessageStream(params: params)
         }
 
-        conversationStreamTask = Task { [weak self] in
+        conversationStreamTask = Task { [weak self, params] in
             guard let self else { return }
-            await self.runConversationStream(client: client, apiClient: apiClient)
+            await self.runConversationStream(params: params)
         }
 
         // Now call syncAllConversations after streams are setup
         Log.info("Streams started - calling syncAllConversations...")
-        syncTask = Task { [weak self] in
+        syncTask = Task { [weak self, params] in
             guard let self else { return }
             do {
                 try Task.checkCancellation()
-                _ = try await client.conversationsProvider.syncAllConversations(consentStates: consentStates)
+                _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: self.consentStates)
                 try Task.checkCancellation()
                 // Route sync completion through the action queue for consistent state transitions
                 await self.enqueueAction(.syncComplete(params))
@@ -339,10 +328,9 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private func handleSyncComplete(params: SyncClientParams, pauseOnComplete: Bool) async throws {
         if pauseOnComplete {
-            // Cancel streams before transitioning to paused
             messageStreamTask?.cancel()
             conversationStreamTask?.cancel()
-            // Wait for tasks to complete
+
             if let task = messageStreamTask {
                 _ = await task.value
                 messageStreamTask = nil
@@ -354,7 +342,6 @@ actor SyncingManager: SyncingManagerProtocol {
             emitStateChange(.paused(params))
             Log.info("syncAllConversations completed, transitioned to paused (pause was requested during starting)")
         } else {
-            // Transition to ready state after sync completes
             emitStateChange(.ready(params))
             Log.info("syncAllConversations completed, sync ready")
         }
@@ -368,11 +355,9 @@ actor SyncingManager: SyncingManagerProtocol {
 
         Log.info("Pausing sync...")
 
-        // Cancel streams
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
-        // Wait for tasks to complete
         if let task = messageStreamTask {
             _ = await task.value
             messageStreamTask = nil
@@ -398,14 +383,14 @@ actor SyncingManager: SyncingManagerProtocol {
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
-        messageStreamTask = Task { [weak self] in
+        messageStreamTask = Task { [weak self, params] in
             guard let self else { return }
-            await self.runMessageStream(client: params.client, apiClient: params.apiClient)
+            await self.runMessageStream(params: params)
         }
 
-        conversationStreamTask = Task { [weak self] in
+        conversationStreamTask = Task { [weak self, params] in
             guard let self else { return }
-            await self.runConversationStream(client: params.client, apiClient: params.apiClient)
+            await self.runConversationStream(params: params)
         }
 
         emitStateChange(.ready(params))
@@ -416,12 +401,23 @@ actor SyncingManager: SyncingManagerProtocol {
         Log.info("Stopping sync...")
         emitStateChange(.stopping)
 
-        // Cancel all tasks
+        await cancelAndAwaitTasks()
+        activeConversationId = nil
+
+        for observer in notificationObservers {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        notificationObservers.removeAll()
+
+        emitStateChange(.idle)
+        Log.info("Sync stopped")
+    }
+
+    private func cancelAndAwaitTasks() async {
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
-        // Wait for tasks to complete
         if let task = syncTask {
             _ = await task.value
             syncTask = nil
@@ -434,22 +430,11 @@ actor SyncingManager: SyncingManagerProtocol {
             _ = await task.value
             conversationStreamTask = nil
         }
-
-        activeConversationId = nil
-
-        // Clean up notification observers
-        for observer in notificationObservers {
-            NotificationCenter.default.removeObserver(observer)
-        }
-        notificationObservers.removeAll()
-
-        emitStateChange(.idle)
-        Log.info("Sync stopped")
     }
 
     // MARK: - Stream Management
 
-    private func runMessageStream(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) async {
+    private func runMessageStream(params: SyncClientParams) async {
         var retryCount = 0
 
         while !Task.isCancelled {
@@ -464,7 +449,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
                 // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
                 var isFirstMessage = true
-                for try await message in client.conversationsProvider.streamAllMessages(
+                for try await message in params.client.conversationsProvider.streamAllMessages(
                     type: .all,
                     consentStates: consentStates,
                     onClose: {
@@ -483,8 +468,7 @@ actor SyncingManager: SyncingManagerProtocol {
                     // Process message
                     await streamProcessor.processMessage(
                         message,
-                        client: client,
-                        apiClient: apiClient,
+                        params: params,
                         activeConversationId: activeConversationId
                     )
                 }
@@ -502,7 +486,7 @@ actor SyncingManager: SyncingManagerProtocol {
         }
     }
 
-    private func runConversationStream(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) async {
+    private func runConversationStream(params: SyncClientParams) async {
         var retryCount = 0
 
         while !Task.isCancelled {
@@ -516,7 +500,7 @@ actor SyncingManager: SyncingManagerProtocol {
 
                 // Stream conversations - the loop will exit when onClose is called
                 var isFirstConversation = true
-                for try await conversation in client.conversationsProvider.stream(
+                for try await conversation in params.client.conversationsProvider.stream(
                     type: .groups,
                     onClose: {
                         Log.info("Conversation stream closed via onClose callback")
@@ -538,8 +522,7 @@ actor SyncingManager: SyncingManagerProtocol {
                     // Process conversation
                     try await streamProcessor.processConversation(
                         conversation,
-                        client: client,
-                        apiClient: apiClient
+                        params: params
                     )
                 }
 
@@ -575,10 +558,9 @@ actor SyncingManager: SyncingManagerProtocol {
             object: nil,
             queue: nil
         ) { [weak self] notification in
-            guard let self else { return }
+            let conversationId = notification.userInfo?["conversationId"] as? String
             Task { [weak self] in
-                guard let self else { return }
-                await self.setActiveConversationId(notification.userInfo?["conversationId"] as? String)
+                await self?.setActiveConversationId(conversationId)
             }
         }
         notificationObservers.append(activeConversationObserver)

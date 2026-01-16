@@ -4,7 +4,7 @@ import GRDB
 // MARK: - DBMessage
 
 struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable {
-    static var databaseTableName: String = "message"
+    static let databaseTableName: String = "message"
 
     struct Update: Codable, Hashable {
         struct MetadataChange: Codable, Hashable {

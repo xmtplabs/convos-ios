@@ -35,8 +35,8 @@ public protocol DeviceInfoProviding: Sendable {
 /// ```
 public enum DeviceInfo {
     private static let lock: NSLock = .init()
-    private static var _shared: (any DeviceInfoProviding)?
-    private static var isConfigured: Bool = false
+    nonisolated(unsafe) private static var _shared: (any DeviceInfoProviding)?
+    nonisolated(unsafe) private static var isConfigured: Bool = false
 
     /// Configures the shared device info provider instance.
     /// - Important: Must be called exactly once during app initialization before use.

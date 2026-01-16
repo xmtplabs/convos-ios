@@ -3,11 +3,11 @@ import GRDB
 
 public protocol ExpiredConversationsWorkerProtocol {}
 
-final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol {
+final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unchecked Sendable {
     private let sessionManager: any SessionManagerProtocol
     private let databaseReader: any DatabaseReader
     private let appLifecycle: any AppLifecycleProviding
-    private var observers: [NSObjectProtocol] = []
+    nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
     init(
         databaseReader: any DatabaseReader,

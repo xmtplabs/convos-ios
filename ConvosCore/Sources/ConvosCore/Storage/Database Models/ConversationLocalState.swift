@@ -4,7 +4,7 @@ import GRDB
 // MARK: - ConversationLocalState
 
 struct ConversationLocalState: Codable, FetchableRecord, PersistableRecord, Hashable {
-    static var databaseTableName: String = "conversationLocalState"
+    static let databaseTableName: String = "conversationLocalState"
 
     enum Columns {
         static let conversationId: Column = Column(CodingKeys.conversationId)

@@ -1,7 +1,7 @@
 import Foundation
 import XMTPiOS
 
-public enum InviteJoinErrorType: Equatable {
+public enum InviteJoinErrorType: Equatable, Sendable {
     case conversationExpired
     case genericFailure
     case unknown(String)
@@ -42,7 +42,7 @@ extension InviteJoinErrorType: Codable {
     }
 }
 
-public struct InviteJoinError: Codable, Equatable {
+public struct InviteJoinError: Codable, Equatable, Sendable {
     public let errorType: InviteJoinErrorType
     public let inviteTag: String
     public let timestamp: Date

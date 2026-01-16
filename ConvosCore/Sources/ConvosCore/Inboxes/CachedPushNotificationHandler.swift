@@ -18,7 +18,7 @@ public actor CachedPushNotificationHandler {
         // swiftlint:disable:next force_unwrapping
         return _shared!
     }
-    private static var _shared: CachedPushNotificationHandler?
+    nonisolated(unsafe) private static var _shared: CachedPushNotificationHandler?
 
     /// Initialize the shared instance with required dependencies
     /// - Parameters:

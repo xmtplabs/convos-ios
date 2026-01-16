@@ -7,7 +7,7 @@ import Logging
 /// This is the public API that both ConvosCore and Convos app use.
 /// Each module provides a convenience wrapper with its own namespace.
 public enum ConvosLog {
-    private static var _logger: Logging.Logger?
+    nonisolated(unsafe) private static var _logger: Logging.Logger?
     private static let queue: DispatchQueue = DispatchQueue(label: "com.convos.log")
 
     private static var logger: Logging.Logger? {

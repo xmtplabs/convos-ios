@@ -1,20 +1,20 @@
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
-struct IncomingMessageWriterResult {
+struct IncomingMessageWriterResult: Sendable {
     let contentType: MessageContentType
     let wasRemovedFromConversation: Bool
     let messageAlreadyExists: Bool
 }
 
-enum ExplodeSettingsResult {
+enum ExplodeSettingsResult: Sendable {
     case fromSelf
     case alreadyExpired
     case applied(expiresAt: Date)
 }
 
-protocol IncomingMessageWriterProtocol {
+protocol IncomingMessageWriterProtocol: Sendable {
     func store(message: XMTPiOS.DecodedMessage,
                for conversation: DBConversation) async throws -> IncomingMessageWriterResult
 
@@ -28,7 +28,7 @@ protocol IncomingMessageWriterProtocol {
     ) async -> ExplodeSettingsResult
 }
 
-class IncomingMessageWriter: IncomingMessageWriterProtocol {
+class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
 
     init(databaseWriter: any DatabaseWriter) {

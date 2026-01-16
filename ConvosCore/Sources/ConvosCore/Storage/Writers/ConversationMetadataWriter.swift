@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 // MARK: - Conversation Metadata Writer Protocol
 

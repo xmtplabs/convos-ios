@@ -1,6 +1,6 @@
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 /// Periodically checks if sleeping inboxes have new messages that warrant waking them up
 ///

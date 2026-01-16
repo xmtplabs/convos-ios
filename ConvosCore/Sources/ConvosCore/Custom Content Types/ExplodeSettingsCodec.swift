@@ -1,7 +1,7 @@
 import Foundation
 import XMTPiOS
 
-public struct ExplodeSettings: Codable {
+public struct ExplodeSettings: Codable, Sendable {
     public let expiresAt: Date
 
     public init(expiresAt: Date) {

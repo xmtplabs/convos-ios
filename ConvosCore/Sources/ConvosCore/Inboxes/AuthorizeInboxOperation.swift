@@ -8,7 +8,7 @@ protocol AuthorizeInboxOperationProtocol {
     func stop()
 }
 
-final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol {
+final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked Sendable {
     let stateMachine: InboxStateMachine
     private var cancellables: Set<AnyCancellable> = []
     private let taskLock: NSLock = NSLock()

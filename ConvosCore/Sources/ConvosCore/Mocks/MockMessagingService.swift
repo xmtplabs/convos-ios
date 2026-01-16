@@ -1,6 +1,6 @@
 import Combine
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 /// Mock implementation of MessagingServiceProtocol for testing and previews
 ///

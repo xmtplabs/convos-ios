@@ -33,7 +33,7 @@ public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWr
 // MARK: - State Manager Implementation
 
 @Observable
-public final class ConversationStateManager: ConversationStateManagerProtocol {
+public final class ConversationStateManager: ConversationStateManagerProtocol, @unchecked Sendable {
     // MARK: - State Properties
 
     public private(set) var currentState: ConversationStateMachine.State = .uninitialized
@@ -268,7 +268,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol {
 
 // MARK: - Observer Helpers
 
-public final class ClosureConversationStateObserver: ConversationStateObserver {
+public final class ClosureConversationStateObserver: ConversationStateObserver, @unchecked Sendable {
     private let handler: (ConversationStateMachine.State) -> Void
 
     init(handler: @escaping (ConversationStateMachine.State) -> Void) {
@@ -280,7 +280,7 @@ public final class ClosureConversationStateObserver: ConversationStateObserver {
     }
 }
 
-public final class ConversationStateObserverHandle {
+public final class ConversationStateObserverHandle: @unchecked Sendable {
     private var observer: ClosureConversationStateObserver?
     private weak var manager: (any ConversationStateManagerProtocol)?
 

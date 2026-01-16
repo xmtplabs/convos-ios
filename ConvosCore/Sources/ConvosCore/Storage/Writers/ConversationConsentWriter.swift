@@ -7,16 +7,12 @@ public protocol ConversationConsentWriterProtocol {
     func deleteAll() async throws
 }
 
-class ConversationConsentWriter: ConversationConsentWriterProtocol {
+/// Marked @unchecked Sendable because GRDB's DatabaseWriter provides its own
+/// concurrency safety via write{}/read{} closures - all database access is
+/// externally synchronized by GRDB's serialized database queue.
+class ConversationConsentWriter: ConversationConsentWriterProtocol, @unchecked Sendable {
     enum ConversationConsentWriterError: Error {
         case deleteAllFailedWithErrors([Error])
-    }
-
-    actor ErrorCollector {
-        var errors: [Error] = []
-        func append(_ error: Error) {
-            errors.append(error)
-        }
     }
 
     private let inboxStateManager: any InboxStateManagerProtocol
@@ -29,67 +25,56 @@ class ConversationConsentWriter: ConversationConsentWriterProtocol {
     }
 
     func join(conversation: Conversation) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await inboxStateManager.waitForInboxReadyResult().client
         try await client.update(consent: .allowed, for: conversation.id)
         try await databaseWriter.write { db in
-            if let localConversation = try DBConversation
+            guard let localConversation = try DBConversation
                 .filter(DBConversation.Columns.id == conversation.id)
-                .fetchOne(db) {
-                let updatedConversation = localConversation.with(
-                    consent: .allowed
-                )
-                try updatedConversation.save(db)
-                Log.info("Updated conversation consent state to allowed")
+                .fetchOne(db) else {
+                return
             }
+            try localConversation.with(consent: .allowed).save(db)
+            Log.info("Updated conversation consent state to allowed")
         }
     }
 
     func delete(conversation: Conversation) async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
+        let client = try await inboxStateManager.waitForInboxReadyResult().client
         try await client.update(consent: .denied, for: conversation.id)
         try await databaseWriter.write { db in
-            if let localConversation = try DBConversation
+            guard let localConversation = try DBConversation
                 .filter(DBConversation.Columns.id == conversation.id)
-                .fetchOne(db) {
-                let updatedConversation = localConversation.with(
-                    consent: .denied
-                )
-                try updatedConversation.save(db)
-                Log.info("Updated conversation consent state to denied")
+                .fetchOne(db) else {
+                return
             }
+            try localConversation.with(consent: .denied).save(db)
+            Log.info("Updated conversation consent state to denied")
         }
     }
 
     func deleteAll() async throws {
-        let client = try await self.inboxStateManager.waitForInboxReadyResult().client
-        let conversationsToDeny: [DBConversation] = try await databaseWriter.read { db in
+        let client = try await inboxStateManager.waitForInboxReadyResult().client
+        let inboxId = client.inboxId
+        let conversationsToDeny = try await databaseWriter.read { db in
             try DBConversation
-                .filter(DBConversation.Columns.inboxId == client.inboxId)
+                .filter(DBConversation.Columns.inboxId == inboxId)
                 .filter(DBConversation.Columns.consent == Consent.unknown)
                 .fetchAll(db)
         }
 
-        let errorCollector = ErrorCollector()
-
-        await withTaskGroup(of: Void.self) { [client] group in
-            for dbConversation in conversationsToDeny {
-                group.addTask {
-                    do {
-                        try await client.update(consent: .denied, for: dbConversation.id)
-                        try await self.databaseWriter.write { db in
-                            let updatedConversation = dbConversation.with(consent: .denied)
-                            try updatedConversation.save(db)
-                            Log.info("Updated conversation \(dbConversation.id) consent state to denied")
-                        }
-                    } catch {
-                        await errorCollector.append(error)
-                    }
+        var errors: [Error] = []
+        for dbConversation in conversationsToDeny {
+            do {
+                try await client.update(consent: .denied, for: dbConversation.id)
+                try await databaseWriter.write { db in
+                    try dbConversation.with(consent: .denied).save(db)
+                    Log.info("Updated conversation \(dbConversation.id) consent state to denied")
                 }
+            } catch {
+                errors.append(error)
             }
-            await group.waitForAll()
         }
 
-        let errors = await errorCollector.errors
         if !errors.isEmpty {
             throw ConversationConsentWriterError.deleteAllFailedWithErrors(errors)
         }

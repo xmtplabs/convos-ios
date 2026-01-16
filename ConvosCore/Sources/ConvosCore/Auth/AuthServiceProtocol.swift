@@ -1,6 +1,6 @@
 import Combine
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 public protocol AuthServiceRegisteredResultType: AuthServiceResultType {
     var inbox: any AuthServiceInboxType { get }

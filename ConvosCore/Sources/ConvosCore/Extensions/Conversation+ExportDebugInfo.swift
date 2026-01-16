@@ -1,5 +1,5 @@
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 public extension XMTPiOS.Conversation {
     func exportDebugLogs() async throws -> URL {

@@ -50,8 +50,8 @@ public enum ImageCompression {
     public static let cacheOptimizedSize: CGFloat = 500
 
     private static let lock: NSLock = .init()
-    private static var _shared: (any ImageCompressionProviding)?
-    private static var isConfigured: Bool = false
+    nonisolated(unsafe) private static var _shared: (any ImageCompressionProviding)?
+    nonisolated(unsafe) private static var isConfigured: Bool = false
 
     /// Configures the shared image compression provider instance.
     /// - Important: Must be called exactly once during app initialization before use.

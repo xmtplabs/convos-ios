@@ -1,5 +1,5 @@
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 /// Mock implementation of XMTPClientProvider for testing
 public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendable {

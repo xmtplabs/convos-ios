@@ -1,6 +1,6 @@
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 enum ConversationWriterError: Error {
     case inboxNotFound(String)
@@ -8,7 +8,7 @@ enum ConversationWriterError: Error {
     case invalidInvite(String)
 }
 
-protocol ConversationWriterProtocol {
+protocol ConversationWriterProtocol: Sendable {
     @discardableResult
     func store(conversation: XMTPiOS.Group, inboxId: String) async throws -> DBConversation
     @discardableResult
@@ -26,7 +26,11 @@ protocol ConversationWriterProtocol {
 /// and managing all related data including members, profiles, invites, and messages.
 /// Handles both initial storage and updates, with special logic for matching
 /// placeholder conversations created during invite flows.
-class ConversationWriter: ConversationWriterProtocol {
+///
+/// Marked @unchecked Sendable because GRDB's DatabaseWriter provides its own
+/// concurrency safety via write{}/read{} closures - all database access is
+/// externally synchronized by GRDB's serialized database queue.
+class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
     private let inviteWriter: any InviteWriterProtocol
     private let messageWriter: any IncomingMessageWriterProtocol
@@ -242,13 +246,12 @@ class ConversationWriter: ConversationWriterProtocol {
         dbMembers: [DBConversationMember],
         memberProfiles: [DBMemberProfile]
     ) async throws {
-        try await databaseWriter.write { [weak self] db in
-            guard let self else { return }
+        try await databaseWriter.write { [self] db in
             let creator = DBMember(inboxId: dbConversation.creatorId)
             try creator.save(db)
 
             // Save conversation (handle local conversation updates)
-            try saveConversation(dbConversation, in: db)
+            try self.saveConversation(dbConversation, in: db)
 
             // Save local state
             let localState = ConversationLocalState(
@@ -266,7 +269,7 @@ class ConversationWriter: ConversationWriterProtocol {
                 .filter(DBMemberProfile.Columns.conversationId == dbConversation.id)
                 .deleteAll(db)
             // Save members
-            try saveMembers(dbMembers, in: db)
+            try self.saveMembers(dbMembers, in: db)
             // Update profiles - ensure Member exists first
             try memberProfiles.forEach { profile in
                 let member = DBMember(inboxId: profile.inboxId)

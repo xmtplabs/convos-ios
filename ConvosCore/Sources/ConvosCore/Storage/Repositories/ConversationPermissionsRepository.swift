@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 // MARK: - Conversation Permissions Repository Protocol
 
@@ -20,7 +20,7 @@ public protocol ConversationPermissionsRepositoryProtocol {
 
 // MARK: - Conversation Permission Types
 
-public enum ConversationPermissionAction: String, CaseIterable {
+public enum ConversationPermissionAction: String, CaseIterable, Sendable {
     case addMember = "add_member_policy"
     case removeMember = "remove_member_policy"
     case addAdmin = "add_admin_policy"
@@ -31,7 +31,7 @@ public enum ConversationPermissionAction: String, CaseIterable {
     case updateMessageDisappearing = "update_group_pinned_frame_url_policy"
 }
 
-public enum ConversationPermissionLevel: String {
+public enum ConversationPermissionLevel: String, Sendable {
     case allow
     case deny
     case admin
@@ -39,7 +39,7 @@ public enum ConversationPermissionLevel: String {
     case unknown
 }
 
-public struct ConversationPermissionPolicySet {
+public struct ConversationPermissionPolicySet: Sendable {
     let addMemberPolicy: ConversationPermissionLevel
     let removeMemberPolicy: ConversationPermissionLevel
     let addAdminPolicy: ConversationPermissionLevel
@@ -105,7 +105,7 @@ public struct ConversationPermissionPolicySet {
     )
 }
 
-public struct ConversationMemberInfo {
+public struct ConversationMemberInfo: Sendable {
     let inboxId: String
     let role: MemberRole
     let consent: Consent

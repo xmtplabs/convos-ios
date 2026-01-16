@@ -1,6 +1,6 @@
 import Combine
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 // swiftlint:disable implicitly_unwrapped_optional
 

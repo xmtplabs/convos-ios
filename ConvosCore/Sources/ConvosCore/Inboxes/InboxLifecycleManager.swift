@@ -341,16 +341,18 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
             // wake pending invite inboxes that have no activity record
             for pendingInvite in allPendingInvites where pendingInvite.hasPendingInvites {
-                if !activityClientIds.contains(pendingInvite.clientId) && !awakeInboxes.keys.contains(pendingInvite.clientId) {
-                    Log.info("Waking pending invite inbox with no activity record: \(pendingInvite.clientId)")
+                let clientId = pendingInvite.clientId
+                let inboxId = pendingInvite.inboxId
+                if !activityClientIds.contains(clientId) && !awakeInboxes.keys.contains(clientId) {
+                    Log.info("Waking pending invite inbox with no activity record: \(clientId)")
                     do {
                         _ = try await attemptWake(
-                            clientId: pendingInvite.clientId,
-                            inboxId: pendingInvite.inboxId,
+                            clientId: clientId,
+                            inboxId: inboxId,
                             reason: .pendingInvite
                         )
                     } catch {
-                        Log.error("Failed to wake pending invite inbox \(pendingInvite.clientId): \(error)")
+                        Log.error("Failed to wake pending invite inbox \(clientId): \(error)")
                     }
                 }
             }

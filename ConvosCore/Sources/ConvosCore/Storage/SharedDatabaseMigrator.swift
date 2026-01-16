@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-class SharedDatabaseMigrator {
+final class SharedDatabaseMigrator: Sendable {
     static let shared: SharedDatabaseMigrator = SharedDatabaseMigrator()
 
     private init() {}

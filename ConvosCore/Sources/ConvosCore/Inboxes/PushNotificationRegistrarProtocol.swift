@@ -33,8 +33,8 @@ public protocol PushNotificationRegistrarProtocol: Sendable {
 /// ```
 public enum PushNotificationRegistrar {
     private static let lock: NSLock = .init()
-    private static var _shared: (any PushNotificationRegistrarProtocol)?
-    private static var isConfigured: Bool = false
+    nonisolated(unsafe) private static var _shared: (any PushNotificationRegistrarProtocol)?
+    nonisolated(unsafe) private static var isConfigured: Bool = false
 
     /// Configures the shared push notification registrar instance.
     /// - Important: Must be called exactly once during app initialization before use.

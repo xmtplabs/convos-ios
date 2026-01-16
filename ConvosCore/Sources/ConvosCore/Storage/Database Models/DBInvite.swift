@@ -4,7 +4,7 @@ import GRDB
 // MARK: - DBInvite
 
 struct DBInvite: Codable, FetchableRecord, PersistableRecord, Hashable {
-    static var databaseTableName: String = "invite"
+    static let databaseTableName: String = "invite"
 
     enum Columns {
         static let creatorInboxId: Column = Column(CodingKeys.creatorInboxId)

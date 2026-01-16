@@ -1,10 +1,10 @@
 import Combine
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
-public struct ConversationReadyResult {
-    public enum Origin {
+public struct ConversationReadyResult: Sendable {
+    public enum Origin: Sendable {
         case created
         case joined
         case existing
@@ -38,7 +38,7 @@ public actor ConversationStateMachine {
         case reset
     }
 
-    public enum State: Equatable {
+    public enum State: Equatable, @unchecked Sendable {
         case uninitialized
         case creating
         case validating(inviteCode: String)
@@ -383,10 +383,10 @@ public actor ConversationStateMachine {
 
         // Process the conversation in case the syncing manager
         // has not finished starting the streams, or the streams closed
+        let params = SyncClientParams(client: client, apiClient: inboxReady.apiClient)
         try await streamProcessor.processConversation(
             optimisticConversation,
-            client: client,
-            apiClient: inboxReady.apiClient
+            params: params
         )
 
         // Transition directly to ready state
@@ -699,36 +699,29 @@ public actor ConversationStateMachine {
         client: any XMTPClientProvider,
         apiClient: any ConvosAPIClientProtocol
     ) async throws {
-        // @jarod until we have self removal, we need to deny the conversation
-        // so it doesn't show up in the list
-        let externalConversation = try await client.conversationsProvider.findConversation(conversationId: conversationId)
+        // Safe to use nonisolated(unsafe) because XMTP's Conversations API is entirely
+        // async/await-based, so concurrent access is inherently serialized by the runtime.
+        nonisolated(unsafe) let conversationsProvider = client.conversationsProvider
+        let externalConversation = try await conversationsProvider.findConversation(conversationId: conversationId)
         try await externalConversation?.updateConsentState(state: .denied)
 
-        // Get clientId from keychain (privacy-preserving identifier, not XMTP installationId)
         if let identity = try? await identityStore.identity(for: client.inboxId) {
-            // Unsubscribe from this conversation's push notification topic only
-            // The welcome topic remains subscribed (it's inbox-level, not conversation-level).
-            // Installation unregistration only happens at inbox level in InboxStateMachine.performInboxCleanup()
             let topic = conversationId.xmtpGroupTopicFormat
             do {
                 try await apiClient.unsubscribeFromTopics(clientId: identity.clientId, topics: [topic])
                 Log.info("Unsubscribed from push topic: \(topic)")
             } catch {
                 Log.error("Failed unsubscribing from topic \(topic): \(error)")
-                // Continue with cleanup even if unsubscribe fails
             }
         } else {
             Log.warning("Identity not found, skipping push notification cleanup for: \(client.inboxId)")
         }
 
-        // Always clean up database records, even if identity/clientId is missing
         try await databaseWriter.write { db in
-            // Delete messages first (due to foreign key constraints)
             try DBMessage
                 .filter(DBMessage.Columns.conversationId == conversationId)
                 .deleteAll(db)
 
-            // Delete conversation members
             try DBConversationMember
                 .filter(DBConversationMember.Columns.conversationId == conversationId)
                 .deleteAll(db)
@@ -748,11 +741,11 @@ public actor ConversationStateMachine {
             Log.info("Cleaned up conversation data for conversationId: \(conversationId)")
         }
 
+        let inboxId = client.inboxId
         try await databaseWriter.write { db in
-            let conversationsCount = try DBConversation
-                .fetchCount(db)
+            let conversationsCount = try DBConversation.fetchCount(db)
             if conversationsCount == 0 {
-                Log.warning("Leaving inbox \(client.inboxId) with zero conversations!")
+                Log.warning("Leaving inbox \(inboxId) with zero conversations!")
             }
         }
     }

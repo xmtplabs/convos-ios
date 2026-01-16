@@ -21,7 +21,7 @@ enum SessionManagerError: Error {
 /// a maximum number of awake (active) inboxes while supporting unlimited total conversations.
 /// The manager also handles inbox deletion, conversation notifications, and manages
 /// the UnusedInboxCache for pre-creating inboxes.
-public final class SessionManager: SessionManagerProtocol {
+public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var leftConversationObserver: Any?
     private var foregroundObserverTask: Task<Void, Never>?
 
@@ -193,12 +193,14 @@ public final class SessionManager: SessionManagerProtocol {
                     var completedInboxes = 0
 
                     // Delete each inbox with progress reporting
-                    await withTaskGroup(of: Void.self) { group in
+                    await withTaskGroup(of: Void.self) { [lifecycleManager = self.lifecycleManager] group in
                         for inbox in allInboxes {
+                            let clientId = inbox.clientId
+                            let inboxId = inbox.inboxId
                             group.addTask {
-                                let service = await self.lifecycleManager.getOrCreateService(
-                                    clientId: inbox.clientId,
-                                    inboxId: inbox.inboxId
+                                let service = await lifecycleManager.getOrCreateService(
+                                    clientId: clientId,
+                                    inboxId: inboxId
                                 )
                                 // Start the deletion
                                 await service.stopAndDelete()

@@ -1,5 +1,5 @@
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 /// Mock implementation of MessageSender for testing
 public final class MockMessageSender: MessageSender, @unchecked Sendable {

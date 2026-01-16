@@ -1,11 +1,11 @@
-// swift-tools-version: 5.9
+// swift-tools-version: 6.2
 import PackageDescription
 
 let package = Package(
     name: "ConvosLogging",
     platforms: [
-        .iOS(.v16),
-        .macOS(.v13)
+        .iOS(.v26),
+        .macOS(.v26)
     ],
     products: [
         .library(

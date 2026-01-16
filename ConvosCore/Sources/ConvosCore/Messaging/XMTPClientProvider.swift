@@ -1,5 +1,5 @@
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 /// Protocol for static XMTP operations that don't require a client instance
 public protocol XMTPStaticOperations {

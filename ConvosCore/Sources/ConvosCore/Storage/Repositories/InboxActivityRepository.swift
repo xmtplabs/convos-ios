@@ -17,7 +17,7 @@ public struct InboxActivity: Codable, Hashable, Identifiable {
     }
 }
 
-public protocol InboxActivityRepositoryProtocol {
+public protocol InboxActivityRepositoryProtocol: Sendable {
     func allInboxActivities() throws -> [InboxActivity]
     func inboxActivity(for clientId: String) throws -> InboxActivity?
     func topActiveInboxes(limit: Int) throws -> [InboxActivity]
@@ -26,7 +26,7 @@ public protocol InboxActivityRepositoryProtocol {
     func conversationIds(for clientIds: [String]) throws -> [String: [String]]
 }
 
-public struct InboxActivityRepository: InboxActivityRepositoryProtocol {
+public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @unchecked Sendable {
     private let databaseReader: any DatabaseReader
 
     public init(databaseReader: any DatabaseReader) {

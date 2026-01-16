@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-class MockDatabaseManager: DatabaseManagerProtocol {
+final class MockDatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
     static let shared: MockDatabaseManager = MockDatabaseManager()
     static let previews: MockDatabaseManager = MockDatabaseManager(migrate: false)
 

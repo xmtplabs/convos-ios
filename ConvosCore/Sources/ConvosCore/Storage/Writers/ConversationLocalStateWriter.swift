@@ -1,14 +1,14 @@
 import Foundation
 import GRDB
 
-public protocol ConversationLocalStateWriterProtocol {
+public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setUnread(_ isUnread: Bool, for conversationId: String) async throws
     func setPinned(_ isPinned: Bool, for conversationId: String) async throws
     func setMuted(_ isMuted: Bool, for conversationId: String) async throws
     func getPinnedCount() async throws -> Int
 }
 
-class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol {
+final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
 
     init(databaseWriter: any DatabaseWriter) {
@@ -73,7 +73,7 @@ class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol {
 
     private func updateLocalState(
         for conversationId: String,
-        _ update: @escaping (ConversationLocalState) -> ConversationLocalState
+        _ update: @escaping @Sendable (ConversationLocalState) -> ConversationLocalState
     ) async throws {
         try await databaseWriter.write { db in
             guard try DBConversation.fetchOne(db, key: conversationId) != nil else {

@@ -16,7 +16,7 @@ extension MessagingServiceProtocol {
     }
 }
 
-public protocol MessagingServiceProtocol: AnyObject {
+public protocol MessagingServiceProtocol: AnyObject, Sendable {
     var clientId: String { get }
     var state: MessagingServiceState { get }
     var inboxStateManager: any InboxStateManagerProtocol { get }

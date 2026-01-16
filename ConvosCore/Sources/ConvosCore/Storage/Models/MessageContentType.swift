@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - MessageContentType
 
-public enum MessageContentType: String, Codable {
+public enum MessageContentType: String, Codable, Sendable {
     case text, emoji, attachments, update, invite
 
     var marksConversationAsUnread: Bool {

@@ -1,6 +1,6 @@
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 extension InboxStateMachine.State {
     var isReady: Bool {
@@ -64,7 +64,7 @@ typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 /// The state machine ensures proper sequencing of operations through an action queue
 /// and maintains state through idle → authorizing/registering → authenticating → ready → deleting → stopping.
 public actor InboxStateMachine {
-    enum Action {
+    enum Action: @unchecked Sendable {
         case authorize(inboxId: String, clientId: String),
              register(clientId: String),
              clientAuthorized(clientId: String, client: any XMTPClientProvider),
@@ -325,11 +325,7 @@ public actor InboxStateMachine {
                 try await handleClientRegistered(clientId: clientId, client: client)
 
             case (.authenticatingBackend, let .authorized(clientId, result)):
-                try await handleAuthorized(
-                    clientId: clientId,
-                    client: result.client,
-                    apiClient: result.apiClient
-                )
+                try await handleAuthorized(clientId: clientId, result: result)
 
             case (let .ready(clientId, result), .delete):
                 try await handleDelete(clientId: clientId, client: result.client, apiClient: result.apiClient)
@@ -512,9 +508,9 @@ public actor InboxStateMachine {
         enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
     }
 
-    private func handleAuthorized(clientId: String, client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol) async throws {
-        await syncingManager?.start(with: client, apiClient: apiClient)
-        emitStateChange(.ready(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
+    private func handleAuthorized(clientId: String, result: InboxReadyResult) async throws {
+        await syncingManager?.start(with: result.client, apiClient: result.apiClient)
+        emitStateChange(.ready(clientId: clientId, result: result))
         // Start app lifecycle observation and network monitoring after starting sync
         await startNetworkMonitoring()
         startAppLifecycleObservation()
@@ -806,14 +802,12 @@ public actor InboxStateMachine {
         }
     }
 
-    /// Deletes all database records associated with a given inboxId
     private func cleanupInboxData(clientId: String) async throws {
         try Task.checkCancellation()
 
         Log.info("Cleaning up all data for inbox clientId: \(clientId)")
 
         try await databaseWriter.write { db in
-            // First, fetch all conversation IDs for this inbox
             let conversationIds = try DBConversation
                 .filter(DBConversation.Columns.clientId == clientId)
                 .fetchAll(db)
@@ -821,60 +815,20 @@ public actor InboxStateMachine {
 
             Log.info("Found \(conversationIds.count) conversations to clean up for inbox clientId: \(clientId)")
 
-            // Delete messages for all conversations belonging to this inbox
             for conversationId in conversationIds {
-                try DBMessage
-                    .filter(DBMessage.Columns.conversationId == conversationId)
-                    .deleteAll(db)
+                try DBMessage.filter(DBMessage.Columns.conversationId == conversationId).deleteAll(db)
+                try DBConversationMember.filter(DBConversationMember.Columns.conversationId == conversationId).deleteAll(db)
+                try ConversationLocalState.filter(ConversationLocalState.Columns.conversationId == conversationId).deleteAll(db)
+                try DBInvite.filter(DBInvite.Columns.conversationId == conversationId).deleteAll(db)
+                try DBMemberProfile.filter(DBMemberProfile.Columns.conversationId == conversationId).deleteAll(db)
             }
 
-            // Delete conversation members for all conversations
-            for conversationId in conversationIds {
-                try DBConversationMember
-                    .filter(DBConversationMember.Columns.conversationId == conversationId)
-                    .deleteAll(db)
+            if let inboxId = try DBInbox.filter(DBInbox.Columns.clientId == clientId).fetchOne(db)?.inboxId {
+                try DBMember.filter(DBMember.Columns.inboxId == inboxId).deleteAll(db)
             }
 
-            // Delete conversation local states
-            for conversationId in conversationIds {
-                try ConversationLocalState
-                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
-                    .deleteAll(db)
-            }
-
-            // Delete invites for all conversations
-            for conversationId in conversationIds {
-                try DBInvite
-                    .filter(DBInvite.Columns.conversationId == conversationId)
-                    .deleteAll(db)
-            }
-
-            // Delete member profiles for this inbox
-            for conversationId in conversationIds {
-                try DBMemberProfile
-                    .filter(DBMemberProfile.Columns.conversationId == conversationId)
-                    .deleteAll(db)
-            }
-
-            // Delete the member record for this inbox
-            if let inboxId: String = try? DBInbox
-                .filter(DBInbox.Columns.clientId == clientId)
-                .fetchOne(db)?
-                .inboxId {
-                try DBMember
-                    .filter(DBMember.Columns.inboxId == inboxId)
-                    .deleteAll(db)
-            }
-
-            // Delete all conversations for this inbox
-            try DBConversation
-                .filter(DBConversation.Columns.clientId == clientId)
-                .deleteAll(db)
-
-            // Finally, delete the inbox record itself
-            try DBInbox
-                .filter(DBInbox.Columns.clientId == clientId)
-                .deleteAll(db)
+            try DBConversation.filter(DBConversation.Columns.clientId == clientId).deleteAll(db)
+            try DBInbox.filter(DBInbox.Columns.clientId == clientId).deleteAll(db)
 
             Log.info("Successfully cleaned up all data for inbox clientId: \(clientId)")
         }
@@ -985,32 +939,27 @@ public actor InboxStateMachine {
     private func startAppLifecycleObservation() {
         stopAppLifecycleObservation()
 
-        appLifecycleTask = Task { [weak self, appLifecycle] in
-            let notificationCenter = NotificationCenter.default
+        let backgroundNotificationName = appLifecycle.didEnterBackgroundNotification
+        let foregroundNotificationName = appLifecycle.willEnterForegroundNotification
+        let notificationCenter = NotificationCenter.default
 
-            // Create async streams for both notifications
-            let backgroundNotifications = notificationCenter.notifications(
-                named: appLifecycle.didEnterBackgroundNotification
-            )
-            let foregroundNotifications = notificationCenter.notifications(
-                named: appLifecycle.willEnterForegroundNotification
-            )
-
-            // Merge both notification streams and handle them
+        appLifecycleTask = Task { [weak self] in
             await withTaskGroup(of: Void.self) { group in
-                group.addTask {
-                    for await _ in backgroundNotifications {
-                        guard let self else { return }
-                        await self.enqueueAction(.enterBackground)
+                group.addTask { [weak self] in
+                    let backgroundStream = notificationCenter.notifications(named: backgroundNotificationName)
+                    for await _ in backgroundStream {
+                        await self?.enqueueAction(.enterBackground)
                     }
                 }
 
-                group.addTask {
-                    for await _ in foregroundNotifications {
-                        guard let self else { return }
-                        await self.enqueueAction(.enterForeground)
+                group.addTask { [weak self] in
+                    let foregroundStream = notificationCenter.notifications(named: foregroundNotificationName)
+                    for await _ in foregroundStream {
+                        await self?.enqueueAction(.enterForeground)
                     }
                 }
+
+                await group.waitForAll()
             }
         }
     }

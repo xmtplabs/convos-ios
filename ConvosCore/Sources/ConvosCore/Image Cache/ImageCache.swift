@@ -32,7 +32,7 @@ public protocol ImageCacheable {
 /// Container for the shared image cache instance
 public enum ImageCacheContainer {
     /// The shared image cache instance. Can be set to a mock for testing.
-    public static var shared: any ImageCacheProtocol = {
+    nonisolated(unsafe) public static var shared: any ImageCacheProtocol = {
         #if canImport(UIKit)
         return ImageCache()
         #else

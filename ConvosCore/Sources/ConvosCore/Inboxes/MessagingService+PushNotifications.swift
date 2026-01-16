@@ -1,7 +1,7 @@
 import Combine
 import Foundation
 import GRDB
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 /// Extension providing push notification specific functionality for SingleInboxAuthProcessor
 extension MessagingService {

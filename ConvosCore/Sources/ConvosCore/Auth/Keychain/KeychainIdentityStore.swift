@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 import LocalAuthentication
 import Security
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 // MARK: - Models
 

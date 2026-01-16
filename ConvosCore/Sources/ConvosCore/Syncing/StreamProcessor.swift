@@ -1,27 +1,24 @@
 import Foundation
 import GRDB
 import UserNotifications
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 // MARK: - Protocol
 
 protocol StreamProcessorProtocol: Actor {
     func processConversation(
         _ conversation: XMTPiOS.Group,
-        client: AnyClientProvider,
-        apiClient: any ConvosAPIClientProtocol
+        params: SyncClientParams
     ) async throws
 
     func processConversation(
         _ conversation: any ConversationSender,
-        client: AnyClientProvider,
-        apiClient: any ConvosAPIClientProtocol
+        params: SyncClientParams
     ) async throws
 
     func processMessage(
         _ message: DecodedMessage,
-        client: AnyClientProvider,
-        apiClient: any ConvosAPIClientProtocol,
+        params: SyncClientParams,
         activeConversationId: String?
     ) async
 
@@ -90,25 +87,23 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     func processConversation(
         _ conversation: any ConversationSender,
-        client: AnyClientProvider,
-        apiClient: any ConvosAPIClientProtocol
+        params: SyncClientParams
     ) async throws {
         guard let group = conversation as? XMTPiOS.Group else {
             Log.warning("Passed type other than Group")
             return
         }
-        try await processConversation(group, client: client, apiClient: apiClient)
+        try await processConversation(group, params: params)
     }
 
     func processConversation(
         _ conversation: XMTPiOS.Group,
-        client: AnyClientProvider,
-        apiClient: any ConvosAPIClientProtocol
+        params: SyncClientParams
     ) async throws {
-        guard try await shouldProcessConversation(conversation, client: client) else { return }
+        guard try await shouldProcessConversation(conversation, params: params) else { return }
 
         let creatorInboxId = try await conversation.creatorInboxId()
-        if creatorInboxId == client.inboxId {
+        if creatorInboxId == params.client.inboxId {
             // we created the conversation, update permissions, set inviteTag, and generate encryption key
             try await conversation.ensureInviteTag()
             do {
@@ -126,26 +121,24 @@ actor StreamProcessor: StreamProcessorProtocol {
         Log.info("Syncing conversation: \(conversation.id)")
         try await conversationWriter.storeWithLatestMessages(
             conversation: conversation,
-            inboxId: client.inboxId
+            inboxId: params.client.inboxId
         )
 
         // Subscribe to push notifications
         await subscribeToConversationTopics(
             conversationId: conversation.id,
-            client: client,
-            apiClient: apiClient,
+            params: params,
             context: "on stream"
         )
     }
 
     func processMessage(
         _ message: DecodedMessage,
-        client: AnyClientProvider,
-        apiClient: any ConvosAPIClientProtocol,
+        params: SyncClientParams,
         activeConversationId: String?
     ) async {
         do {
-            guard let conversation = try await client.conversationsProvider.findConversation(
+            guard let conversation = try await params.client.conversationsProvider.findConversation(
                 conversationId: message.conversationId
             ) else {
                 Log.error("Conversation not found for message")
@@ -161,12 +154,12 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                 _ = await joinRequestsManager.processJoinRequest(
                     message: message,
-                    client: client
+                    client: params.client
                 )
                 Log.info("Processed potential join request: \(message.id)")
             case .group(let conversation):
                 do {
-                    guard try await shouldProcessConversation(conversation, client: client) else {
+                    guard try await shouldProcessConversation(conversation, params: params) else {
                         Log.warning("Received invalid group message, skipping...")
                         return
                     }
@@ -174,7 +167,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     // Store conversation before handling ExplodeSettings so the record exists
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
-                        inboxId: client.inboxId
+                        inboxId: params.client.inboxId
                     )
 
                     // Handle ExplodeSettings - skip storing message if this is an explode message
@@ -184,7 +177,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                             explodeSettings,
                             senderInboxId: message.senderInboxId,
                             conversation: conversation,
-                            client: client
+                            params: params
                         )
                     }
                     guard explodeSettings == nil else { return }
@@ -194,7 +187,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     // Mark unread if needed
                     if result.contentType.marksConversationAsUnread,
                        conversation.id != activeConversationId,
-                       message.senderInboxId != client.inboxId {
+                       message.senderInboxId != params.client.inboxId {
                         try await localStateWriter.setUnread(true, for: conversation.id)
                     }
 
@@ -210,50 +203,32 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     // MARK: - Private Helpers
 
-    /// Decodes an InviteJoinError from a decoded message
-    /// - Parameter message: The decoded message to check
-    /// - Returns: The decoded InviteJoinError if present, nil otherwise
     private func decodeInviteJoinError(from message: DecodedMessage) -> InviteJoinError? {
         guard let encodedContentType = try? message.encodedContent.type,
-              encodedContentType == ContentTypeInviteJoinError else {
-            return nil
-        }
-
-        guard let content = try? message.content() as Any,
+              encodedContentType == ContentTypeInviteJoinError,
+              let content = try? message.content() as Any,
               let inviteJoinError = content as? InviteJoinError else {
-            Log.error("Failed to extract InviteJoinError content")
             return nil
         }
-
         return inviteJoinError
     }
 
-    /// Handles an InviteJoinError by routing it to the error handler
-    /// - Parameters:
-    ///   - error: The invite join error to handle
-    ///   - senderInboxId: The inbox ID of the message sender
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
         Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
     }
 
-    /// Processes ExplodeSettings and handles conversation cleanup if expired.
-    /// - Parameters:
-    ///   - settings: The decoded ExplodeSettings
-    ///   - senderInboxId: The inbox ID of the message sender
-    ///   - conversation: The conversation the message belongs to
-    ///   - client: The client provider
     private func processExplodeSettings(
         _ settings: ExplodeSettings,
         senderInboxId: String,
         conversation: XMTPiOS.Group,
-        client: AnyClientProvider
+        params: SyncClientParams
     ) async {
         let result = await messageWriter.processExplodeSettings(
             settings,
             conversationId: conversation.id,
             senderInboxId: senderInboxId,
-            currentInboxId: client.inboxId
+            currentInboxId: params.client.inboxId
         )
 
         if case .applied = result {
@@ -287,25 +262,25 @@ actor StreamProcessor: StreamProcessorProtocol {
     /// If consent is unknown but there's an outgoing join request, updates consent to allowed.
     /// - Parameters:
     ///   - conversation: The conversation to check
-    ///   - client: The client provider
+    ///   - params: The sync client parameters
     /// - Returns: True if the conversation has allowed consent and should be processed
     private func shouldProcessConversation(
         _ conversation: XMTPiOS.Group,
-        client: AnyClientProvider
+        params: SyncClientParams
     ) async throws -> Bool {
         var consentState = try conversation.consentState()
         guard consentState != .allowed else {
             return true
         }
 
-        guard try await conversation.creatorInboxId() != client.inboxId else {
+        guard try await conversation.creatorInboxId() != params.client.inboxId else {
             return true
         }
 
         if consentState == .unknown {
             let hasOutgoingJoinRequest = try await joinRequestsManager.hasOutgoingJoinRequest(
                 for: conversation,
-                client: client
+                client: params.client
             )
 
             if hasOutgoingJoinRequest {
@@ -321,8 +296,7 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     private func subscribeToConversationTopics(
         conversationId: String,
-        client: AnyClientProvider,
-        apiClient: any ConvosAPIClientProtocol,
+        params: SyncClientParams,
         context: String
     ) async {
         // Ensure device is registered before subscribing to topics
@@ -334,9 +308,9 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
 
         let conversationTopic = conversationId.xmtpGroupTopicFormat
-        let welcomeTopic = client.installationId.xmtpWelcomeTopicFormat
+        let welcomeTopic = params.client.installationId.xmtpWelcomeTopicFormat
 
-        guard let identity = try? await identityStore.identity(for: client.inboxId) else {
+        guard let identity = try? await identityStore.identity(for: params.client.inboxId) else {
             Log.warning("Identity not found, skipping push notification subscription")
             return
         }
@@ -345,7 +319,7 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         do {
             let deviceId = DeviceInfo.deviceIdentifier
-            try await apiClient.subscribeToTopics(
+            try await params.apiClient.subscribeToTopics(
                 deviceId: deviceId,
                 clientId: identity.clientId,
                 topics: [conversationTopic, welcomeTopic]
