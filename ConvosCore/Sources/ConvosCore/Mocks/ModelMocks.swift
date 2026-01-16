@@ -12,6 +12,7 @@ public extension Conversation {
         members: [ConversationMember]? = nil,
         isUnread: Bool = false,
         isPinned: Bool = false,
+        isMuted: Bool = false,
         lastMessageText: String = "This is a preview of the last message"
     ) -> Conversation {
         let mockMembers = members ?? [
@@ -36,7 +37,7 @@ public extension Conversation {
             messages: [],
             isPinned: isPinned,
             isUnread: isUnread,
-            isMuted: false,
+            isMuted: isMuted,
             pinnedOrder: isPinned ? 0 : nil,
             lastMessage: isUnread ? MessagePreview(
                 text: lastMessageText,

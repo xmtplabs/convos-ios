@@ -33,6 +33,12 @@ struct PinnedConversationItem: View {
                     .truncationMode(.tail)
                     .multilineTextAlignment(.center)
 
+                if conversation.isMuted {
+                    Image(systemName: "bell.slash.fill")
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+
                 if conversation.isUnread {
                     Circle()
                         .fill(Color.primary)
@@ -84,6 +90,7 @@ struct PinnedConversationItem: View {
         PinnedConversationItem(conversation: .mock(isUnread: false))
         PinnedConversationItem(conversation: .mock(isUnread: true))
         PinnedConversationItem(conversation: .mock(isUnread: true, lastMessageText: "Hello!"))
+        PinnedConversationItem(conversation: .mock(isMuted: true))
     }
     .padding()
 }
