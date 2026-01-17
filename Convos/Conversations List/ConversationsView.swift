@@ -220,14 +220,22 @@ struct ConversationsView: View {
                         Menu {
                             let allAction = { viewModel.activeFilter = .all }
                             Button(action: allAction) {
-                                Label("All", systemImage: viewModel.activeFilter == .all ? "checkmark" : "")
+                                if viewModel.activeFilter == .all {
+                                    Label("All", systemImage: "checkmark")
+                                } else {
+                                    Text("All")
+                                }
                             }
 
                             let unreadAction = {
                                 viewModel.activeFilter = viewModel.activeFilter == .unread ? .all : .unread
                             }
                             Button(action: unreadAction) {
-                                Label("Unread", systemImage: viewModel.activeFilter == .unread ? "checkmark" : "")
+                                if viewModel.activeFilter == .unread {
+                                    Label("Unread", systemImage: "checkmark")
+                                } else {
+                                    Text("Unread")
+                                }
                             }
                         } label: {
                             Label(
