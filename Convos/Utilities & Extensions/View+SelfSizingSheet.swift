@@ -25,7 +25,7 @@ extension View {
 private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     @State private var sheetHeight: CGFloat = 0
-    @State private var presentationID: UUID = UUID()
+    @State private var presentationCount: Int = 0
     let onDismiss: (() -> Void)?
     let sheetContent: () -> SheetContent
 
@@ -34,9 +34,8 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
             .sheet(
                 isPresented: $isPresented,
                 onDismiss: {
-                    // Reset height to avoid stale values on next presentation
                     sheetHeight = 0
-                    // Call the original onDismiss if provided
+                    presentationCount += 1
                     onDismiss?()
                 },
                 content: {
@@ -46,14 +45,9 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
                             sheetHeight = height
                         }
                         .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
-                        .id(presentationID)
+                        .id(presentationCount)
                 }
             )
-            .onChange(of: isPresented) { _, newValue in
-                if newValue {
-                    presentationID = UUID()
-                }
-            }
     }
 }
 
@@ -82,7 +76,7 @@ extension View {
 private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent: View>: ViewModifier {
     @Binding var item: Item?
     @State private var sheetHeight: CGFloat = 0
-    @State private var presentationID: UUID = UUID()
+    @State private var presentationCount: Int = 0
     let onDismiss: (() -> Void)?
     let sheetContent: (Item) -> SheetContent
 
@@ -91,9 +85,8 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
             .sheet(
                 item: $item,
                 onDismiss: {
-                    // Reset height to avoid stale values on next presentation
                     sheetHeight = 0
-                    // Call the original onDismiss if provided
+                    presentationCount += 1
                     onDismiss?()
                 }, content: { item in
                     sheetContent(item)
@@ -102,14 +95,9 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
                             sheetHeight = height
                         }
                         .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
-                        .id(presentationID)
+                        .id(presentationCount)
                 }
             )
-            .onChange(of: self.item?.id) { _, newValue in
-                if newValue != nil {
-                    presentationID = UUID()
-                }
-            }
     }
 }
 
