@@ -11,6 +11,7 @@ import UIKit
 /// This generator automatically caches generated QR codes based on their content and options.
 /// Different options (colors, size, etc.) for the same content will be cached separately.
 public enum QRCodeGenerator {
+    private static let context: CIContext = CIContext(options: [.cacheIntermediates: false])
     public struct Options: @unchecked Sendable {
         /// The scale factor to use for rendering (defaults to main screen scale)
         public let scale: CGFloat
@@ -172,7 +173,6 @@ public enum QRCodeGenerator {
             return cachedImage
         }
 
-        let context = CIContext()
         let filter = CIFilter.roundedQRCodeGenerator()
 
         filter.message = Data(string.utf8)
