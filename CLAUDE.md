@@ -12,6 +12,7 @@ This document contains project-specific conventions and best practices for the C
 - **Main App (Convos)**: Views and ViewModels only (SwiftUI with UIKit integration where needed)
 - **App Clips**: Separate target for lightweight experiences
 - **Notification Service**: Extension for push notification handling
+- **UIGuidebook**: Visual component catalog for designers (see [UIGuidebook/README.md](UIGuidebook/README.md))
 
 ### Module Architecture
 - All business logic, models, and services go in `ConvosCore`
