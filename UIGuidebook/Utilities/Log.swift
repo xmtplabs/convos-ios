@@ -2,7 +2,7 @@ import Foundation
 import OSLog
 
 enum Log {
-    private static let logger = Logger(subsystem: "org.convos.UIGuidebook", category: "Default")
+    private static let logger: Logger = Logger(subsystem: "org.convos.UIGuidebook", category: "Default")
 
     static func info(_ message: String) {
         logger.info("\(message)")

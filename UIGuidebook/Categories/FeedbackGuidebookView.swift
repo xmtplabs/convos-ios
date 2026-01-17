@@ -219,41 +219,50 @@ struct FeedbackGuidebookView: View {
             description: "List row with flash feedback animation on tap"
         ) {
             VStack(spacing: 0) {
-                FlashingListRowButton(action: {}) {
-                    HStack {
-                        Image(systemName: "gear")
-                        Text("Settings")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.tertiary)
+                FlashingListRowButton(
+                    action: {},
+                    content: {
+                        HStack {
+                            Image(systemName: "gear")
+                            Text("Settings")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
+                )
 
                 Divider()
                     .padding(.leading, 44)
 
-                FlashingListRowButton(action: {}) {
-                    HStack {
-                        Image(systemName: "person")
-                        Text("Profile")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.tertiary)
+                FlashingListRowButton(
+                    action: {},
+                    content: {
+                        HStack {
+                            Image(systemName: "person")
+                            Text("Profile")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
+                )
 
                 Divider()
                     .padding(.leading, 44)
 
-                FlashingListRowButton(action: {}) {
-                    HStack {
-                        Image(systemName: "bell")
-                        Text("Notifications")
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundStyle(.tertiary)
+                FlashingListRowButton(
+                    action: {},
+                    content: {
+                        HStack {
+                            Image(systemName: "bell")
+                            Text("Notifications")
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .foregroundStyle(.tertiary)
+                        }
                     }
-                }
+                )
             }
             .background(
                 RoundedRectangle(cornerRadius: 12)
