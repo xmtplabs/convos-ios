@@ -375,7 +375,9 @@ public actor ConversationStateMachine {
         let client = inboxReady.client
 
         // Create the optimistic conversation
-        let optimisticConversation = try client.prepareConversation()
+        // Safe to use nonisolated(unsafe) because XMTP's Conversation API is entirely
+        // async/await-based, so concurrent access is inherently serialized by the runtime.
+        nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
         let externalConversationId = optimisticConversation.id
 
         // Publish the conversation

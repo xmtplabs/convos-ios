@@ -226,8 +226,10 @@ class MessagesRepository: MessagesRepositoryProtocol {
     }
 
     lazy var conversationMessagesPublisher: AnyPublisher<ConversationMessages, Never> = {
+        let dbReader = dbReader
+        let stateQueue = stateQueue
         // Combine both conversation ID and limit changes
-        Publishers.CombineLatest(
+        return Publishers.CombineLatest(
             conversationIdSubject.removeDuplicates(),
             currentLimitSubject.removeDuplicates()
         )
@@ -236,16 +238,22 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 return Just((conversationId, [])).eraseToAnyPublisher()
             }
 
+            // Capture unsafe self reference for use in @Sendable tracking closure.
+            // This is safe because:
+            // 1. The outer closure already has a weak self guard
+            // 2. GRDB's ValueObservation is bound to the lifecycle of this publisher
+            // 3. The publisher is invalidated when self is deallocated
+            nonisolated(unsafe) let unsafeSelf = self
+
             return ValueObservation
-                .tracking { [weak self] db in
-                    guard let self else { return [] }
+                .tracking { db in
                     do {
                         // Get current state safely
-                        let currentState = self.stateQueue.sync { () -> LoadingState in
+                        let currentState = stateQueue.sync { () -> LoadingState in
                             LoadingState(
-                                seenIds: self._seenMessageIds,
-                                isInitial: !self._hasCompletedInitialLoad,
-                                isPaginating: self._isLoadingPrevious
+                                seenIds: unsafeSelf._seenMessageIds,
+                                isInitial: !unsafeSelf._hasCompletedInitialLoad,
+                                isPaginating: unsafeSelf._isLoadingPrevious
                             )
                         }
 
@@ -258,8 +266,8 @@ class MessagesRepository: MessagesRepositoryProtocol {
                         )
 
                         // Update seenMessageIds atomically
-                        self.stateQueue.sync(flags: .barrier) {
-                            self._seenMessageIds = updatedSeenIds
+                        stateQueue.sync(flags: .barrier) {
+                            unsafeSelf._seenMessageIds = updatedSeenIds
                         }
 
                         return messages

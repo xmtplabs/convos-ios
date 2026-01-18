@@ -126,7 +126,7 @@ class InviteWriter: InviteWriterProtocol {
     }
 
     func delete(for conversationId: String) async throws {
-        try await databaseWriter.write { db in
+        _ = try await databaseWriter.write { db in
             try DBInvite
                 .filter(DBInvite.Columns.conversationId == conversationId)
                 .deleteAll(db)

@@ -16,7 +16,7 @@ public actor SleepingInboxMessageChecker {
     private let activityRepository: any InboxActivityRepositoryProtocol
     private weak var lifecycleManager: (any InboxLifecycleManagerProtocol)?
     private let appLifecycle: any AppLifecycleProviding
-    private let xmtpStaticOperations: any XMTPStaticOperations.Type
+    private let xmtpStaticOperations: SendableXMTPOperations
 
     private var periodicCheckTask: Task<Void, Never>?
     private var foregroundObserverTask: Task<Void, Never>?
@@ -35,7 +35,7 @@ public actor SleepingInboxMessageChecker {
         self.activityRepository = activityRepository
         self.lifecycleManager = lifecycleManager
         self.appLifecycle = appLifecycle
-        self.xmtpStaticOperations = xmtpStaticOperations
+        self.xmtpStaticOperations = SendableXMTPOperations(xmtpStaticOperations)
     }
 
     deinit {

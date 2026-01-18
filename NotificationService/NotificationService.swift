@@ -27,9 +27,10 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
             )
         }
 
-        // Create the handler with iOS platform providers
+        // Create the handler with iOS extension platform providers
+        // (uses mock providers since extensions don't need full app functionality)
         return try NotificationExtensionEnvironment.createPushNotificationHandler(
-            platformProviders: .iOS
+            platformProviders: .iOSExtension
         )
     } catch {
         // Log to both console and Logger in case Logger isn't configured

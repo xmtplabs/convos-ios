@@ -35,22 +35,14 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
     }
 
     lazy var conversationPublisher: AnyPublisher<Conversation?, Never> = {
+        let dbReader = dbReader
         Log.info("Creating conversationPublisher for conversationId: \(conversationId)")
         return conversationIdPublisher
             .removeDuplicates()
-            .flatMap { [weak self] conversationId -> AnyPublisher<Conversation?, Never> in
-                guard let self else {
-                    Log.warning("DraftConversationRepository deallocated during conversationPublisher mapping")
-                    return Just(nil).eraseToAnyPublisher()
-                }
-
+            .flatMap { conversationId -> AnyPublisher<Conversation?, Never> in
                 Log.info("Conversation ID changed to: \(conversationId)")
                 return ValueObservation
-                    .tracking { [weak self] db in
-                        guard let self else {
-                            Log.warning("DraftConversationRepository deallocated during conversation tracking")
-                            return nil
-                        }
+                    .tracking { db in
                         do {
                             Log.debug("Tracking conversation \(conversationId)")
 

@@ -18,6 +18,28 @@ public protocol XMTPStaticOperations {
 
 extension Client: XMTPStaticOperations {}
 
+/// Sendable wrapper for XMTPStaticOperations metatypes.
+///
+/// Metatypes are inherently thread-safe since they only contain type metadata,
+/// not mutable instance state. This wrapper allows passing metatypes across
+/// actor boundaries without triggering false positive Sendable warnings.
+public struct SendableXMTPOperations: Sendable {
+    // Using @unchecked because metatypes are inherently thread-safe
+    // (they're just references to type metadata, not mutable instances)
+    private nonisolated(unsafe) let metatype: any XMTPStaticOperations.Type
+
+    public init(_ metatype: any XMTPStaticOperations.Type) {
+        self.metatype = metatype
+    }
+
+    public func getNewestMessageMetadata(
+        groupIds: [String],
+        api: ClientOptions.Api
+    ) async throws -> [String: MessageMetadata] {
+        try await metatype.getNewestMessageMetadata(groupIds: groupIds, api: api)
+    }
+}
+
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
     func prepare(text: String) async throws -> String

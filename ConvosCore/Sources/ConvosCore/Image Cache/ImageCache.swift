@@ -324,7 +324,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     /// Load image from disk cache
     private func loadImageFromDisk(identifier: String, imageFormat: ImageFormat) async -> UIImage? {
-        var fileURL = self.diskCacheURL.appendingPathComponent(self.sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
+        let fileURL = self.diskCacheURL.appendingPathComponent(self.sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
         let formatName = imageFormat == .png ? "PNG" : "JPEG"
 
         return await withCheckedContinuation { continuation in
@@ -343,9 +343,10 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     let data = try Data(contentsOf: fileURL)
                     if let image = UIImage(data: data) {
                         // Update file access date for LRU cleanup
+                        var mutableFileURL = fileURL
                         var resourceValues = URLResourceValues()
                         resourceValues.contentAccessDate = Date()
-                        try? fileURL.setResourceValues(resourceValues)
+                        try? mutableFileURL.setResourceValues(resourceValues)
                         Log.info("Successfully loaded \(formatName) image from disk: \(identifier)")
                         continuation.resume(returning: image)
                     } else {

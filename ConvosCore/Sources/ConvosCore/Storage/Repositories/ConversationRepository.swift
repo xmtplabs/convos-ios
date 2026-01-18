@@ -41,10 +41,10 @@ class ConversationRepository: ConversationRepositoryProtocol {
     }
 
     lazy var conversationPublisher: AnyPublisher<Conversation?, Never> = {
-        ValueObservation
-            .tracking { [weak self] db in
-                guard let self else { return nil }
-                return try db.composeConversation(for: conversationId)
+        let conversationId = conversationId
+        return ValueObservation
+            .tracking { db in
+                try db.composeConversation(for: conversationId)
             }
             .publisher(in: dbReader)
             .replaceError(with: nil)

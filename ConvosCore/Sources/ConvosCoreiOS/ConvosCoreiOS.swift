@@ -35,6 +35,8 @@ extension PlatformProviders {
     /// - `IOSPushNotificationRegistrar` for push notification management
     ///
     /// Also sets up the legacy singleton accessors for backwards compatibility.
+    /// Must be called from the main actor (typically during app initialization).
+    @MainActor
     public static var iOS: PlatformProviders {
         let appLifecycle = IOSAppLifecycleProvider()
         let deviceInfo = IOSDeviceInfo()
@@ -50,6 +52,19 @@ extension PlatformProviders {
             appLifecycle: appLifecycle,
             deviceInfo: deviceInfo,
             pushNotificationRegistrar: pushNotificationRegistrar
+        )
+    }
+
+    /// Creates platform providers configured for iOS app extensions (e.g., Notification Service Extension).
+    ///
+    /// Unlike `.iOS`, this does not require main actor isolation since extensions
+    /// may initialize providers outside of the main actor context. Uses mock providers
+    /// for components that aren't needed in extensions.
+    public static var iOSExtension: PlatformProviders {
+        PlatformProviders(
+            appLifecycle: MockAppLifecycleProvider(),
+            deviceInfo: MockDeviceInfoProvider(),
+            pushNotificationRegistrar: MockPushNotificationRegistrarProvider()
         )
     }
 }

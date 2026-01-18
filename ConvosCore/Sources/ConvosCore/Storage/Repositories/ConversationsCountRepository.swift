@@ -13,10 +13,11 @@ class ConversationsCountRepository: ConversationsCountRepositoryProtocol {
     private let kinds: [ConversationKind]
 
     lazy var conversationsCount: AnyPublisher<Int, Never> = {
-        ValueObservation
-            .tracking { [weak self] db in
-                guard let self else { return 0 }
-                return try db.composeConversationsCount(consent: consent, kinds: kinds)
+        let consent = consent
+        let kinds = kinds
+        return ValueObservation
+            .tracking { db in
+                try db.composeConversationsCount(consent: consent, kinds: kinds)
             }
             .publisher(in: databaseReader)
             .replaceError(with: 0)
