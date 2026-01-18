@@ -576,16 +576,24 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
 
+        // Rotate invite tag first so the new invite is ready before members can add others.
+        // This ensures the invite works immediately when permissions are updated.
+        try await group.rotateInviteTag()
+
         try await group.updateAddMemberPermission(newPermissionOption: .allow)
 
         try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
             }
-            let updatedConversation = localConversation.with(isLocked: false)
+            let updatedConversation = localConversation
+                .with(isLocked: false)
+                .with(inviteTag: try group.inviteTag)
             try updatedConversation.save(db)
             Log.info("Unlocked conversation \(conversationId) in local database")
         }
+
+        _ = try await inviteWriter.regenerate(for: conversationId)
 
         Log.info("Unlocked conversation \(conversationId)")
     }
