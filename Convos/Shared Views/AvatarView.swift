@@ -44,21 +44,17 @@ struct AvatarView: View {
 
     @MainActor
     private func loadImage() async {
-        // First check object cache for instant updates
+        // No early return - fall through to check for newer version via URL cache/network.
+        // This ensures encrypted images update when changed on another device.
         if let cachedObjectImage = await ImageCache.shared.imageAsync(for: cacheableObject) {
             cachedImage = cachedObjectImage
-            // fall through so we attempt to fetch the latest
         }
 
-        guard let imageURL else {
-            cachedImage = nil
-            return
-        }
+        guard let imageURL else { return }
 
-        // Check URL-based cache (only if object cache was empty)
         if let existingImage = await ImageCache.shared.imageAsync(for: imageURL) {
             cachedImage = existingImage
-            return // Early return to avoid network request if URL cache has the image
+            return
         }
 
         isLoading = true
@@ -66,16 +62,11 @@ struct AvatarView: View {
         do {
             let (data, _) = try await URLSession.shared.data(from: imageURL)
             if let image = UIImage(data: data) {
-                // Cache the image for future use
                 ImageCache.shared.setImage(image, for: imageURL.absoluteString)
-
-                // Also cache by object if available for instant cross-view updates
                 ImageCache.shared.setImage(image, for: cacheableObject)
-
                 cachedImage = image
             }
         } catch {
-            // Keep showing monogram on error
             Log.error("Error loading image cacheable object: \(cacheableObject) from url: \(imageURL)")
             cachedImage = nil
         }
@@ -105,18 +96,13 @@ struct ConversationAvatarView: View {
     let conversationImage: UIImage?
 
     var body: some View {
-        if conversation.imageURL != nil || conversationImage != nil {
-            // Fall back to URL-based loading with conversation object for cache awareness
-            AvatarView(
-                imageURL: conversation.imageURL,
-                fallbackName: "",
-                cacheableObject: conversation,
-                placeholderImage: conversationImage,
-                placeholderImageName: nil
-            )
-        } else {
-            MonogramView(text: "")
-        }
+        AvatarView(
+            imageURL: nil,
+            fallbackName: "",
+            cacheableObject: conversation,
+            placeholderImage: conversationImage,
+            placeholderImageName: nil
+        )
     }
 }
 

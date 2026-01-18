@@ -164,6 +164,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Prefetch encrypted profile images in background
         prefetchEncryptedImages(profiles: memberProfiles, group: conversation)
 
+        // Prefetch encrypted group image in background
+        prefetchEncryptedGroupImage(cacheId: dbConversation.clientConversationId, group: conversation)
+
         // Create invite
         _ = try await inviteWriter.generate(
             for: dbConversation,
@@ -398,6 +401,38 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 profiles: encryptedProfiles,
                 groupKey: groupKey
             )
+        }
+    }
+
+    private func prefetchEncryptedGroupImage(cacheId: String, group: XMTPiOS.Group) {
+        guard let encryptedRef = try? group.encryptedGroupImage,
+              let groupKey = try? group.imageEncryptionKey,
+              let params = EncryptedImageParams(encryptedRef: encryptedRef, groupKey: groupKey) else {
+            return
+        }
+
+        let urlString = encryptedRef.url
+
+        Task.detached(priority: .background) {
+            if await ImageCacheContainer.shared.imageAsync(for: urlString) != nil {
+                return
+            }
+
+            do {
+                let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(params: params)
+
+                guard let image = ImageType(data: decryptedData) else {
+                    Log.error("Failed to create image from decrypted group image data")
+                    return
+                }
+
+                ImageCacheContainer.shared.setImage(image, for: urlString)
+                // Also cache by clientConversationId so AvatarView's object-based cache lookup succeeds
+                ImageCacheContainer.shared.setImage(image, for: cacheId)
+                Log.info("Prefetched encrypted group image for conversation: \(cacheId)")
+            } catch {
+                Log.error("Failed to prefetch encrypted group image: \(error)")
+            }
         }
     }
 }

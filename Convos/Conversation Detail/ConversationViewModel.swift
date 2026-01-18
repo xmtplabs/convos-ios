@@ -293,10 +293,28 @@ class ConversationViewModel {
                 self.loadConversationImage(for: conversation)
             }
             .store(in: &cancellables)
+
+        ImageCache.shared.cacheUpdates
+            .filter { [weak self] identifier in
+                identifier == self?.conversation.imageCacheIdentifier
+            }
+            .sink { [weak self] _ in
+                guard let self, !self.isConversationImageDirty else { return }
+                self.conversationImage = ImageCache.shared.image(for: self.conversation)
+                self.isConversationImageDirty = false
+            }
+            .store(in: &cancellables)
     }
 
     private func loadConversationImage(for conversation: Conversation) {
         guard !isConversationImageDirty else { return }
+
+        if let cachedImage = ImageCache.shared.image(for: conversation) {
+            conversationImage = cachedImage
+            isConversationImageDirty = false
+            return
+        }
+
         guard let imageURL = conversation.imageURL else { return }
 
         if let cachedImage = ImageCache.shared.image(for: imageURL) {
@@ -309,8 +327,7 @@ class ConversationViewModel {
         loadConversationImageTask = Task { [weak self] in
             guard let self else { return }
 
-            let cachedImage = await ImageCache.shared.imageAsync(for: imageURL)
-            if let cachedImage {
+            if let cachedImage = await ImageCache.shared.imageAsync(for: imageURL) {
                 guard !Task.isCancelled, !self.isConversationImageDirty else { return }
                 self.conversationImage = cachedImage
                 self.isConversationImageDirty = false
@@ -707,10 +724,11 @@ class ConversationViewModel {
             }
         }
     }
+}
 
-    // MARK: - Pagination Support
+// MARK: - Pagination Support
 
-    /// Loads previous (older) messages
+extension ConversationViewModel {
     func loadPreviousMessages() {
         guard hasMoreMessages else { return }
 
@@ -718,7 +736,6 @@ class ConversationViewModel {
             guard let self else { return }
             do {
                 try messagesListRepository.fetchPrevious()
-                // Messages will be delivered through the publisher
                 Log.info("Fetching previous messages")
             } catch {
                 Log.error("Error loading previous messages: \(error.localizedDescription)")
@@ -726,25 +743,21 @@ class ConversationViewModel {
         }
     }
 
-    /// Checks if there are more messages to load
     var hasMoreMessages: Bool {
-        return messagesListRepository.hasMoreMessages
+        messagesListRepository.hasMoreMessages
     }
 
-    /// Indicates if all available messages have been loaded
     var hasLoadedAllMessages: Bool {
-        return !messagesListRepository.hasMoreMessages
+        !messagesListRepository.hasMoreMessages
     }
 
     @MainActor
     func exportDebugLogs() async throws -> URL {
-        // Get the XMTP client for this conversation
         let messagingService = try await session.messagingService(
             for: conversation.clientId,
             inboxId: conversation.inboxId
         )
 
-        // Wait for inbox to be ready and get the client
         let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
         let client = inboxResult.client
 

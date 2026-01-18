@@ -85,6 +85,7 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
                     )
                 }
                 ImageCacheContainer.shared.setImage(image, for: urlString)
+                ImageCacheContainer.shared.setImage(image, for: profile.inboxId)
                 Log.info("Prefetched encrypted profile image for: \(profile.inboxId)")
                 return
             } catch {
