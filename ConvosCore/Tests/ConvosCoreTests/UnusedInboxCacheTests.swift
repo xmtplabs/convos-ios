@@ -485,4 +485,117 @@ struct UnusedInboxCacheTests {
         }
         try? await fixtures.cleanup()
     }
+
+    // MARK: - Deletion and Recreation Scenario Tests
+
+    @Test("Unused inbox cache works after deleting first consumed inbox")
+    func testUnusedInboxWorksAfterDeletion() async throws {
+        let fixtures = TestFixtures()
+        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+
+        // Clear any existing unused inbox
+        await cache.clearUnusedInboxFromKeychain()
+
+        // Step 1: Prepare and consume first inbox (inbox A)
+        await cache.prepareUnusedInboxIfNeeded(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+        try await waitForUnusedInbox(cache: cache)
+
+        let serviceA = await cache.consumeOrCreateMessagingService(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+        let resultA = try await serviceA.inboxStateManager.waitForInboxReadyResult()
+        let inboxIdA = resultA.client.inboxId
+        #expect(!inboxIdA.isEmpty, "Inbox A should have a valid inbox ID")
+
+        // Step 2: Wait for background task to create new unused inbox (inbox B)
+        try await waitForUnusedInbox(cache: cache, timeout: .seconds(15))
+        #expect(await cache.hasUnusedInbox(), "Unused inbox B should be available after consuming A")
+
+        // Step 3: Delete inbox A (simulating user deleting/exploding a conversation)
+        await serviceA.stopAndDelete()
+
+        // Step 4: Wait to simulate the SleepingInboxMessageChecker period (5+ seconds)
+        try await Task.sleep(for: .seconds(6))
+
+        // Step 5: Verify unused inbox B is still valid
+        #expect(await cache.hasUnusedInbox(), "Unused inbox B should still be available after deleting A")
+
+        // Step 6: Consume unused inbox B to create inbox C
+        let serviceC = await cache.consumeOrCreateMessagingService(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+
+        // Step 7: Verify inbox C works correctly
+        let resultC = try await serviceC.inboxStateManager.waitForInboxReadyResult()
+        let inboxIdC = resultC.client.inboxId
+        #expect(!inboxIdC.isEmpty, "Inbox C should have a valid inbox ID")
+        #expect(inboxIdC != inboxIdA, "Inbox C should be different from deleted inbox A")
+
+        // Clean up
+        await serviceC.stopAndDelete()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Multiple delete-and-recreate cycles work correctly")
+    func testMultipleDeleteAndRecreateCycles() async throws {
+        let fixtures = TestFixtures()
+        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+
+        // Clear any existing unused inbox
+        await cache.clearUnusedInboxFromKeychain()
+
+        var previousInboxIds: Set<String> = []
+
+        // Run 3 cycles of: create -> wait for background -> delete -> wait -> create again
+        for cycle in 1...3 {
+            // Prepare if this is the first cycle
+            if cycle == 1 {
+                await cache.prepareUnusedInboxIfNeeded(
+                    databaseWriter: fixtures.databaseManager.dbWriter,
+                    databaseReader: fixtures.databaseManager.dbReader,
+                    environment: testEnvironment
+                )
+                try await waitForUnusedInbox(cache: cache)
+            }
+
+            // Consume inbox
+            let service = await cache.consumeOrCreateMessagingService(
+                databaseWriter: fixtures.databaseManager.dbWriter,
+                databaseReader: fixtures.databaseManager.dbReader,
+                environment: testEnvironment
+            )
+            let result = try await service.inboxStateManager.waitForInboxReadyResult()
+            let inboxId = result.client.inboxId
+
+            #expect(!inboxId.isEmpty, "Cycle \(cycle): Inbox should have a valid ID")
+            #expect(!previousInboxIds.contains(inboxId), "Cycle \(cycle): Inbox ID should be unique")
+            previousInboxIds.insert(inboxId)
+
+            // Wait for background to create next unused inbox
+            try await waitForUnusedInbox(cache: cache, timeout: .seconds(15))
+
+            // Delete the inbox
+            await service.stopAndDelete()
+
+            // Wait to simulate time passing (like SleepingInboxMessageChecker period)
+            try await Task.sleep(for: .seconds(2))
+
+            // Verify unused inbox is still available for next cycle
+            if cycle < 3 {
+                #expect(await cache.hasUnusedInbox(), "Cycle \(cycle): Unused inbox should be available for next cycle")
+            }
+        }
+
+        #expect(previousInboxIds.count == 3, "Should have created 3 unique inboxes")
+
+        try? await fixtures.cleanup()
+    }
 }

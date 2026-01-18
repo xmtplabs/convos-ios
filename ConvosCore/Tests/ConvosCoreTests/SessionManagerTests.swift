@@ -336,6 +336,165 @@ struct SessionManagerTests {
         #expect(client2Awake, "Client 2 should be awake after waking by its conversation ID")
     }
 
+    // MARK: - Create-Delete-Create Scenario Tests
+
+    @Test("Creating inbox after deleting previous one works correctly with SleepingInboxMessageChecker")
+    func testCreateDeleteWaitCreateScenario() async throws {
+        // This test reproduces the scenario where:
+        // 1. User creates a new inbox
+        // 2. User deletes that inbox
+        // 3. SleepingInboxMessageChecker runs (5 second interval)
+        // 4. User tries to create another inbox
+        //
+        // The issue was that after deletion, something in the state would cause
+        // the second inbox creation to fail or behave incorrectly.
+
+        let fixtures = try await makeIntegrationTestFixtures()
+
+        // Step 1: Create the first inbox
+        let service1 = await fixtures.sessionManager.addInbox()
+        let result1 = try await service1.inboxStateManager.waitForInboxReadyResult()
+        let inboxId1 = result1.client.inboxId
+        let clientId1 = service1.clientId
+
+        #expect(!inboxId1.isEmpty, "First inbox should have a valid inbox ID")
+        #expect(!clientId1.isEmpty, "First inbox should have a valid client ID")
+
+        // Verify inbox is awake
+        let isAwake1 = await fixtures.lifecycleManager.isAwake(clientId: clientId1)
+        #expect(isAwake1, "First inbox should be awake after creation")
+
+        // Step 2: Delete the first inbox
+        try await fixtures.sessionManager.deleteInbox(clientId: clientId1, inboxId: inboxId1)
+
+        // Verify inbox is removed from tracking
+        let isAwakeAfterDelete = await fixtures.lifecycleManager.isAwake(clientId: clientId1)
+        let isSleepingAfterDelete = await fixtures.lifecycleManager.isSleeping(clientId: clientId1)
+        #expect(!isAwakeAfterDelete, "Deleted inbox should not be awake")
+        #expect(!isSleepingAfterDelete, "Deleted inbox should not be sleeping")
+
+        // Step 3: Wait for the SleepingInboxMessageChecker interval (5 seconds) plus buffer
+        try await Task.sleep(for: .seconds(6))
+
+        // Step 4: Create a second inbox
+        let service2 = await fixtures.sessionManager.addInbox()
+        let result2 = try await service2.inboxStateManager.waitForInboxReadyResult()
+        let inboxId2 = result2.client.inboxId
+        let clientId2 = service2.clientId
+
+        #expect(!inboxId2.isEmpty, "Second inbox should have a valid inbox ID")
+        #expect(!clientId2.isEmpty, "Second inbox should have a valid client ID")
+        #expect(inboxId2 != inboxId1, "Second inbox should have a different inbox ID than the deleted one")
+
+        // Verify second inbox is awake
+        let isAwake2 = await fixtures.lifecycleManager.isAwake(clientId: clientId2)
+        #expect(isAwake2, "Second inbox should be awake after creation")
+
+        // Clean up
+        await service2.stopAndDelete()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Multiple create-delete-create cycles with SleepingInboxMessageChecker running")
+    func testMultipleCreateDeleteCyclesWithChecker() async throws {
+        let fixtures = try await makeIntegrationTestFixtures()
+
+        var previousInboxIds: Set<String> = []
+
+        for cycle in 1...3 {
+            // Create inbox
+            let service = await fixtures.sessionManager.addInbox()
+            let result = try await service.inboxStateManager.waitForInboxReadyResult()
+            let inboxId = result.client.inboxId
+            let clientId = service.clientId
+
+            #expect(!inboxId.isEmpty, "Cycle \(cycle): Inbox should have a valid inbox ID")
+            #expect(!previousInboxIds.contains(inboxId), "Cycle \(cycle): Inbox ID should be unique")
+            previousInboxIds.insert(inboxId)
+
+            // Verify inbox is awake
+            let isAwake = await fixtures.lifecycleManager.isAwake(clientId: clientId)
+            #expect(isAwake, "Cycle \(cycle): Inbox should be awake after creation")
+
+            // Delete the inbox
+            try await fixtures.sessionManager.deleteInbox(clientId: clientId, inboxId: inboxId)
+
+            // Wait for SleepingInboxMessageChecker to run
+            try await Task.sleep(for: .seconds(6))
+
+            // Verify inbox is fully removed
+            let isAwakeAfterDelete = await fixtures.lifecycleManager.isAwake(clientId: clientId)
+            let isSleepingAfterDelete = await fixtures.lifecycleManager.isSleeping(clientId: clientId)
+            #expect(!isAwakeAfterDelete, "Cycle \(cycle): Deleted inbox should not be awake")
+            #expect(!isSleepingAfterDelete, "Cycle \(cycle): Deleted inbox should not be sleeping")
+        }
+
+        #expect(previousInboxIds.count == 3, "Should have created 3 unique inboxes")
+
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Create-delete-create with maxAwakeInboxes=1 triggers eviction logic")
+    func testCreateDeleteCreateWithSingleMaxAwakeInbox() async throws {
+        // This test uses maxAwakeInboxes=1 to stress-test the eviction and lifecycle logic.
+        // With only 1 allowed awake inbox, every new inbox creation triggers capacity checks.
+        let fixtures = try await makeIntegrationTestFixtures(maxAwakeInboxes: 1)
+
+        // Step 1: Create first inbox, wait for ready
+        let service1 = await fixtures.sessionManager.addInbox()
+        let result1 = try await service1.inboxStateManager.waitForInboxReadyResult()
+        let inboxId1 = result1.client.inboxId
+        let clientId1 = service1.clientId
+
+        #expect(!inboxId1.isEmpty, "First inbox should have a valid inbox ID")
+        let isAwake1 = await fixtures.lifecycleManager.isAwake(clientId: clientId1)
+        #expect(isAwake1, "First inbox should be awake")
+
+        // Step 2: Create second inbox (this should trigger eviction logic since maxAwake=1)
+        let service2 = await fixtures.sessionManager.addInbox()
+        let result2 = try await service2.inboxStateManager.waitForInboxReadyResult()
+        let inboxId2 = result2.client.inboxId
+        let clientId2 = service2.clientId
+
+        #expect(!inboxId2.isEmpty, "Second inbox should have a valid inbox ID")
+        #expect(inboxId2 != inboxId1, "Second inbox should be different from first")
+
+        // Second inbox should be awake (it's the active one after creation)
+        let isAwake2 = await fixtures.lifecycleManager.isAwake(clientId: clientId2)
+        #expect(isAwake2, "Second inbox should be awake")
+
+        // Step 3: Delete the second inbox
+        try await fixtures.sessionManager.deleteInbox(clientId: clientId2, inboxId: inboxId2)
+
+        // Verify second inbox is removed
+        let isAwake2AfterDelete = await fixtures.lifecycleManager.isAwake(clientId: clientId2)
+        let isSleeping2AfterDelete = await fixtures.lifecycleManager.isSleeping(clientId: clientId2)
+        #expect(!isAwake2AfterDelete, "Deleted inbox should not be awake")
+        #expect(!isSleeping2AfterDelete, "Deleted inbox should not be sleeping")
+
+        // Step 4: Wait for SleepingInboxMessageChecker interval (5 seconds) plus buffer
+        try await Task.sleep(for: .seconds(6))
+
+        // Step 5: Create a third inbox
+        let service3 = await fixtures.sessionManager.addInbox()
+        let result3 = try await service3.inboxStateManager.waitForInboxReadyResult()
+        let inboxId3 = result3.client.inboxId
+        let clientId3 = service3.clientId
+
+        #expect(!inboxId3.isEmpty, "Third inbox should have a valid inbox ID")
+        #expect(inboxId3 != inboxId1, "Third inbox should be different from first")
+        #expect(inboxId3 != inboxId2, "Third inbox should be different from second (deleted)")
+
+        // Third inbox should be awake
+        let isAwake3 = await fixtures.lifecycleManager.isAwake(clientId: clientId3)
+        #expect(isAwake3, "Third inbox should be awake after creation")
+
+        // Clean up
+        await service1.stopAndDelete()
+        await service3.stopAndDelete()
+        try? await fixtures.cleanup()
+    }
+
     // MARK: - Test Helpers
 
     struct TestFixtures {
@@ -343,6 +502,18 @@ struct SessionManagerTests {
         let lifecycleManager: InboxLifecycleManager
         let activityRepo: MockInboxActivityRepository
         let databaseManager: MockDatabaseManager
+    }
+
+    struct IntegrationTestFixtures {
+        let sessionManager: SessionManager
+        let lifecycleManager: InboxLifecycleManager
+        let databaseManager: MockDatabaseManager
+        let identityStore: MockKeychainIdentityStore
+
+        func cleanup() async throws {
+            try await identityStore.deleteAll()
+            try databaseManager.erase()
+        }
     }
 
     func makeTestFixtures() async throws -> TestFixtures {
@@ -375,6 +546,52 @@ struct SessionManagerTests {
             lifecycleManager: lifecycleManager,
             activityRepo: activityRepo,
             databaseManager: databaseManager
+        )
+    }
+
+    func makeIntegrationTestFixtures(maxAwakeInboxes: Int = 50) async throws -> IntegrationTestFixtures {
+        let databaseManager = MockDatabaseManager.makeTestDatabase()
+        let identityStore = MockKeychainIdentityStore()
+
+        // Use real repositories that query the database
+        let activityRepo = InboxActivityRepository(databaseReader: databaseManager.dbReader)
+        let pendingInviteRepo = PendingInviteRepository(databaseReader: databaseManager.dbReader)
+
+        let lifecycleManager = InboxLifecycleManager(
+            maxAwakeInboxes: maxAwakeInboxes,
+            databaseReader: databaseManager.dbReader,
+            databaseWriter: databaseManager.dbWriter,
+            identityStore: identityStore,
+            environment: .tests,
+            platformProviders: .mock,
+            activityRepository: activityRepo,
+            pendingInviteRepository: pendingInviteRepo
+        )
+
+        // Create SleepingInboxMessageChecker with the real activity repository
+        let sleepingInboxChecker = SleepingInboxMessageChecker(
+            checkInterval: 5,
+            environment: .tests,
+            activityRepository: activityRepo,
+            lifecycleManager: lifecycleManager,
+            appLifecycle: PlatformProviders.mock.appLifecycle
+        )
+
+        let sessionManager = SessionManager(
+            databaseWriter: databaseManager.dbWriter,
+            databaseReader: databaseManager.dbReader,
+            environment: .tests,
+            identityStore: identityStore,
+            lifecycleManager: lifecycleManager,
+            sleepingInboxChecker: sleepingInboxChecker,
+            platformProviders: .mock
+        )
+
+        return IntegrationTestFixtures(
+            sessionManager: sessionManager,
+            lifecycleManager: lifecycleManager,
+            databaseManager: databaseManager,
+            identityStore: identityStore
         )
     }
 }

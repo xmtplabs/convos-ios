@@ -92,7 +92,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     }
 
     public init(
-        maxAwakeInboxes: Int = 20,
+        maxAwakeInboxes: Int = 25,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         identityStore: any KeychainIdentityStoreProtocol,
@@ -232,6 +232,9 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             Log.info("Force removed inbox from tracking (was not awake): \(clientId)")
         }
         _sleepingClientIds.remove(clientId)
+        if _activeClientId == clientId {
+            _activeClientId = nil
+        }
     }
 
     public func getOrCreateService(clientId: String, inboxId: String) -> any MessagingServiceProtocol {
@@ -263,6 +266,19 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             let allActivities = try activityRepository.allInboxActivities()
             let pendingInviteIds = pendingInviteClientIds
 
+            // Filter out unused inboxes - they're reserved for createNewInbox() and should not be
+            // woken by rebalance. This prevents dual-tracking where the same inbox exists in both
+            // awakeInboxes and unusedInboxCache.
+            var eligibleActivities: [InboxActivity] = []
+            for activity in allActivities {
+                let isUnused = await unusedInboxCache.isUnusedInbox(activity.inboxId)
+                if !isUnused {
+                    eligibleActivities.append(activity)
+                } else {
+                    Log.info("Rebalance: skipping unused inbox \(activity.clientId)")
+                }
+            }
+
             // Build set of protected client IDs (pending invites + currently active)
             var protectedClientIds = pendingInviteIds
             if let activeClientId = _activeClientId {
@@ -274,7 +290,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             // 2. Top N by lastActivity (excluding protected, since they're already counted)
             var shouldBeAwake = protectedClientIds
 
-            let nonProtectedActivities = allActivities.filter { !protectedClientIds.contains($0.clientId) }
+            let nonProtectedActivities = eligibleActivities.filter { !protectedClientIds.contains($0.clientId) }
             let slotsForNonProtected = max(0, maxAwakeInboxes - protectedClientIds.count)
             let topNonProtected = nonProtectedActivities.prefix(slotsForNonProtected)
             for activity in topNonProtected {
@@ -289,18 +305,22 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             }
 
             // Wake inboxes that should be awake but aren't
-            for activity in allActivities where shouldBeAwake.contains(activity.clientId) {
+            var failedWakeCount = 0
+            for activity in eligibleActivities where shouldBeAwake.contains(activity.clientId) {
                 if !awakeInboxes.keys.contains(activity.clientId) {
                     do {
                         Log.info("Rebalance: waking inbox \(activity.clientId) (lastActivity: \(activity.lastActivity?.description ?? "nil"))")
                         _ = try await attemptWake(clientId: activity.clientId, inboxId: activity.inboxId, reason: .activityRanking)
                     } catch {
+                        failedWakeCount += 1
                         Log.error("Rebalance: failed to wake inbox \(activity.clientId): \(error)")
-                        // Continue processing remaining inboxes
                     }
                 }
             }
 
+            if failedWakeCount > 0 {
+                Log.warning("Rebalance: \(failedWakeCount) inbox(es) failed to wake")
+            }
             Log.info("Rebalance complete: \(awakeInboxes.count) awake, \(_sleepingClientIds.count) sleeping")
         } catch {
             Log.error("Rebalance failed: \(error)")
@@ -391,25 +411,37 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     }
 
     /// Attempts to sleep the least recently used inbox to free capacity.
+    ///
+    /// Inboxes with `nil` lastActivity are treated as "newly created" and protected from eviction
+    /// for `newInboxProtectionWindow` seconds after creation. This prevents newly created inboxes
+    /// (which haven't received messages yet) from being immediately evicted.
+    ///
+    /// Note: This differs from `SleepingInboxMessageChecker.findOldestAwakeLastActivity()` which
+    /// treats `nil` lastActivity as `.distantPast` for message timestamp comparisons. The semantics
+    /// differ because eviction protection (here) and message recency comparison (there) have
+    /// different goals.
+    ///
     /// - Returns: `true` if an inbox was successfully slept, `false` otherwise.
     @discardableResult
     private func sleepLeastRecentlyUsed(excluding excludedClientIds: Set<String>) async -> Bool {
         do {
             let activities = try activityRepository.allInboxActivities()
+            let newInboxThreshold = Date().addingTimeInterval(-SleepingInboxMessageChecker.newInboxProtectionWindow)
 
             let sleepCandidate = activities.last { activity in
                 awakeInboxes[activity.clientId] != nil &&
                 !excludedClientIds.contains(activity.clientId) &&
                 !pendingInviteClientIds.contains(activity.clientId) &&
-                activity.clientId != _activeClientId
+                activity.clientId != _activeClientId &&
+                (activity.lastActivity != nil || activity.createdAt < newInboxThreshold)
             }
 
             if let candidate = sleepCandidate {
-                Log.info("LRU sleep candidate: \(candidate.clientId), lastActivity: \(candidate.lastActivity?.description ?? "nil")")
+                Log.info("LRU sleep candidate: \(candidate.clientId), lastActivity: \(candidate.lastActivity?.description ?? "nil"), createdAt: \(candidate.createdAt)")
                 await sleep(clientId: candidate.clientId)
                 return true
             } else {
-                Log.warning("No suitable inbox found for LRU sleep - all inboxes are protected, active, or have pending invites")
+                Log.warning("No suitable inbox found for LRU sleep - all inboxes are protected, active, have pending invites, or are newly created")
                 return false
             }
         } catch {

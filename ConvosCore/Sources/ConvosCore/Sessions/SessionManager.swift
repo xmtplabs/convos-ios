@@ -91,7 +91,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
             guard !Task.isCancelled else { return }
 
-            // Start sleeping inbox message checker
             await self.sleepingInboxChecker.startPeriodicChecks()
 
             guard !Task.isCancelled else { return }
@@ -159,7 +158,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         Log.info("Deleting inbox for clientId: \(clientId)")
         await service.stopAndDelete()
 
-        // Force remove from tracking (don't use sleep() - it may re-add due to pending invites)
+        // Force remove from tracking (also clears activeClientId if needed)
         await lifecycleManager.forceRemove(clientId: clientId)
 
         // Always delete inbox record from database regardless of in-memory service state

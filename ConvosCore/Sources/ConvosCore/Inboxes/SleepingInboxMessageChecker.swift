@@ -8,8 +8,12 @@ import GRDB
 /// to check for new messages without needing to wake the inbox's XMTP client. If a sleeping inbox
 /// has newer messages than the oldest awake inbox, it may be promoted to awake status.
 public actor SleepingInboxMessageChecker {
-    /// Default interval between periodic checks
+    /// Default interval between periodic checks (60 seconds in production)
     public static let defaultCheckInterval: TimeInterval = 60
+
+    /// How long new inboxes with no activity are protected from eviction (multiple check cycles)
+    /// In production: 60 * 12 = 720 seconds (12 minutes)
+    public static let newInboxProtectionWindow: TimeInterval = defaultCheckInterval * 12
 
     private let checkInterval: TimeInterval
     private let environment: AppEnvironment
@@ -174,6 +178,8 @@ public actor SleepingInboxMessageChecker {
 
         let activities = try activityRepository.allInboxActivities()
         let awakeActivities = activities.filter { awakeClientIds.contains($0.clientId) }
+
+        guard !awakeActivities.isEmpty else { return nil }
 
         // Return the oldest (minimum) lastActivity among awake inboxes
         // If an awake inbox has no lastActivity (nil), treat it as very old

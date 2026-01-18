@@ -8,12 +8,14 @@ public struct InboxActivity: Codable, Hashable, Identifiable {
     public let inboxId: String
     public let lastActivity: Date?
     public let conversationCount: Int
+    public let createdAt: Date
 
-    public init(clientId: String, inboxId: String, lastActivity: Date?, conversationCount: Int) {
+    public init(clientId: String, inboxId: String, lastActivity: Date?, conversationCount: Int, createdAt: Date = Date()) {
         self.clientId = clientId
         self.inboxId = inboxId
         self.lastActivity = lastActivity
         self.conversationCount = conversationCount
+        self.createdAt = createdAt
     }
 }
 
@@ -90,6 +92,7 @@ public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @uncheck
             SELECT
                 i.clientId,
                 i.inboxId,
+                i.createdAt,
                 MAX(m.date) as lastActivity,
                 COUNT(DISTINCT c.id) as conversationCount
             FROM inbox i
@@ -105,7 +108,8 @@ public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @uncheck
                 clientId: row["clientId"],
                 inboxId: row["inboxId"],
                 lastActivity: row["lastActivity"],
-                conversationCount: row["conversationCount"]
+                conversationCount: row["conversationCount"],
+                createdAt: row["createdAt"]
             )
         }
     }
@@ -115,6 +119,7 @@ public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @uncheck
             SELECT
                 i.clientId,
                 i.inboxId,
+                i.createdAt,
                 MAX(m.date) as lastActivity,
                 COUNT(DISTINCT c.id) as conversationCount
             FROM inbox i
@@ -130,7 +135,8 @@ public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @uncheck
                 clientId: row["clientId"],
                 inboxId: row["inboxId"],
                 lastActivity: row["lastActivity"],
-                conversationCount: row["conversationCount"]
+                conversationCount: row["conversationCount"],
+                createdAt: row["createdAt"]
             )
         }
     }

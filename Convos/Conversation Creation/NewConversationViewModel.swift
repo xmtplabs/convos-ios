@@ -185,10 +185,12 @@ class NewConversationViewModel: Identifiable {
         Log.info("Deleting conversation")
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
+        let clientId = conversationViewModel.conversation.clientId
+        let inboxId = conversationViewModel.conversation.inboxId
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await conversationStateManager.delete()
+                try await session.deleteInbox(clientId: clientId, inboxId: inboxId)
             } catch {
                 Log.error("Failed deleting conversation: \(error.localizedDescription)")
             }
