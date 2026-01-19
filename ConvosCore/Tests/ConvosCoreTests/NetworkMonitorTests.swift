@@ -93,8 +93,10 @@ struct NetworkMonitorTests {
             }
         }
 
-        // Wait a bit for the initial status
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+        // Wait for the initial status with proper polling
+        try await waitUntil {
+            await collector.statuses.count >= 1
+        }
 
         task.cancel()
 
