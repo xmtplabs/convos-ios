@@ -13,6 +13,129 @@ BASE_DIR="$(dirname "$MAIN_REPO")"
 # If not set, will auto-detect an available iPhone simulator
 BASE_SIMULATOR="${CONVOS_BASE_SIMULATOR:-}"
 
+# Agent-deck group name for all convos-task sessions
+AGENT_DECK_GROUP="convos"
+
+check_agent_deck() {
+    if ! command -v agent-deck &>/dev/null; then
+        echo -e "${RED}Error: agent-deck not found${NC}"
+        echo "Install with: curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash"
+        return 1
+    fi
+    return 0
+}
+
+ensure_agent_deck_group() {
+    if ! check_agent_deck; then
+        return 1
+    fi
+    # Create convos group if it doesn't exist (ignore errors if it already exists)
+    agent-deck group create "$AGENT_DECK_GROUP" 2>/dev/null || true
+}
+
+get_agent_deck_session_id() {
+    local task_name="$1"
+    local worktree_dir="$2"
+    # Find session by path matching the worktree directory
+    agent-deck list --json 2>/dev/null | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//' || true
+}
+
+add_agent_deck_session() {
+    local task_name="$1"
+    local worktree_dir="$2"
+
+    if ! check_agent_deck; then
+        return 1
+    fi
+
+    ensure_agent_deck_group
+
+    echo -e "${BLUE}Adding session to agent-deck...${NC}"
+    agent-deck add -c claude -t "$task_name" -g "$AGENT_DECK_GROUP" "$worktree_dir"
+}
+
+remove_agent_deck_session() {
+    local task_name="$1"
+    local worktree_dir="$2"
+
+    if ! check_agent_deck; then
+        return 0  # Don't fail cleanup if agent-deck isn't installed
+    fi
+
+    # Find and remove session by matching the path
+    local session_id
+    session_id=$(agent-deck list --json 2>/dev/null | \
+        python3 -c "import sys,json; sessions=json.load(sys.stdin); print(next((s['id'] for s in sessions if s.get('path','').endswith('$task_name')), ''))" 2>/dev/null || true)
+
+    if [ -n "$session_id" ]; then
+        echo -e "${BLUE}Removing session from agent-deck...${NC}"
+        agent-deck remove "$session_id" --force 2>/dev/null || true
+    fi
+}
+
+attach_agent_deck_session() {
+    local task_name="$1"
+    local worktree_dir="$2"
+
+    if ! check_agent_deck; then
+        return 1
+    fi
+
+    # Find session by matching the task name in title or path
+    local session_id
+    session_id=$(agent-deck list --json 2>/dev/null | \
+        python3 -c "import sys,json; sessions=json.load(sys.stdin); print(next((s['id'] for s in sessions if s.get('title','')=='$task_name' or s.get('path','').endswith('$task_name')), ''))" 2>/dev/null || true)
+
+    if [ -z "$session_id" ]; then
+        echo -e "${YELLOW}Session not found in agent-deck, adding it...${NC}"
+        add_agent_deck_session "$task_name" "$worktree_dir"
+        # Try to find it again
+        session_id=$(agent-deck list --json 2>/dev/null | \
+            python3 -c "import sys,json; sessions=json.load(sys.stdin); print(next((s['id'] for s in sessions if s.get('title','')=='$task_name' or s.get('path','').endswith('$task_name')), ''))" 2>/dev/null || true)
+    fi
+
+    if [ -n "$session_id" ]; then
+        # Start the session if not running, then attach
+        agent-deck session start "$session_id" 2>/dev/null || true
+        agent-deck session attach "$session_id"
+    else
+        echo -e "${RED}Could not find or create agent-deck session${NC}"
+        return 1
+    fi
+}
+
+get_agent_deck_status() {
+    local task_name="$1"
+
+    if ! command -v agent-deck &>/dev/null; then
+        echo ""
+        return
+    fi
+
+    # Get session status by matching task name
+    local status
+    status=$(agent-deck list --json 2>/dev/null | \
+        python3 -c "import sys,json; sessions=json.load(sys.stdin); s=next((s for s in sessions if s.get('title','')=='$task_name' or s.get('path','').endswith('$task_name')), None); print(s.get('status','') if s else '')" 2>/dev/null || true)
+
+    case "$status" in
+        "running")
+            echo "🟢 running"
+            ;;
+        "waiting")
+            echo "🟡 waiting"
+            ;;
+        "idle")
+            echo "⚪ idle"
+            ;;
+        "error")
+            echo "🔴 error"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
 find_available_simulator() {
     # Preferred simulators in order (newest first)
     local preferred=(
@@ -286,9 +409,17 @@ cmd_new() {
         ) &
     fi
 
-    echo -e "\n${BLUE}Launching Claude Code...${NC}"
-    launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
-    echo -e "${GREEN}✅ Claude Code launched${NC}"
+    # Add session to agent-deck and attach
+    echo -e "\n${BLUE}Setting up agent-deck session...${NC}"
+    if add_agent_deck_session "$TASK_NAME" "$WORKTREE_DIR"; then
+        echo -e "${GREEN}✅ Session added to agent-deck${NC}"
+        echo -e "\n${BLUE}Attaching to session...${NC}"
+        attach_agent_deck_session "$TASK_NAME" "$WORKTREE_DIR"
+    else
+        echo -e "${YELLOW}⚠️  agent-deck not available, falling back to terminal...${NC}"
+        launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
+        echo -e "${GREEN}✅ Claude Code launched${NC}"
+    fi
 }
 
 cmd_list() {
@@ -310,7 +441,23 @@ cmd_list() {
             "")
                 # Empty line indicates end of worktree entry
                 if [ -n "$BRANCH" ]; then
-                    echo -e "${GREEN}📁 $WORKTREE_PATH${NC}"
+                    # Extract task name from worktree path
+                    local TASK_NAME="${WORKTREE_PATH##*$REPO_NAME-}"
+                    if [ "$WORKTREE_PATH" = "$MAIN_REPO" ]; then
+                        TASK_NAME=""
+                    fi
+
+                    # Get agent-deck status if available
+                    local AD_STATUS=""
+                    if [ -n "$TASK_NAME" ]; then
+                        AD_STATUS=$(get_agent_deck_status "$TASK_NAME")
+                    fi
+
+                    if [ -n "$AD_STATUS" ]; then
+                        echo -e "${GREEN}📁 $WORKTREE_PATH${NC}  $AD_STATUS"
+                    else
+                        echo -e "${GREEN}📁 $WORKTREE_PATH${NC}"
+                    fi
                     echo -e "   🌿 Branch: $BRANCH"
 
                     # Try to get Graphite info and simulator info
@@ -355,9 +502,12 @@ cmd_switch() {
         exit 1
     fi
 
-    echo -e "${BLUE}Launching Claude Code for task: $TASK_NAME${NC}"
-    launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
-    echo -e "${GREEN}✅ Claude Code launched${NC}"
+    echo -e "${BLUE}Switching to task: $TASK_NAME${NC}"
+    if ! attach_agent_deck_session "$TASK_NAME" "$WORKTREE_DIR"; then
+        echo -e "${YELLOW}⚠️  agent-deck not available, falling back to terminal...${NC}"
+        launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
+        echo -e "${GREEN}✅ Claude Code launched${NC}"
+    fi
 }
 
 cmd_submit() {
@@ -499,6 +649,10 @@ cmd_prune() {
 
             echo -e "\n${BLUE}Cleaning up: $task${NC}"
 
+            # Remove agent-deck session first
+            echo -e "  Removing agent-deck session..."
+            remove_agent_deck_session "$task" "$wt"
+
             # Remove worktree
             echo -e "  Removing worktree..."
             git worktree remove "$wt" --force 2>/dev/null || {
@@ -545,16 +699,20 @@ cmd_cleanup() {
 
     SIM_NAME=$(get_simulator_name "$TASK_NAME")
 
-    echo -e "${YELLOW}⚠️  About to remove worktree, Graphite branch, and simulator:${NC}"
+    echo -e "${YELLOW}⚠️  About to remove worktree, Graphite branch, simulator, and agent-deck session:${NC}"
     echo -e "   📁 Worktree: $WORKTREE_DIR"
     echo -e "   🌿 Branch: $BRANCH_NAME"
     echo -e "   📱 Simulator: $SIM_NAME"
+    echo -e "   🎛️  Agent-deck session: $TASK_NAME"
     echo ""
     read -p "Are you sure? (y/N): " -n 1 -r
     echo
 
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         cd "$MAIN_REPO"
+
+        # Remove agent-deck session first (before worktree is deleted)
+        remove_agent_deck_session "$TASK_NAME" "$WORKTREE_DIR"
 
         # Remove worktree
         echo -e "${BLUE}Removing worktree...${NC}"
@@ -576,21 +734,161 @@ cmd_cleanup() {
     fi
 }
 
+cmd_sessions() {
+    local TASK_NAME="$1"
+    local SEARCH_QUERY="$2"
+
+    # Ensure aichat is available
+    if ! command -v aichat &>/dev/null; then
+        # Try with uv tool path
+        export PATH="$HOME/.local/bin:$PATH"
+        if ! command -v aichat &>/dev/null; then
+            echo -e "${RED}Error: aichat not found. Install with: uv tool install claude-code-tools${NC}"
+            exit 1
+        fi
+    fi
+
+    # Determine which worktree to search
+    local SEARCH_PATH=""
+    if [ -n "$TASK_NAME" ]; then
+        SEARCH_PATH="$BASE_DIR/$REPO_NAME-$TASK_NAME"
+        if [ ! -d "$SEARCH_PATH" ]; then
+            echo -e "${RED}Error: Worktree not found at $SEARCH_PATH${NC}"
+            exit 1
+        fi
+    elif [[ "$(pwd)" == *"$REPO_NAME"* ]]; then
+        SEARCH_PATH="$(pwd)"
+    else
+        echo -e "${RED}Usage: convos-task sessions [task-name] [search-query]${NC}"
+        echo "Or run from within a worktree directory"
+        exit 1
+    fi
+
+    echo -e "${BLUE}Sessions for: $SEARCH_PATH${NC}\n"
+
+    if [ -n "$SEARCH_QUERY" ]; then
+        # Search within task sessions
+        aichat search "$SEARCH_QUERY" 2>/dev/null | grep -i "$(basename "$SEARCH_PATH")" || {
+            echo "No sessions found matching '$SEARCH_QUERY' in this task"
+        }
+    else
+        # List all sessions for this task using index-stats filtering
+        aichat index-stats 2>/dev/null | grep -A1 "Top 5 cwds:" | grep "$(basename "$SEARCH_PATH")" || {
+            echo "No sessions found for this task"
+            echo ""
+            echo -e "${YELLOW}Tip: Build the search index first: aichat build-index${NC}"
+        }
+    fi
+}
+
+cmd_context() {
+    local TASK_NAME="$1"
+
+    # Ensure aichat is available
+    if ! command -v aichat &>/dev/null; then
+        export PATH="$HOME/.local/bin:$PATH"
+        if ! command -v aichat &>/dev/null; then
+            echo -e "${RED}Error: aichat not found. Install with: uv tool install claude-code-tools${NC}"
+            exit 1
+        fi
+    fi
+
+    # Determine which worktree
+    local WORKTREE_PATH=""
+    if [ -n "$TASK_NAME" ]; then
+        WORKTREE_PATH="$BASE_DIR/$REPO_NAME-$TASK_NAME"
+        if [ ! -d "$WORKTREE_PATH" ]; then
+            echo -e "${RED}Error: Worktree not found at $WORKTREE_PATH${NC}"
+            exit 1
+        fi
+    elif [[ "$(pwd)" == *"$REPO_NAME"* ]]; then
+        WORKTREE_PATH="$(pwd)"
+    else
+        echo -e "${RED}Usage: convos-task context [task-name]${NC}"
+        exit 1
+    fi
+
+    local WORKTREE_NAME
+    WORKTREE_NAME=$(basename "$WORKTREE_PATH")
+
+    echo -e "${BLUE}Finding latest session for: $WORKTREE_NAME${NC}\n"
+
+    # Get the project hash from Claude's config
+    local CLAUDE_HOME="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+    local PROJECT_DIR=""
+
+    # Find the project directory that matches this worktree
+    for dir in "$CLAUDE_HOME/projects"/*; do
+        if [ -d "$dir" ]; then
+            # Check if any session has this cwd
+            if grep -l "\"cwd\":.*$WORKTREE_NAME" "$dir"/*.jsonl 2>/dev/null | head -1 >/dev/null; then
+                PROJECT_DIR="$dir"
+                break
+            fi
+        fi
+    done
+
+    if [ -z "$PROJECT_DIR" ]; then
+        echo -e "${YELLOW}No sessions found for this worktree${NC}"
+        echo -e "${YELLOW}Start a Claude Code session in the worktree first${NC}"
+        exit 1
+    fi
+
+    # Find the most recent session file for this worktree
+    local LATEST_SESSION=""
+    local LATEST_TIME=0
+
+    for session in "$PROJECT_DIR"/*.jsonl; do
+        if grep -q "\"cwd\":.*$WORKTREE_NAME" "$session" 2>/dev/null; then
+            local mtime
+            mtime=$(stat -f %m "$session" 2>/dev/null || stat -c %Y "$session" 2>/dev/null)
+            if [ "$mtime" -gt "$LATEST_TIME" ]; then
+                LATEST_TIME=$mtime
+                LATEST_SESSION="$session"
+            fi
+        fi
+    done
+
+    if [ -z "$LATEST_SESSION" ]; then
+        echo -e "${YELLOW}No sessions found for this worktree${NC}"
+        exit 1
+    fi
+
+    local SESSION_ID
+    SESSION_ID=$(basename "$LATEST_SESSION" .jsonl)
+
+    echo -e "${GREEN}Latest session: $SESSION_ID${NC}"
+    echo -e "${BLUE}Modified: $(date -r "$LATEST_TIME" '+%Y-%m-%d %H:%M:%S')${NC}\n"
+
+    # Show session info
+    echo -e "${BLUE}Session details:${NC}"
+    aichat info "$SESSION_ID" 2>/dev/null || echo "Could not get session info"
+
+    echo ""
+    echo -e "${GREEN}To resume this session:${NC}"
+    echo "  aichat resume $SESSION_ID"
+    echo ""
+    echo -e "${GREEN}To search within this session:${NC}"
+    echo "  aichat search 'your query' | grep $WORKTREE_NAME"
+}
+
 cmd_help() {
     cat << EOF
 ${BLUE}Convos iOS Task Management${NC}
 
-Manage parallel tasks using git worktrees + Graphite
+Manage parallel tasks using git worktrees + Graphite + agent-deck
 
-${GREEN}Commands:${NC}
-  new <task-name> [parent]  Create new worktree and Graphite branch
-  list                      List all active worktrees
-  switch <task-name>        Open Claude Code in existing worktree
-  submit [task-name]        Submit PR via Graphite (gt submit)
-  sync [task-name]          Sync with Graphite stack (gt sync)
-  cleanup <task-name>       Remove worktree and branch
-  prune                     Remove all worktrees with merged branches
-  help                      Show this help
+${GREEN}Commands:${NC}                   ${YELLOW}Shortcuts:${NC}
+  new <task-name> [parent]  Create new worktree and Graphite branch    ${YELLOW}n${NC}
+  list                      List all active worktrees with status      ${YELLOW}l, ls${NC}
+  switch <task-name>        Attach to existing session in agent-deck   ${YELLOW}sw, o${NC}
+  submit [task-name]        Submit PR via Graphite (gt submit)         ${YELLOW}sub, pr${NC}
+  sync [task-name]          Sync with Graphite stack (gt sync)         ${YELLOW}sy${NC}
+  cleanup <task-name>       Remove worktree, branch, and session       ${YELLOW}c, rm${NC}
+  prune                     Remove all worktrees with merged branches  ${YELLOW}p${NC}
+  sessions [task] [query]   List/search sessions for a task            ${YELLOW}ss${NC}
+  context [task-name]       Show latest session and recovery info      ${YELLOW}ctx${NC}
+  help                      Show this help                             ${YELLOW}h${NC}
 
 ${GREEN}Examples:${NC}
   convos-task new push-notifications
@@ -599,46 +897,69 @@ ${GREEN}Examples:${NC}
   convos-task submit push-notifications
   convos-task cleanup push-notifications
   convos-task prune
+  convos-task sessions push-notifications
+  convos-task sessions push-notifications "error handling"
+  convos-task context push-notifications
 
 ${GREEN}Workflow:${NC}
-  1. ${BLUE}convos-task new my-feature${NC}     # Creates worktree + launches Claude
+  1. ${BLUE}convos-task new my-feature${NC}     # Creates worktree + agent-deck session
   2. Work on feature in Claude Code...
   3. ${BLUE}convos-task submit my-feature${NC}   # Submit PR via Graphite
   4. ${BLUE}convos-task cleanup my-feature${NC}  # Remove when done
+
+${GREEN}Agent-Deck Integration:${NC}
+  - Sessions are managed via agent-deck (https://github.com/asheshgoplani/agent-deck)
+  - ${BLUE}convos-task list${NC} shows session status: 🟢 running, 🟡 waiting, ⚪ idle
+  - All sessions are grouped under "convos" in agent-deck
+  - Use agent-deck TUI for advanced session management
+  - Falls back to iTerm/Terminal if agent-deck is not installed
+
+${GREEN}Session History:${NC}
+  - ${BLUE}convos-task sessions${NC}            # Show sessions for current task
+  - ${BLUE}convos-task context${NC}             # Get recovery info for last session
+  - Sessions are searchable across all worktrees via 'aichat search'
 
 ${YELLOW}Notes:${NC}
   - Each worktree is a separate Claude Code session
   - Graphite branches are automatically stacked
   - Each task gets a dedicated iOS simulator (convos-<task-name>)
-  - Claude Code opens in iTerm 2 (preferred) or Terminal
-  - Opens in new tab if window exists, new window otherwise
   - Base simulator is auto-detected (set CONVOS_BASE_SIMULATOR to override)
   - Use 'gt stack' in worktree to see stack structure
+
+${YELLOW}Requirements:${NC}
+  - agent-deck: curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash
+  - tmux (agent-deck dependency)
 EOF
 }
 
 # Main command dispatcher
 case "$1" in
-    new)
+    new|n)
         cmd_new "$2" "$3"
         ;;
-    list|ls)
+    list|ls|l)
         cmd_list
         ;;
-    switch|open)
+    switch|open|sw|o)
         cmd_switch "$2"
         ;;
-    submit|pr)
+    submit|pr|sub)
         cmd_submit "$2"
         ;;
-    sync)
+    sync|sy)
         cmd_sync "$2"
         ;;
-    cleanup|done|rm)
+    cleanup|done|rm|c)
         cmd_cleanup "$2"
         ;;
-    prune)
+    prune|p)
         cmd_prune
+        ;;
+    sessions|ss)
+        cmd_sessions "$2" "$3"
+        ;;
+    context|ctx)
+        cmd_context "$2"
         ;;
     help|--help|-h|"")
         cmd_help

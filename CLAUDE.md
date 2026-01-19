@@ -432,26 +432,44 @@ alias ct="convos-task"
 **Basic Usage:**
 ```bash
 # Create new task (creates worktree + Graphite branch + launches Claude)
-convos-task new my-feature-name
+ct new my-feature-name      # or: ct n my-feature-name
 
 # Or stack on specific parent
-convos-task new my-feature dev
+ct new my-feature dev
 
 # List all active tasks
-convos-task list
+ct list                     # or: ct l
 
 # Switch to existing task (opens Claude in new terminal)
-convos-task switch my-feature-name
+ct switch my-feature-name   # or: ct sw my-feature-name
 
 # Submit PR via Graphite
-convos-task submit my-feature-name
+ct submit my-feature-name   # or: ct sub my-feature-name
 
 # Sync with Graphite stack
-convos-task sync my-feature-name
+ct sync my-feature-name     # or: ct sy my-feature-name
 
 # Clean up when done (removes worktree + branch)
-convos-task cleanup my-feature-name
+ct cleanup my-feature-name  # or: ct c my-feature-name
+
+# Session management
+ct sessions my-feature      # or: ct ss my-feature
+ct context my-feature       # or: ct ctx my-feature
 ```
+
+**Command Shortcuts:**
+| Command | Shortcuts |
+|---------|-----------|
+| `new` | `n` |
+| `list` | `l`, `ls` |
+| `switch` | `sw`, `o` |
+| `submit` | `sub`, `pr` |
+| `sync` | `sy` |
+| `cleanup` | `c`, `rm` |
+| `prune` | `p` |
+| `sessions` | `ss` |
+| `context` | `ctx` |
+| `help` | `h` |
 
 **Workflow Example:**
 ```bash
@@ -570,3 +588,57 @@ main
       └── feature-models  # PR 2: Data models
            └── feature-ui # PR 3: Views and ViewModels
 ```
+
+### Session Management (claude-code-tools)
+
+The `aichat` plugin provides session continuity across context limits and helps find past work.
+
+#### When Context Fills Up
+
+1. Type `>resume` in chat (copies session ID to clipboard)
+2. Run `aichat resume <id>` in terminal
+3. New session starts with lineage pointer to parent session
+
+The new session can request context from parent sessions on-demand without re-reading everything.
+
+#### Searching Past Sessions
+
+**CLI (in terminal):**
+```bash
+aichat search "GRDB migration"
+```
+
+**In-session (Claude can use):**
+Use `/session-search query` skill to search across all indexed sessions.
+
+#### Recovering Context After a Break
+
+Use `/recover-context` skill to extract from parent sessions:
+- Last task being worked on
+- Completion status
+- Pending items
+- Files modified
+
+#### Index Management
+
+```bash
+# Rebuild the search index (run periodically or after many sessions)
+aichat build-index
+
+# Check index statistics
+aichat index-stats
+
+# Export a session to markdown (for archiving)
+aichat export <session-id>
+```
+
+#### Task-Specific Session Search
+
+Sessions from all worktrees are indexed together since they share the same project hash. Use the worktree path to filter:
+```bash
+aichat search "error handling" | grep "convos-ios-push"
+```
+
+#### How Sessions Are Stored
+
+Sessions live at `~/.claude/projects/<project-hash>/sessions/*.jsonl`. The search index is at `~/.cctools/search-index/`.
