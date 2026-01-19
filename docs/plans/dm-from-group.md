@@ -151,3 +151,22 @@ Yes. Each intent creates a separate fresh identity, so you can have multiple pen
 3. **"Not interested" action**: Yes — tapping "Not interested" blocks future DM intents from that person. You can always change your mind by sending them an intent yourself.
 
 4. **Multiple pending intents**: Yes — you can signal intent to multiple people at the same time.
+
+---
+
+# Open Questions
+
+## DM intent discoverability
+
+The faint green glow on someone's avatar may not be visible enough — you only see it if that person is actively chatting in the group.
+
+**Constraints:**
+- No badge or dismissable notification
+- Should not feel like a "request" or intrusive
+
+**Ideas to explore:**
+1. **Sort members list** by who most recently sent a DM intent (one tap away from message list)
+2. **Temporary element** when re-entering the convo that teaches you to look at members list, then auto-dismisses
+3. **Info island treatment** — where it shows "11 people", show something like "New DM request" with motion design that draws attention then removes itself
+
+**Current approach:** Ship with the green glow, learn from usage, iterate.
