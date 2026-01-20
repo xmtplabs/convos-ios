@@ -50,8 +50,8 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
         case other
     }
 
-    private let monitor: NWPathMonitor
-    private let queue: DispatchQueue = DispatchQueue(label: "com.convos.networkmonitor", qos: .utility)
+    private nonisolated let queue: DispatchQueue = DispatchQueue(label: "com.convos.networkmonitor", qos: .utility)
+    private var monitor: NWPathMonitor?
 
     private var _status: Status = .unknown
     private var _currentPath: NWPath?
@@ -73,27 +73,31 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
         _currentPath?.isConstrained ?? false
     }
 
-    public init() {
-        self.monitor = NWPathMonitor()
-    }
+    public init() {}
 
     public func start() async {
-        monitor.pathUpdateHandler = { [weak self] path in
-            Task {
+        monitor?.cancel()
+        let newMonitor = NWPathMonitor()
+        monitor = newMonitor
+        newMonitor.pathUpdateHandler = { [weak self] path in
+            Task { [weak self] in
                 guard let self else { return }
                 await self.handlePathUpdate(path)
             }
         }
-        monitor.start(queue: queue)
+        newMonitor.start(queue: queue)
         Log.info("Network monitor started")
     }
 
     public func stop() async {
-        monitor.pathUpdateHandler = nil
+        monitor?.cancel()
+        monitor = nil
         for continuation in statusContinuations.values {
             continuation.finish()
         }
         statusContinuations.removeAll()
+        _status = .unknown
+        _currentPath = nil
         Log.info("Network monitor stopped")
     }
 
@@ -147,7 +151,10 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
     public var statusSequence: AsyncStream<Status> {
         AsyncStream { continuation in
             Task { [weak self] in
-                guard let self else { return }
+                guard let self else {
+                    continuation.finish()
+                    return
+                }
                 await self.addStatusContinuation(continuation)
             }
         }
@@ -169,6 +176,6 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
     }
 
     deinit {
-        monitor.cancel()
+        monitor?.cancel()
     }
 }

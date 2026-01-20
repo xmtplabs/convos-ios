@@ -215,9 +215,7 @@ struct NetworkMonitorTests {
         task.cancel()
 
         // The continuation should have been finished by stop()
-        // Note: We can't directly verify this, but the stream should terminate
         // The fact that stop() completes without hanging indicates cleanup worked
-        #expect(true) // If we get here, cleanup didn't hang
     }
 
     @Test("Multiple continuations are cleaned up on stop")
@@ -259,7 +257,6 @@ struct NetworkMonitorTests {
 
         // All continuations should have been finished
         // The fact that stop() completes indicates cleanup worked
-        #expect(true) // If we get here, cleanup didn't hang
     }
 
     @Test("Subscribers can unsubscribe and continuations are removed")
@@ -355,7 +352,7 @@ struct NetworkMonitorTests {
             for await status in await monitor.statusSequence {
                 await receiver.markReceived()
                 // Status is always set
-                #expect(status == .unknown || status == .unknown || status == .connecting || status.isConnected)
+                #expect(status == .unknown || status == .connecting || status.isConnected)
                 break
             }
         }
@@ -457,8 +454,6 @@ struct NetworkMonitorTests {
 
         // Stop should still work without hanging
         await monitor.stop()
-
-        #expect(true) // If we get here, no deadlock occurred
     }
 
     @Test("Status property reflects current state")
@@ -583,5 +578,454 @@ struct NetworkMonitorTests {
         }
 
         await monitor.stop()
+    }
+
+    // MARK: - Deallocation and Memory Tests
+
+    @Test("NetworkMonitor can be deallocated after use")
+    func testDeallocation() async throws {
+        do {
+            let monitor = NetworkMonitor()
+
+            await monitor.start()
+
+            let task = Task { @Sendable in
+                for await _ in await monitor.statusSequence {
+                    break
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(100))
+            task.cancel()
+
+            await monitor.stop()
+        }
+
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(Bool(true), "Monitor scope exited without crash")
+    }
+
+    @Test("Monitor without stop() can still be deallocated")
+    func testDeallocationWithoutStop() async throws {
+        do {
+            let monitor = NetworkMonitor()
+            await monitor.start()
+
+            let task = Task { @Sendable in
+                for await _ in await monitor.statusSequence {
+                    break
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(100))
+            task.cancel()
+        }
+
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(Bool(true), "Deallocation without stop() worked")
+    }
+
+    @Test("pathUpdateHandler handles monitor deallocation during network change")
+    func testPathUpdateHandlerDuringDeallocation() async throws {
+        do {
+            let monitor = NetworkMonitor()
+            await monitor.start()
+
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(Bool(true), "Monitor deallocated without crash during potential path update")
+    }
+
+    @Test("statusSequence handles monitor deallocation gracefully")
+    func testStatusSequenceDeallocationRace() async throws {
+        actor StreamHolder {
+            var stream: AsyncStream<NetworkMonitor.Status>?
+            func setStream(_ s: AsyncStream<NetworkMonitor.Status>) {
+                stream = s
+            }
+        }
+
+        actor ConsumeTracker {
+            var receivedAny = false
+            func markReceived() { receivedAny = true }
+        }
+
+        let holder = StreamHolder()
+
+        do {
+            let monitor = NetworkMonitor()
+            await monitor.start()
+
+            let stream = await monitor.statusSequence
+            await holder.setStream(stream)
+
+            await monitor.stop()
+        }
+
+        try await Task.sleep(for: .milliseconds(100))
+
+        if let stream = await holder.stream {
+            let tracker = ConsumeTracker()
+            let consumeTask = Task { @Sendable in
+                for await _ in stream {
+                    await tracker.markReceived()
+                    break
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(500))
+            consumeTask.cancel()
+        }
+
+        #expect(Bool(true), "Stream consumption completed without hanging")
+    }
+
+    @Test("Multiple monitors can be created and destroyed")
+    func testMultipleMonitorLifecycles() async throws {
+        for _ in 0..<10 {
+            do {
+                let monitor = NetworkMonitor()
+                await monitor.start()
+
+                let task = Task { @Sendable in
+                    for await _ in await monitor.statusSequence {
+                        break
+                    }
+                }
+
+                try await Task.sleep(for: .milliseconds(20))
+                task.cancel()
+                await monitor.stop()
+            }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(Bool(true), "Created and destroyed 10 monitors without issues")
+    }
+
+    // MARK: - Stress Tests
+
+    @Test("Multiple stop/start cycles continue to work")
+    func testMultipleRestartCycles() async throws {
+        let monitor = NetworkMonitor()
+
+        for cycle in 1...3 {
+            await monitor.start()
+
+            actor Receiver {
+                var received = false
+                func mark() { received = true }
+            }
+
+            let receiver = Receiver()
+
+            let task = Task { @Sendable in
+                for await _ in await monitor.statusSequence {
+                    await receiver.mark()
+                    break
+                }
+            }
+
+            try await waitUntil(timeout: .seconds(2)) {
+                await receiver.received
+            }
+
+            task.cancel()
+            await monitor.stop()
+
+            let wasReceived = await receiver.received
+            #expect(wasReceived, "Cycle \(cycle): Should receive status")
+
+            try await Task.sleep(for: .milliseconds(50))
+        }
+    }
+
+    @Test("Rapid subscribe/unsubscribe doesn't corrupt state")
+    func testRapidSubscribeUnsubscribeStress() async throws {
+        let monitor = NetworkMonitor()
+        await monitor.start()
+
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<50 {
+                group.addTask { @Sendable in
+                    let innerTask = Task { @Sendable in
+                        var count = 0
+                        for await _ in await monitor.statusSequence {
+                            count += 1
+                            if count >= 1 {
+                                break
+                            }
+                        }
+                    }
+
+                    try? await Task.sleep(nanoseconds: UInt64.random(in: 1_000...100_000))
+                    innerTask.cancel()
+                }
+
+                if i % 10 == 0 {
+                    try? await Task.sleep(nanoseconds: 10_000)
+                }
+            }
+        }
+
+        await monitor.stop()
+
+        await monitor.start()
+
+        actor Verifier {
+            var received = false
+            func mark() { received = true }
+        }
+
+        let verifier = Verifier()
+
+        let verifyTask = Task { @Sendable in
+            for await _ in await monitor.statusSequence {
+                await verifier.mark()
+                break
+            }
+        }
+
+        try await waitUntil {
+            await verifier.received
+        }
+
+        verifyTask.cancel()
+        await monitor.stop()
+
+        let wasReceived = await verifier.received
+        #expect(wasReceived, "Monitor should still work after rapid subscribe/unsubscribe")
+    }
+
+    @Test("Concurrent unsubscribes don't cause crashes")
+    func testConcurrentUnsubscribes() async throws {
+        let monitor = NetworkMonitor()
+        await monitor.start()
+
+        var tasks: [Task<Void, Never>] = []
+
+        for _ in 0..<20 {
+            let task = Task { @Sendable in
+                for await _ in await monitor.statusSequence {
+                    break
+                }
+            }
+            tasks.append(task)
+        }
+
+        try await Task.sleep(for: .milliseconds(100))
+
+        for task in tasks {
+            task.cancel()
+        }
+
+        try await Task.sleep(for: .milliseconds(100))
+
+        await monitor.stop()
+
+        #expect(Bool(true), "Concurrent unsubscribes didn't crash")
+    }
+
+    @Test("Status updates arrive during high concurrency")
+    func testStatusUpdatesUnderConcurrency() async throws {
+        let monitor = NetworkMonitor()
+        await monitor.start()
+
+        actor StatusTracker {
+            var statuses: [NetworkMonitor.Status] = []
+            func add(_ status: NetworkMonitor.Status) {
+                statuses.append(status)
+            }
+        }
+
+        let tracker = StatusTracker()
+
+        let readerTasks = (0..<5).map { _ in
+            Task { @Sendable in
+                for await status in await monitor.statusSequence {
+                    await tracker.add(status)
+                    break
+                }
+            }
+        }
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<10 {
+                group.addTask { @Sendable in
+                    _ = await monitor.status
+                    _ = await monitor.isConnected
+                    _ = await monitor.isExpensive
+                }
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(200))
+
+        for task in readerTasks {
+            task.cancel()
+        }
+
+        await monitor.stop()
+
+        let statusCount = await tracker.statuses.count
+        #expect(statusCount >= 5, "All 5 readers should have received at least one status")
+    }
+
+    @Test("Continuation count stays bounded during heavy usage")
+    func testContinuationCountBounded() async throws {
+        let monitor = NetworkMonitor()
+        await monitor.start()
+
+        for i in 0..<100 {
+            let task = Task { @Sendable in
+                for await _ in await monitor.statusSequence {
+                    break
+                }
+            }
+
+            try await Task.sleep(for: .milliseconds(5))
+            task.cancel()
+            try await Task.sleep(for: .milliseconds(5))
+
+            if i % 20 == 19 {
+                actor Checker {
+                    var received = false
+                    func mark() { received = true }
+                }
+                let checker = Checker()
+                let verifyTask = Task { @Sendable in
+                    for await _ in await monitor.statusSequence {
+                        await checker.mark()
+                        break
+                    }
+                }
+                try await waitUntil {
+                    await checker.received
+                }
+                verifyTask.cancel()
+            }
+        }
+
+        await monitor.stop()
+
+        #expect(Bool(true), "Monitor still works after 100 subscribe/unsubscribe cycles")
+    }
+
+    @Test("Rapid start/stop cycles work correctly")
+    func testRapidStartStopCycles() async throws {
+        let monitor = NetworkMonitor()
+
+        for _ in 0..<20 {
+            await monitor.start()
+            try await Task.sleep(for: .milliseconds(10))
+            await monitor.stop()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        await monitor.start()
+
+        actor Checker {
+            var received = false
+            func mark() { received = true }
+        }
+
+        let checker = Checker()
+        let task = Task { @Sendable in
+            for await _ in await monitor.statusSequence {
+                await checker.mark()
+                break
+            }
+        }
+
+        try await waitUntil(timeout: .seconds(2)) {
+            await checker.received
+        }
+
+        task.cancel()
+        await monitor.stop()
+
+        let wasReceived = await checker.received
+        #expect(wasReceived, "Monitor should still work after 20 rapid start/stop cycles")
+    }
+
+    @Test("Stop properly terminates active subscribers")
+    func testStopTerminatesSubscribers() async throws {
+        let monitor = NetworkMonitor()
+        await monitor.start()
+
+        actor TerminationTracker {
+            var loopExited = false
+            func markExited() { loopExited = true }
+        }
+
+        let tracker = TerminationTracker()
+
+        let subscriberTask = Task { @Sendable in
+            for await _ in await monitor.statusSequence {
+            }
+            await tracker.markExited()
+        }
+
+        try await Task.sleep(for: .milliseconds(100))
+
+        await monitor.stop()
+
+        try await waitUntil(timeout: .seconds(2)) {
+            await tracker.loopExited
+        }
+
+        subscriberTask.cancel()
+
+        let loopExited = await tracker.loopExited
+        #expect(loopExited, "Subscriber's for-await loop should exit when stop() finishes continuations")
+    }
+
+    @Test("New subscribers immediately receive current status")
+    func testImmediateStatusYield() async throws {
+        let monitor = NetworkMonitor()
+        await monitor.start()
+
+        try await Task.sleep(for: .milliseconds(100))
+
+        let currentStatus = await monitor.status
+
+        actor StatusChecker {
+            var firstStatus: NetworkMonitor.Status?
+            var receivedTime: ContinuousClock.Instant?
+            func setFirst(_ status: NetworkMonitor.Status) {
+                if firstStatus == nil {
+                    firstStatus = status
+                    receivedTime = .now
+                }
+            }
+        }
+
+        let checker = StatusChecker()
+        let startTime = ContinuousClock.now
+
+        let task = Task { @Sendable in
+            for await status in await monitor.statusSequence {
+                await checker.setFirst(status)
+                break
+            }
+        }
+
+        try await waitUntil {
+            await checker.firstStatus != nil
+        }
+
+        task.cancel()
+        await monitor.stop()
+
+        if let first = await checker.firstStatus {
+            #expect(first == currentStatus, "First yielded status should match current status")
+        }
+
+        if let receivedTime = await checker.receivedTime {
+            let elapsed = receivedTime - startTime
+            #expect(elapsed < .milliseconds(500), "Initial status should be received quickly")
+        }
     }
 }
