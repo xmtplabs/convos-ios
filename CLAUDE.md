@@ -455,6 +455,9 @@ ct cleanup my-feature-name  # or: ct c my-feature-name
 # Session management
 ct sessions my-feature      # or: ct ss my-feature
 ct context my-feature       # or: ct ctx my-feature
+
+# Launch TUI dashboard (convos-task-console)
+ct console                  # or: ct con
 ```
 
 **Command Shortcuts:**
@@ -469,6 +472,7 @@ ct context my-feature       # or: ct ctx my-feature
 | `prune` | `p` |
 | `sessions` | `ss` |
 | `context` | `ctx` |
+| `console` | `con` |
 | `help` | `h` |
 
 **Workflow Example:**
@@ -494,6 +498,36 @@ convos-task new push-notifications
 - Use `ct` as shorthand for `convos-task`
 - **DerivedData isolation**: Each worktree uses `.derivedData/` locally to avoid build conflicts (see XcodeBuildMCP Worktree Configuration)
 - **Simulator auto-setup**: A dedicated simulator (`convos-<task-name>`) is created when the task starts
+
+### Task Dashboard (convos-task-console)
+
+The `convos-task console` command launches a TUI dashboard for managing all active tasks:
+
+```bash
+ct console   # Launch the dashboard
+```
+
+**Features:**
+- Visual overview of all convos-task worktrees
+- Status monitoring (waiting, running, idle, error)
+- Split-pane layout: sidebar for navigation, right pane for native Claude session
+- Quick actions: New, Delete, Prune, Submit, Sync, Build, Test
+- Keyboard-driven: Tab to switch focus, j/k navigation, single-key commands
+
+**Layout:**
+```
++---------------------------+----------------------------------------+
+|  CONVOS CONSOLE           |  Native Claude Code session            |
+|---------------------------|----------------------------------------|
+| > push-notifications  [W] |  $ claude                              |
+|   retry-errors        [R] |                                        |
+|   agent-deck         [I] |  Working on your request...            |
+|---------------------------|----------------------------------------|
+| [n]New [d]Del [s]Submit   |  Tab to switch focus                   |
++---------------------------+----------------------------------------+
+```
+
+The dashboard uses tmux for session persistence - sessions survive console restarts.
 
 ### Task Simulator Configuration
 

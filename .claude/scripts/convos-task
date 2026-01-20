@@ -13,128 +13,8 @@ BASE_DIR="$(dirname "$MAIN_REPO")"
 # If not set, will auto-detect an available iPhone simulator
 BASE_SIMULATOR="${CONVOS_BASE_SIMULATOR:-}"
 
-# Agent-deck group name for all convos-task sessions
-AGENT_DECK_GROUP="convos"
-
-check_agent_deck() {
-    if ! command -v agent-deck &>/dev/null; then
-        echo -e "${RED}Error: agent-deck not found${NC}"
-        echo "Install with: curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash"
-        return 1
-    fi
-    return 0
-}
-
-ensure_agent_deck_group() {
-    if ! check_agent_deck; then
-        return 1
-    fi
-    # Create convos group if it doesn't exist (ignore errors if it already exists)
-    agent-deck group create "$AGENT_DECK_GROUP" 2>/dev/null || true
-}
-
-get_agent_deck_session_id() {
-    local task_name="$1"
-    local worktree_dir="$2"
-    # Find session by path matching the worktree directory
-    agent-deck list --json 2>/dev/null | grep -o '"id":"[^"]*"' | head -1 | sed 's/"id":"//;s/"//' || true
-}
-
-add_agent_deck_session() {
-    local task_name="$1"
-    local worktree_dir="$2"
-
-    if ! check_agent_deck; then
-        return 1
-    fi
-
-    ensure_agent_deck_group
-
-    echo -e "${BLUE}Adding session to agent-deck...${NC}"
-    agent-deck add -c claude -t "$task_name" -g "$AGENT_DECK_GROUP" "$worktree_dir"
-}
-
-remove_agent_deck_session() {
-    local task_name="$1"
-    local worktree_dir="$2"
-
-    if ! check_agent_deck; then
-        return 0  # Don't fail cleanup if agent-deck isn't installed
-    fi
-
-    # Find and remove session by matching the path
-    local session_id
-    session_id=$(agent-deck list --json 2>/dev/null | \
-        python3 -c "import sys,json; sessions=json.load(sys.stdin); print(next((s['id'] for s in sessions if s.get('path','').endswith('$task_name')), ''))" 2>/dev/null || true)
-
-    if [ -n "$session_id" ]; then
-        echo -e "${BLUE}Removing session from agent-deck...${NC}"
-        agent-deck remove "$session_id" --force 2>/dev/null || true
-    fi
-}
-
-attach_agent_deck_session() {
-    local task_name="$1"
-    local worktree_dir="$2"
-
-    if ! check_agent_deck; then
-        return 1
-    fi
-
-    # Find session by matching the task name in title or path
-    local session_id
-    session_id=$(agent-deck list --json 2>/dev/null | \
-        python3 -c "import sys,json; sessions=json.load(sys.stdin); print(next((s['id'] for s in sessions if s.get('title','')=='$task_name' or s.get('path','').endswith('$task_name')), ''))" 2>/dev/null || true)
-
-    if [ -z "$session_id" ]; then
-        echo -e "${YELLOW}Session not found in agent-deck, adding it...${NC}"
-        add_agent_deck_session "$task_name" "$worktree_dir"
-        # Try to find it again
-        session_id=$(agent-deck list --json 2>/dev/null | \
-            python3 -c "import sys,json; sessions=json.load(sys.stdin); print(next((s['id'] for s in sessions if s.get('title','')=='$task_name' or s.get('path','').endswith('$task_name')), ''))" 2>/dev/null || true)
-    fi
-
-    if [ -n "$session_id" ]; then
-        # Start the session if not running, then attach
-        agent-deck session start "$session_id" 2>/dev/null || true
-        agent-deck session attach "$session_id"
-    else
-        echo -e "${RED}Could not find or create agent-deck session${NC}"
-        return 1
-    fi
-}
-
-get_agent_deck_status() {
-    local task_name="$1"
-
-    if ! command -v agent-deck &>/dev/null; then
-        echo ""
-        return
-    fi
-
-    # Get session status by matching task name
-    local status
-    status=$(agent-deck list --json 2>/dev/null | \
-        python3 -c "import sys,json; sessions=json.load(sys.stdin); s=next((s for s in sessions if s.get('title','')=='$task_name' or s.get('path','').endswith('$task_name')), None); print(s.get('status','') if s else '')" 2>/dev/null || true)
-
-    case "$status" in
-        "running")
-            echo "🟢 running"
-            ;;
-        "waiting")
-            echo "🟡 waiting"
-            ;;
-        "idle")
-            echo "⚪ idle"
-            ;;
-        "error")
-            echo "🔴 error"
-            ;;
-        *)
-            echo ""
-            ;;
-    esac
-}
+# Path to convos-task-console binary
+CONSOLE_BIN="${CONVOS_CONSOLE_BIN:-$HOME/Code/convos-task-console/convos-task-console}"
 
 find_available_simulator() {
     # Preferred simulators in order (newest first)
@@ -261,14 +141,30 @@ SIMULATOR_NAME=$sim_name
 EOF
 }
 
+create_task_session() {
+    local task_name="$1"
+    local dir="$2"
+    local session_name="convos_$task_name"
+
+    # Create tmux session on convos-tasks socket if it doesn't exist
+    if ! tmux -L convos-tasks has-session -t "$session_name" 2>/dev/null; then
+        tmux -L convos-tasks new-session -d -s "$session_name" -c "$dir" "claude"
+    fi
+}
+
 launch_claude_in_terminal() {
     local dir="$1"
     local task_name="$2"
+    local session_name="convos_$task_name"
+
+    # Create the tmux session on convos-tasks socket (for monitoring)
+    create_task_session "$task_name" "$dir"
+
+    # Attach to the session via Terminal/iTerm
+    local attach_cmd="tmux -L convos-tasks attach -t $session_name"
 
     # Check if iTerm is available (installed)
     if [ -d "/Applications/iTerm.app" ]; then
-        # Use a single AppleScript that handles both running and not-running cases
-        # Note: The app is "iTerm" but the running process is "iTerm2"
         osascript <<EOF
 tell application "iTerm"
     if application "iTerm" is running then
@@ -278,7 +174,7 @@ tell application "iTerm"
                 create tab with default profile
                 tell current session
                     set name to "$task_name"
-                    write text "cd '$dir' && claude"
+                    write text "$attach_cmd"
                 end tell
             end tell
         else
@@ -286,7 +182,7 @@ tell application "iTerm"
             tell current window
                 tell current session
                     set name to "$task_name"
-                    write text "cd '$dir' && claude"
+                    write text "$attach_cmd"
                 end tell
             end tell
         end if
@@ -296,28 +192,54 @@ tell application "iTerm"
         tell current window
             tell current session
                 set name to "$task_name"
-                write text "cd '$dir' && claude"
+                write text "$attach_cmd"
             end tell
         end tell
     end if
 end tell
 EOF
     else
-        # For Terminal.app, set the tab title via escape sequence
+        # For Terminal.app
         local title_cmd="printf '\\033]0;$task_name\\007'"
         osascript <<EOF
 tell application "Terminal"
     if (count of windows) > 0 then
         tell application "System Events" to keystroke "t" using command down
         delay 0.3
-        do script "$title_cmd; cd '$dir' && claude" in front window
+        do script "$title_cmd; $attach_cmd" in front window
     else
-        do script "$title_cmd; cd '$dir' && claude"
+        do script "$title_cmd; $attach_cmd"
     end if
     activate
 end tell
 EOF
     fi
+}
+
+cmd_console() {
+    # Launch convos-task-console TUI
+    if [ ! -f "$CONSOLE_BIN" ]; then
+        echo -e "${YELLOW}convos-task-console not found at $CONSOLE_BIN${NC}"
+        echo -e "${YELLOW}Building from source...${NC}"
+
+        local console_dir="$HOME/Code/convos-task-console"
+        if [ ! -d "$console_dir" ]; then
+            echo -e "${RED}Error: convos-task-console source not found at $console_dir${NC}"
+            echo ""
+            echo "Install with:"
+            echo "  git clone https://github.com/xmtplabs/convos-task-console.git ~/Code/convos-task-console"
+            echo "  cd ~/Code/convos-task-console && go install ."
+            echo ""
+            echo "Or set CONVOS_CONSOLE_BIN to an existing binary path"
+            exit 1
+        fi
+
+        cd "$console_dir"
+        go build -o convos-task-console
+        CONSOLE_BIN="$console_dir/convos-task-console"
+    fi
+
+    exec "$CONSOLE_BIN" --repo "$MAIN_REPO"
 }
 
 cmd_new() {
@@ -398,28 +320,29 @@ cmd_new() {
     echo -e "\n${BLUE}Graphite stack:${NC}"
     gt log short 2>/dev/null || gt stack 2>/dev/null || echo "Run 'gt stack' to see stack"
 
-    # Create simulator in background (runs in current shell, doesn't block)
+    # Create simulator in background with logging
+    # The /setup command will verify/create simulator if this fails
     local base_sim
     base_sim=$(get_base_simulator)
+    local sim_log="$WORKTREE_DIR/.simulator-setup.log"
     if [ -n "$base_sim" ]; then
         (
             if ! xcrun simctl list devices | grep -q "$SIM_NAME"; then
-                xcrun simctl clone "$base_sim" "$SIM_NAME" >/dev/null 2>&1
+                if xcrun simctl clone "$base_sim" "$SIM_NAME" >"$sim_log" 2>&1; then
+                    echo "✅ Simulator '$SIM_NAME' created successfully" >> "$sim_log"
+                else
+                    echo "❌ Failed to create simulator '$SIM_NAME' - run /setup in Claude to retry" >> "$sim_log"
+                fi
+            else
+                echo "✅ Simulator '$SIM_NAME' already exists" >> "$sim_log"
             fi
         ) &
     fi
 
-    # Add session to agent-deck and attach
-    echo -e "\n${BLUE}Setting up agent-deck session...${NC}"
-    if add_agent_deck_session "$TASK_NAME" "$WORKTREE_DIR"; then
-        echo -e "${GREEN}✅ Session added to agent-deck${NC}"
-        echo -e "\n${BLUE}Attaching to session...${NC}"
-        attach_agent_deck_session "$TASK_NAME" "$WORKTREE_DIR"
-    else
-        echo -e "${YELLOW}⚠️  agent-deck not available, falling back to terminal...${NC}"
-        launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
-        echo -e "${GREEN}✅ Claude Code launched${NC}"
-    fi
+    # Launch Claude in a new terminal tab
+    echo -e "\n${BLUE}Launching Claude Code...${NC}"
+    launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
+    echo -e "${GREEN}✅ Claude Code launched${NC}"
 }
 
 cmd_list() {
@@ -447,17 +370,7 @@ cmd_list() {
                         TASK_NAME=""
                     fi
 
-                    # Get agent-deck status if available
-                    local AD_STATUS=""
-                    if [ -n "$TASK_NAME" ]; then
-                        AD_STATUS=$(get_agent_deck_status "$TASK_NAME")
-                    fi
-
-                    if [ -n "$AD_STATUS" ]; then
-                        echo -e "${GREEN}📁 $WORKTREE_PATH${NC}  $AD_STATUS"
-                    else
-                        echo -e "${GREEN}📁 $WORKTREE_PATH${NC}"
-                    fi
+                    echo -e "${GREEN}📁 $WORKTREE_PATH${NC}"
                     echo -e "   🌿 Branch: $BRANCH"
 
                     # Try to get Graphite info and simulator info
@@ -484,6 +397,8 @@ cmd_list() {
                 ;;
         esac
     done
+
+    echo -e "${YELLOW}Tip: Run 'convos-task console' to launch the interactive TUI${NC}"
 }
 
 cmd_switch() {
@@ -503,11 +418,8 @@ cmd_switch() {
     fi
 
     echo -e "${BLUE}Switching to task: $TASK_NAME${NC}"
-    if ! attach_agent_deck_session "$TASK_NAME" "$WORKTREE_DIR"; then
-        echo -e "${YELLOW}⚠️  agent-deck not available, falling back to terminal...${NC}"
-        launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
-        echo -e "${GREEN}✅ Claude Code launched${NC}"
-    fi
+    launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
+    echo -e "${GREEN}✅ Claude Code launched${NC}"
 }
 
 cmd_submit() {
@@ -649,9 +561,8 @@ cmd_prune() {
 
             echo -e "\n${BLUE}Cleaning up: $task${NC}"
 
-            # Remove agent-deck session first
-            echo -e "  Removing agent-deck session..."
-            remove_agent_deck_session "$task" "$wt"
+            # Kill any tmux sessions for this task
+            tmux -L convos-tasks kill-session -t "convos_$task" 2>/dev/null || true
 
             # Remove worktree
             echo -e "  Removing worktree..."
@@ -699,11 +610,10 @@ cmd_cleanup() {
 
     SIM_NAME=$(get_simulator_name "$TASK_NAME")
 
-    echo -e "${YELLOW}⚠️  About to remove worktree, Graphite branch, simulator, and agent-deck session:${NC}"
+    echo -e "${YELLOW}⚠️  About to remove worktree, Graphite branch, and simulator:${NC}"
     echo -e "   📁 Worktree: $WORKTREE_DIR"
     echo -e "   🌿 Branch: $BRANCH_NAME"
     echo -e "   📱 Simulator: $SIM_NAME"
-    echo -e "   🎛️  Agent-deck session: $TASK_NAME"
     echo ""
     read -p "Are you sure? (y/N): " -n 1 -r
     echo
@@ -711,8 +621,8 @@ cmd_cleanup() {
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         cd "$MAIN_REPO"
 
-        # Remove agent-deck session first (before worktree is deleted)
-        remove_agent_deck_session "$TASK_NAME" "$WORKTREE_DIR"
+        # Kill any tmux sessions for this task
+        tmux -L convos-tasks kill-session -t "convos_$TASK_NAME" 2>/dev/null || true
 
         # Remove worktree
         echo -e "${BLUE}Removing worktree...${NC}"
@@ -876,21 +786,23 @@ cmd_help() {
     cat << EOF
 ${BLUE}Convos iOS Task Management${NC}
 
-Manage parallel tasks using git worktrees + Graphite + agent-deck
+Manage parallel tasks using git worktrees + Graphite
 
 ${GREEN}Commands:${NC}                   ${YELLOW}Shortcuts:${NC}
-  new <task-name> [parent]  Create new worktree and Graphite branch    ${YELLOW}n${NC}
-  list                      List all active worktrees with status      ${YELLOW}l, ls${NC}
-  switch <task-name>        Attach to existing session in agent-deck   ${YELLOW}sw, o${NC}
-  submit [task-name]        Submit PR via Graphite (gt submit)         ${YELLOW}sub, pr${NC}
-  sync [task-name]          Sync with Graphite stack (gt sync)         ${YELLOW}sy${NC}
-  cleanup <task-name>       Remove worktree, branch, and session       ${YELLOW}c, rm${NC}
-  prune                     Remove all worktrees with merged branches  ${YELLOW}p${NC}
-  sessions [task] [query]   List/search sessions for a task            ${YELLOW}ss${NC}
-  context [task-name]       Show latest session and recovery info      ${YELLOW}ctx${NC}
-  help                      Show this help                             ${YELLOW}h${NC}
+  console                   Launch interactive TUI dashboard              ${YELLOW}con${NC}
+  new <task-name> [parent]  Create new worktree and Graphite branch       ${YELLOW}n${NC}
+  list                      List all active worktrees                     ${YELLOW}l, ls${NC}
+  switch <task-name>        Open Claude in terminal for task              ${YELLOW}sw, o${NC}
+  submit [task-name]        Submit PR via Graphite (gt submit)            ${YELLOW}sub, pr${NC}
+  sync [task-name]          Sync with Graphite stack (gt sync)            ${YELLOW}sy${NC}
+  cleanup <task-name>       Remove worktree, branch, and simulator        ${YELLOW}c, rm${NC}
+  prune                     Remove all worktrees with merged branches     ${YELLOW}p${NC}
+  sessions [task] [query]   List/search sessions for a task               ${YELLOW}ss${NC}
+  context [task-name]       Show latest session and recovery info         ${YELLOW}ctx${NC}
+  help                      Show this help                                ${YELLOW}h${NC}
 
 ${GREEN}Examples:${NC}
+  convos-task console
   convos-task new push-notifications
   convos-task new bug-fix dev
   convos-task list
@@ -902,17 +814,19 @@ ${GREEN}Examples:${NC}
   convos-task context push-notifications
 
 ${GREEN}Workflow:${NC}
-  1. ${BLUE}convos-task new my-feature${NC}     # Creates worktree + agent-deck session
+  1. ${BLUE}convos-task console${NC}              # Launch TUI to manage all tasks
+  OR
+  1. ${BLUE}convos-task new my-feature${NC}       # Creates worktree + launches Claude
   2. Work on feature in Claude Code...
-  3. ${BLUE}convos-task submit my-feature${NC}   # Submit PR via Graphite
-  4. ${BLUE}convos-task cleanup my-feature${NC}  # Remove when done
+  3. ${BLUE}convos-task submit my-feature${NC}    # Submit PR via Graphite
+  4. ${BLUE}convos-task cleanup my-feature${NC}   # Remove when done
 
-${GREEN}Agent-Deck Integration:${NC}
-  - Sessions are managed via agent-deck (https://github.com/asheshgoplani/agent-deck)
-  - ${BLUE}convos-task list${NC} shows session status: 🟢 running, 🟡 waiting, ⚪ idle
-  - All sessions are grouped under "convos" in agent-deck
-  - Use agent-deck TUI for advanced session management
-  - Falls back to iTerm/Terminal if agent-deck is not installed
+${GREEN}Console (TUI):${NC}
+  The convos-task-console provides an interactive dashboard for managing tasks:
+  - Visual overview of all worktrees with status indicators
+  - Split-pane layout with task list and Claude session
+  - Keyboard shortcuts for common operations
+  - Status monitoring (waiting, running, idle, error)
 
 ${GREEN}Session History:${NC}
   - ${BLUE}convos-task sessions${NC}            # Show sessions for current task
@@ -925,15 +839,14 @@ ${YELLOW}Notes:${NC}
   - Each task gets a dedicated iOS simulator (convos-<task-name>)
   - Base simulator is auto-detected (set CONVOS_BASE_SIMULATOR to override)
   - Use 'gt stack' in worktree to see stack structure
-
-${YELLOW}Requirements:${NC}
-  - agent-deck: curl -fsSL https://raw.githubusercontent.com/asheshgoplani/agent-deck/main/install.sh | bash
-  - tmux (agent-deck dependency)
 EOF
 }
 
 # Main command dispatcher
 case "$1" in
+    console|con)
+        cmd_console
+        ;;
     new|n)
         cmd_new "$2" "$3"
         ;;
