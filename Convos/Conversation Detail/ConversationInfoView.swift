@@ -91,29 +91,59 @@ struct ConversationInfoView: View {
             "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
         }
 
-        Button {
-            if viewModel.isFull {
-                showingFullInfo = true
+        if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
+            // Entire row is ShareLink when available
+            ShareLink(item: inviteURL) {
+                convoCodeRowContent(subtitle: subtitle, showShareIcon: true)
             }
-        } label: {
-            FeatureRowItem(
-                imageName: nil,
-                symbolName: "qrcode",
-                title: "Convo code",
-                subtitle: subtitle,
-                iconBackgroundColor: .colorFillMinimal,
-                iconForegroundColor: viewModel.isFull ? .colorTextSecondary : .colorTextPrimary
-            ) {
-                if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
-                    ShareLink(item: inviteURL) {
-                        Image(systemName: "square.and.arrow.up")
-                            .foregroundStyle(.colorTextSecondary)
+            .buttonStyle(.plain)
+        } else {
+            // Row with tap gesture for "full" alert
+            convoCodeRowContent(subtitle: subtitle, showShareIcon: false)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if viewModel.isFull {
+                        showingFullInfo = true
                     }
                 }
+                .opacity(viewModel.isLocked ? 0.5 : 1.0)
+        }
+    }
+
+    @ViewBuilder
+    private func convoCodeRowContent(subtitle: String, showShareIcon: Bool) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Group {
+                Image(systemName: "qrcode")
+                    .font(.headline)
+                    .padding(.horizontal, DesignConstants.Spacing.step2x)
+                    .padding(.vertical, 10.0)
+                    .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
+            }
+            .frame(width: 40.0, height: 40.0)
+            .background(
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                    .fill(Color.colorFillMinimal)
+                    .aspectRatio(1.0, contentMode: .fit)
+            )
+
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                Text("Convo code")
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimary)
+                Text(subtitle)
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            if showShareIcon {
+                Image(systemName: "square.and.arrow.up")
+                    .foregroundStyle(.colorTextSecondary)
             }
         }
-        .buttonStyle(.plain)
-        .disabled(viewModel.isLocked)
     }
 
     @ViewBuilder
