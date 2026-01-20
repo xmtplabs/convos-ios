@@ -2,6 +2,7 @@ import Combine
 import ConvosCore
 import SwiftUI
 
+@MainActor
 @Observable
 class QuicknameSettingsViewModel {
     static let shared: QuicknameSettingsViewModel = .init()

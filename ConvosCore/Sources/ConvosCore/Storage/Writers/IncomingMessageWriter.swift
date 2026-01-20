@@ -28,6 +28,8 @@ protocol IncomingMessageWriterProtocol: Sendable {
     ) async -> ExplodeSettingsResult
 }
 
+/// @unchecked Sendable: GRDB's DatabaseWriter provides thread-safe access via write{}
+/// closures with an internal serial queue. The only property is an immutable reference.
 class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
 

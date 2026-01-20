@@ -10,6 +10,10 @@ import GRDB
 /// Each service instance manages one XMTP client through the InboxStateManager and
 /// provides factory methods for creating writers and repositories scoped to this inbox.
 /// The service handles authorization, streaming, and push notification registration.
+///
+/// @unchecked Sendable: All stored properties are immutable references (`let`) to Sendable
+/// protocol types. The `cancellables` Set is only modified during init and deinit.
+/// Methods create new instances rather than sharing mutable state.
 final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     private let authorizationOperation: any AuthorizeInboxOperationProtocol
     let inboxStateManager: any InboxStateManagerProtocol

@@ -16,7 +16,7 @@ struct QuicknameSettings: Equatable {
         let displayName: String
         let randomizerSettings: RandomizerSettings
     }
-    private static var userDefaultsKey: String = "QuicknameSettings"
+    private static let userDefaultsKey: String = "QuicknameSettings"
 
     let displayName: String
     let profileImage: UIImage?

@@ -47,8 +47,8 @@ class NewConversationViewModel: Identifiable {
                 qrScannerViewModel.resetScanTimer()
                 qrScannerViewModel.resetScanning()
                 resetTask?.cancel()
-                resetTask = Task { [weak self] in
-                    await self?.conversationStateManager.resetFromError()
+                resetTask = Task { [conversationStateManager] in
+                    await conversationStateManager.resetFromError()
                 }
             }
         }
@@ -84,7 +84,7 @@ class NewConversationViewModel: Identifiable {
         allowsDismissingScanner: Bool = true,
     ) async -> NewConversationViewModel {
         let messagingService = await session.addInbox()
-        return NewConversationViewModel(
+        return await NewConversationViewModel(
             session: session,
             messagingService: messagingService,
             autoCreateConversation: autoCreateConversation,
@@ -127,8 +127,8 @@ class NewConversationViewModel: Identifiable {
             self.conversationViewModel.showsInfoView = false
         }
         if autoCreateConversation {
-            newConversationTask = Task { [weak self] in
-                guard let self else { return }
+            newConversationTask = Task { [weak self, conversationStateManager] in
+                guard self != nil else { return }
                 guard !Task.isCancelled else { return }
                 do {
                     try await conversationStateManager.createConversation()
@@ -145,7 +145,7 @@ class NewConversationViewModel: Identifiable {
 
     deinit {
         Log.info("deinit")
-        cancellables.removeAll()
+        // Note: AnyCancellable auto-cancels on dealloc, no need to clear manually
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
         resetTask?.cancel()
@@ -161,8 +161,8 @@ class NewConversationViewModel: Identifiable {
     func joinConversation(inviteCode: String) {
         cachedInviteCode = inviteCode
         joinConversationTask?.cancel()
-        joinConversationTask = Task { [weak self] in
-            guard let self else { return }
+        joinConversationTask = Task { [weak self, conversationStateManager] in
+            guard self != nil else { return }
             guard !Task.isCancelled else { return }
             do {
                 try await conversationStateManager.joinConversation(inviteCode: inviteCode)
@@ -187,8 +187,7 @@ class NewConversationViewModel: Identifiable {
         joinConversationTask?.cancel()
         let clientId = conversationViewModel.conversation.clientId
         let inboxId = conversationViewModel.conversation.inboxId
-        Task { [weak self] in
-            guard let self else { return }
+        Task { [session] in
             do {
                 try await session.deleteInbox(clientId: clientId, inboxId: inboxId)
             } catch {
@@ -215,8 +214,8 @@ class NewConversationViewModel: Identifiable {
         switch action {
         case .createConversation:
             newConversationTask?.cancel()
-            newConversationTask = Task { [weak self] in
-                guard let self else { return }
+            newConversationTask = Task { [weak self, conversationStateManager] in
+                guard self != nil else { return }
                 guard !Task.isCancelled else { return }
                 do {
                     try await conversationStateManager.createConversation()

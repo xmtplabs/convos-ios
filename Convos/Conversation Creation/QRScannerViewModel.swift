@@ -40,6 +40,10 @@ class QRScannerViewModel: NSObject, AVCaptureMetadataOutputObjectsDelegate {
         didOutput metadataObjects: [AVMetadataObject],
         from connection: AVCaptureConnection
     ) {
+        // Extract string value before entering MainActor context (AVMetadataObject is not Sendable)
+        guard let metadataObject = metadataObjects.first as? AVMetadataMachineReadableCodeObject,
+              let stringValue = metadataObject.stringValue else { return }
+
         Task { @MainActor in
             // Only process if scanning is enabled and we're not showing an error
             guard isScanningEnabled else { return }
@@ -55,16 +59,11 @@ class QRScannerViewModel: NSObject, AVCaptureMetadataOutputObjectsDelegate {
 
             lastScanTime = now
 
-            if let metadataObject = metadataObjects.first {
-                guard let readableObject = metadataObject as? AVMetadataMachineReadableCodeObject else { return }
-                guard let stringValue = readableObject.stringValue else { return }
+            AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
+            scannedCode = stringValue
 
-                AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
-                scannedCode = stringValue
-
-                // Disable further scanning after detecting a code
-                isScanningEnabled = false
-            }
+            // Disable further scanning after detecting a code
+            isScanningEnabled = false
         }
     }
 

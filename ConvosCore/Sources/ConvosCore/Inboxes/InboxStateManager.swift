@@ -27,6 +27,11 @@ public protocol InboxStateManagerProtocol: AnyObject, Sendable {
 /// the current state to SwiftUI views and other observers. The manager handles
 /// waiting for ready states, reauthorization flows, and provides both protocol-based
 /// and closure-based observation patterns.
+///
+/// @unchecked Sendable: State changes are coordinated through the InboxStateMachine actor
+/// via async state sequence iteration. The `stateMachine` weak reference and `stateTask`
+/// are only mutated in `observe()` and `deinit`. Observable properties are updated
+/// from async context. Observer list mutations are serialized through method calls.
 @Observable
 public final class InboxStateManager: InboxStateManagerProtocol, @unchecked Sendable {
     public private(set) var currentState: InboxStateMachine.State
@@ -214,7 +219,8 @@ public final class InboxStateManager: InboxStateManagerProtocol, @unchecked Send
     }
 }
 
-public final class ClosureStateObserver: InboxStateObserver {
+/// @unchecked Sendable: Immutable handler invoked from async observation context.
+public final class ClosureStateObserver: InboxStateObserver, @unchecked Sendable {
     private let handler: (InboxStateMachine.State) -> Void
 
     init(handler: @escaping (InboxStateMachine.State) -> Void) {
@@ -226,7 +232,8 @@ public final class ClosureStateObserver: InboxStateObserver {
     }
 }
 
-public final class StateObserverHandle {
+/// @unchecked Sendable: Mutation limited to idempotent cancel().
+public final class StateObserverHandle: @unchecked Sendable {
     private var observer: ClosureStateObserver?
     private weak var manager: (any InboxStateManagerProtocol)?
 
@@ -239,6 +246,8 @@ public final class StateObserverHandle {
         if let observer = observer {
             manager?.removeObserver(observer)
         }
+        observer = nil
+        manager = nil
     }
 
     deinit {

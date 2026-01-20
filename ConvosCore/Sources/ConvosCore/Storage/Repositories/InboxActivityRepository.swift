@@ -28,6 +28,8 @@ public protocol InboxActivityRepositoryProtocol: Sendable {
     func conversationIds(for clientIds: [String]) throws -> [String: [String]]
 }
 
+/// @unchecked Sendable: GRDB's DatabaseReader provides thread-safe access via read{}
+/// closures with an internal serial queue. The only property is an immutable reference.
 public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @unchecked Sendable {
     private let databaseReader: any DatabaseReader
 

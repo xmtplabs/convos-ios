@@ -1029,7 +1029,7 @@ extension MessagesCollectionLayout {
     }
 }
 
-extension MessagesCollectionLayout: MessagesLayoutProtocol {
+extension MessagesCollectionLayout: @preconcurrency MessagesLayoutProtocol {
     func numberOfItems(in section: Int) -> Int {
         guard let collectionView else {
             return .zero

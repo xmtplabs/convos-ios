@@ -7,6 +7,8 @@ public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setMuted(_ isMuted: Bool, for conversationId: String) async throws
 }
 
+/// @unchecked Sendable: GRDB's DatabaseWriter provides thread-safe access via write{}
+/// closures with an internal serial queue. All properties are immutable references.
 final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, @unchecked Sendable {
     static let maxPinnedConversations: Int = 9
 

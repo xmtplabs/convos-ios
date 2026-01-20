@@ -2,7 +2,7 @@ import ConvosCore
 import SwiftUI
 
 struct PrimarySecondaryContainerView<PrimaryContent: View,
-                                     SecondaryContent: View>: View, Animatable {
+                                     SecondaryContent: View>: View, @preconcurrency Animatable {
     var progress: CGFloat = 0.0
     let primaryProperties: ViewProperties
     let secondaryProperties: ViewProperties

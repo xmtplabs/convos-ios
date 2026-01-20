@@ -9,6 +9,7 @@ extension CGFloat {
     }
 }
 
+@MainActor
 class PreviewViewPanHandler: NSObject {
     private weak var containerView: UIView?
     private var initialTouchPoint: CGPoint = .zero

@@ -32,6 +32,9 @@ public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWr
 
 // MARK: - State Manager Implementation
 
+/// @unchecked Sendable: State changes are coordinated through ConversationStateMachine actor.
+/// Combine subjects are thread-safe for send/subscribe patterns. Properties updated via
+/// MainActor observation pattern. All async methods delegate to the internal actor.
 @Observable
 public final class ConversationStateManager: ConversationStateManagerProtocol, @unchecked Sendable {
     // MARK: - State Properties
@@ -268,6 +271,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
 // MARK: - Observer Helpers
 
+/// @unchecked Sendable: Immutable handler invoked from @MainActor context.
 public final class ClosureConversationStateObserver: ConversationStateObserver, @unchecked Sendable {
     private let handler: (ConversationStateMachine.State) -> Void
 
@@ -280,6 +284,7 @@ public final class ClosureConversationStateObserver: ConversationStateObserver, 
     }
 }
 
+/// @unchecked Sendable: Mutation limited to idempotent cancel(); MainActor dispatch for removal.
 public final class ConversationStateObserverHandle: @unchecked Sendable {
     private var observer: ClosureConversationStateObserver?
     private weak var manager: (any ConversationStateManagerProtocol)?

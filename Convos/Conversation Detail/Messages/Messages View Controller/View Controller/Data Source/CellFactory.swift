@@ -1,6 +1,7 @@
 import ConvosCore
 import UIKit
 
+@MainActor
 struct MessageCellActions {
     let onTapInvite: (MessageInvite) -> Void
     let onTapAvatar: (AnyMessage) -> Void

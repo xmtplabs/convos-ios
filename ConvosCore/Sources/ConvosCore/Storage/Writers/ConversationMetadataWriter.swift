@@ -5,7 +5,7 @@ import GRDB
 
 // MARK: - Conversation Metadata Writer Protocol
 
-public protocol ConversationMetadataWriterProtocol {
+public protocol ConversationMetadataWriterProtocol: Sendable {
     func updateName(_ name: String, for conversationId: String) async throws
     func updateDescription(_ description: String, for conversationId: String) async throws
     func updateImageUrl(_ imageURL: String, for conversationId: String) async throws
@@ -50,7 +50,10 @@ enum ConversationMetadataError: LocalizedError {
 
 // MARK: - Conversation Metadata Writer Implementation
 
-final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
+/// @unchecked Sendable: All stored properties are immutable references (`let`).
+/// DatabaseWriter is thread-safe (internal serial queue). InboxStateManager and
+/// InviteWriter protocols are Sendable. All methods are async with no shared mutable state.
+final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unchecked Sendable {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let inviteWriter: any InviteWriterProtocol

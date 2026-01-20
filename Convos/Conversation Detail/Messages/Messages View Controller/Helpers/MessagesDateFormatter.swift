@@ -1,6 +1,6 @@
 import Foundation
 
-final class MessagesDateFormatter {
+final class MessagesDateFormatter: @unchecked Sendable {
     static let shared: MessagesDateFormatter = MessagesDateFormatter()
     private let formatter: DateFormatter = DateFormatter()
     private let queue: DispatchQueue = DispatchQueue(label: "com.app.MessagesDateFormatter")

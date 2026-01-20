@@ -21,6 +21,11 @@ enum SessionManagerError: Error {
 /// a maximum number of awake (active) inboxes while supporting unlimited total conversations.
 /// The manager also handles inbox deletion, conversation notifications, and manages
 /// the UnusedInboxCache for pre-creating inboxes.
+///
+/// @unchecked Sendable: All stored protocol dependencies are Sendable. Mutable state
+/// (leftConversationObserver, Tasks) is only modified during init and deinit. The
+/// lifecycleManager actor coordinates all inbox state. NotificationCenter observers
+/// use weak self and main queue dispatch.
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var leftConversationObserver: Any?
     private var foregroundObserverTask: Task<Void, Never>?

@@ -38,6 +38,10 @@ public actor ConversationStateMachine {
         case reset
     }
 
+    /// @unchecked Sendable: Enum cases contain Sendable values (String, SignedInvite,
+    /// ConversationReadyResult, InviteJoinError, Error). The InboxReadyResult associated
+    /// value is itself @unchecked Sendable with documented thread safety. Equatable
+    /// implementation compares only Sendable identifiers.
     public enum State: Equatable, @unchecked Sendable {
         case uninitialized
         case creating

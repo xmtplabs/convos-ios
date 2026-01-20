@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
-public protocol OutgoingMessageWriterProtocol {
+public protocol OutgoingMessageWriterProtocol: Sendable {
     var sentMessage: AnyPublisher<String, Never> { get }
     func send(text: String) async throws
 }
@@ -12,14 +12,17 @@ enum OutgoingMessageWriterError: Error {
     case missingClientProvider
 }
 
-class OutgoingMessageWriter: OutgoingMessageWriterProtocol {
+actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
     private let conversationId: String
-    private let isSendingValue: CurrentValueSubject<Bool, Never> = .init(false)
-    private let sentMessageSubject: PassthroughSubject<String, Never> = .init()
 
-    var sentMessage: AnyPublisher<String, Never> {
+    // Combine subjects are internally thread-safe for send/subscribe patterns.
+    // nonisolated(unsafe) allows external subscription while actor isolates send logic.
+    nonisolated(unsafe) private let isSendingValue: CurrentValueSubject<Bool, Never> = .init(false)
+    nonisolated(unsafe) private let sentMessageSubject: PassthroughSubject<String, Never> = .init()
+
+    nonisolated var sentMessage: AnyPublisher<String, Never> {
         sentMessageSubject.eraseToAnyPublisher()
     }
 

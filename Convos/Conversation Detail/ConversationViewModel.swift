@@ -685,8 +685,10 @@ class ConversationViewModel {
                     throw ExplodeConvoError.conversationNotFound
                 }
 
+                // Use nonisolated(unsafe) to capture non-Sendable XMTP Conversation type
+                nonisolated(unsafe) let unsafeConversation = xmtpConversation
                 try await withTimeout(seconds: 20) {
-                    try await xmtpConversation.sendExplode(expiresAt: expiresAt)
+                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
                 }
                 Log.info("ExplodeSettings message sent successfully")
 

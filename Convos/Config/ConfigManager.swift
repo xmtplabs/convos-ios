@@ -2,7 +2,7 @@ import ConvosCore
 import Foundation
 
 /// Simple config loader that overrides AppEnvironment values per build
-final class ConfigManager {
+final class ConfigManager: @unchecked Sendable {
     static let shared: ConfigManager = ConfigManager()
 
     private let config: [String: Any]

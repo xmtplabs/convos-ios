@@ -1,6 +1,8 @@
 import Foundation
 
 /// Represents decoded notification content from NSE processing
+///
+/// @unchecked Sendable: All properties are immutable; userInfo contains only property list types.
 public struct DecodedNotificationContent: @unchecked Sendable {
     public let title: String?
     public let body: String
@@ -30,15 +32,17 @@ public struct DecodedNotificationContent: @unchecked Sendable {
 }
 
 /// Represents the payload structure of a push notification
+///
+/// @unchecked Sendable: Thread-safe through immutable properties and module-restricted setters.
 public final class PushNotificationPayload: @unchecked Sendable {
     public let clientId: String?
     public let notificationData: NotificationData?
     public let apiJWT: String?
     public let userInfo: [AnyHashable: Any]
 
-    // Decoded content properties (mutable for NSE processing)
-    public var decodedTitle: String?
-    public var decodedBody: String?
+    // Decoded content properties (mutable for NSE processing, internal setter)
+    public internal(set) var decodedTitle: String?
+    public internal(set) var decodedBody: String?
 
     public init(userInfo: [AnyHashable: Any]) {
         self.userInfo = userInfo

@@ -3,6 +3,10 @@ import GRDB
 
 public protocol ExpiredConversationsWorkerProtocol {}
 
+/// @unchecked Sendable: Protocol dependencies (SessionManager, DatabaseReader, AppLifecycle)
+/// are all Sendable. The `observers` array is marked `nonisolated(unsafe)` and only modified
+/// during init (setupObservers) and deinit. NotificationCenter callbacks use weak self
+/// and dispatch work to async Tasks.
 final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unchecked Sendable {
     private let sessionManager: any SessionManagerProtocol
     private let databaseReader: any DatabaseReader

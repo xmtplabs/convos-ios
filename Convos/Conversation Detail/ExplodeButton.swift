@@ -26,7 +26,7 @@ enum ExplodeState: Equatable {
         return false
     }
 
-    static var explodedAnimationDelay: CGFloat = 0.7
+    static let explodedAnimationDelay: CGFloat = 0.7
 }
 
 // MARK: - Animation Configuration

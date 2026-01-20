@@ -40,7 +40,13 @@ private let globalPushHandler: CachedPushNotificationHandler? = {
     }
 }()
 
-class NotificationService: UNNotificationServiceExtension {
+// Wrapper to safely pass userInfo across isolation boundaries
+// The userInfo dictionary is copied at construction time and not mutated
+private struct SendableUserInfo: @unchecked Sendable {
+    let value: [AnyHashable: Any]
+}
+
+final class NotificationService: UNNotificationServiceExtension, @unchecked Sendable {
     // Keep track of the current processing task for cancellation
     private var currentProcessingTask: Task<Void, Never>?
 
@@ -48,13 +54,14 @@ class NotificationService: UNNotificationServiceExtension {
     private let handlerQueue: DispatchQueue = DispatchQueue(label: "com.convos.nse.handler")
 
     // Store content handler for timeout scenario
-    private var contentHandler: ((UNNotificationContent) -> Void)?
+    // nonisolated(unsafe) is appropriate here because access is serialized via handlerQueue
+    nonisolated(unsafe) private var contentHandler: ((UNNotificationContent) -> Void)?
 
     // Track lifecycle for debugging
     private let instanceId: Substring = UUID().uuidString.prefix(8)
     private let processId: Int32 = ProcessInfo.processInfo.processIdentifier
 
-        override func didReceive(
+    override func didReceive(
         _ request: UNNotificationRequest,
         withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
     ) {
@@ -75,15 +82,16 @@ class NotificationService: UNNotificationServiceExtension {
         // Cancel any previous task if still running (shouldn't happen but be safe)
         currentProcessingTask?.cancel()
 
-        // Create a new processing task
-        currentProcessingTask = Task { [weak self] in
-            guard let self = self else { return }
+        // Wrap userInfo for safe transfer across isolation boundaries
+        let sendableUserInfo = SendableUserInfo(value: request.content.userInfo)
 
+        // Create a new processing task
+        currentProcessingTask = Task {
             do {
                 // Check for early cancellation
                 try Task.checkCancellation()
 
-                let payload = PushNotificationPayload(userInfo: request.content.userInfo)
+                let payload = PushNotificationPayload(userInfo: sendableUserInfo.value)
                 Log.info("Processing notification")
 
                 // Process the notification with the global handler
@@ -96,11 +104,11 @@ class NotificationService: UNNotificationServiceExtension {
                 let shouldDropMessage = decodedContent?.isDroppedMessage ?? false
                 if shouldDropMessage {
                     Log.info("Dropping notification as requested")
-                    deliverNotification(UNMutableNotificationContent())
+                    self.deliverNotification(UNMutableNotificationContent())
                 } else {
                     let notificationContent = decodedContent?.notificationContent ?? payload.undecodedNotificationContent
                     Log.info("Delivering processed notification")
-                    deliverNotification(notificationContent)
+                    self.deliverNotification(notificationContent)
                 }
             } catch is CancellationError {
                 Log.info("Notification processing was cancelled")
@@ -109,7 +117,7 @@ class NotificationService: UNNotificationServiceExtension {
             } catch {
                 Log.error("Error processing notification: \(error)")
                 // On error, suppress the notification by delivering empty content
-                deliverNotification(UNMutableNotificationContent())
+                self.deliverNotification(UNMutableNotificationContent())
             }
         }
     }

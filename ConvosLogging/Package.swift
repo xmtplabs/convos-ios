@@ -21,6 +21,9 @@ let package = Package(
             name: "ConvosLogging",
             dependencies: [
                 .product(name: "Logging", package: "swift-log")
+            ],
+            swiftSettings: [
+                .swiftLanguageMode(.v6),
             ]
         )
     ]

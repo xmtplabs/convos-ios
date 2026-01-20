@@ -9,7 +9,7 @@ public enum InboxDeletionProgress: Sendable, Equatable {
     case completed
 }
 
-public protocol SessionManagerProtocol: AnyObject {
+public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Inbox Management
 
     func addInbox() async -> AnyMessagingService

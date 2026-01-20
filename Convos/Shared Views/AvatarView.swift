@@ -44,20 +44,21 @@ struct AvatarView: View {
 
     @MainActor
     private func loadImage() async {
+        nonisolated(unsafe) let unsafeCacheable = cacheableObject
         guard let imageURL else {
-            cachedImage = await ImageCache.shared.imageAsync(for: cacheableObject)
+            cachedImage = await ImageCache.shared.imageAsync(for: unsafeCacheable)
             return
         }
 
         if let existingImage = await ImageCache.shared.imageAsync(for: imageURL) {
             cachedImage = existingImage
-            ImageCache.shared.setImage(existingImage, for: cacheableObject)
+            ImageCache.shared.setImage(existingImage, for: unsafeCacheable)
             return
         }
 
         // Show stale object cache as placeholder while fresh URL-based image loads.
         // Better UX than showing blank/monogram during network fetch.
-        if let cachedObjectImage = await ImageCache.shared.imageAsync(for: cacheableObject) {
+        if let cachedObjectImage = await ImageCache.shared.imageAsync(for: unsafeCacheable) {
             cachedImage = cachedObjectImage
         }
 
@@ -67,11 +68,11 @@ struct AvatarView: View {
             let (data, _) = try await URLSession.shared.data(from: imageURL)
             if let image = UIImage(data: data) {
                 ImageCache.shared.setImage(image, for: imageURL.absoluteString)
-                ImageCache.shared.setImage(image, for: cacheableObject)
+                ImageCache.shared.setImage(image, for: unsafeCacheable)
                 cachedImage = image
             }
         } catch {
-            Log.error("Error loading image cacheable object: \(cacheableObject) from url: \(imageURL)")
+            Log.error("Error loading image cacheable object: \(unsafeCacheable) from url: \(imageURL)")
             cachedImage = nil
         }
 

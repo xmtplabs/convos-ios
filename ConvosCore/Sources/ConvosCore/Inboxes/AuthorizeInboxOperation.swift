@@ -8,6 +8,10 @@ protocol AuthorizeInboxOperationProtocol {
     func stop()
 }
 
+/// @unchecked Sendable: Thread safety is ensured via NSLock protecting the mutable `_task`
+/// property. The `stateMachine` is an actor (inherently thread-safe). The `cancellables`
+/// Set is only modified during initialization. All task operations use `cancelAndReplaceTask`
+/// which acquires the lock before any mutation.
 final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked Sendable {
     let stateMachine: InboxStateMachine
     private var cancellables: Set<AnyCancellable> = []

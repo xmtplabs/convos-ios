@@ -64,6 +64,9 @@ typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 /// The state machine ensures proper sequencing of operations through an action queue
 /// and maintains state through idle → authorizing/registering → authenticating → ready → deleting → stopping.
 public actor InboxStateMachine {
+    /// @unchecked Sendable: Most cases contain only Sendable values (String). Cases with
+    /// XMTPClientProvider (clientAuthorized, clientRegistered) and InboxReadyResult (authorized)
+    /// contain protocol references that wrap thread-safe XMTP types designed for async/await use.
     enum Action: @unchecked Sendable {
         case authorize(inboxId: String, clientId: String),
              register(clientId: String),

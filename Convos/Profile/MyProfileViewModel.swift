@@ -2,6 +2,7 @@ import Combine
 import ConvosCore
 import SwiftUI
 
+@MainActor
 @Observable
 class MyProfileViewModel {
     private let myProfileWriter: any MyProfileWriterProtocol
@@ -43,10 +44,6 @@ class MyProfileViewModel {
         self.editingDisplayName = profile.name ?? ""
     }
 
-    deinit {
-        cancellables.removeAll()
-    }
-
     func cancelEditingDisplayName() {
         isEditingDisplayName = false
         editingDisplayName = profile.name ?? ""
@@ -82,11 +79,12 @@ class MyProfileViewModel {
         editingDisplayName = displayName
         updateDisplayNameTask?.cancel()
         beginUpdate()
+        nonisolated(unsafe) let unsafeWriter = myProfileWriter
         updateDisplayNameTask = Task { [weak self] in
-            guard let self else { return }
-            defer { Task { @MainActor in self.endUpdate() } }
+            guard self != nil else { return }
+            defer { Task { @MainActor [weak self] in self?.endUpdate() } }
             do {
-                try await myProfileWriter.update(displayName: displayName, conversationId: conversationId)
+                try await unsafeWriter.update(displayName: displayName, conversationId: conversationId)
             } catch {
                 Log.error("Error updating profile display name: \(error.localizedDescription)")
             }
@@ -100,14 +98,15 @@ class MyProfileViewModel {
         updateImageTask?.cancel()
         beginUpdate()
         let displayNameTask = updateDisplayNameTask
+        nonisolated(unsafe) let unsafeWriter = myProfileWriter
         updateImageTask = Task { [weak self] in
-            guard let self else { return }
-            defer { Task { @MainActor in self.endUpdate() } }
+            guard self != nil else { return }
+            defer { Task { @MainActor [weak self] in self?.endUpdate() } }
             // Wait for any pending display name update to complete first,
             // so the avatar update reads the profile with the correct name
             await displayNameTask?.value
             do {
-                try await myProfileWriter.update(avatar: profileImage, conversationId: conversationId)
+                try await unsafeWriter.update(avatar: profileImage, conversationId: conversationId)
             } catch {
                 Log.error("Error updating profile image: \(error.localizedDescription)")
             }

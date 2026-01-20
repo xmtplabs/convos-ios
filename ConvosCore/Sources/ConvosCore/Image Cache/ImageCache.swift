@@ -21,8 +21,8 @@ public enum ImageFormat: Sendable {
 
 // MARK: - ImageCacheable Protocol
 
-/// Protocol for objects that can have their images cached
-public protocol ImageCacheable {
+/// Protocol for objects that can have their images cached.
+public protocol ImageCacheable: Sendable {
     /// Unique identifier used for caching the image
     var imageCacheIdentifier: String { get }
 }
@@ -63,6 +63,13 @@ private struct CacheConfiguration {
 /// Smart reactive image cache that stores images for any ImageCacheable object with instant updates.
 /// Supports three-tier caching: memory → disk → network
 /// When a new image is uploaded for an object, all views showing that object update instantly.
+///
+/// @unchecked Sendable: Thread safety is ensured through:
+/// - NSCache: Internally thread-safe for all operations
+/// - diskCacheQueue: Serial DispatchQueue serializing all disk I/O
+/// - cleanupLock: OSAllocatedUnfairLock coordinating cleanup task scheduling
+/// - cacheUpdateSubject: Combine PassthroughSubject is thread-safe for send/subscribe
+/// All properties are immutable after init except for cleanup task coordination.
 @Observable
 public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     public static var shared: any ImageCacheProtocol { ImageCacheContainer.shared }

@@ -222,9 +222,6 @@ final class ConversationsViewModel {
     deinit {
         newConversationViewModelTask?.cancel()
         updateSelectionTask?.cancel()
-        if let leftConversationObserver {
-            NotificationCenter.default.removeObserver(leftConversationObserver)
-        }
     }
 
     func handleURL(_ url: URL) {
@@ -315,11 +312,11 @@ final class ConversationsViewModel {
     private func observe() {
         leftConversationObserver = NotificationCenter.default
             .addObserver(forName: .leftConversationNotification, object: nil, queue: .main) { [weak self] notification in
+                guard let conversationId = notification.userInfo?["conversationId"] as? String else {
+                    return
+                }
                 Task { @MainActor [weak self] in
                     guard let self else { return }
-                    guard let conversationId: String = notification.userInfo?["conversationId"] as? String else {
-                        return
-                    }
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
                     if selectedConversation?.id == conversationId {
                         selectedConversation = nil
