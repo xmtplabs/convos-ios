@@ -180,6 +180,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
         guard let localConversation else {
             throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
         }
+
+        let oldImageURL = localConversation.imageURLString
+        let oldPublicImageURL = localConversation.publicImageURLString
         let includePublicPreview = localConversation.includeImageInPublicPreview
 
         let groupKey = try await group.ensureImageEncryptionKey()
@@ -238,6 +241,14 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol {
                 .with(publicImageURLString: localConversation.includeImageInPublicPreview ? publicImageUrl : nil)
             try updatedConversation.save(db)
             return updatedConversation
+        }
+
+        // Invalidate old cache entries only after all operations succeed
+        if let oldImageURL, oldImageURL != encryptedAssetUrl {
+            ImageCacheContainer.shared.removeImage(for: oldImageURL)
+        }
+        if let oldPublicImageURL, oldPublicImageURL != publicImageUrl {
+            ImageCacheContainer.shared.removeImage(for: oldPublicImageURL)
         }
 
         if let cachedImage = ImageType(data: compressedImageData) {

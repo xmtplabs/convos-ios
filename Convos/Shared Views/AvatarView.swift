@@ -44,17 +44,21 @@ struct AvatarView: View {
 
     @MainActor
     private func loadImage() async {
-        // No early return - fall through to check for newer version via URL cache/network.
-        // This ensures encrypted images update when changed on another device.
-        if let cachedObjectImage = await ImageCache.shared.imageAsync(for: cacheableObject) {
-            cachedImage = cachedObjectImage
+        guard let imageURL else {
+            cachedImage = await ImageCache.shared.imageAsync(for: cacheableObject)
+            return
         }
-
-        guard let imageURL else { return }
 
         if let existingImage = await ImageCache.shared.imageAsync(for: imageURL) {
             cachedImage = existingImage
+            ImageCache.shared.setImage(existingImage, for: cacheableObject)
             return
+        }
+
+        // Show stale object cache as placeholder while fresh URL-based image loads.
+        // Better UX than showing blank/monogram during network fetch.
+        if let cachedObjectImage = await ImageCache.shared.imageAsync(for: cacheableObject) {
+            cachedImage = cachedObjectImage
         }
 
         isLoading = true
