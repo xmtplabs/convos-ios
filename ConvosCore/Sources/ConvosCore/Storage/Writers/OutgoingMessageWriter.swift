@@ -94,7 +94,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         do {
             Log.info("Sending local message with local id: \(clientMessageId)")
             try await sender.publish()
-            sentMessageSubject.send(text)
+            await MainActor.run {
+                sentMessageSubject.send(text)
+            }
             Log.info("Sent local message with local id: \(clientMessageId)")
         } catch {
             Log.error("Failed sending message")

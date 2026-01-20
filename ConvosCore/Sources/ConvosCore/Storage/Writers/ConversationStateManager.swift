@@ -256,7 +256,9 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     public func send(text: String) async throws {
         await stateMachine.sendMessage(text: text)
-        sentMessageSubject.send(text)
+        await MainActor.run {
+            sentMessageSubject.send(text)
+        }
     }
 
     public func delete() async throws {
