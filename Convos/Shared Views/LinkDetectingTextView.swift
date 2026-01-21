@@ -5,6 +5,10 @@ struct LinkDetectingTextView: View {
     let linkColor: Color?
     private let attributedText: AttributedString
 
+    private static let linkDetector: NSDataDetector? = {
+        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
+    }()
+
     init(_ text: String, linkColor: Color? = nil) {
         self.linkColor = linkColor
         self.attributedText = Self.makeAttributedString(from: text)
@@ -20,8 +24,8 @@ struct LinkDetectingTextView: View {
         // Create a mutable attributed string
         var result = AttributedString()
 
-        // Use NSDataDetector to find URLs
-        guard let detector = try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue) else {
+        // Use cached NSDataDetector to find URLs
+        guard let detector = linkDetector else {
             return AttributedString(text)
         }
 

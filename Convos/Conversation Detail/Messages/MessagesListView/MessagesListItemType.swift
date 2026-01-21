@@ -210,6 +210,33 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return .fullWidth
         }
     }
+
+    /// Reuse identifier for collection view cell dequeuing - allows cells of the same type to be reused efficiently
+    var cellReuseIdentifier: String {
+        switch self {
+        case .date:
+            return "MessagesListItemTypeCell-date"
+        case .update:
+            return "MessagesListItemTypeCell-update"
+        case .messages:
+            return "MessagesListItemTypeCell-messages"
+        case .invite:
+            return "MessagesListItemTypeCell-invite"
+        case .conversationInfo:
+            return "MessagesListItemTypeCell-conversationInfo"
+        }
+    }
+
+    /// All possible reuse identifiers for cell registration
+    static var allCellReuseIdentifiers: [String] {
+        [
+            "MessagesListItemTypeCell-date",
+            "MessagesListItemTypeCell-update",
+            "MessagesListItemTypeCell-messages",
+            "MessagesListItemTypeCell-invite",
+            "MessagesListItemTypeCell-conversationInfo"
+        ]
+    }
 }
 
 // MARK: - Differentiable Conformance

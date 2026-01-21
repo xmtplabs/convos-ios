@@ -74,13 +74,11 @@ struct MessagesGroupView: View {
                     )
                     .overlay(alignment: .bottomLeading) {
                         if isLast && !group.sender.isCurrentUser {
-                            ProfileAvatarView(profile: group.sender.profile, profileImage: nil, useSystemPlaceholder: false)
-                                .frame(width: avatarSize, height: avatarSize)
+                            MessageAvatarView(profile: group.sender.profile, size: avatarSize)
                                 .offset(x: -(avatarSize + avatarSpacing))
                                 .onTapGesture {
                                     onTapAvatar(message)
                                 }
-                                .hoverEffect(.lift)
                                 .scaleEffect(isAppearing ? 0.9 : 1.0)
                                 .opacity(isAppearing ? 0.0 : 1.0)
                                 .offset(

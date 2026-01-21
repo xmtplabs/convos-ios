@@ -111,6 +111,77 @@ struct ConversationAvatarView: View {
     }
 }
 
+/// Lightweight avatar optimized for scroll performance in lists.
+/// Uses synchronous memory cache lookup first - if hit, no async work happens.
+/// Falls back to async loading only if image isn't in memory cache.
+/// This prevents layout invalidation during scroll for already-cached images.
+struct MessageAvatarView: View {
+    let profile: Profile
+    let size: CGFloat
+
+    @State private var asyncLoadedImage: UIImage?
+
+    private var imageURL: URL? {
+        profile.avatarURL
+    }
+
+    var body: some View {
+        Group {
+            if let image = ImageCache.shared.image(for: profile) {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else if let image = asyncLoadedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else {
+                MonogramView(name: profile.displayName)
+            }
+        }
+        .frame(width: size, height: size)
+        .clipShape(Circle())
+        .task(id: imageURL) {
+            // Early exit if already cached - prevents spawning async work unnecessarily.
+            // This duplicates the body check intentionally: two O(1) NSCache lookups
+            // are far cheaper than starting an async task that would immediately return.
+            guard ImageCache.shared.image(for: profile) == nil else { return }
+            await loadImage()
+        }
+        .cachedImage(for: profile) { image in
+            // Only update state if synchronous cache doesn't already have the image.
+            // This prevents unnecessary re-renders when body already shows cached image.
+            guard ImageCache.shared.image(for: profile) == nil else { return }
+            asyncLoadedImage = image
+        }
+    }
+
+    @MainActor
+    private func loadImage() async {
+        guard let imageURL else {
+            asyncLoadedImage = await ImageCache.shared.imageAsync(for: profile)
+            return
+        }
+
+        if let existingImage = await ImageCache.shared.imageAsync(for: imageURL) {
+            asyncLoadedImage = existingImage
+            ImageCache.shared.setImage(existingImage, for: profile)
+            return
+        }
+
+        do {
+            let (data, _) = try await URLSession.shared.data(from: imageURL)
+            if let image = UIImage(data: data) {
+                ImageCache.shared.setImage(image, for: imageURL.absoluteString)
+                ImageCache.shared.setImage(image, for: profile)
+                asyncLoadedImage = image
+            }
+        } catch {
+            Log.error("Error loading avatar for profile \(profile.displayName) from url: \(imageURL)")
+        }
+    }
+}
+
 #Preview {
     @Previewable @State var profileImage: UIImage?
     let profile: Profile = .mock(name: "John Doe")

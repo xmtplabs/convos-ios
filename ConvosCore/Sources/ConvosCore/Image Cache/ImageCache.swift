@@ -375,7 +375,6 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
     ///   - imageFormat: The image format (default: .jpg)
     private func saveDataToDisk(_ data: Data, identifier: String, imageFormat: ImageFormat = .jpg) async {
         let fileURL = self.diskCacheURL.appendingPathComponent(self.sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
-        let formatName = imageFormat == .png ? "PNG" : "JPEG"
 
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             self.diskCacheQueue.async { [weak self] in
@@ -384,8 +383,15 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     return
                 }
 
+                // Skip if file already exists on disk (avoid redundant writes during scroll)
+                if self.fileManager.fileExists(atPath: fileURL.path) {
+                    continuation.resume()
+                    return
+                }
+
                 do {
                     try data.write(to: fileURL, options: .atomic)
+                    let formatName = imageFormat == .png ? "PNG" : "JPEG"
                     Log.info("Successfully saved image data to disk: \(identifier) (\(data.count) bytes, format: \(formatName))")
                     // Trigger cleanup if needed
                     self.scheduleCleanupIfNeeded()
@@ -407,6 +413,14 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     return
                 }
 
+                let fileURL = self.diskCacheURL.appendingPathComponent(self.sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
+
+                // Skip if file already exists on disk (avoid redundant writes during scroll)
+                if self.fileManager.fileExists(atPath: fileURL.path) {
+                    continuation.resume()
+                    return
+                }
+
                 let data: Data?
                 switch imageFormat {
                 case .png:
@@ -420,8 +434,6 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     continuation.resume()
                     return
                 }
-
-                let fileURL = self.diskCacheURL.appendingPathComponent(self.sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
 
                 do {
                     try imageData.write(to: fileURL, options: .atomic)
