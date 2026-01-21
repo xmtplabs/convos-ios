@@ -526,10 +526,10 @@ Authorization: Bearer <jwt>
 
 Request:
 {
-  "assetUrls": [
-    "https://assets.convos.xyz/abc123.bin",
-    "https://assets.convos.xyz/def456.bin",
-    "https://assets.convos.xyz/ghi789.bin"
+  "assetKeys": [
+    "abc123.bin",
+    "def456.bin",
+    "ghi789.bin"
   ]
 }
 
@@ -538,9 +538,9 @@ Response (200 OK):
   "renewed": 2,
   "failed": 1,
   "results": [
-    { "url": "https://assets.convos.xyz/abc123.bin", "success": true },
-    { "url": "https://assets.convos.xyz/def456.bin", "success": true },
-    { "url": "https://assets.convos.xyz/ghi789.bin", "success": false, "error": "not_found" }
+    { "key": "abc123.bin", "success": true },
+    { "key": "def456.bin", "success": true },
+    { "key": "ghi789.bin", "success": false, "error": "not_found" }
   ]
 }
 
@@ -550,44 +550,50 @@ Response (400 Bad Request):
 }
 ```
 
+**Note:** iOS extracts keys from stored URLs via `URL(string: avatar)?.path.dropFirst()`
+
 ### Implementation
 
 ```typescript
 // routes/assets.ts
-import { S3Client, CopyObjectCommand, HeadObjectCommand } from "@aws-sdk/client-s3";
+import { S3Client, CopyObjectCommand } from "@aws-sdk/client-s3";
 
 const s3 = new S3Client({ region: process.env.AWS_REGION });
 const BUCKET = process.env.S3_BUCKET;
 const MAX_BATCH_SIZE = 100;
 
 interface RenewResult {
-  url: string;
+  key: string;
   success: boolean;
   error?: string;
 }
 
+function isValidKey(key: string): boolean {
+  // Keys should be non-empty and not contain path traversal
+  return key.length > 0 && !key.includes("..") && !key.startsWith("/");
+}
+
 router.post("/v2/assets/renew-batch", authenticate, async (req, res) => {
-  const { assetUrls } = req.body;
+  const { assetKeys } = req.body;
 
-  if (!Array.isArray(assetUrls) || assetUrls.length === 0) {
-    return res.status(400).json({ error: "assetUrls must be a non-empty array" });
+  if (!Array.isArray(assetKeys) || assetKeys.length === 0) {
+    return res.status(400).json({ error: "assetKeys must be a non-empty array" });
   }
 
-  if (assetUrls.length > MAX_BATCH_SIZE) {
-    return res.status(400).json({ error: `Maximum ${MAX_BATCH_SIZE} URLs per request` });
+  if (assetKeys.length > MAX_BATCH_SIZE) {
+    return res.status(400).json({ error: `Maximum ${MAX_BATCH_SIZE} keys per request` });
   }
 
-  // Process all URLs in parallel
+  // Process all keys in parallel
   const results: RenewResult[] = await Promise.all(
-    assetUrls.map(async (url): Promise<RenewResult> => {
-      const key = extractKeyFromUrl(url);
-      if (!key) {
-        return { url, success: false, error: "invalid_url" };
+    assetKeys.map(async (key): Promise<RenewResult> => {
+      if (!isValidKey(key)) {
+        return { key, success: false, error: "invalid_key" };
       }
 
       try {
         // Copy object to itself (resets LastModified)
-        // No need to HeadObject first — CopyObject will fail if not found
+        // CopyObject will fail if not found — no need to HeadObject first
         await s3.send(new CopyObjectCommand({
           Bucket: BUCKET,
           CopySource: `${BUCKET}/${key}`,
@@ -595,14 +601,14 @@ router.post("/v2/assets/renew-batch", authenticate, async (req, res) => {
           MetadataDirective: "COPY"
         }));
 
-        return { url, success: true };
+        return { key, success: true };
       } catch (error: any) {
         if (error.name === "NoSuchKey" || error.name === "NotFound") {
-          return { url, success: false, error: "not_found" };
+          return { key, success: false, error: "not_found" };
         }
         // Log unexpected errors but don't fail the whole batch
-        console.error(`Failed to renew ${url}:`, error);
-        return { url, success: false, error: "internal_error" };
+        console.error(`Failed to renew ${key}:`, error);
+        return { key, success: false, error: "internal_error" };
       }
     })
   );
@@ -612,18 +618,6 @@ router.post("/v2/assets/renew-batch", authenticate, async (req, res) => {
 
   return res.json({ renewed, failed, results });
 });
-
-function extractKeyFromUrl(url: string): string | null {
-  try {
-    const parsed = new URL(url);
-    // Handle CDN URL: https://assets.convos.xyz/abc123.bin → abc123.bin
-    // Handle S3 URL: https://bucket.s3.amazonaws.com/abc123.bin → abc123.bin
-    const key = parsed.pathname.replace(/^\//, "");
-    return key.length > 0 ? key : null;
-  } catch {
-    return null;
-  }
-}
 ```
 
 ### Security Considerations
@@ -632,16 +626,17 @@ function extractKeyFromUrl(url: string): string | null {
 2. **No per-asset authorization**: Any authenticated user can renew any asset
    - Intentional: users renew their own assets + group assets they're members of
    - Worst case: unnecessary renewal (no harm, just extra S3 ops)
-3. **Batch size limit**: Max 100 URLs per request to prevent abuse
-4. **Rate limiting**: Consider limiting requests per user per hour
+3. **Batch size limit**: Max 100 keys per request to prevent abuse
+4. **Key validation**: Reject empty keys, path traversal (`..`), and leading slashes
+5. **Rate limiting**: 10 batch requests per hour per device
 
-### Rate Limiting (Recommended)
+### Rate Limiting
 
 ```typescript
 const renewalLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,  // 1 hour
   max: 10,  // 10 batch requests per hour (up to 1000 assets)
-  keyGenerator: (req) => req.user.id,
+  keyGenerator: (req, res) => res.locals.deviceId || req.ip,
   message: { error: "Too many renewal requests" }
 });
 
@@ -652,18 +647,25 @@ router.post("/v2/assets/renew-batch", authenticate, renewalLimiter, async (req, 
 
 ### Testing
 
-1. **Unit test**: Mock S3 client, verify `CopyObjectCommand` called for each URL
+1. **Unit test**: Mock S3 client, verify `CopyObjectCommand` called for each key
 2. **Unit test**: Verify 404s are returned as `not_found` errors (not thrown)
-3. **Integration test**: Use localstack or test bucket
-4. **Manual test**: Upload objects, call batch renew, verify `LastModified` changed
+3. **Unit test**: Verify key validation rejects `..` and `/` prefixes
+4. **Integration test**: Use localstack or test bucket
+5. **Manual test**: Upload objects, call batch renew, verify `LastModified` changed
 
 ---
 
 ## Decisions
 
 1. **What triggers a renewal?**
-   - App launch (once per 15 days). Single batch request with all relevant URLs.
+   - App launch (once per 15 days). Single batch request with all relevant keys.
    - NOT on image view — that would be tracking-like behavior.
+
+1. **Why keys instead of full URLs?**
+   - Decoupled from CDN domain — if domain changes, no backend update needed.
+   - Smaller payload size.
+   - Simpler backend — no URL parsing needed.
+   - iOS extracts keys from stored URLs: `URL(string: avatar)?.path.dropFirst()`
 
 2. **Should we persist renewal state across app sessions?**
    - Yes, using `UserDefaults` to store last renewal date.
