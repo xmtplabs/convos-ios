@@ -3,7 +3,6 @@ import SwiftUI
 
 struct RelativeDateLabel: View {
     let date: Date
-    @State private var timer: Timer?
     @State private var dateString: String = ""
 
     var body: some View {
@@ -11,28 +10,18 @@ struct RelativeDateLabel: View {
             .textCase(.lowercase)
             .onAppear {
                 dateString = date.relativeShort()
-                startTimer()
             }
             .onChange(of: date) {
                 dateString = date.relativeShort()
             }
-            .onDisappear {
-                stopTimer()
+            .task(id: date) {
+                while !Task.isCancelled {
+                    let interval = nextUpdateInterval()
+                    try? await Task.sleep(for: .seconds(interval))
+                    guard !Task.isCancelled else { break }
+                    dateString = date.relativeShort()
+                }
             }
-    }
-
-    private func startTimer() {
-        stopTimer()
-        let interval = nextUpdateInterval()
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: false) { _ in
-            dateString = date.relativeShort()
-            startTimer()
-        }
-    }
-
-    private func stopTimer() {
-        timer?.invalidate()
-        timer = nil
     }
 
     private func nextUpdateInterval() -> TimeInterval {

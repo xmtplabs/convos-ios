@@ -84,7 +84,7 @@ class NewConversationViewModel: Identifiable {
         allowsDismissingScanner: Bool = true,
     ) async -> NewConversationViewModel {
         let messagingService = await session.addInbox()
-        return await NewConversationViewModel(
+        return NewConversationViewModel(
             session: session,
             messagingService: messagingService,
             autoCreateConversation: autoCreateConversation,

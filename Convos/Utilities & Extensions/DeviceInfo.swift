@@ -2,6 +2,7 @@ import Foundation
 import UIKit
 
 /// Utility for accessing device information across the app
+@MainActor
 struct DeviceInfo {
     /// Returns the device's identifier for vendor (IDFV)
     /// This is a unique identifier that persists across app launches but resets when all apps from the same vendor are deleted

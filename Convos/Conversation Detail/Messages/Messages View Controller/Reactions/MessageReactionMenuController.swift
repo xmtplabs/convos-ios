@@ -71,6 +71,7 @@ class MessageReactionMenuController: UIViewController {
             )
         }
 
+        @MainActor
         var endPosition: CGRect {
             let topInset = Self.topInset + containerView.safeAreaInsets.top
             let betweenInset = Self.betweenInset
@@ -82,6 +83,7 @@ class MessageReactionMenuController: UIViewController {
             return CGRect(x: finalX, y: desiredY, width: sourceRect.width, height: sourceRect.height)
         }
 
+        @MainActor
         var shapeViewEndingSize: CGSize {
             let horizontalInset = sourceCell.horizontalInset
             let endWidth = containerView.bounds.width - Self.leftMargin - Self.rightMargin - horizontalInset

@@ -1,4 +1,4 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import SwiftUI
 
 struct QRScannerView: UIViewRepresentable {
@@ -136,6 +136,7 @@ struct QRScannerView: UIViewRepresentable {
         coordinator.captureDevice = videoCaptureDevice
 
         // Register for orientation notifications
+        nonisolated(unsafe) let unsafePreviewLayer = previewLayer
         coordinator.orientationObserver = NotificationCenter.default.addObserver(
             forName: UIDevice.orientationDidChangeNotification,
             object: nil,
@@ -147,12 +148,12 @@ struct QRScannerView: UIViewRepresentable {
                 CATransaction.setDisableActions(true)
                 // Use window bounds to fill entire screen including safe areas
                 if let window = view.window {
-                    previewLayer.frame = view.convert(window.bounds, from: window)
+                    unsafePreviewLayer.frame = view.convert(window.bounds, from: window)
                 } else {
-                    previewLayer.frame = view.bounds
+                    unsafePreviewLayer.frame = view.bounds
                 }
                 CATransaction.commit()
-                self.updateVideoOrientation(for: previewLayer)
+                self.updateVideoOrientation(for: unsafePreviewLayer)
             }
         }
 

@@ -44,7 +44,7 @@ struct AvatarView: View {
 
     @MainActor
     private func loadImage() async {
-        nonisolated(unsafe) let unsafeCacheable = cacheableObject
+        let unsafeCacheable = cacheableObject
         guard let imageURL else {
             cachedImage = await ImageCache.shared.imageAsync(for: unsafeCacheable)
             return

@@ -11,6 +11,7 @@ struct MessageCellActions {
 
 // swiftlint:disable force_cast
 
+@MainActor
 final class CellFactory {
     static func createCell(
         in collectionView: UICollectionView,

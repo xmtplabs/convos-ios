@@ -7,6 +7,7 @@ enum MessagesCollectionLayoutModelState: Hashable, CaseIterable {
     case beforeUpdate, afterUpdate
 }
 
+@MainActor
 struct SectionModel<Layout: MessagesLayoutProtocol> {
     let id: UUID
     let interSectionSpacing: CGFloat
@@ -138,6 +139,8 @@ struct SectionModel<Layout: MessagesLayoutProtocol> {
         if index < items.count &- 1 {
             let nextIndex = index &+ 1
             items.withUnsafeMutableBufferPointer { directlyMutableItems in
+                // SAFETY: concurrentPerform modifies disjoint array elements (each iteration has unique index).
+                // The buffer pointer remains valid for the duration of withUnsafeMutableBufferPointer.
                 nonisolated(unsafe) let directlyMutableItems = directlyMutableItems
                 DispatchQueue.concurrentPerform(iterations: directlyMutableItems.count &- nextIndex) { internalIndex in
                     directlyMutableItems[internalIndex &+ nextIndex].offsetY += heightDiff

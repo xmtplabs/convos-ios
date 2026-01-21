@@ -1,5 +1,6 @@
 import UIKit
 
+@MainActor
 protocol PreviewableCell {
     /// Returns a view to be used as preview during hard press
     func previewView() -> UIView

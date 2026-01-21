@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import UIKit
 
+@MainActor
 final class MessagesCollectionViewDataSource: NSObject {
     var sections: [MessagesCollectionSection] = [] {
         didSet {

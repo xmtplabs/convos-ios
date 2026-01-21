@@ -14,6 +14,7 @@ enum ChangeItem: Equatable {
     case sectionMove(initialSectionIndex: Int, finalSectionIndex: Int)
     case itemMove(initialItemIndexPath: IndexPath, finalItemIndexPath: IndexPath)
 
+    @MainActor
     init?(with updateItem: UICollectionViewUpdateItem) {
         let updateAction = updateItem.updateAction
         let indexPathBeforeUpdate = updateItem.indexPathBeforeUpdate

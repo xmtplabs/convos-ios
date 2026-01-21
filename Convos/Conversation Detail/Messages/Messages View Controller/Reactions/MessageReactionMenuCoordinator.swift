@@ -1,5 +1,6 @@
 import UIKit
 
+@MainActor
 protocol MessageReactionMenuCoordinatorDelegate: AnyObject {
     func messageReactionMenuCoordinator(_ coordinator: MessageReactionMenuCoordinator,
                                         previewableCellAt indexPath: IndexPath) -> PreviewableCollectionViewCell?
@@ -251,6 +252,7 @@ extension MessageReactionMenuCoordinator: UIViewControllerTransitioningDelegate 
     }
 }
 
+@MainActor
 final class MessageReactionPresentationAnimator: NSObject, UIViewControllerAnimatedTransitioning, CAAnimationDelegate {
     private let sourceCell: PreviewableCollectionViewCell
     private let sourceRect: CGRect
@@ -326,25 +328,30 @@ final class MessageReactionPresentationAnimator: NSObject, UIViewControllerAnima
                 toVC.view.alpha = 1.0
             }
         }, completion: { [weak self] _ in
-            guard let self else { return }
-            toVC.animateReactionToEndPosition()
-            UIView.animate(withDuration: 0.5,
-                           delay: 0.0,
-                           usingSpringWithDamping: 0.8,
-                           initialSpringVelocity: 0.2,
-                           options: .beginFromCurrentState) {
-                previewView.transform = .identity
-                previewView.frame = toVC.endPosition
-            } completion: { _ in
-                previewView.removeFromSuperview()
-                toVC.view.addSubview(previewView)
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                toVC.animateReactionToEndPosition()
+                UIView.animate(withDuration: 0.5,
+                               delay: 0.0,
+                               usingSpringWithDamping: 0.8,
+                               initialSpringVelocity: 0.2,
+                               options: .beginFromCurrentState) {
+                    previewView.transform = .identity
+                    previewView.frame = toVC.endPosition
+                } completion: { _ in
+                    MainActor.assumeIsolated {
+                        previewView.removeFromSuperview()
+                        toVC.view.addSubview(previewView)
+                    }
+                }
+                self.transitionEnded()
+                transitionContext.completeTransition(!transitionContext.transitionWasCancelled)
             }
-            transitionEnded()
-            transitionContext.completeTransition(!transitionContext.transitionWasCancelled)
         })
     }
 }
 
+@MainActor
 final class MessageReactionDismissalAnimator: NSObject, UIViewControllerAnimatedTransitioning {
     private let sourceCell: PreviewableCollectionViewCell
     private let sourceRect: CGRect
@@ -412,11 +419,13 @@ final class MessageReactionDismissalAnimator: NSObject, UIViewControllerAnimated
                 fromVC.dimmingView.alpha = 0.0
             }
         }, completion: { [weak self] _ in
-            guard let self else { return }
-            previewView.removeFromSuperview()
-            fromVC.previewSourceView.alpha = 1.0
-            transitionContext.completeTransition(!transitionContext.transitionWasCancelled)
-            transitionEnded()
+            MainActor.assumeIsolated { [weak self] in
+                guard let self else { return }
+                previewView.removeFromSuperview()
+                fromVC.previewSourceView.alpha = 1.0
+                transitionContext.completeTransition(!transitionContext.transitionWasCancelled)
+                self.transitionEnded()
+            }
         })
     }
 }

@@ -1,6 +1,7 @@
 import ConvosCore
 import UIKit
 
+@MainActor
 final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     let sections: [MessagesCollectionSection]
     private let oldSections: [MessagesCollectionSection]

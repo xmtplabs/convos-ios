@@ -3,6 +3,7 @@ import UIKit
 
 // swiftlint:disable no_assertions
 
+@MainActor
 final class LayoutModel<Layout: MessagesLayoutProtocol> {
     private struct ItemUUIDKey: Hashable {
         let kind: ItemKind

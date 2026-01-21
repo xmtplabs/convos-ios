@@ -4,8 +4,8 @@ import UIKit
 // swiftlint:disable force_cast no_assertions
 
 final class MessagesLayoutAttributes: UICollectionViewLayoutAttributes {
-    var alignment: MessagesListItemAlignment = .fullWidth
-    var interItemSpacing: CGFloat = 0
+    nonisolated(unsafe) var alignment: MessagesListItemAlignment = .fullWidth
+    nonisolated(unsafe) var interItemSpacing: CGFloat = 0
     var additionalInsets: UIEdgeInsets = .zero
     var viewSize: CGSize = .zero
     var adjustedContentInsets: UIEdgeInsets = .zero

@@ -3,6 +3,7 @@ import UIKit
 
 // swiftlint:disable cyclomatic_complexity function_body_length type_body_length no_assertions large_tuple
 
+@MainActor
 protocol MessagesLayoutProtocol: AnyObject, Sendable {
     var settings: MessagesLayoutSettings { get }
     var viewSize: CGSize { get }
@@ -18,8 +19,10 @@ protocol MessagesLayoutProtocol: AnyObject, Sendable {
     func interSectionSpacing(at sectionIndex: Int) -> CGFloat
 }
 
+@MainActor
 final class MessagesLayoutStateController<Layout: MessagesLayoutProtocol> {
     // Helps to reduce the amount of losses in bridging calls to objc `UICollectionView` getter methods.
+    @MainActor
     struct AdditionalLayoutAttributes {
         fileprivate let additionalInsets: UIEdgeInsets
         fileprivate let viewSize: CGSize

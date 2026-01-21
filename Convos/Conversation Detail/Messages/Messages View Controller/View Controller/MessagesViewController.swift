@@ -682,7 +682,7 @@ extension MessagesViewController: UIGestureRecognizerDelegate {
 
 // MARK: - MessageReactionMenuCoordinatorDelegate
 
-extension MessagesViewController: @preconcurrency MessageReactionMenuCoordinatorDelegate {
+extension MessagesViewController: MessageReactionMenuCoordinatorDelegate {
     func messageReactionMenuViewModel(_ coordinator: MessageReactionMenuCoordinator,
                                       for indexPath: IndexPath) -> MessageReactionMenuViewModel {
         guard dataSource.sections.indices.contains(indexPath.section),

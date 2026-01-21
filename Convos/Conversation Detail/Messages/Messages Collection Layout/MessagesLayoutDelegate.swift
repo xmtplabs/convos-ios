@@ -5,6 +5,7 @@ enum InitialAttributesRequestType: Hashable {
     case initial, invalidation
 }
 
+@MainActor
 protocol MessagesLayoutDelegate: AnyObject {
     func shouldPresentHeader(_ messagesLayout: MessagesCollectionLayout, at sectionIndex: Int) -> Bool
     func shouldPresentFooter(_ messagesLayout: MessagesCollectionLayout, at sectionIndex: Int) -> Bool
