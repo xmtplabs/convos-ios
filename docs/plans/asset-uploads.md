@@ -48,24 +48,24 @@ Since copy-to-self resets the lifecycle clock, **we don't need prefixes, tags, o
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                    Single S3 Lifecycle Rule                      │
-│                                                                  │
-│    All objects expire 30 days after LastModified                 │
-│                                                                  │
+│                    Single S3 Lifecycle Rule                     │
+│                                                                 │
+│    All objects expire 30 days after LastModified                │
+│                                                                 │
 ├─────────────────────────────────────────────────────────────────┤
-│                                                                  │
-│  Chat Images              Profile/Group Images                   │
-│  ────────────             ────────────────────                   │
-│  Upload → never           Upload → renewed every                 │
-│  renewed → expires        ~15 days → lives                       │
-│  after 30 days            until not renewed                      │
-│                                                                  │
-│  ┌──────┐                 ┌──────┐                               │
-│  │ Day 0│ Upload          │ Day 0│ Upload                        │
-│  │Day 30│ Expired ✓       │Day 15│ Renew → LastModified reset    │
-│  └──────┘                 │Day 30│ Renew → LastModified reset    │
-│                           │ ...  │                               │
-│                           └──────┘                               │
+│                                                                 │
+│  Chat Images              Profile/Group Images                  │
+│  ────────────             ────────────────────                  │
+│  Upload → never           Upload → renewed every                │
+│  renewed → expires        ~15 days → lives                      │
+│  after 30 days            until not renewed                     │
+│                                                                 │
+│  ┌──────┐                 ┌──────┐                              │
+│  │ Day 0│ Upload          │ Day 0│ Upload                       │
+│  │Day 30│ Expired ✓       │Day 15│ Renew → LastModified reset   │
+│  └──────┘                 │Day 30│ Renew → LastModified reset   │
+│                           │ ...  │                              │
+│                           └──────┘                              │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
