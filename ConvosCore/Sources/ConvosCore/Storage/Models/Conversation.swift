@@ -46,7 +46,63 @@ public extension Conversation {
     }
 
     var displayName: String {
-        name.orUntitled
+        computedDisplayName
+    }
+
+    var computedDisplayName: String {
+        if let name, !name.isEmpty {
+            return name
+        }
+        if kind == .dm {
+            return otherMember?.profile.displayName ?? "Somebody"
+        }
+        let otherMembers = membersWithoutCurrent
+        if otherMembers.isEmpty {
+            return "New Convo"
+        }
+        return otherMembers.formattedNamesString
+    }
+
+    var isFullyAnonymous: Bool {
+        let otherMembers = membersWithoutCurrent
+        guard !otherMembers.isEmpty else { return false }
+        return !otherMembers.map(\.profile).hasAnyNamedProfile
+    }
+
+    var hasAnyMemberWithAvatar: Bool {
+        membersWithoutCurrent.map(\.profile).hasAnyAvatar
+    }
+
+    var defaultEmoji: String {
+        EmojiSelector.emoji(for: id)
+    }
+
+    var avatarType: ConversationAvatarType {
+        if imageURL != nil {
+            return .customImage
+        }
+        if kind == .dm {
+            if let otherMember {
+                return .profile(otherMember.profile)
+            }
+            return .monogram(computedDisplayName)
+        }
+        let otherProfiles = membersWithoutCurrent.map(\.profile)
+        if otherProfiles.isEmpty {
+            let currentUserProfile = members.first(where: { $0.isCurrentUser })?.profile
+            if let profile = currentUserProfile, profile.avatarURL != nil {
+                return .profile(profile)
+            }
+            return .monogram(computedDisplayName)
+        }
+        if isFullyAnonymous && !hasAnyMemberWithAvatar {
+            return .emoji(defaultEmoji)
+        }
+        let profilesWithAvatars = otherProfiles.filter { $0.avatarURL != nil }
+        if profilesWithAvatars.isEmpty {
+            return .emoji(defaultEmoji)
+        }
+        return .clustered(Array(profilesWithAvatars.prefix(3)))
     }
 
     var memberNamesString: String {

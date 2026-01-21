@@ -72,21 +72,35 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
 
 public extension Array where Element == Profile {
     var formattedNamesString: String {
-        let displayNames = self.map { $0.displayName }
-            .filter { !$0.isEmpty }
+        let namedProfiles = filter { $0.name != nil && $0.name?.isEmpty == false }
+            .map { $0.displayName }
             .sorted()
+        let anonymousCount = filter { $0.name == nil || $0.name?.isEmpty == true }.count
 
-        switch displayNames.count {
+        var allNames = namedProfiles
+        if anonymousCount > 1 {
+            allNames.append("Somebodies")
+        } else if anonymousCount == 1 {
+            allNames.append("Somebody")
+        }
+
+        switch allNames.count {
         case 0:
             return ""
         case 1:
-            return displayNames[0]
+            return allNames[0]
         case 2:
-            return displayNames.joined(separator: " & ")
+            return allNames.joined(separator: " & ")
         default:
-            let allButLast = displayNames.dropLast().joined(separator: ", ")
-            let last = displayNames.last ?? ""
-            return "\(allButLast) and \(last)"
+            return allNames.joined(separator: ", ")
         }
+    }
+
+    var hasAnyNamedProfile: Bool {
+        contains { $0.name != nil && $0.name?.isEmpty == false }
+    }
+
+    var hasAnyAvatar: Bool {
+        contains { $0.avatarURL != nil }
     }
 }
