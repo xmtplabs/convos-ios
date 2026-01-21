@@ -782,7 +782,7 @@ struct ConversationStateMachineTests {
         Log.info("Fetched invite URL: \(invite.urlSlug)")
 
         // Stop inviter's messaging service (simulating offline)
-        inviterMessagingService.stop()
+        await inviterMessagingService.stop()
         Log.info("Inviter went offline")
 
         // Setup joiner messaging service and state machine

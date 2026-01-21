@@ -12,6 +12,11 @@ public actor MockInboxLifecycleManager: InboxLifecycleManagerProtocol {
     public var sleepingClientIds: Set<String> { _sleepingClientIds }
     public var pendingInviteClientIds: Set<String> { _pendingInviteClientIds }
     public var activeClientId: String? { _activeClientId }
+    public var _sleepTimes: [String: Date] = [:]
+
+    public func sleepTime(for clientId: String) -> Date? {
+        _sleepTimes[clientId]
+    }
 
     public var mockNewInboxService: (any MessagingServiceProtocol)?
 
@@ -41,6 +46,7 @@ public actor MockInboxLifecycleManager: InboxLifecycleManagerProtocol {
     public func sleep(clientId: String) async {
         _awakeClientIds.remove(clientId)
         _sleepingClientIds.insert(clientId)
+        _sleepTimes[clientId] = Date()
     }
 
     public func forceRemove(clientId: String) async {

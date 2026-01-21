@@ -657,6 +657,20 @@ public actor InboxStateMachine {
     private func handleStop(clientId: String) async throws {
         Log.info("Stopping inbox with clientId \(clientId)...")
 
+        // Drop database connection if we have a client reference
+        // This releases SQLCipher connections in the Rust layer (LibXMTP)
+        switch _state {
+        case .ready(_, let result), .backgrounded(_, let result):
+            do {
+                try result.client.dropLocalDatabaseConnection()
+                Log.info("Dropped local database connection for \(clientId)")
+            } catch {
+                Log.error("Failed to drop database connection for \(clientId): \(error)")
+            }
+        default:
+            break
+        }
+
         // Cancel app lifecycle and network monitoring
         stopAppLifecycleObservation()
         await stopNetworkMonitoring()

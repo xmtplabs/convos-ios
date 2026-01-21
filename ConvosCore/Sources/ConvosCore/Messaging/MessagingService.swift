@@ -78,6 +78,10 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         authorizationOperation.stop()
     }
 
+    func stop() async {
+        await authorizationOperation.stop()
+    }
+
     func stopAndDelete() {
         authorizationOperation.stopAndDelete()
     }

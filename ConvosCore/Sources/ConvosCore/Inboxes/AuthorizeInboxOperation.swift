@@ -6,6 +6,7 @@ protocol AuthorizeInboxOperationProtocol {
     func stopAndDelete() async
     func stopAndDelete()
     func stop()
+    func stop() async
 }
 
 /// @unchecked Sendable: Thread safety is ensured via NSLock protecting the mutable `_task`
@@ -164,5 +165,10 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             await stateMachine.stop()
         }
         cancelAndReplaceTask(with: newTask)
+    }
+
+    func stop() async {
+        cancelAndReplaceTask(with: nil)
+        await stateMachine.stop()
     }
 }

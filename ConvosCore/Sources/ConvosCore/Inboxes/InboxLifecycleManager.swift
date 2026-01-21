@@ -23,6 +23,9 @@ public protocol InboxLifecycleManagerProtocol: Actor {
     var sleepingClientIds: Set<String> { get }
     var pendingInviteClientIds: Set<String> { get }
 
+    /// Returns when an inbox was put to sleep, or nil if not sleeping
+    func sleepTime(for clientId: String) -> Date?
+
     /// The currently active client ID (e.g., the inbox whose conversation is currently open).
     /// This inbox is protected from being put to sleep during rebalance.
     var activeClientId: String? { get }
@@ -64,6 +67,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
     private var awakeInboxes: [String: any MessagingServiceProtocol] = [:]
     private var _sleepingClientIds: Set<String> = []
+    private var _sleepTimes: [String: Date] = [:]
     private var _activeClientId: String?
 
     private let databaseReader: any DatabaseReader
@@ -91,8 +95,12 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         _activeClientId
     }
 
+    public func sleepTime(for clientId: String) -> Date? {
+        _sleepTimes[clientId]
+    }
+
     public init(
-        maxAwakeInboxes: Int = 25,
+        maxAwakeInboxes: Int = 3,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         identityStore: any KeychainIdentityStoreProtocol,
@@ -193,6 +201,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         let service = createMessagingService(inboxId: inboxId, clientId: clientId)
         awakeInboxes[clientId] = service
         _sleepingClientIds.remove(clientId)
+        _sleepTimes.removeValue(forKey: clientId)
 
         Log.info("Inbox woke successfully: \(clientId), total awake: \(awakeInboxes.count)")
         return service
@@ -219,19 +228,21 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         }
 
         Log.info("Sleeping inbox: \(clientId)")
-        service.stop()
+        await service.stop()
         _sleepingClientIds.insert(clientId)
+        _sleepTimes[clientId] = Date()
         Log.info("Inbox slept successfully: \(clientId), total awake: \(awakeInboxes.count)")
     }
 
     public func forceRemove(clientId: String) async {
         if let service = awakeInboxes.removeValue(forKey: clientId) {
-            service.stop()
+            await service.stop()
             Log.info("Stopped and force removed inbox from tracking: \(clientId)")
         } else {
             Log.info("Force removed inbox from tracking (was not awake): \(clientId)")
         }
         _sleepingClientIds.remove(clientId)
+        _sleepTimes.removeValue(forKey: clientId)
         if _activeClientId == clientId {
             _activeClientId = nil
         }
@@ -388,11 +399,12 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
         for (clientId, service) in awakeInboxes {
             Log.info("Stopping inbox: \(clientId)")
-            service.stop()
+            await service.stop()
         }
 
         awakeInboxes.removeAll()
         _sleepingClientIds.removeAll()
+        _sleepTimes.removeAll()
         _activeClientId = nil
 
         Log.info("All inboxes stopped")
