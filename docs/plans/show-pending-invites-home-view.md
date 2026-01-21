@@ -3,7 +3,7 @@
 > **Status**: Ready for Implementation
 > **Author**: PRD Writer Agent
 > **Created**: 2026-01-19
-> **Updated**: 2026-01-19
+> **Updated**: 2026-01-21
 
 ## Overview
 
@@ -23,7 +23,6 @@ The `ConversationOnboardingCoordinator.isWaitingForInviteAcceptance` flag and `I
 - [ ] Maintain existing behavior for conversations that have been fully joined
 - [ ] Show pending conversations in chronological order with other conversations
 - [ ] Add filter option to show only pending invites
-- [ ] Prevent pinning and read/unread actions on pending invites
 
 ## Non-Goals
 
@@ -40,14 +39,14 @@ The `ConversationOnboardingCoordinator.isWaitingForInviteAcceptance` flag and `I
 Acceptance criteria:
 - [ ] Conversations with `isDraft: true` and `hasJoined: false` appear in the home view
 - [ ] Pending conversations show distinct visual styling (e.g., subtitle text, icon, or opacity)
-- [ ] The conversation displays an "Invite accepted" or "Waiting for approval" status indicator
+- [ ] The conversation displays an "Invite accepted" or "Awaiting verification" status indicator
 - [ ] Tapping the conversation opens the detail view with `InviteAcceptedView` visible
 
 ### As a user, I want pending invites to be clearly distinguishable from active conversations
 
 Acceptance criteria:
 - [ ] Pending conversations have a visual treatment that differentiates them (e.g., different subtitle text)
-- [ ] The conversation list item shows that the conversation is pending (e.g., "Waiting for approval" instead of last message)
+- [ ] The conversation list item shows that the conversation is pending (e.g., "Awaiting verification" instead of last message)
 - [ ] Once approved and joined, the conversation automatically updates to show normal conversation UI
 
 ## Technical Design
@@ -117,14 +116,14 @@ This filters out ALL draft conversations, including pending invites.
 
 #### Visual Treatment
 
-**Decision: Subtitle shows "Waiting for approval"**
+**Decision: Subtitle shows "Awaiting verification"**
 
 ```
 ConversationsListItem should show:
 - Title: Conversation name
-- Subtitle: "Waiting for approval" (instead of last message)
+- Subtitle: "Awaiting verification" (instead of last message)
 - Avatar: Normal avatar
-- Badge: No unread badge
+- Badge: No unread badge (empty conversation)
 ```
 
 #### Navigation Flow
@@ -141,11 +140,10 @@ ConversationsListItem should show:
 
 ### Edge Cases to Consider
 
-1. **Multiple pending invites**: User could have several pending invites - should they sort to the top?
+1. **Multiple pending invites**: User could have several pending invites - they sort by their timestamp like other conversations (so recent ones may naturally appear at top)
 2. **Expired invites**: What if the invite expires before approval? (Already handled by `expiresAt` filter)
 3. **Denied invites**: If the creator denies, conversation should be removed (existing behavior)
 4. **App backgrounding**: Ensure real-time updates work when conversation is approved while app is backgrounded
-5. **Pinning**: Should pending invites be pinnable? Probably not initially.
 
 ## Implementation Plan
 
@@ -157,9 +155,9 @@ ConversationsListItem should show:
 
 ### Phase 2: UI Updates
 - [ ] Update `ConversationsListItem` to detect and display pending state
-- [ ] Add visual treatment (subtitle text, optional icon, etc.)
+- [ ] Add visual treatment (subtitle text showing "Awaiting verification")
 - [ ] Ensure `ConversationViewModel` properly handles pending conversations
-- [ ] Disable pin/read/unread actions for pending conversations
+- [ ] Disable mute action for pending conversations (requires real conversation ID)
 - [ ] Remove outdated "This convo will appear on your home screen after someone approves you" modal from `NewConversationView.swift` (lines 55-67) - no longer needed since pending invites now appear immediately
 - [ ] Update SwiftUI previews for pending state
 
@@ -194,8 +192,8 @@ ConversationsListItem should show:
 5. Test with multiple pending invites
 6. Test expired invite behavior
 7. Test app backgrounding/foregrounding during pending state
-8. Verify pending invites appear in chronological order (not pinned to top)
-9. Verify pin/read/unread actions are disabled for pending conversations
+8. Verify pending invites sort chronologically by timestamp
+9. Verify mute action is disabled for pending conversations
 10. Test filter toggle to show only pending invites
 11. Test filter toggle with zero pending invites (empty state)
 
@@ -210,11 +208,13 @@ ConversationsListItem should show:
 
 ## Decisions
 
-- [x] **Sort order**: Chronological order with other conversations (not pinned to top)
-- [x] **Count badge**: No count badge for pending invites
-- [x] **Pinning/mutability**: Pending invites cannot be pinned or marked as read/unread
+- [x] **Sort order**: Chronological by timestamp with other conversations (recent invites may naturally appear at top)
+- [x] **Count badge**: No count badge for pending invites (empty conversation)
+- [x] **Pinning/read/unread**: Allow same actions as regular conversations for consistency
+- [x] **Muting**: Disable mute action for pending invites (requires real conversation ID which doesn't exist yet)
 - [x] **Filter toggle**: Yes, add ability to filter for pending invites
 - [x] **Sending messages**: Already handled by state machine (blocked while pending)
+- [x] **Subtitle text**: "Awaiting verification"
 
 ## References
 
