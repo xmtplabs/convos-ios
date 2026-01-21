@@ -69,10 +69,6 @@ public extension Conversation {
         return !otherMembers.map(\.profile).hasAnyNamedProfile
     }
 
-    var hasAnyMemberWithAvatar: Bool {
-        membersWithoutCurrent.map(\.profile).hasAnyAvatar
-    }
-
     var defaultEmoji: String {
         EmojiSelector.emoji(for: id)
     }
@@ -95,14 +91,10 @@ public extension Conversation {
             }
             return .monogram(computedDisplayName)
         }
-        if isFullyAnonymous && !hasAnyMemberWithAvatar {
+        if isFullyAnonymous {
             return .emoji(defaultEmoji)
         }
-        let profilesWithAvatars = otherProfiles.filter { $0.avatarURL != nil }
-        if profilesWithAvatars.isEmpty {
-            return .emoji(defaultEmoji)
-        }
-        return .clustered(Array(profilesWithAvatars.prefix(3)))
+        return .clustered(Array(otherProfiles.prefix(3)))
     }
 
     var memberNamesString: String {

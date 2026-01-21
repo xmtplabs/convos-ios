@@ -84,7 +84,7 @@ class ConversationViewModel {
     }
 
     var conversationName: String {
-        isEditingConversationName ? editingConversationName : conversation.name ?? ""
+        isEditingConversationName ? editingConversationName : conversation.displayName
     }
 
     var conversationDescription: String {
