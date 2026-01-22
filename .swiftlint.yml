@@ -144,3 +144,4 @@ excluded:
   - ConvosAppClipTests
   - ConvosAppClipUITests
   - "**/*.pb.swift"  # Generated protobuf files
+  - claude-code-resources  # Temporary reference code for Claude Code
