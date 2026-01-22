@@ -230,6 +230,13 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         Log.info("Sleeping inbox: \(clientId)")
         let sleepTime = Date()
         await service.stop()
+
+        // Check if inbox was re-woken during the await (concurrent wake() call)
+        guard awakeInboxes[clientId] == nil else {
+            Log.info("Inbox was re-woken during stop, not marking as sleeping: \(clientId)")
+            return
+        }
+
         _sleepingClientIds.insert(clientId)
         _sleepTimes[clientId] = sleepTime
         Log.info("Inbox slept successfully: \(clientId), total awake: \(awakeInboxes.count)")
