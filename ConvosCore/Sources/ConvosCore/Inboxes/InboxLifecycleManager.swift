@@ -228,9 +228,10 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         }
 
         Log.info("Sleeping inbox: \(clientId)")
+        let sleepTime = Date()
         await service.stop()
         _sleepingClientIds.insert(clientId)
-        _sleepTimes[clientId] = Date()
+        _sleepTimes[clientId] = sleepTime
         Log.info("Inbox slept successfully: \(clientId), total awake: \(awakeInboxes.count)")
     }
 

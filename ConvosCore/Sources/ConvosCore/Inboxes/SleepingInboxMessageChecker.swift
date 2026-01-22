@@ -172,18 +172,6 @@ public actor SleepingInboxMessageChecker {
 
     /// Finds the newest message timestamp (in nanoseconds) for the given conversation IDs
     private func findNewestMessageTime(for conversationIds: [String], in metadata: [String: MessageMetadata]) -> Int64? {
-        var newestNs: Int64?
-        for conversationId in conversationIds {
-            if let meta = metadata[conversationId] {
-                if let current = newestNs {
-                    if meta.createdNs > current {
-                        newestNs = meta.createdNs
-                    }
-                } else {
-                    newestNs = meta.createdNs
-                }
-            }
-        }
-        return newestNs
+        conversationIds.compactMap { metadata[$0]?.createdNs }.max()
     }
 }
