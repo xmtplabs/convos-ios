@@ -113,6 +113,10 @@ public actor SleepingInboxMessageChecker {
             return
         }
 
+        // Fetch activities once before processing inboxes (avoids N+1 queries)
+        let activities = try activityRepository.allInboxActivities()
+        let activitiesByClientId = Dictionary(uniqueKeysWithValues: activities.map { ($0.clientId, $0) })
+
         // Get conversation IDs for sleeping inboxes
         let conversationIdsByClient = try activityRepository.conversationIds(for: Array(sleepingClientIds))
 
@@ -152,9 +156,8 @@ public actor SleepingInboxMessageChecker {
             if newestMessageDate > sleepTime {
                 Log.info("SleepingInboxMessageChecker: inbox \(clientId) has new message (message: \(newestMessageDate), slept: \(sleepTime)), waking")
 
-                // Get the inbox ID for this client
-                let activities = try activityRepository.allInboxActivities()
-                guard let activity = activities.first(where: { $0.clientId == clientId }) else {
+                // Get the inbox ID for this client (using pre-fetched dictionary)
+                guard let activity = activitiesByClientId[clientId] else {
                     Log.error("SleepingInboxMessageChecker: no activity found for \(clientId)")
                     continue
                 }
