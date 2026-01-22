@@ -1,8 +1,6 @@
 import AVFoundation
 import SwiftUI
 
-// swiftlint:disable force_unwrapping
-
 struct JoinConversationView: View {
     @Bindable var viewModel: QRScannerViewModel
     let allowsDismissal: Bool
@@ -11,7 +9,6 @@ struct JoinConversationView: View {
     @State private var showingExplanation: Bool = false
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @Environment(\.openURL) private var openURL: OpenURLAction
 
     var body: some View {
         NavigationStack {
@@ -73,40 +70,6 @@ struct JoinConversationView: View {
                         .padding(.horizontal, DesignConstants.Spacing.step10x)
 
                         Spacer()
-
-                        Group {
-                            HStack {
-                                Button {
-                                    openURL(URL(string: "https://hq.convos.org/privacy-and-terms")!)
-                                } label: {
-                                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                                        Text("Privacy & Terms")
-                                        Image(systemName: "chevron.right")
-                                            .foregroundStyle(.colorTextTertiary)
-                                    }
-                                }
-                                .font(.caption)
-                                .foregroundStyle(.colorTextSecondary)
-                                .frame(alignment: .center)
-
-                                Spacer()
-
-                                Button {
-                                    if let code = UIPasteboard.general.string {
-                                        attemptToScanCode(code)
-                                    }
-                                } label: {
-                                    Image(systemName: "clipboard")
-                                        .font(.title3)
-                                        .foregroundStyle(.colorTextSecondary)
-                                        .padding(.horizontal, DesignConstants.Spacing.step4x)
-                                        .padding(.vertical, DesignConstants.Spacing.step3x)
-                                }
-                                .glassEffect(.regular, in: Circle())
-                            }
-                        }
-                        .padding(.horizontal, DesignConstants.Spacing.step6x)
-                        .padding(.vertical, DesignConstants.Spacing.step8x)
                     }
                 }
                 .compositingGroup()
@@ -119,6 +82,15 @@ struct JoinConversationView: View {
                         Button(role: .close) {
                             dismiss()
                         }
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        if let code = UIPasteboard.general.string {
+                            attemptToScanCode(code)
+                        }
+                    } label: {
+                        Image(systemName: "clipboard")
                     }
                 }
             }
@@ -166,8 +138,6 @@ struct JoinConversationView: View {
         }
     }
 }
-
-// swiftlint:enable force_unwrapping
 
 #Preview {
     JoinConversationView(viewModel: .init(), allowsDismissal: true, onScannedCode: { _ in
