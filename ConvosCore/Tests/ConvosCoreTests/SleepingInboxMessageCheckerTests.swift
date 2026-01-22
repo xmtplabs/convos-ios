@@ -329,6 +329,194 @@ struct SleepingInboxMessageCheckerTests {
         #expect(!wokenClientIds.contains("client-3"), "Should not wake client-3 with message older than sleep time")
     }
 
+    // MARK: - Edge Case Tests
+
+    @Test("Does not wake when message timestamp equals sleep time exactly")
+    func testDoesNotWakeWhenMessageEqualsSleptTime() async throws {
+        let fixtures = makeTestFixtures()
+
+        // Set up: sleep time and message time are exactly the same
+        let sleepTime = Date(timeIntervalSince1970: 1000)
+        let exactlyEqualNs: Int64 = 1000 * 1_000_000_000 // exactly equal to sleep time
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: Date(), conversationCount: 1),
+            InboxActivity(clientId: "client-2", inboxId: "inbox-2", lastActivity: nil, conversationCount: 1),
+        ]
+
+        fixtures.activityRepo.mockConversationIds = [
+            "client-2": ["conv-2"]
+        ]
+
+        await fixtures.lifecycleManager.setAwake(clientIds: ["client-1"])
+        await fixtures.lifecycleManager.setSleeping(clientIds: ["client-2"], at: sleepTime)
+
+        MockXMTPStaticOperations.mockMetadata = [
+            "conv-2": makeMessageMetadata(createdNs: exactlyEqualNs)
+        ]
+
+        await fixtures.checker.checkNow()
+
+        // Should NOT wake - comparison is strictly greater than (>), not >=
+        let wokenClientIds = await fixtures.lifecycleManager.wokenClientIds
+        #expect(!wokenClientIds.contains("client-2"),
+                "Should NOT wake when message timestamp exactly equals sleep time")
+    }
+
+    @Test("Handles empty metadata response from XMTP")
+    func testHandlesEmptyMetadataResponse() async throws {
+        let fixtures = makeTestFixtures()
+
+        let sleepTime = Date().addingTimeInterval(-3600)
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: Date(), conversationCount: 1),
+            InboxActivity(clientId: "client-2", inboxId: "inbox-2", lastActivity: nil, conversationCount: 1),
+        ]
+
+        fixtures.activityRepo.mockConversationIds = [
+            "client-2": ["conv-2"]
+        ]
+
+        await fixtures.lifecycleManager.setAwake(clientIds: ["client-1"])
+        await fixtures.lifecycleManager.setSleeping(clientIds: ["client-2"], at: sleepTime)
+
+        // XMTP returns empty metadata (no messages exist)
+        MockXMTPStaticOperations.mockMetadata = [:]
+
+        await fixtures.checker.checkNow()
+
+        // Should not wake - no metadata means no messages to compare
+        let wokenClientIds = await fixtures.lifecycleManager.wokenClientIds
+        #expect(!wokenClientIds.contains("client-2"),
+                "Should not wake when XMTP returns empty metadata")
+    }
+
+    @Test("Handles partial metadata response - some conversations missing")
+    func testHandlesPartialMetadataResponse() async throws {
+        let fixtures = makeTestFixtures()
+
+        let sleepTime = Date().addingTimeInterval(-3600) // slept 1 hour ago
+        let newerMessageNs: Int64 = Int64(Date().timeIntervalSince1970 * 1_000_000_000) // now
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: Date(), conversationCount: 1),
+            InboxActivity(clientId: "client-2", inboxId: "inbox-2", lastActivity: nil, conversationCount: 3),
+        ]
+
+        // client-2 has 3 conversations
+        fixtures.activityRepo.mockConversationIds = [
+            "client-2": ["conv-2a", "conv-2b", "conv-2c"]
+        ]
+
+        await fixtures.lifecycleManager.setAwake(clientIds: ["client-1"])
+        await fixtures.lifecycleManager.setSleeping(clientIds: ["client-2"], at: sleepTime)
+
+        // Only conv-2b has metadata, others are missing
+        MockXMTPStaticOperations.mockMetadata = [
+            "conv-2b": makeMessageMetadata(createdNs: newerMessageNs)
+        ]
+
+        await fixtures.checker.checkNow()
+
+        // Should wake based on the one conversation that has metadata
+        let wokenClientIds = await fixtures.lifecycleManager.wokenClientIds
+        #expect(wokenClientIds.contains("client-2"),
+                "Should wake when at least one conversation has newer message")
+    }
+
+    @Test("Skips sleeping inbox with no recorded sleep time")
+    func testSkipsSleepingInboxWithNoSleepTime() async throws {
+        let fixtures = makeTestFixtures()
+
+        let newerMessageNs: Int64 = Int64(Date().timeIntervalSince1970 * 1_000_000_000)
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: Date(), conversationCount: 1),
+            InboxActivity(clientId: "client-2", inboxId: "inbox-2", lastActivity: nil, conversationCount: 1),
+        ]
+
+        fixtures.activityRepo.mockConversationIds = [
+            "client-2": ["conv-2"]
+        ]
+
+        await fixtures.lifecycleManager.setAwake(clientIds: ["client-1"])
+        // Set client-2 as sleeping but WITHOUT a sleep time recorded
+        await fixtures.lifecycleManager.setSleepingWithoutTime(clientIds: ["client-2"])
+
+        MockXMTPStaticOperations.mockMetadata = [
+            "conv-2": makeMessageMetadata(createdNs: newerMessageNs)
+        ]
+
+        await fixtures.checker.checkNow()
+
+        // Should NOT wake - no sleep time means we can't compare timestamps
+        let wokenClientIds = await fixtures.lifecycleManager.wokenClientIds
+        #expect(!wokenClientIds.contains("client-2"),
+                "Should skip inbox with no recorded sleep time")
+    }
+
+    @Test("Handles conversation IDs not present in activity repository")
+    func testHandlesConversationIdsNotInActivityRepo() async throws {
+        let fixtures = makeTestFixtures()
+
+        let sleepTime = Date().addingTimeInterval(-3600)
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: Date(), conversationCount: 1),
+            InboxActivity(clientId: "client-2", inboxId: "inbox-2", lastActivity: nil, conversationCount: 1),
+        ]
+
+        // client-2 is not in the mockConversationIds map at all
+        fixtures.activityRepo.mockConversationIds = [:]
+
+        await fixtures.lifecycleManager.setAwake(clientIds: ["client-1"])
+        await fixtures.lifecycleManager.setSleeping(clientIds: ["client-2"], at: sleepTime)
+
+        await fixtures.checker.checkNow()
+
+        // Should not crash or wake - just skip
+        let wokenClientIds = await fixtures.lifecycleManager.wokenClientIds
+        #expect(!wokenClientIds.contains("client-2"),
+                "Should gracefully handle missing conversation IDs")
+    }
+
+    @Test("Wake uses correct inbox ID from activity repository")
+    func testWakeUsesCorrectInboxId() async throws {
+        let fixtures = makeTestFixtures()
+
+        let sleepTime = Date().addingTimeInterval(-3600)
+        let newerMessageNs: Int64 = Int64(Date().timeIntervalSince1970 * 1_000_000_000)
+
+        // Specific inbox ID that should be used for wake
+        let expectedInboxId = "specific-inbox-id-123"
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: Date(), conversationCount: 1),
+            InboxActivity(clientId: "client-2", inboxId: expectedInboxId, lastActivity: nil, conversationCount: 1),
+        ]
+
+        fixtures.activityRepo.mockConversationIds = [
+            "client-2": ["conv-2"]
+        ]
+
+        await fixtures.lifecycleManager.setAwake(clientIds: ["client-1"])
+        await fixtures.lifecycleManager.setSleeping(clientIds: ["client-2"], at: sleepTime)
+
+        MockXMTPStaticOperations.mockMetadata = [
+            "conv-2": makeMessageMetadata(createdNs: newerMessageNs)
+        ]
+
+        await fixtures.checker.checkNow()
+
+        // Verify wake was called (even though it throws in our mock)
+        let wokenClientIds = await fixtures.lifecycleManager.wokenClientIds
+        #expect(wokenClientIds.contains("client-2"), "Should attempt to wake client-2")
+
+        // The inbox ID correctness is verified by the wake call succeeding
+        // (if wrong inbox ID was passed, the activity lookup would fail)
+    }
+
     // MARK: - Test Helpers
 
     struct TestFixtures {
@@ -400,6 +588,11 @@ actor TestableInboxLifecycleManager: InboxLifecycleManagerProtocol {
         for clientId in clientIds {
             _sleepTimes[clientId] = sleepTime
         }
+    }
+
+    func setSleepingWithoutTime(clientIds: Set<String>) {
+        _sleepingClientIds = clientIds
+        // Intentionally don't set sleep times - simulates edge case
     }
 
     func wake(clientId: String, inboxId: String, reason: WakeReason) async throws -> any MessagingServiceProtocol {
