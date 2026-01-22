@@ -520,6 +520,43 @@ struct InboxLifecycleManagerTests {
         #expect(await manager.awakeClientIds.count == 1, "Should only have 1 awake inbox (maxAwake = 1)")
     }
 
+    // MARK: - App Launch Tests
+
+    @Test("initializeOnAppLaunch sets sleep times for sleeping inboxes")
+    func testInitializeOnAppLaunchSetsSleepTimes() async throws {
+        let fixtures = makeTestFixtures(maxAwake: 1)
+        let manager = fixtures.manager
+
+        // Set up 3 inboxes with different activity times
+        let oldDate = Date().addingTimeInterval(-3600) // 1 hour ago (least recent)
+        let midDate = Date().addingTimeInterval(-1800) // 30 min ago
+        let newDate = Date() // now (most recent - this one will be woken)
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: oldDate, conversationCount: 1),
+            InboxActivity(clientId: "client-2", inboxId: "inbox-2", lastActivity: midDate, conversationCount: 1),
+            InboxActivity(clientId: "client-3", inboxId: "inbox-3", lastActivity: newDate, conversationCount: 1),
+        ]
+
+        // Initialize on app launch - with maxAwake=1, only client-3 (most recent) should wake
+        await manager.initializeOnAppLaunch()
+
+        // Verify client-3 is awake
+        #expect(await manager.isAwake(clientId: "client-3"), "Most recent inbox should be awake")
+
+        // Verify client-1 and client-2 are sleeping
+        #expect(await manager.isSleeping(clientId: "client-1"), "Older inbox should be sleeping")
+        #expect(await manager.isSleeping(clientId: "client-2"), "Older inbox should be sleeping")
+
+        // Critical: Verify sleeping inboxes have sleep times set
+        // This is required for SleepingInboxMessageChecker to check them for new messages
+        let sleepTime1 = await manager.sleepTime(for: "client-1")
+        let sleepTime2 = await manager.sleepTime(for: "client-2")
+
+        #expect(sleepTime1 != nil, "Sleeping inbox must have sleep time set for SleepingInboxMessageChecker")
+        #expect(sleepTime2 != nil, "Sleeping inbox must have sleep time set for SleepingInboxMessageChecker")
+    }
+
     // MARK: - Stop All Tests
 
     @Test("stopAll clears all state")

@@ -179,6 +179,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
         if let existing = awakeInboxes[clientId] {
             Log.info("Inbox already awake: \(clientId)")
+            _sleepTimes.removeValue(forKey: clientId)
             return existing
         }
 
@@ -374,6 +375,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                     }
                 } else {
                     _sleepingClientIds.insert(activity.clientId)
+                    _sleepTimes[activity.clientId] = Date()
                     Log.info("Inbox marked as sleeping: \(activity.clientId)")
                 }
             }
