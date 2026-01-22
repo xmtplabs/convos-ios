@@ -74,7 +74,8 @@ public final class MockGroupConversationSender: MockConversationSender, GroupCon
         updateGroupNamePolicy: .unknown,
         updateGroupDescriptionPolicy: .unknown,
         updateGroupImagePolicy: .unknown,
-        updateMessageDisappearingPolicy: .unknown
+        updateMessageDisappearingPolicy: .unknown,
+        updateAppDataPolicy: .allow
     )
 
     public override init(id: String = "mock-group-conversation-id") {

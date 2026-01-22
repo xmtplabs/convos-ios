@@ -241,7 +241,8 @@ class TestableMockGroupConversationSender: GroupConversationSender {
             updateGroupNamePolicy: .allow,
             updateGroupDescriptionPolicy: .allow,
             updateGroupImagePolicy: .allow,
-            updateMessageDisappearingPolicy: .allow
+            updateMessageDisappearingPolicy: .allow,
+            updateAppDataPolicy: .allow
         )
     }
 

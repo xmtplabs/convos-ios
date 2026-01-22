@@ -22,6 +22,7 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     var inboxStateManager: any InboxStateManagerProtocol { get }
 
     func stop()
+    func stop() async
     func stopAndDelete()
     func stopAndDelete() async
     func waitForDeletionComplete() async

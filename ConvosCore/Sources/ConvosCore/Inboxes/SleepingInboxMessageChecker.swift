@@ -102,104 +102,79 @@ public actor SleepingInboxMessageChecker {
     // MARK: - Private Methods
 
     private func performCheck() async throws {
-        // Capture lifecycle manager at the start to ensure consistent reference throughout
-        guard let manager = lifecycleManager else {
-            Log.debug("SleepingInboxMessageChecker: lifecycle manager deallocated, stopping checks")
-            stopPeriodicChecks()
+        guard let lifecycleManager else {
+            Log.debug("SleepingInboxMessageChecker: no lifecycle manager")
             return
         }
 
-        // Get sleeping client IDs
-        let sleepingClientIds = await manager.sleepingClientIds
+        let sleepingClientIds = await lifecycleManager.sleepingClientIds
         guard !sleepingClientIds.isEmpty else {
-            Log.debug("SleepingInboxMessageChecker: no sleeping inboxes to check")
+            Log.debug("SleepingInboxMessageChecker: no sleeping inboxes")
             return
         }
 
-        Log.info("SleepingInboxMessageChecker: checking \(sleepingClientIds.count) sleeping inboxes")
+        // Fetch activities once before processing inboxes (avoids N+1 queries)
+        let activities = try activityRepository.allInboxActivities()
+        let activitiesByClientId = Dictionary(activities.map { ($0.clientId, $0) }, uniquingKeysWith: { _, latest in latest })
 
         // Get conversation IDs for sleeping inboxes
         let conversationIdsByClient = try activityRepository.conversationIds(for: Array(sleepingClientIds))
-        let allConversationIds = conversationIdsByClient.values.flatMap { $0 }
 
+        // Collect all conversation IDs to batch the XMTP metadata request
+        let allConversationIds = conversationIdsByClient.values.flatMap { $0 }
         guard !allConversationIds.isEmpty else {
-            Log.debug("SleepingInboxMessageChecker: no conversations in sleeping inboxes")
+            Log.debug("SleepingInboxMessageChecker: sleeping inboxes have no conversations")
             return
         }
 
-        // Build API options and fetch newest message metadata
-        let apiOptions = XMTPAPIOptionsBuilder.build(environment: environment)
+        // Fetch newest message metadata for all conversations in one call
+        let api = XMTPAPIOptionsBuilder.build(environment: environment)
         let metadata = try await xmtpStaticOperations.getNewestMessageMetadata(
             groupIds: Array(allConversationIds),
-            api: apiOptions
+            api: api
         )
 
-        // Get oldest awake inbox's lastActivity for comparison
-        let awakeClientIds = await manager.awakeClientIds
-        let oldestAwakeLastActivity = try findOldestAwakeLastActivity(awakeClientIds: awakeClientIds)
-
-        // Check each sleeping inbox
+        // Check each sleeping inbox for messages newer than its sleep time
         for clientId in sleepingClientIds {
+            guard let sleepTime = await lifecycleManager.sleepTime(for: clientId) else {
+                Log.warning("SleepingInboxMessageChecker: no sleep time for \(clientId), skipping")
+                continue
+            }
+
             guard let conversationIds = conversationIdsByClient[clientId], !conversationIds.isEmpty else {
                 continue
             }
 
-            // Find the newest message time for this sleeping inbox
-            let newestMessageNs = findNewestMessageTime(for: conversationIds, in: metadata)
-            guard let newestNs = newestMessageNs else {
+            guard let newestMessageNs = findNewestMessageTime(for: conversationIds, in: metadata) else {
                 continue
             }
 
             // Convert nanoseconds to Date for comparison
-            let newestMessageDate = Date(timeIntervalSince1970: Double(newestNs) / 1_000_000_000)
+            let newestMessageDate = Date(timeIntervalSince1970: Double(newestMessageNs) / 1_000_000_000)
 
-            // If this sleeping inbox has newer messages than the oldest awake inbox, wake it
-            if let threshold = oldestAwakeLastActivity, newestMessageDate > threshold {
-                Log.info("SleepingInboxMessageChecker: waking inbox \(clientId) - has newer messages (\(newestMessageDate) > \(threshold))")
+            // Only wake if the message arrived AFTER the inbox was put to sleep
+            if newestMessageDate > sleepTime {
+                Log.info("SleepingInboxMessageChecker: inbox \(clientId) has new message (message: \(newestMessageDate), slept: \(sleepTime)), waking")
+
+                // Get the inbox ID for this client (using pre-fetched dictionary)
+                guard let activity = activitiesByClientId[clientId] else {
+                    Log.error("SleepingInboxMessageChecker: no activity found for \(clientId)")
+                    continue
+                }
 
                 do {
-                    if let activity = try activityRepository.inboxActivity(for: clientId) {
-                        _ = try await manager.wake(
-                            clientId: clientId,
-                            inboxId: activity.inboxId,
-                            reason: .activityRanking
-                        )
-                    }
+                    _ = try await lifecycleManager.wake(clientId: clientId, inboxId: activity.inboxId, reason: .activityRanking)
                 } catch {
-                    Log.error("SleepingInboxMessageChecker: failed to wake inbox \(clientId): \(error)")
+                    Log.error("SleepingInboxMessageChecker: failed to wake \(clientId): \(error)")
                 }
+            } else {
+                Log.debug("SleepingInboxMessageChecker: inbox \(clientId) has no new messages since sleep (message: \(newestMessageDate), slept: \(sleepTime))")
             }
         }
-    }
-
-    /// Finds the oldest lastActivity among awake inboxes
-    private func findOldestAwakeLastActivity(awakeClientIds: Set<String>) throws -> Date? {
-        guard !awakeClientIds.isEmpty else { return nil }
-
-        let activities = try activityRepository.allInboxActivities()
-        let awakeActivities = activities.filter { awakeClientIds.contains($0.clientId) }
-
-        guard !awakeActivities.isEmpty else { return nil }
-
-        // Return the oldest (minimum) lastActivity among awake inboxes
-        // If an awake inbox has no lastActivity (nil), treat it as very old
-        return awakeActivities.map { $0.lastActivity ?? .distantPast }.min()
     }
 
     /// Finds the newest message timestamp (in nanoseconds) for the given conversation IDs
     private func findNewestMessageTime(for conversationIds: [String], in metadata: [String: MessageMetadata]) -> Int64? {
-        var newestNs: Int64?
-        for conversationId in conversationIds {
-            if let meta = metadata[conversationId] {
-                if let current = newestNs {
-                    if meta.createdNs > current {
-                        newestNs = meta.createdNs
-                    }
-                } else {
-                    newestNs = meta.createdNs
-                }
-            }
-        }
-        return newestNs
+        conversationIds.compactMap { metadata[$0]?.createdNs }.max()
     }
 }
