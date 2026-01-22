@@ -9,7 +9,7 @@ import GRDB
 /// has newer messages than the oldest awake inbox, it may be promoted to awake status.
 public actor SleepingInboxMessageChecker {
     /// Default interval between periodic checks (60 seconds in production)
-    public static let defaultCheckInterval: TimeInterval = 5
+    public static let defaultCheckInterval: TimeInterval = 60
 
     /// How long new inboxes with no activity are protected from eviction (multiple check cycles)
     /// In production: 60 * 12 = 720 seconds (12 minutes)

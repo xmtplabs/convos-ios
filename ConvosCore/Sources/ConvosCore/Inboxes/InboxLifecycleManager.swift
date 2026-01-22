@@ -100,7 +100,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     }
 
     public init(
-        maxAwakeInboxes: Int = 3,
+        maxAwakeInboxes: Int = 25,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         identityStore: any KeychainIdentityStoreProtocol,
