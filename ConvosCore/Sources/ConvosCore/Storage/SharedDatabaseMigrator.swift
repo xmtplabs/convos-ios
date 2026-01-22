@@ -169,10 +169,16 @@ extension SharedDatabaseMigrator {
             }
         }
 
-        migrator.registerMigration("addPublicInfoPreview") { db in
+        migrator.registerMigration("addPublicImagePreview") { db in
             try db.alter(table: "conversation") { t in
                 t.add(column: "publicImageURLString", .text)
-                t.add(column: "includeInfoInPublicPreview", .boolean).defaults(to: false)
+                t.add(column: "includeImageInPublicPreview", .boolean).defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("renameIncludeImageToIncludeInfo") { db in
+            try db.alter(table: "conversation") { t in
+                t.rename(column: "includeImageInPublicPreview", to: "includeInfoInPublicPreview")
             }
         }
 
