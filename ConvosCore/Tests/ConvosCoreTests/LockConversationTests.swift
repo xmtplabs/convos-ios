@@ -185,7 +185,7 @@ struct LockConversationTests {
                 description: nil,
                 imageURLString: nil,
                 publicImageURLString: nil,
-                includeImageInPublicPreview: false,
+                includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
                 isLocked: false
@@ -277,7 +277,7 @@ struct LockConversationTests {
                 description: nil,
                 imageURLString: nil,
                 publicImageURLString: nil,
-                includeImageInPublicPreview: false,
+                includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
                 isLocked: true
@@ -444,7 +444,7 @@ struct LockConversationTests {
                 description: nil,
                 imageURLString: nil,
                 publicImageURLString: nil,
-                includeImageInPublicPreview: false,
+                includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
                 isLocked: false
@@ -564,7 +564,7 @@ struct LockConversationTests {
                 description: nil,
                 imageURLString: nil,
                 publicImageURLString: nil,
-                includeImageInPublicPreview: false,
+                includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
                 isLocked: false

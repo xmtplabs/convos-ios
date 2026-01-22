@@ -91,7 +91,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 description: signedInvite.description_p,
                 imageURLString: signedInvite.imageURL,
                 publicImageURLString: nil,
-                includeImageInPublicPreview: false,
+                includeInfoInPublicPreview: false,
                 expiresAt: signedInvite.conversationExpiresAt,
                 debugInfo: .empty,
                 isLocked: false
@@ -262,7 +262,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             description: metadata.description,
             imageURLString: metadata.imageURLString,
             publicImageURLString: nil,
-            includeImageInPublicPreview: false,
+            includeInfoInPublicPreview: false,
             expiresAt: metadata.expiresAt,
             debugInfo: metadata.debugInfo,
             isLocked: metadata.isLocked

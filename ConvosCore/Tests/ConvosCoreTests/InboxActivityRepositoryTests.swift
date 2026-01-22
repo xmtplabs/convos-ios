@@ -146,7 +146,7 @@ struct InboxActivityRepositoryTests {
             description: nil,
             imageURLString: nil,
             publicImageURLString: nil,
-            includeImageInPublicPreview: false,
+            includeInfoInPublicPreview: false,
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false

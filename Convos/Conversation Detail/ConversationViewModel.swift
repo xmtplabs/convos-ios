@@ -30,12 +30,22 @@ class ConversationViewModel {
     private(set) var conversation: Conversation {
         didSet {
             presentingConversationForked = conversation.isForked
-            if !isEditingConversationName {
-                editingConversationName = conversation.name ?? ""
-            }
-            if !isEditingDescription {
-                editingDescription = conversation.description ?? ""
-            }
+            if oldValue.isDraft, !conversation.isDraft { applyPendingDraftEdits() }
+            if !isEditingConversationName { editingConversationName = conversation.name ?? "" }
+            if !isEditingDescription { editingDescription = conversation.description ?? "" }
+            _editingIncludeInfoInPublicPreview = nil
+        }
+    }
+
+    private func applyPendingDraftEdits() {
+        let name = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let desc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let toggle = _editingIncludeInfoInPublicPreview
+        Task { [weak self, metadataWriter, conversation] in
+            guard let self else { return }
+            if !name.isEmpty, name != (conversation.name ?? "") { try? await metadataWriter.updateName(name, for: conversation.id) }
+            if !desc.isEmpty, desc != (conversation.description ?? "") { try? await metadataWriter.updateDescription(desc, for: conversation.id) }
+            if let toggle, toggle != conversation.includeInfoInPublicPreview { self.updateIncludeInfoInPublicPreview(toggle) }
         }
     }
     var messages: [MessagesListItemType] = []
@@ -101,12 +111,14 @@ class ConversationViewModel {
         conversation.creator.isCurrentUser
     }
     var isUpdatingPublicPreview: Bool = false
-    var includeImageInPublicPreview: Bool {
+    private var _editingIncludeInfoInPublicPreview: Bool?
+    var includeInfoInPublicPreview: Bool {
         get {
-            conversation.includeImageInPublicPreview
+            _editingIncludeInfoInPublicPreview ?? conversation.includeInfoInPublicPreview
         }
         set {
-            updateIncludeImageInPublicPreview(newValue)
+            _editingIncludeInfoInPublicPreview = newValue
+            if !conversation.isDraft { updateIncludeInfoInPublicPreview(newValue) }
         }
     }
     var showsExplodeNowButton: Bool {
@@ -610,14 +622,23 @@ class ConversationViewModel {
         }
     }
 
-    private func updateIncludeImageInPublicPreview(_ enabled: Bool) {
+    private func updateIncludeInfoInPublicPreview(_ enabled: Bool) {
+        guard conversation.includeInfoInPublicPreview != enabled else { return }
         guard !isUpdatingPublicPreview else { return }
         isUpdatingPublicPreview = true
-        Task { [weak self] in
+        let pendingName = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let pendingDesc = editingDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        Task { [weak self, metadataWriter, conversation] in
             guard let self else { return }
             defer { self.isUpdatingPublicPreview = false }
             do {
-                try await metadataWriter.updateIncludeImageInPublicPreview(enabled, for: conversation.id)
+                if !pendingName.isEmpty, pendingName != (conversation.name ?? "") {
+                    try await metadataWriter.updateName(pendingName, for: conversation.id)
+                }
+                if !pendingDesc.isEmpty, pendingDesc != (conversation.description ?? "") {
+                    try await metadataWriter.updateDescription(pendingDesc, for: conversation.id)
+                }
+                try await metadataWriter.updateIncludeInfoInPublicPreview(enabled, for: conversation.id)
             } catch {
                 Log.error("Error updating public preview setting: \(error.localizedDescription)")
             }

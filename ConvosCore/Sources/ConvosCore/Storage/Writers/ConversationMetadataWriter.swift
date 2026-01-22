@@ -17,7 +17,7 @@ public protocol ConversationMetadataWriterProtocol: Sendable {
     func demoteFromSuperAdmin(_ memberInboxId: String, in conversationId: String) async throws
     func updateImage(_ image: ImageType, for conversation: Conversation) async throws
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws
-    func updateIncludeImageInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
+    func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
     func lockConversation(for conversationId: String) async throws
     func unlockConversation(for conversationId: String) async throws
 }
@@ -91,11 +91,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             return updatedConversation
         }
 
-        _ = try await inviteWriter .update(
+        _ = try await inviteWriter.update(
             for: updatedConversation.id,
-            name: updatedConversation.name,
-            description: updatedConversation.description,
-            imageURL: updatedConversation.imageURLString
+            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
+            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
+            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
         )
 
         Log.info("Updated conversation name for \(conversationId): \(truncatedName)")
@@ -123,9 +123,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         _ = try await inviteWriter.update(
             for: updatedConversation.id,
-            name: updatedConversation.name,
-            description: updatedConversation.description,
-            imageURL: updatedConversation.imageURLString
+            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
+            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
+            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
         )
 
         Log.info("Updated conversation expiresAt for \(conversationId): \(expiresAt)")
@@ -154,9 +154,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         _ = try await inviteWriter.update(
             for: updatedConversation.id,
-            name: updatedConversation.name,
-            description: updatedConversation.description,
-            imageURL: updatedConversation.imageURLString
+            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
+            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
+            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
         )
 
         Log.info("Updated conversation description for \(conversationId): \(description)")
@@ -186,7 +186,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         let oldImageURL = localConversation.imageURLString
         let oldPublicImageURL = localConversation.publicImageURLString
-        let includePublicPreview = localConversation.includeImageInPublicPreview
+        let includePublicPreview = localConversation.includeInfoInPublicPreview
 
         let groupKey = try await group.ensureImageEncryptionKey()
         let encryptedPayload = try ImageEncryption.encrypt(
@@ -241,7 +241,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
             let updatedConversation = localConversation
                 .with(imageURLString: encryptedAssetUrl)
-                .with(publicImageURLString: localConversation.includeImageInPublicPreview ? publicImageUrl : nil)
+                .with(publicImageURLString: localConversation.includeInfoInPublicPreview ? publicImageUrl : nil)
             try updatedConversation.save(db)
             return updatedConversation
         }
@@ -263,9 +263,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         _ = try await inviteWriter.update(
             for: updatedConversation.id,
-            name: updatedConversation.name,
-            description: updatedConversation.description,
-            imageURL: updatedConversation.publicImageURLString
+            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
+            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
+            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
         )
 
         if includePublicPreview {
@@ -274,7 +274,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         Log.info("Updated encrypted conversation image for \(conversation.id): \(encryptedAssetUrl)")
     }
 
-    func updateIncludeImageInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
+    func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
         guard let localConversation = try await databaseWriter.read({ db in
@@ -287,14 +287,17 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         let publicImageUrl: String?
 
         if enabled {
-            publicImageUrl = await generatePublicPreviewUrl(
-                for: conversationId,
-                localConversation: localConversation,
-                inboxReady: inboxReady
-            )
-            if publicImageUrl == nil {
-                Log.warning("Public preview generation failed, skipping update")
-                return
+            if localConversation.imageURLString != nil {
+                publicImageUrl = await generatePublicPreviewUrl(
+                    for: conversationId,
+                    localConversation: localConversation,
+                    inboxReady: inboxReady
+                )
+                if publicImageUrl == nil {
+                    Log.warning("Public preview image generation failed, proceeding without image")
+                }
+            } else {
+                publicImageUrl = nil
             }
         } else {
             publicImageUrl = nil
@@ -311,7 +314,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 return nil
             }
             let updatedConversation = localConversation
-                .with(includeImageInPublicPreview: enabled)
+                .with(includeInfoInPublicPreview: enabled)
                 .with(publicImageURLString: publicImageUrl)
             try updatedConversation.save(db)
             return updatedConversation
@@ -321,12 +324,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         _ = try await inviteWriter.update(
             for: updatedConversation.id,
-            name: updatedConversation.name,
-            description: updatedConversation.description,
-            imageURL: updatedConversation.publicImageURLString
+            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
+            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
+            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
         )
 
-        Log.info("Updated includeImageInPublicPreview for \(conversationId): \(enabled)")
+        Log.info("Updated includeInfoInPublicPreview for \(conversationId): \(enabled)")
     }
 
     private func generatePublicPreviewUrl(
@@ -385,22 +388,37 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         try await group.updateImageUrl(imageUrl: imageURL)
 
-        let updatedConversation = try await databaseWriter.write { db in
-            guard let localConversation = try DBConversation
-                .fetchOne(db, key: conversationId) else {
+        guard let localConversation = try await databaseWriter.read({ db in
+            try DBConversation.fetchOne(db, key: conversationId)
+        }) else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let publicImageUrl: String? = if localConversation.includeInfoInPublicPreview {
+            await generatePublicPreviewUrl(
+                for: conversationId,
+                localConversation: localConversation.with(imageURLString: imageURL),
+                inboxReady: inboxReady
+            )
+        } else {
+            nil
+        }
+
+        let updatedConversation = try await databaseWriter.write { [publicImageUrl] db in
+            guard let currentConversation = try DBConversation.fetchOne(db, key: conversationId) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
             }
-            let updatedConversation = localConversation.with(imageURLString: imageURL)
-            try updatedConversation.save(db)
+            let updated = currentConversation.with(imageURLString: imageURL).with(publicImageURLString: publicImageUrl)
+            try updated.save(db)
             Log.info("Updated local conversation image for \(conversationId): \(imageURL)")
-            return updatedConversation
+            return updated
         }
 
         _ = try await inviteWriter.update(
             for: updatedConversation.id,
-            name: updatedConversation.name,
-            description: updatedConversation.description,
-            imageURL: updatedConversation.imageURLString
+            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
+            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
+            imageURL: publicImageUrl
         )
 
         Log.info("Updated conversation image for \(conversationId): \(imageURL)")

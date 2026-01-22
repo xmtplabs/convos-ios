@@ -38,14 +38,16 @@ extension SignedInvite {
             secp256k1PrivateKey: privateKey
         )
         var payload = InvitePayload()
-        if let name = conversation.name {
-            payload.name = name
-        }
-        if let description_p = conversation.description {
-            payload.description_p = description_p
-        }
-        if let publicImageURL = conversation.publicImageURLString {
-            payload.imageURL = publicImageURL
+        if conversation.includeInfoInPublicPreview {
+            if let name = conversation.name {
+                payload.name = name
+            }
+            if let description_p = conversation.description {
+                payload.description_p = description_p
+            }
+            if let publicImageURL = conversation.publicImageURLString {
+                payload.imageURL = publicImageURL
+            }
         }
         if let conversationExpiresAt = conversation.expiresAt {
             payload.conversationExpiresAtUnix = Int64(conversationExpiresAt.timeIntervalSince1970)

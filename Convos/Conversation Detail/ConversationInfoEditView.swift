@@ -64,6 +64,17 @@ struct ConversationInfoEditView: View {
                         viewModel.isEditingDescription = true
                     }
                 }
+
+                Section {
+                    Toggle(isOn: $viewModel.includeInfoInPublicPreview) {
+                        Text("Include info with invites")
+                    }
+                    .disabled(viewModel.isUpdatingPublicPreview)
+                } footer: {
+                    Text("When enabled, anyone with your convo code can see its pic, name and description")
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                }
             }
             .toolbarTitleDisplayMode(.inline)
             .toolbar {

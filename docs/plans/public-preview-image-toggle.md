@@ -58,7 +58,7 @@ Toggle ON:
 ```swift
 // Add new fields
 let publicImageURLString: String?
-let includeImageInPublicPreview: Bool  // default: false
+let includeInfoInPublicPreview: Bool  // default: false
 ```
 
 ### 2. Database Migration
@@ -69,7 +69,7 @@ let includeImageInPublicPreview: Bool  // default: false
 migrator.registerMigration("addPublicImagePreview") { db in
     try db.alter(table: "conversation") { t in
         t.add(column: "publicImageURLString", .text)
-        t.add(column: "includeImageInPublicPreview", .boolean).defaults(to: false)
+        t.add(column: "includeInfoInPublicPreview", .boolean).defaults(to: false)
     }
 }
 ```
@@ -81,7 +81,7 @@ migrator.registerMigration("addPublicImagePreview") { db in
 func updateImage(for conversationId: String, image: ConvosImage) async throws {
     // ... existing code to get group, encrypt, upload ...
 
-    if includeImageInPublicPreview {
+    if includeInfoInPublicPreview {
         Log.info("Uploading group image (encrypted + public preview)")
 
         // Upload encrypted version
@@ -137,8 +137,8 @@ Section("Invitation") {
     InviteURLRow(url: inviteURL)
 
     // NEW: Public preview toggle
-    Toggle("Show group photo in preview", isOn: $includeImageInPublicPreview)
-        .onChange(of: includeImageInPublicPreview) { _, newValue in
+    Toggle("Show group photo in preview", isOn: $includeInfoInPublicPreview)
+        .onChange(of: includeInfoInPublicPreview) { _, newValue in
             Task {
                 try await viewModel.updatePublicPreviewSetting(enabled: newValue)
             }

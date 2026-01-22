@@ -20,7 +20,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let description: Column = Column(CodingKeys.description)
         static let imageURLString: Column = Column(CodingKeys.imageURLString)
         static let publicImageURLString: Column = Column(CodingKeys.publicImageURLString)
-        static let includeImageInPublicPreview: Column = Column(CodingKeys.includeImageInPublicPreview)
+        static let includeInfoInPublicPreview: Column = Column(CodingKeys.includeInfoInPublicPreview)
         static let expiresAt: Column = Column(CodingKeys.expiresAt)
         static let debugInfo: Column = Column(CodingKeys.debugInfo)
         static let isLocked: Column = Column(CodingKeys.isLocked)
@@ -39,7 +39,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let description: String?
     let imageURLString: String?
     let publicImageURLString: String?
-    let includeImageInPublicPreview: Bool
+    let includeInfoInPublicPreview: Bool
     let expiresAt: Date?
     let debugInfo: ConversationDebugInfo
     let isLocked: Bool
@@ -170,7 +170,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -192,7 +192,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -214,7 +214,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -236,7 +236,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -258,7 +258,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -282,7 +282,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -304,7 +304,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -326,7 +326,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -348,7 +348,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -370,14 +370,14 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
         )
     }
 
-    func with(includeImageInPublicPreview: Bool) -> Self {
+    func with(includeInfoInPublicPreview: Bool) -> Self {
         .init(
             id: id,
             inboxId: inboxId,
@@ -392,7 +392,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -414,7 +414,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -436,7 +436,7 @@ extension DBConversation {
             description: description,
             imageURLString: imageURLString,
             publicImageURLString: publicImageURLString,
-            includeImageInPublicPreview: includeImageInPublicPreview,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked

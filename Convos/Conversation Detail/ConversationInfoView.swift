@@ -243,11 +243,6 @@ struct ConversationInfoView: View {
                 Section {
                     convoCodeRow
 
-                    Toggle(isOn: $viewModel.includeImageInPublicPreview) {
-                        Text("Show photo in preview")
-                    }
-                    .disabled(viewModel.isUpdatingPublicPreview)
-
                     lockRow
                 } footer: {
                     Text("No one new can join the convo when it's locked")

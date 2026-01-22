@@ -47,7 +47,7 @@ extension DBConversationDetails {
             pinnedOrder: conversationLocalState.pinnedOrder,
             lastMessage: lastMessage,
             imageURL: imageURL,
-            includeImageInPublicPreview: conversation.includeImageInPublicPreview,
+            includeInfoInPublicPreview: conversation.includeInfoInPublicPreview,
             isDraft: conversation.isDraft,
             invite: conversationInvite?.hydrateInvite(),
             expiresAt: conversation.expiresAt,
