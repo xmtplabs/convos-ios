@@ -115,7 +115,7 @@ public actor SleepingInboxMessageChecker {
 
         // Fetch activities once before processing inboxes (avoids N+1 queries)
         let activities = try activityRepository.allInboxActivities()
-        let activitiesByClientId = Dictionary(uniqueKeysWithValues: activities.map { ($0.clientId, $0) })
+        let activitiesByClientId = Dictionary(activities.map { ($0.clientId, $0) }, uniquingKeysWith: { _, latest in latest })
 
         // Get conversation IDs for sleeping inboxes
         let conversationIdsByClient = try activityRepository.conversationIds(for: Array(sleepingClientIds))
