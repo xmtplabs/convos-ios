@@ -34,7 +34,6 @@ class NewConversationViewModel: Identifiable {
     private(set) var messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem = .scan
     private(set) var messagesTopBarTrailingItemEnabled: Bool = false
     private(set) var messagesTextFieldEnabled: Bool = false
-    private(set) var shouldConfirmDeletingConversation: Bool = true
     private let startedWithFullscreenScanner: Bool
     let allowsDismissingScanner: Bool
     private let autoCreateConversation: Bool
@@ -265,7 +264,6 @@ class NewConversationViewModel: Identifiable {
         messagesTopBarTrailingItem = .scan
         messagesTopBarTrailingItemEnabled = false
         messagesTextFieldEnabled = false
-        shouldConfirmDeletingConversation = true
         conversationViewModel.untitledConversationPlaceholder = "New convo"
         conversationViewModel.isWaitingForInviteAcceptance = false
         isCreatingConversation = false
@@ -320,7 +318,6 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItemEnabled = false
             messagesTopBarTrailingItem = .share
             messagesTextFieldEnabled = false
-            shouldConfirmDeletingConversation = false
             conversationViewModel.untitledConversationPlaceholder = "Untitled"
             isCreatingConversation = false
             currentError = nil
@@ -489,7 +486,6 @@ class NewConversationViewModel: Identifiable {
             guard let self else { return }
             guard conversationState.isReadyOrJoining else { return }
             messagesTopBarTrailingItem = .share
-            shouldConfirmDeletingConversation = false
             conversationViewModel.untitledConversationPlaceholder = "Untitled"
         }
         .store(in: &cancellables)

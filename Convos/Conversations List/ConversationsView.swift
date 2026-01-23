@@ -285,7 +285,6 @@ struct ConversationsView: View {
                         focusCoordinator: coordinator,
                         onScanInviteCode: {},
                         onDeleteConversation: {},
-                        confirmDeletionBeforeDismissal: false,
                         messagesTopBarTrailingItem: .share,
                         messagesTopBarTrailingItemEnabled: true,
                         messagesTextFieldEnabled: true,

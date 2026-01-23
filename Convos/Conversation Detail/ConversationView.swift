@@ -7,7 +7,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let focusCoordinator: FocusCoordinator
     let onScanInviteCode: () -> Void
     let onDeleteConversation: () -> Void
-    let confirmDeletionBeforeDismissal: Bool
     let messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem
     let messagesTopBarTrailingItemEnabled: Bool
     let messagesTextFieldEnabled: Bool
@@ -205,7 +204,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             focusCoordinator: focusCoordinator,
             onScanInviteCode: {},
             onDeleteConversation: {},
-            confirmDeletionBeforeDismissal: true,
             messagesTopBarTrailingItem: .share,
             messagesTopBarTrailingItemEnabled: true,
             messagesTextFieldEnabled: true,

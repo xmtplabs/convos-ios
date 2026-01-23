@@ -6,7 +6,6 @@ struct NewConversationView: View {
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     let presentingFullScreen: Bool
     @State private var hasShownScannerOnAppear: Bool = false
-    @State private var presentingDeleteConfirmation: Bool = false
     @State private var presentingJoiningStateInfo: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
@@ -41,7 +40,6 @@ struct NewConversationView: View {
                             focusCoordinator: coordinator,
                             onScanInviteCode: viewModel.onScanInviteCode,
                             onDeleteConversation: viewModel.deleteConversation,
-                            confirmDeletionBeforeDismissal: viewModel.shouldConfirmDeletingConversation,
                             messagesTopBarTrailingItem: viewModel.messagesTopBarTrailingItem,
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled
@@ -50,9 +48,7 @@ struct NewConversationView: View {
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
                                 Button(role: .close) {
-                                    if viewModel.shouldConfirmDeletingConversation {
-                                        presentingDeleteConfirmation = true
-                                    } else if viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance {
+                                    if viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance {
                                         presentingJoiningStateInfo = true
                                     } else {
                                         dismiss()
@@ -62,16 +58,6 @@ struct NewConversationView: View {
                                                     isPresented: $presentingJoiningStateInfo,
                                                     titleVisibility: .visible) {
                                     Button("Continue") {
-                                        dismiss()
-                                    }
-                                }
-                                .confirmationDialog("", isPresented: $presentingDeleteConfirmation) {
-                                    Button("Delete", role: .destructive) {
-                                        viewModel.deleteConversation()
-                                        dismiss()
-                                    }
-
-                                    Button("Keep") {
                                         dismiss()
                                     }
                                 }

@@ -50,25 +50,25 @@ Build, launch in simulator, and notify when running:
 
 4. Save the selected simulator ID to `.claude/.simulator_id` for session persistence
 
-### Step 2: Build with xcodebuild
+### Step 2: Build with xcodebuild via Bash
 
-**IMPORTANT:** Always use xcodebuild directly via Bash with `-derivedDataPath .derivedData`. The MCP `build_sim` tool has known issues with app extension targets (NotificationService) failing to find module dependencies.
+> **NEVER use the MCP `build_sim` tool.** It has a known bug where app extension targets (NotificationService) fail to find SPM module dependencies (ConvosCore, ConvosCoreiOS, XMTPiOS) on fresh worktrees. **ALWAYS use xcodebuild directly via Bash.**
+
+Run this exact command via the Bash tool (on a single line):
 
 ```bash
-xcodebuild build \
-  -project Convos.xcodeproj \
-  -scheme "Convos (Dev)" \
-  -destination "platform=iOS Simulator,id=SIMULATOR_ID" \
-  -derivedDataPath .derivedData
+xcodebuild build -project Convos.xcodeproj -scheme "Convos (Dev)" -destination "platform=iOS Simulator,id=SIMULATOR_ID" -derivedDataPath .derivedData 2>&1 | tail -100
 ```
 
 Replace:
 - `SIMULATOR_ID` with the selected simulator UUID
 - `"Convos (Dev)"` with the requested scheme if different
 
-**Why xcodebuild via Bash:**
-- MCP `build_sim` fails with extension targets (NotificationService can't find ConvosCore modules)
-- Direct xcodebuild works reliably with local `.derivedData` path
+Set a timeout of 300000ms (5 minutes) for the build command.
+
+**Why xcodebuild via Bash works but MCP fails:**
+- The MCP tool's parallelization breaks extension target dependency ordering
+- Direct xcodebuild properly sequences: SPM packages → main app → extensions
 - The `-derivedDataPath .derivedData` flag ensures worktree isolation
 
 ### Step 3: Launch App (for --run mode only)
