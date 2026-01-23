@@ -1,9 +1,9 @@
 # Asset Uploads
 
-> **Status**: Draft
+> **Status**: Approved
 > **Author**: @lourou
 > **Created**: 2026-01-16
-> **Updated**: 2026-01-16
+> **Updated**: 2026-01-23
 
 ## Overview
 
@@ -26,21 +26,23 @@ During research, several important S3 behaviors were discovered:
    - Tags are object metadata, not object content
 
 3. **Copy-to-self resets `LastModified`**
-   - The standard pattern to "touch" an S3 object and reset its age:
-     ```typescript
-     await s3.copyObject({
-       CopySource: `${bucket}/${key}`,
-       Bucket: bucket,
-       Key: key
-     });
-     ```
-   - This is a server-side operation (no data transfer)
-   - Fast (milliseconds) and free (no egress costs)
-   - Effectively resets the lifecycle clock
-
+    - The standard pattern to "touch" an S3 object and reset its age:
+        
+        ```tsx
+        await s3.copyObject({
+          CopySource: `${bucket}/${key}`,
+          Bucket: bucket,
+          Key: key
+        });
+        
+        ```
+        
+    - This is a server-side operation (no data transfer)
+    - Fast (milliseconds) and free (no egress costs)
+    - Effectively resets the lifecycle clock
 4. **S3 has no "objects without tag" filter**
-   - You cannot write a lifecycle rule that targets only untagged objects
-   - This eliminates the "tag profile images, leave chat images untagged" approach
+    - You cannot write a lifecycle rule that targets only untagged objects
+    - This eliminates the "tag profile images, leave chat images untagged" approach
 
 ### The Elegant Solution
 
@@ -67,6 +69,7 @@ Since copy-to-self resets the lifecycle clock, **we don't need prefixes, tags, o
 │                           │ ...  │                              │
 │                           └──────┘                              │
 └─────────────────────────────────────────────────────────────────┘
+
 ```
 
 ### Why This Works
@@ -125,7 +128,9 @@ Renewal Flow (On App Launch):
 │     ↓                                                    │
 │ If yes:                                                  │
 │   - Collect my profile image URLs (from local DB)        │
+│     Last renewal date is per attachment, store locally   │
 │   - Collect group image URLs (groups I'm a member of)    │
+│     Last renewal date store in group metadata            │
 │   - POST /v2/assets/renew-batch { urls: [...] }          │
 │     ↓                                                    │
 │ Backend: s3.copyObject() for each (parallel)             │
@@ -153,7 +158,7 @@ Expired Asset Recovery (Inactive User Returns):
 │     ↓                                                    │
 │ iOS automatically re-uploads from cache                  │
 │     ↓                                                    │
-│ New URL, fresh 30-day clock — Bob never noticed          │
+│ New URL for asset, fresh 30-day clock, Bob never noticed │
 └──────────────────────────────────────────────────────────┘
 
 The 404 from the renew endpoint is the signal that S3 lost the object.
@@ -169,6 +174,7 @@ bucket/
   └── ghi789.bin     (could be group image - no way to tell)
 
 No prefixes. No tags. No metadata. All identical.
+
 ```
 
 ### Renewal Timing
@@ -180,6 +186,7 @@ No prefixes. No tags. No metadata. All identical.
 | Renewal trigger | App launch | Once per session, batched, non-blocking |
 
 **What gets renewed:**
+
 | Asset | Renewed by | Rationale |
 |-------|------------|-----------|
 | My profile image | Me | Owner keeps their own assets alive |
@@ -187,25 +194,29 @@ No prefixes. No tags. No metadata. All identical.
 | Other members' profile images | NOT renewed by me | Their responsibility — no tracking |
 
 **Timeline example (active user):**
+
 ```
 Day 0:  Upload profile image (LastModified = Day 0)
 Day 15: User opens app → batch renew (LastModified = Day 15)
 Day 30: User opens app → batch renew (LastModified = Day 30)
 Day 45: User opens app → batch renew (LastModified = Day 45)
 ...continues indefinitely as long as user uses the app
+
 ```
 
 **Expiration example (inactive user):**
+
 ```
 Day 0:  Upload profile image (LastModified = Day 0)
 Day 15: User opens app → batch renew (LastModified = Day 15)
         User stops using app entirely
 Day 45: 30 days since last renewal → image expires in S3
 Day 50: User returns, opens app
-        → Renewal returns 404
+        → Renewal returns 404 for some assets
         → iOS has cached image locally
         → Auto-re-upload from cache
         → New URL, user never noticed anything
+
 ```
 
 ### Design Philosophy: Inactivity = Expiration
@@ -223,17 +234,24 @@ If a user doesn't open the app for 30+ days, their profile image expires. This i
 **What about other users seeing expired images?**
 
 If Alice is in a group with Bob, and Bob is inactive for 30+ days:
+
 - Bob's profile image expires in S3
 - Alice keeps seeing her locally cached version of Bob's image — no disruption
 - When Bob returns and opens the app:
-  - Renewal returns 404
-  - Bob's app auto-re-uploads from local cache
-  - New URL propagates to Alice via XMTP metadata sync
-  - Alice's app fetches the new URL (or keeps using cache if unchanged)
+    - Renewal returns 404
+    - Bob's app auto-re-uploads from local cache
+    - New URL propagates to Alice via XMTP metadata sync
+    - Alice's app fetches the new URL
 
-**Alice only sees a placeholder if** she clears her cache or reinstalls the app while Bob is inactive. Edge case.
+**Alice only sees a placeholder if** she clears her cache or re-installs the app while Bob is inactive. Edge case.
 
 The user experience is seamless for everyone.
+
+### Collective responsibility in renewing the expiry date of assets
+
+A user could potentially postpone the expiration of all the other users’ profile pictures. That would be a positive aspect to avoid profile pictures of inactive users from expiring.
+
+However, this would require sharing the `lastRenewal` date for each profile picture in the conversation metadata, so that pictures are not renewed by all users at the same time. We’ve decided to let each user be responsible for renewing their own profile picture, as well as the group profile pictures for the groups they belong to.
 
 ---
 
@@ -265,27 +283,32 @@ This validates the core assumption that copy-to-self resets the lifecycle clock.
 ## Implementation Plan
 
 ### Phase 1: Test Bucket Validation
+
 - Create test bucket with short lifecycle (1-2 days)
 - Validate copy-to-self resets `LastModified`
 - Validate lifecycle rule deletes unrenewed objects
 - Document findings
 
 ### Phase 2: Infrastructure (Terraform)
+
 - Add 30-day lifecycle rule to existing bucket
 - No prefix filters, no tag filters
 - Deploy to staging first
 
 ### Phase 3: Backend
+
 - Add renewal endpoint (`PUT /v2/assets/renew`)
 - Implement copy-to-self logic
 - Add rate limiting / validation
 
 ### Phase 4: iOS Client
+
 - Add `AssetRenewalManager` to track last renewal per URL
 - Integrate renewal into image loading flow
 - Fire-and-forget renewal calls (non-blocking)
 
 ### Phase 5: Rollout
+
 - Deploy to production
 - Monitor renewal endpoint traffic
 - Monitor S3 object counts over time
@@ -314,6 +337,7 @@ actor AssetRenewalManager {
         UserDefaults.standard.set(Date(), forKey: renewalIntervalKey)
     }
 }
+
 ```
 
 ### Integration Point: App Launch
@@ -377,6 +401,7 @@ private func handleExpiredAsset(url: String) async {
         await databaseWriter.clearAssetUrl(url)
     }
 }
+
 ```
 
 ### API Client Addition
@@ -421,12 +446,13 @@ extension ConvosAPIClient {
         )
     }
 }
+
 ```
 
 ### Files to Modify (iOS)
 
 | File | Change |
-|------|--------|
+| --- | --- |
 | **NEW** `ConvosCore/.../AssetRenewalManager.swift` | Renewal timing actor |
 | `ConvosCore/.../ConvosAPIClient.swift` | Add `renewAssetsBatch()` method |
 | `ConvosCore/.../ConvosAPIClientProtocol.swift` | Add `renewAssetsBatch()` to protocol |
@@ -437,7 +463,8 @@ extension ConvosAPIClient {
 
 ## Appendix A: Terraform Requirements
 
-> **For use in the infrastructure repository**
+> For use in the infrastructure repository
+> 
 
 ### Overview
 
@@ -466,6 +493,7 @@ resource "aws_s3_bucket_lifecycle_configuration" "assets_lifecycle" {
     }
   }
 }
+
 ```
 
 ### Key Points
@@ -505,13 +533,15 @@ resource "aws_s3_bucket_lifecycle_configuration" "lifecycle_test" {
     }
   }
 }
+
 ```
 
 ---
 
 ## Appendix B: Backend Requirements
 
-> **For use in the backend repository**
+> For use in the backend repository
+> 
 
 ### Overview
 
@@ -548,13 +578,14 @@ Response (400 Bad Request):
 {
   "error": "Invalid request body"
 }
+
 ```
 
 **Note:** iOS extracts keys from stored URLs via `URL(string: avatar)?.path.dropFirst()`
 
 ### Implementation
 
-```typescript
+```tsx
 // routes/assets.ts
 import { S3Client, CopyObjectCommand } from "@aws-sdk/client-s3";
 
@@ -618,21 +649,22 @@ router.post("/v2/assets/renew-batch", authenticate, async (req, res) => {
 
   return res.json({ renewed, failed, results });
 });
+
 ```
 
 ### Security Considerations
 
 1. **Authentication required**: Only authenticated users can renew assets
 2. **No per-asset authorization**: Any authenticated user can renew any asset
-   - Intentional: users renew their own assets + group assets they're members of
-   - Worst case: unnecessary renewal (no harm, just extra S3 ops)
+    - Intentional: users renew their own assets + group assets they're members of
+    - Worst case: unnecessary renewal (no harm, just extra S3 ops)
 3. **Batch size limit**: Max 100 keys per request to prevent abuse
 4. **Key validation**: Reject empty keys, path traversal (`..`), and leading slashes
 5. **Rate limiting**: 10 batch requests per hour per device
 
 ### Rate Limiting
 
-```typescript
+```tsx
 const renewalLimiter = rateLimit({
   windowMs: 60 * 60 * 1000,  // 1 hour
   max: 10,  // 10 batch requests per hour (up to 1000 assets)
@@ -643,6 +675,7 @@ const renewalLimiter = rateLimit({
 router.post("/v2/assets/renew-batch", authenticate, renewalLimiter, async (req, res) => {
   // ...
 });
+
 ```
 
 ### Testing
@@ -658,35 +691,30 @@ router.post("/v2/assets/renew-batch", authenticate, renewalLimiter, async (req, 
 ## Decisions
 
 1. **What triggers a renewal?**
-   - App launch (once per 15 days). Single batch request with all relevant keys.
-   - NOT on image view — that would be tracking-like behavior.
-
-1. **Why keys instead of full URLs?**
-   - Decoupled from CDN domain — if domain changes, no backend update needed.
-   - Smaller payload size.
-   - Simpler backend — no URL parsing needed.
-   - iOS extracts keys from stored URLs: `URL(string: avatar)?.path.dropFirst()`
-
-2. **Should we persist renewal state across app sessions?**
-   - Yes, using `UserDefaults` to store last renewal date.
-   - This prevents unnecessary renewal calls on every app launch.
-
-3. **Should renewal be authenticated per-asset?**
-   - No. Any authenticated user can renew any asset.
-   - Users renew their own profile images + group images they're members of.
-   - Worst case: unnecessary renewal (no harm).
-
-4. **What happens when an asset is expired (404)?**
-   - Backend returns `not_found` in the batch response.
-   - iOS checks local cache — if image exists, auto-re-upload!
-   - New URL stored, user never notices.
-   - If no local cache (edge case), clear URL → placeholder → manual re-upload.
-
-5. **What about other users' profile images?**
-   - NOT renewed by you — only the owner renews their own.
-   - If Bob is inactive for 30+ days, his image expires.
-   - Alice sees a placeholder for Bob — acceptable tradeoff.
-   - When Bob returns and re-uploads, Alice sees the new image.
+    - App launch (once per 15 days). Single batch request with all relevant keys.
+    - NOT on image view — that would be tracking-like behavior.
+2. **Why keys instead of full URLs?**
+    - Decoupled from CDN domain — if domain changes, no backend update needed.
+    - Smaller payload size.
+    - Simpler backend — no URL parsing needed.
+    - iOS extracts keys from stored URLs: `URL(string: avatar)?.path.dropFirst()`
+3. **Should we persist renewal state across app sessions?**
+    - Yes, using `UserDefaults` to store last renewal date.
+    - This prevents unnecessary renewal calls on every app launch.
+4. **Should renewal be authenticated per-asset?**
+    - No. Any authenticated user can renew any asset.
+    - Users renew their own profile images + group images they're members of.
+    - Worst case: unnecessary renewal (no harm).
+5. **What happens when an asset is expired (404)?**
+    - Backend returns `not_found` in the batch response.
+    - iOS checks local cache — if image exists, auto-re-upload!
+    - New URL stored, user never notices.
+    - If no local cache (edge case), clear URL → placeholder → manual re-upload.
+6. **What about other users' profile images?**
+    - NOT renewed by you — only the owner renews their own.
+    - If Bob is inactive for 30+ days, his image expires.
+    - Alice sees a placeholder for Bob — acceptable tradeoff.
+    - When Bob returns and re-uploads, Alice sees the new image.
 
 ---
 
