@@ -10,6 +10,8 @@ struct ConvosToolbarButton: View {
         } label: {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Image("convosOrangeIcon")
+                    .renderingMode(.template)
+                    .foregroundStyle(.colorFillPrimary)
                     .frame(width: 24.0, height: 24.0)
 
                 Text("Convos")
