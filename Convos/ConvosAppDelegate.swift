@@ -104,6 +104,9 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         // This ensures the inbox is ready when the user opens the conversation
         await session.wakeInboxForNotification(conversationId: conversationId)
 
+        // Clear all delivered notifications for this conversation
+        await clearDeliveredNotifications(for: conversationId)
+
         Log
             .info(
                 "Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)"
@@ -118,5 +121,18 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
                 ]
             )
         }
+    }
+
+    /// Clears all delivered notifications for a specific conversation from the notification center
+    private func clearDeliveredNotifications(for conversationId: String) async {
+        let center = UNUserNotificationCenter.current()
+        let delivered = await center.deliveredNotifications()
+        let toRemove = delivered
+            .filter { $0.request.content.threadIdentifier == conversationId }
+            .map { $0.request.identifier }
+
+        guard !toRemove.isEmpty else { return }
+        center.removeDeliveredNotifications(withIdentifiers: toRemove)
+        Log.info("Cleared \(toRemove.count) notifications for conversation \(conversationId)")
     }
 }
