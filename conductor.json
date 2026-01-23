@@ -1,0 +1,8 @@
+{
+  "scripts": {
+    "setup": "Scripts/setup.sh && SIM_NAME=\"conductor-$CONDUCTOR_WORKSPACE_NAME\" && if ! xcrun simctl list devices | grep -q \"$SIM_NAME\"; then BASE=$(xcrun simctl list devices available -j | grep -o '\"name\" : \"[^\"]*\"' | sed 's/\"name\" : \"//;s/\"//' | grep -E '^iPhone (17|16|15)' | head -1) && xcrun simctl clone \"$BASE\" \"$SIM_NAME\" && echo \"Created simulator: $SIM_NAME\"; else echo \"Simulator exists: $SIM_NAME\"; fi",
+    "run": "SIM_NAME=\"conductor-$CONDUCTOR_WORKSPACE_NAME\" && xcodebuild build -project Convos.xcodeproj -scheme 'Convos (Dev)' -destination \"platform=iOS Simulator,name=$SIM_NAME\" -derivedDataPath .derivedData && xcrun simctl boot \"$SIM_NAME\" 2>/dev/null; open -a Simulator",
+    "archive": "SIM_NAME=\"conductor-$CONDUCTOR_WORKSPACE_NAME\" && xcrun simctl delete \"$SIM_NAME\" 2>/dev/null && echo \"Deleted simulator: $SIM_NAME\"; rm -rf .derivedData && echo \"Cleaned .derivedData\""
+  },
+  "runScriptMode": "nonconcurrent"
+}
