@@ -42,6 +42,9 @@ jobs:
           # Optional: Specify model (defaults to Claude Sonnet)
           model: ${{ vars.CLAUDE_MODEL || 'claude-sonnet-4-5-20250929' }}
 
+          # Allow bot-initiated PRs (e.g., Graphite)
+          allowed_bots: '*'
+
           # Direct prompt for automated review (no @claude mention needed)
           direct_prompt: |
             Please review this pull request and provide feedback on:
