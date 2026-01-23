@@ -112,7 +112,7 @@ struct ConversationsView: View {
                 Button(action: toggleReadAction) {
                     Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
                 }
-                .tint(.colorFillPrimary)
+                .tint(.colorFillSecondary)
 
                 let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
                 Button(action: toggleMuteAction) {
