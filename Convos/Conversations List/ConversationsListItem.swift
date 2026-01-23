@@ -40,20 +40,18 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
 
                     Spacer()
 
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        if isMuted {
-                            Image(systemName: "bell.slash.fill")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                        }
-
-                        if isUnread {
-                            Circle()
-                                .fill(Color.primary)
-                                .frame(width: 12, height: 12)
-                        }
+                    if isMuted {
+                        Image(systemName: "bell.slash.fill")
+                            .font(.footnote)
+                            .foregroundColor(.secondary)
                     }
                 }
+            }
+
+            if isUnread {
+                Circle()
+                    .fill(Color.primary)
+                    .frame(width: 12, height: 12)
             }
 
             accessoryContent()
