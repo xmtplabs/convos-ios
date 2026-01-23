@@ -49,7 +49,7 @@ struct ConversationToolbarButton: View {
                 VStack(alignment: .leading, spacing: 0.0) {
                     Text(title)
                         .lineLimit(1)
-                        .frame(maxWidth: 140.0)
+                        .frame(maxWidth: 140.0, alignment: .leading)
                         .font(.callout.weight(.medium))
                         .truncationMode(.tail)
                         .foregroundStyle(.colorTextPrimary)

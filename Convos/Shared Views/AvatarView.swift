@@ -101,13 +101,34 @@ struct ConversationAvatarView: View {
     let conversationImage: UIImage?
 
     var body: some View {
-        AvatarView(
-            imageURL: nil,
-            fallbackName: "",
-            cacheableObject: conversation,
-            placeholderImage: conversationImage,
-            placeholderImageName: nil
-        )
+        Group {
+            if let conversationImage {
+                Image(uiImage: conversationImage)
+                    .resizable()
+                    .scaledToFill()
+                    .aspectRatio(1.0, contentMode: .fit)
+                    .clipShape(Circle())
+            } else {
+                switch conversation.avatarType {
+                case .customImage:
+                    AvatarView(
+                        imageURL: conversation.imageURL,
+                        fallbackName: conversation.computedDisplayName,
+                        cacheableObject: conversation,
+                        placeholderImage: nil,
+                        placeholderImageName: nil
+                    )
+                case .profile(let profile):
+                    ProfileAvatarView(profile: profile, profileImage: nil, useSystemPlaceholder: false)
+                case .clustered(let profiles):
+                    ClusteredAvatarView(profiles: profiles)
+                case .emoji(let emoji):
+                    EmojiAvatarView(emoji: emoji)
+                case .monogram(let name):
+                    MonogramView(name: name)
+                }
+            }
+        }
     }
 }
 

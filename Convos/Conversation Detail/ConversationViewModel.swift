@@ -64,7 +64,9 @@ class ConversationViewModel {
             myProfileViewModel.profileImage = newValue
         }
     }
-    var untitledConversationPlaceholder: String = "Untitled"
+    var untitledConversationPlaceholder: String {
+        conversation.computedDisplayName
+    }
     var conversationInfoSubtitle: String {
         conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
     }
@@ -94,7 +96,7 @@ class ConversationViewModel {
     }
 
     var conversationName: String {
-        isEditingConversationName ? editingConversationName : conversation.name ?? ""
+        isEditingConversationName ? editingConversationName : conversation.displayName
     }
 
     var conversationDescription: String {

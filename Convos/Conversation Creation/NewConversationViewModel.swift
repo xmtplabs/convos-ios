@@ -121,7 +121,6 @@ class NewConversationViewModel: Identifiable {
         )
         setupObservations()
         setupStateObservation()
-        self.conversationViewModel.untitledConversationPlaceholder = "New convo"
         if showingFullScreenScanner {
             self.conversationViewModel.showsInfoView = false
         }
@@ -265,6 +264,7 @@ class NewConversationViewModel: Identifiable {
         messagesTopBarTrailingItemEnabled = false
         messagesTextFieldEnabled = false
         conversationViewModel.untitledConversationPlaceholder = "New convo"
+        shouldConfirmDeletingConversation = true
         conversationViewModel.isWaitingForInviteAcceptance = false
         isCreatingConversation = false
         currentError = nil
@@ -319,6 +319,7 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItem = .share
             messagesTextFieldEnabled = false
             conversationViewModel.untitledConversationPlaceholder = "Untitled"
+            shouldConfirmDeletingConversation = false
             isCreatingConversation = false
             currentError = nil
 
@@ -487,6 +488,7 @@ class NewConversationViewModel: Identifiable {
             guard conversationState.isReadyOrJoining else { return }
             messagesTopBarTrailingItem = .share
             conversationViewModel.untitledConversationPlaceholder = "Untitled"
+            shouldConfirmDeletingConversation = false
         }
         .store(in: &cancellables)
     }
