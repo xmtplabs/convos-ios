@@ -29,9 +29,8 @@ struct PinnedConversationItem: View {
                 Text(conversation.title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
-                    .lineLimit(2)
+                    .lineLimit(1)
                     .truncationMode(.tail)
-                    .multilineTextAlignment(.center)
 
                 if conversation.isMuted {
                     Image(systemName: "bell.slash.fill")
@@ -45,7 +44,6 @@ struct PinnedConversationItem: View {
                         .frame(width: 8.0, height: 8.0)
                 }
             }
-            .padding(DesignConstants.Spacing.step3x)
         }
         .frame(width: 96)
         .onAppear {

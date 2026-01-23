@@ -63,7 +63,7 @@ struct PinnedConversationsSection: View {
     }
 
     private var horizontalLayout: some View {
-        HStack(spacing: DesignConstants.Spacing.step4x) {
+        HStack(spacing: DesignConstants.Spacing.step6x) {
             ForEach(pinnedConversations) { conversation in
                 conversationItem(conversation)
             }
@@ -72,9 +72,9 @@ struct PinnedConversationsSection: View {
     }
 
     private var gridLayout: some View {
-        VStack(spacing: DesignConstants.Spacing.step4x) {
+        VStack(spacing: DesignConstants.Spacing.step6x) {
             ForEach(Array(conversationRows.enumerated()), id: \.offset) { _, row in
-                HStack(spacing: DesignConstants.Spacing.step4x) {
+                HStack(spacing: DesignConstants.Spacing.step6x) {
                     ForEach(row) { conversation in
                         conversationItem(conversation)
                     }

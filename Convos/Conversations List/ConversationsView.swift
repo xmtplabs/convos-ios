@@ -101,18 +101,18 @@ struct ConversationsView: View {
                 )
             }
             .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
-                Button(action: toggleReadAction) {
-                    Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
-                }
-                .tint(.blue)
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 let deleteAction = { conversationPendingDeletion = conversation }
                 Button(action: deleteAction) {
                     Image(systemName: "trash")
                 }
                 .tint(.colorCaution)
+            }
+            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
+                Button(action: toggleReadAction) {
+                    Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
+                }
+                .tint(.colorFillPrimary)
 
                 let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
                 Button(action: toggleMuteAction) {
@@ -182,6 +182,7 @@ struct ConversationsView: View {
                                 viewModel.selectedConversationId = conversation.id
                             }
                         )
+                        .padding(.vertical, DesignConstants.Spacing.step3x)
                         .onGeometryChange(for: CGFloat.self) { geometry in
                             geometry.size.height
                         } action: { oldHeight, newHeight in
