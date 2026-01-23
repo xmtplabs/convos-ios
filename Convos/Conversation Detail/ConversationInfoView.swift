@@ -195,9 +195,10 @@ struct ConversationInfoView: View {
                             .frame(width: 160.0, height: 160.0)
 
                             VStack(spacing: DesignConstants.Spacing.step2x) {
-                                Text(viewModel.conversationName.orUntitled)
+                                Text(viewModel.conversation.computedDisplayName)
                                     .font(.largeTitle.weight(.semibold))
                                     .foregroundStyle(.colorTextPrimary)
+                                    .multilineTextAlignment(.center)
                                 if !viewModel.conversationDescription.isEmpty {
                                     Text(viewModel.conversationDescription)
                                         .font(.subheadline)

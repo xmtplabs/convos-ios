@@ -279,7 +279,7 @@ struct DefaultConversationDisplayTests {
             pinnedOrder: nil,
             lastMessage: nil,
             imageURL: URL(string: "https://example.com/image.jpg"),
-            includeImageInPublicPreview: false,
+            includeInfoInPublicPreview: false,
             isDraft: false,
             invite: nil,
             expiresAt: nil,

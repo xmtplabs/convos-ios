@@ -10,14 +10,40 @@ enum ConversationWriterError: Error {
 
 protocol ConversationWriterProtocol: Sendable {
     @discardableResult
-    func store(conversation: XMTPiOS.Group, inboxId: String) async throws -> DBConversation
+    func store(
+        conversation: XMTPiOS.Group,
+        inboxId: String,
+        clientConversationId: String?
+    ) async throws -> DBConversation
     @discardableResult
-    func storeWithLatestMessages(conversation: XMTPiOS.Group, inboxId: String) async throws -> DBConversation
+    func storeWithLatestMessages(
+        conversation: XMTPiOS.Group,
+        inboxId: String,
+        clientConversationId: String?
+    ) async throws -> DBConversation
     func createPlaceholderConversation(
         draftConversationId: String?,
         for signedInvite: SignedInvite,
         inboxId: String
     ) async throws -> String
+}
+
+extension ConversationWriterProtocol {
+    @discardableResult
+    func store(
+        conversation: XMTPiOS.Group,
+        inboxId: String
+    ) async throws -> DBConversation {
+        try await store(conversation: conversation, inboxId: inboxId, clientConversationId: nil)
+    }
+
+    @discardableResult
+    func storeWithLatestMessages(
+        conversation: XMTPiOS.Group,
+        inboxId: String
+    ) async throws -> DBConversation {
+        try await storeWithLatestMessages(conversation: conversation, inboxId: inboxId, clientConversationId: nil)
+    }
 }
 
 /// Writer for persisting conversations and their members to the database
@@ -48,12 +74,29 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
     }
 
-    func store(conversation: XMTPiOS.Group, inboxId: String) async throws -> DBConversation {
-        return try await _store(conversation: conversation, inboxId: inboxId)
+    func store(
+        conversation: XMTPiOS.Group,
+        inboxId: String,
+        clientConversationId: String? = nil
+    ) async throws -> DBConversation {
+        return try await _store(
+            conversation: conversation,
+            inboxId: inboxId,
+            clientConversationId: clientConversationId
+        )
     }
 
-    func storeWithLatestMessages(conversation: XMTPiOS.Group, inboxId: String) async throws -> DBConversation {
-        return try await _store(conversation: conversation, inboxId: inboxId, withLatestMessages: true)
+    func storeWithLatestMessages(
+        conversation: XMTPiOS.Group,
+        inboxId: String,
+        clientConversationId: String? = nil
+    ) async throws -> DBConversation {
+        return try await _store(
+            conversation: conversation,
+            inboxId: inboxId,
+            withLatestMessages: true,
+            clientConversationId: clientConversationId
+        )
     }
 
     func createPlaceholderConversation(
@@ -136,7 +179,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private func _store(
         conversation: XMTPiOS.Group,
         inboxId: String,
-        withLatestMessages: Bool = false
+        withLatestMessages: Bool = false,
+        clientConversationId: String? = nil
     ) async throws -> DBConversation {
         // Sync group to get latest state including member permission levels
         try await conversation.sync()
@@ -160,7 +204,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let dbConversation = try await createDBConversation(
             from: conversation,
             metadata: metadata,
-            inboxId: inboxId
+            inboxId: inboxId,
+            clientConversationId: clientConversationId
         )
 
         // Save to database. Capture the actual clientConversationId used (may be a draft ID
@@ -238,7 +283,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private func createDBConversation(
         from conversation: XMTPiOS.Group,
         metadata: ConversationMetadata,
-        inboxId: String
+        inboxId: String,
+        clientConversationId: String? = nil
     ) async throws -> DBConversation {
         // Look up clientId from inbox
         let clientId = try await databaseWriter.read { db in
@@ -252,7 +298,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             id: conversation.id,
             inboxId: inboxId,
             clientId: clientId,
-            clientConversationId: conversation.id,
+            clientConversationId: clientConversationId ?? conversation.id,
             inviteTag: try conversation.inviteTag,
             creatorId: try await conversation.creatorInboxId(),
             kind: metadata.kind,
@@ -319,14 +365,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             .filter(DBConversation.Columns.inviteTag == dbConversation.inviteTag)
             .filter(DBConversation.Columns.clientConversationId != dbConversation.clientConversationId)
             .fetchOne(db) {
-            // Keep using the same local id
-            Log.info("Found local conversation \(localConversation.clientConversationId) for incoming \(dbConversation.id)")
+            // Prefer draft IDs for stability (image caching, default emoji)
+            let preferredClientConversationId: String
+            if DBConversation.isDraft(id: dbConversation.clientConversationId) {
+                preferredClientConversationId = dbConversation.clientConversationId
+                Log.info("Using incoming draft ID \(dbConversation.clientConversationId)")
+            } else {
+                preferredClientConversationId = localConversation.clientConversationId
+                Log.info("Keeping existing ID \(localConversation.clientConversationId)")
+            }
+
             let updatedConversation = dbConversation
-                .with(clientConversationId: localConversation.clientConversationId)
+                .with(clientConversationId: preferredClientConversationId)
             try updatedConversation.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != localConversation.expiresAt
-            actualClientConversationId = localConversation.clientConversationId
-            Log.info("Updated incoming conversation with local \(localConversation.clientConversationId)")
+            actualClientConversationId = preferredClientConversationId
         } else {
             do {
                 try dbConversation.save(db)

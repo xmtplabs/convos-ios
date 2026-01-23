@@ -88,7 +88,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Start in uninitialized state
@@ -149,7 +150,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         actor StateCollector {
@@ -227,7 +229,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Trigger create
@@ -295,7 +298,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Create conversation first
@@ -373,7 +377,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Create conversation first
@@ -444,7 +449,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Create first conversation
@@ -527,7 +533,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         actor StateCollector {
@@ -608,7 +615,8 @@ struct ConversationStateMachineTests {
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Create conversation as inviter
@@ -670,7 +678,8 @@ struct ConversationStateMachineTests {
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Join conversation as joiner
@@ -729,7 +738,8 @@ struct ConversationStateMachineTests {
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Create conversation as inviter
@@ -802,7 +812,8 @@ struct ConversationStateMachineTests {
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Join conversation as joiner (should wait for inviter to come back online)
@@ -894,7 +905,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Queue multiple actions rapidly
@@ -967,7 +979,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Create conversation
@@ -1034,7 +1047,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Queue messages before creating (will be queued)
@@ -1093,7 +1107,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         await createStateMachine.create()
@@ -1119,7 +1134,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Start in uninitialized state
@@ -1180,7 +1196,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         await createStateMachine.create()
@@ -1206,7 +1223,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Trigger useExisting
@@ -1265,7 +1283,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         await createStateMachine.create()
@@ -1291,7 +1310,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         actor StateCollector {
@@ -1368,7 +1388,8 @@ struct ConversationStateMachineTests {
             identityStore: fixtures.identityStore,
             databaseReader: fixtures.databaseManager.dbReader,
             databaseWriter: fixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Create conversation first
@@ -1461,7 +1482,8 @@ struct ConversationStateMachineTests {
             identityStore: inviterFixtures.identityStore,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Create conversation as inviter
@@ -1529,7 +1551,8 @@ struct ConversationStateMachineTests {
             identityStore: joinerFixtures.identityStore,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
-            environment: testEnvironment
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
         )
 
         // Join conversation as joiner

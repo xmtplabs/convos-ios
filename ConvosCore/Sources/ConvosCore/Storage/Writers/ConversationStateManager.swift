@@ -134,13 +134,14 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             inboxStateManager: inboxStateManager
         )
 
-        // Initialize state machine
+        // Initialize state machine with the same clientConversationId
         self.stateMachine = ConversationStateMachine(
             inboxStateManager: inboxStateManager,
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
-            environment: environment
+            environment: environment,
+            clientConversationId: initialConversationId
         )
 
         setupStateObservation()

@@ -8,12 +8,14 @@ import UserNotifications
 protocol StreamProcessorProtocol: Actor {
     func processConversation(
         _ conversation: XMTPiOS.Group,
-        params: SyncClientParams
+        params: SyncClientParams,
+        clientConversationId: String?
     ) async throws
 
     func processConversation(
         _ conversation: any ConversationSender,
-        params: SyncClientParams
+        params: SyncClientParams,
+        clientConversationId: String?
     ) async throws
 
     func processMessage(
@@ -23,6 +25,22 @@ protocol StreamProcessorProtocol: Actor {
     ) async
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
+}
+
+extension StreamProcessorProtocol {
+    func processConversation(
+        _ conversation: XMTPiOS.Group,
+        params: SyncClientParams
+    ) async throws {
+        try await processConversation(conversation, params: params, clientConversationId: nil)
+    }
+
+    func processConversation(
+        _ conversation: any ConversationSender,
+        params: SyncClientParams
+    ) async throws {
+        try await processConversation(conversation, params: params, clientConversationId: nil)
+    }
 }
 
 /// Processes conversations and messages from XMTP streams
@@ -87,18 +105,20 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     func processConversation(
         _ conversation: any ConversationSender,
-        params: SyncClientParams
+        params: SyncClientParams,
+        clientConversationId: String? = nil
     ) async throws {
         guard let group = conversation as? XMTPiOS.Group else {
             Log.warning("Passed type other than Group")
             return
         }
-        try await processConversation(group, params: params)
+        try await processConversation(group, params: params, clientConversationId: clientConversationId)
     }
 
     func processConversation(
         _ conversation: XMTPiOS.Group,
-        params: SyncClientParams
+        params: SyncClientParams,
+        clientConversationId: String? = nil
     ) async throws {
         guard try await shouldProcessConversation(conversation, params: params) else { return }
 
@@ -121,7 +141,8 @@ actor StreamProcessor: StreamProcessorProtocol {
         Log.info("Syncing conversation: \(conversation.id)")
         try await conversationWriter.storeWithLatestMessages(
             conversation: conversation,
-            inboxId: params.client.inboxId
+            inboxId: params.client.inboxId,
+            clientConversationId: clientConversationId
         )
 
         // Subscribe to push notifications

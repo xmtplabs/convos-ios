@@ -98,6 +98,7 @@ public actor ConversationStateMachine {
     private let databaseWriter: any DatabaseWriter
     private let environment: AppEnvironment
     private let streamProcessor: any StreamProcessorProtocol
+    private let clientConversationId: String
 
     private var currentTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
@@ -161,13 +162,15 @@ public actor ConversationStateMachine {
         identityStore: any KeychainIdentityStoreProtocol,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
-        environment: AppEnvironment
+        environment: AppEnvironment,
+        clientConversationId: String
     ) {
         self.inboxStateManager = inboxStateManager
         self.identityStore = identityStore
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
+        self.clientConversationId = clientConversationId
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
@@ -382,22 +385,24 @@ public actor ConversationStateMachine {
         // Safe to use nonisolated(unsafe) because XMTP's Conversation API is entirely
         // async/await-based, so concurrent access is inherently serialized by the runtime.
         nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
-        let externalConversationId = optimisticConversation.id
 
         // Publish the conversation
         try await optimisticConversation.publish()
 
         // Process the conversation in case the syncing manager
         // has not finished starting the streams, or the streams closed
+        // Pass clientConversationId to store a stable ID for image caching
         let params = SyncClientParams(client: client, apiClient: inboxReady.apiClient)
         try await streamProcessor.processConversation(
             optimisticConversation,
-            params: params
+            params: params,
+            clientConversationId: clientConversationId
         )
 
-        // Transition directly to ready state
+        // Transition to ready state with the real XMTP group ID (used for querying)
+        // The clientConversationId is stored on DBConversation for stable image caching
         emitStateChange(.ready(ConversationReadyResult(
-            conversationId: externalConversationId,
+            conversationId: optimisticConversation.id,
             origin: .created
         )))
     }
