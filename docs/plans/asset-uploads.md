@@ -368,15 +368,29 @@ private func performAssetRenewalIfNeeded() async {
 
     guard !assetUrls.isEmpty else { return }
 
+    // Extract S3 keys from full URLs (strip scheme + host, drop leading slash)
+    // e.g. "https://cdn.example.com/abc123.bin" → "abc123.bin"
+    let assetKeys = assetUrls.compactMap { url -> String? in
+        guard let path = URL(string: url)?.path, path.count > 1 else { return nil }
+        return String(path.dropFirst())
+    }
+    guard !assetKeys.isEmpty else { return }
+
     // Fire-and-forget batch renewal
     Task.detached {
         do {
-            let result = try await apiClient.renewAssetsBatch(assetUrls: assetUrls)
+            let result = try await apiClient.renewAssetsBatch(assetKeys: assetKeys)
             await AssetRenewalManager.shared.recordRenewal()
 
-            // Handle expired assets (404s)
-            for expiredUrl in result.expiredUrls {
-                await handleExpiredAsset(url: expiredUrl)
+            // Handle expired assets (404s) — map keys back to full URLs for cache lookup
+            for expiredKey in result.expiredKeys {
+                let matchingUrl = assetUrls.first { url in
+                    guard let path = URL(string: url)?.path, path.count > 1 else { return false }
+                    return String(path.dropFirst()) == expiredKey
+                }
+                if let url = matchingUrl {
+                    await handleExpiredAsset(url: url)
+                }
             }
         } catch {
             Log.warning("Asset batch renewal failed (non-fatal): \(error)")
@@ -411,15 +425,15 @@ extension ConvosAPIClient {
     struct BatchRenewResult {
         let renewed: Int
         let failed: Int
-        let expiredUrls: [String]  // URLs that returned 404
+        let expiredKeys: [String]  // Keys that returned 404
     }
 
-    func renewAssetsBatch(assetUrls: [String]) async throws -> BatchRenewResult {
+    func renewAssetsBatch(assetKeys: [String]) async throws -> BatchRenewResult {
         var request = try authenticatedRequest(for: "v2/assets/renew-batch", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
-        struct BatchRenewRequest: Encodable { let assetUrls: [String] }
-        request.httpBody = try JSONEncoder().encode(BatchRenewRequest(assetUrls: assetUrls))
+        struct BatchRenewRequest: Encodable { let assetKeys: [String] }
+        request.httpBody = try JSONEncoder().encode(BatchRenewRequest(assetKeys: assetKeys))
 
         struct BatchRenewResponse: Decodable {
             let renewed: Int
@@ -427,7 +441,7 @@ extension ConvosAPIClient {
             let results: [AssetResult]
 
             struct AssetResult: Decodable {
-                let url: String
+                let key: String
                 let success: Bool
                 let error: String?
             }
@@ -435,14 +449,14 @@ extension ConvosAPIClient {
 
         let response: BatchRenewResponse = try await performRequest(request)
 
-        let expiredUrls = response.results
+        let expiredKeys = response.results
             .filter { !$0.success && $0.error == "not_found" }
-            .map { $0.url }
+            .map { $0.key }
 
         return BatchRenewResult(
             renewed: response.renewed,
             failed: response.failed,
-            expiredUrls: expiredUrls
+            expiredKeys: expiredKeys
         )
     }
 }
@@ -454,8 +468,8 @@ extension ConvosAPIClient {
 | File | Change |
 | --- | --- |
 | **NEW** `ConvosCore/.../AssetRenewalManager.swift` | Renewal timing actor |
-| `ConvosCore/.../ConvosAPIClient.swift` | Add `renewAssetsBatch()` method |
-| `ConvosCore/.../ConvosAPIClientProtocol.swift` | Add `renewAssetsBatch()` to protocol |
+| `ConvosCore/.../ConvosAPIClient.swift` | Add `renewAssetsBatch(assetKeys:)` method |
+| `ConvosCore/.../ConvosAPIClientProtocol.swift` | Add `renewAssetsBatch(assetKeys:)` to protocol |
 | `ConvosCore/.../SessionManager.swift` or similar | Trigger renewal on app launch |
 | `ConvosCore/.../DatabaseWriter.swift` | Add `clearAssetUrl()` for expired assets |
 
