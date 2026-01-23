@@ -312,8 +312,8 @@ struct DefaultConversationDisplayTests {
         }
     }
 
-    @Test("avatarType returns monogram for empty group")
-    func avatarTypeMonogramForEmptyGroup() {
+    @Test("avatarType returns emoji for empty group")
+    func avatarTypeEmojiForEmptyGroup() {
         let members = [
             ConversationMember(
                 profile: Profile.empty(inboxId: "current"),
@@ -322,10 +322,50 @@ struct DefaultConversationDisplayTests {
             )
         ]
         let conversation = Conversation.mock(name: nil, members: members)
-        if case .monogram = conversation.avatarType {
+        if case .emoji = conversation.avatarType {
             #expect(true)
         } else {
-            #expect(Bool(false), "Expected monogram avatar type")
+            #expect(Bool(false), "Expected emoji avatar type")
+        }
+    }
+
+    @Test("avatarType returns emoji for empty group even when creator has avatar")
+    func avatarTypeEmojiForEmptyGroupWithCreatorAvatar() {
+        let members = [
+            ConversationMember(
+                profile: Profile.mock(inboxId: "current", name: "Me"),
+                role: .member,
+                isCurrentUser: true
+            )
+        ]
+        let conversation = Conversation.mock(name: nil, members: members)
+        if case .emoji = conversation.avatarType {
+            #expect(true)
+        } else {
+            #expect(Bool(false), "Expected emoji avatar type, not creator's profile photo")
+        }
+    }
+
+    @Test("avatarType returns emoji when other members have no avatars")
+    func avatarTypeEmojiWhenOtherMembersHaveNoAvatars() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember(
+                profile: Profile(inboxId: "other1", name: "Alice", avatar: nil),
+                role: .member,
+                isCurrentUser: false
+            ),
+            ConversationMember(
+                profile: Profile(inboxId: "other2", name: "Bob", avatar: nil),
+                role: .member,
+                isCurrentUser: false
+            )
+        ]
+        let conversation = Conversation.mock(name: nil, members: members)
+        if case .emoji = conversation.avatarType {
+            #expect(true)
+        } else {
+            #expect(Bool(false), "Expected emoji avatar type when no other members have avatars")
         }
     }
 }

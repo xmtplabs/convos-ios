@@ -84,14 +84,7 @@ public extension Conversation {
             return .monogram(computedDisplayName)
         }
         let otherProfiles = membersWithoutCurrent.map(\.profile)
-        if otherProfiles.isEmpty {
-            let currentUserProfile = members.first(where: { $0.isCurrentUser })?.profile
-            if let profile = currentUserProfile, profile.avatarURL != nil {
-                return .profile(profile)
-            }
-            return .emoji(defaultEmoji)
-        }
-        if isFullyAnonymous {
+        if otherProfiles.isEmpty || !otherProfiles.hasAnyAvatar {
             return .emoji(defaultEmoji)
         }
         return .clustered(Array(otherProfiles.sortedForCluster().prefix(7)))
