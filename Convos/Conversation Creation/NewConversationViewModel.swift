@@ -31,7 +31,7 @@ class NewConversationViewModel: Identifiable {
     let session: any SessionManagerProtocol
     let conversationViewModel: ConversationViewModel
     let qrScannerViewModel: QRScannerViewModel
-    private(set) var messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem = .scan
+    private(set) var messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem = .share
     private(set) var messagesTopBarTrailingItemEnabled: Bool = false
     private(set) var messagesTextFieldEnabled: Bool = false
     private let startedWithFullscreenScanner: Bool
@@ -260,7 +260,7 @@ class NewConversationViewModel: Identifiable {
 
     @MainActor
     private func resetUIState() {
-        messagesTopBarTrailingItem = .scan
+        messagesTopBarTrailingItem = .share
         messagesTopBarTrailingItemEnabled = false
         messagesTextFieldEnabled = false
         conversationViewModel.isWaitingForInviteAcceptance = false

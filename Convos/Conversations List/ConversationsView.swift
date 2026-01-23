@@ -314,14 +314,13 @@ struct ConversationsView: View {
             )
             .interactiveDismissDisabled(viewModel.appSettingsViewModel.isDeleting)
         }
-        .fullScreenCover(item: $viewModel.newConversationViewModel) { newConvoViewModel in
+        .sheet(item: $viewModel.newConversationViewModel) { newConvoViewModel in
             NewConversationView(
                 viewModel: newConvoViewModel,
-                quicknameViewModel: quicknameViewModel,
-                presentingFullScreen: true
+                quicknameViewModel: quicknameViewModel
             )
             .background(.colorBackgroundPrimary)
-            .interactiveDismissDisabled()
+            .interactiveDismissDisabled(newConvoViewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance)
             .navigationTransition(
                 .zoom(
                     sourceID: "composer-transition-source",

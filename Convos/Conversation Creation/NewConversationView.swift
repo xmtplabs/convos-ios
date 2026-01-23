@@ -4,7 +4,6 @@ import SwiftUI
 struct NewConversationView: View {
     let viewModel: NewConversationViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
-    let presentingFullScreen: Bool
     @State private var hasShownScannerOnAppear: Bool = false
     @State private var presentingJoiningStateInfo: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
@@ -17,7 +16,7 @@ struct NewConversationView: View {
         ConversationPresenter(
             viewModel: viewModel.conversationViewModel,
             focusCoordinator: focusCoordinator,
-            insetsTopSafeArea: presentingFullScreen,
+            insetsTopSafeArea: false,
             sidebarColumnWidth: $sidebarWidth
         ) { focusState, coordinator in
             NavigationStack {
@@ -147,11 +146,10 @@ private struct ErrorSheetWithRetry: View {
     @Previewable @State var presented: Bool = true
     VStack {
     }
-    .fullScreenCover(isPresented: $presented) {
+    .sheet(isPresented: $presented) {
         NewConversationView(
             viewModel: viewModel,
-            quicknameViewModel: quicknameViewModel,
-            presentingFullScreen: true
+            quicknameViewModel: quicknameViewModel
         )
     }
 }

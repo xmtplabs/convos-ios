@@ -146,11 +146,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
             NewConversationView(
                 viewModel: viewModel,
-                quicknameViewModel: quicknameViewModel,
-                presentingFullScreen: false
+                quicknameViewModel: quicknameViewModel
             )
             .background(.colorBackgroundPrimary)
-            .interactiveDismissDisabled()
+            .interactiveDismissDisabled(viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
             NavigationStack {
