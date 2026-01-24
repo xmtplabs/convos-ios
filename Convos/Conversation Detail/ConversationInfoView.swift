@@ -234,9 +234,13 @@ struct ConversationInfoView: View {
                             Text(viewModel.conversation.membersCountString)
                                 .foregroundStyle(.colorTextPrimary)
                             Spacer()
-                            Text(viewModel.isFull ? "Full" : "\(Conversation.maxMembers) max")
-                                .font(.footnote)
-                                .foregroundStyle(.colorTextSecondary)
+                            if viewModel.isFull {
+                                Text("Full")
+                                    .foregroundStyle(.colorTextSecondary)
+                            } else if viewModel.conversation.members.count > 100 {
+                                Text("\(Conversation.maxMembers) max")
+                                    .foregroundStyle(.colorTextSecondary)
+                            }
                         }
                     }
                 }
