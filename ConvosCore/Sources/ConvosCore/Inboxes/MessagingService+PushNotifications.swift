@@ -332,7 +332,10 @@ extension MessagingService {
 
         _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)
 
-        let notificationTitle = (try? group.name()).orUntitled
+        let notificationTitle = (try? await getComputedDisplayName(
+            conversationId: conversationId,
+            currentInboxId: currentInboxId
+        )) ?? (try? group.name()).orUntitled
 
         let senderName = try await getSenderDisplayName(
             senderInboxId: decodedMessage.senderInboxId,
