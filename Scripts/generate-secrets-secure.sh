@@ -65,6 +65,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = "$ESCAPED_XMTP_HOST"
     static let GATEWAY_URL: String = "$ESCAPED_GATEWAY_URL"
     static let SENTRY_DSN: String = "$ESCAPED_SENTRY_DSN"
+    static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
 }
 EOF
 

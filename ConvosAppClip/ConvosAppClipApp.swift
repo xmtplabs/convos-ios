@@ -18,7 +18,9 @@ struct ConvosAppClipApp: App {
         // Configure Firebase BEFORE creating ConvosClient
         // This prevents a race condition where SessionManager tries to use AppCheck before it's configured
         if let url = ConfigManager.shared.currentEnvironment.firebaseConfigURL {
-            FirebaseHelperCore.configure(with: url)
+            // Only pass debug token for non-production environments (safety check)
+            let debugToken: String? = environment.isProduction ? nil : Secrets.FIREBASE_APP_CHECK_DEBUG_TOKEN
+            FirebaseHelperCore.configure(with: url, debugToken: debugToken)
         } else {
             Log.error("Missing Firebase plist URL for current environment")
         }

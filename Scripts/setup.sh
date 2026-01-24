@@ -143,3 +143,31 @@ else
 fi
 
 echo "✅ All dependencies are properly installed"
+
+################################################################################
+# Firebase App Check Debug Token                                                #
+################################################################################
+
+if [ ! "${CI}" = true ]; then
+    ENV_FILE="${DIRNAME}/../.env"
+    if [ ! -f "$ENV_FILE" ]; then
+        echo ""
+        echo "⚠️  No .env file found"
+        echo "   Create one to configure local development settings."
+        echo "   See: https://console.firebase.google.com/project/convos-otr/appcheck for debug tokens"
+    elif ! grep -q "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" || \
+         [ -z "$(grep "^FIREBASE_APP_CHECK_DEBUG_TOKEN=" "$ENV_FILE" | cut -d'=' -f2-)" ]; then
+        echo ""
+        echo "⚠️  FIREBASE_APP_CHECK_DEBUG_TOKEN is not set in .env"
+        echo "   Without this, you'll need to register a new debug token in Firebase Console"
+        echo "   each time the simulator changes."
+        echo ""
+        echo "   To fix:"
+        echo "   1. Run: uuidgen"
+        echo "   2. Go to Firebase Console → App Check → Manage debug tokens"
+        echo "   3. Add the generated UUID as a debug token"
+        echo "   4. Add to .env: FIREBASE_APP_CHECK_DEBUG_TOKEN=<your-uuid>"
+    else
+        echo "✅ Firebase App Check debug token is configured"
+    fi
+fi

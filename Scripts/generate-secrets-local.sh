@@ -49,6 +49,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = ""
     static let GATEWAY_URL: String = ""
     static let SENTRY_DSN: String = ""
+    static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = ""
 }
 
 MINIMAL_EOF
@@ -145,6 +146,7 @@ ENV_BACKEND_URL=""
 ENV_XMTP_HOST=""
 ENV_GATEWAY_URL=""
 ENV_SENTRY_DSN=""
+ENV_FIREBASE_DEBUG_TOKEN=""
 ENV_HAS_BACKEND_URL=false
 ENV_HAS_XMTP_HOST=false
 ENV_HAS_GATEWAY_URL=false
@@ -166,6 +168,9 @@ if [ -f ".env" ]; then
     fi
     if grep -v '^#' ".env" | grep -q '^SENTRY_DSN='; then
         ENV_SENTRY_DSN=$(grep -v '^#' ".env" | grep '^SENTRY_DSN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
+    fi
+    if grep -v '^#' ".env" | grep -q '^FIREBASE_APP_CHECK_DEBUG_TOKEN='; then
+        ENV_FIREBASE_DEBUG_TOKEN=$(grep -v '^#' ".env" | grep '^FIREBASE_APP_CHECK_DEBUG_TOKEN=' | tail -n1 | cut -d'=' -f2- | sed -e 's/^"//' -e 's/"$//' || true)
     fi
 fi
 
@@ -254,6 +259,7 @@ enum Secrets {
     static let XMTP_CUSTOM_HOST: String = "$(swift_escape "$FINAL_XMTP_HOST")"
     static let GATEWAY_URL: String = "$(swift_escape "$FINAL_GATEWAY_URL")"
     static let SENTRY_DSN: String = "$(swift_escape "$ENV_SENTRY_DSN")"
+    static let FIREBASE_APP_CHECK_DEBUG_TOKEN: String = "$(swift_escape "$ENV_FIREBASE_DEBUG_TOKEN")"
 EOF
 
 # Check if .env file exists and add any additional secrets from it
@@ -271,6 +277,7 @@ if [ -f ".env" ]; then
         [[ "$key" == "XMTP_CUSTOM_HOST" ]] && continue
         [[ "$key" == "GATEWAY_URL" ]] && continue
         [[ "$key" == "SENTRY_DSN" ]] && continue
+        [[ "$key" == "FIREBASE_APP_CHECK_DEBUG_TOKEN" ]] && continue
 
         # Validate Swift identifier
         if ! is_valid_swift_identifier "$key"; then
