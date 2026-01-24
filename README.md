@@ -1,5 +1,7 @@
 # Convos iOS
 
+[![ConvosCore Tests](https://github.com/xmtplabs/convos-ios/actions/workflows/convoscore-tests.yml/badge.svg)](https://github.com/xmtplabs/convos-ios/actions/workflows/convoscore-tests.yml)
+
 Convos is an everyday private chat app for the surveillance age. Built on the open-source, censorship-resistant, post-quantum secure [XMTP protocol](https://xmtp.org), Convos provides instant, impermanent, and self-evidently private conversations.
 
 ## What is Convos?

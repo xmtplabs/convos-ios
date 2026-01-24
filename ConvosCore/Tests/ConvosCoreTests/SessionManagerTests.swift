@@ -300,9 +300,11 @@ struct SessionManagerTests {
             ).insert(db)
         }
 
-        // Set up mock activity for both clients
+        // Set up mock activity for only client2
+        // Note: We deliberately don't add client1 to avoid a race condition where
+        // SessionManager's initializationTask (which wakes all inboxes with activity)
+        // could re-wake client1 after we explicitly sleep it below
         fixtures.activityRepo.activities = [
-            InboxActivity(clientId: clientId1, inboxId: inboxId1, lastActivity: Date(), conversationCount: 1),
             InboxActivity(clientId: clientId2, inboxId: inboxId2, lastActivity: Date(), conversationCount: 1),
         ]
 

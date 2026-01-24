@@ -2,7 +2,16 @@
 import Foundation
 import GRDB
 import Testing
-import XMTPiOS
+@preconcurrency import XMTPiOS
+
+// Set custom XMTP endpoint at module load time (before any async code)
+// This runs synchronously when the test module is loaded
+// @preconcurrency import suppresses strict concurrency warnings for XMTP static properties
+private let _configureXMTPEndpoint: Void = {
+    if let endpoint = ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] {
+        XMTPEnvironment.customLocalAddress = endpoint
+    }
+}()
 
 /// Helper to wait for InboxStateMachine to reach a specific state with timeout
 func waitForState(
@@ -50,6 +59,8 @@ class TestFixtures {
         DeviceInfo.configure(MockDeviceInfoProvider())
         PushNotificationRegistrar.resetForTesting()
         PushNotificationRegistrar.configure(MockPushNotificationRegistrarProvider())
+
+        // XMTP endpoint is configured at module load time via _configureXMTPEndpoint
     }
 
     /// Create a new XMTP client for testing
@@ -57,7 +68,7 @@ class TestFixtures {
         let keys = try await identityStore.generateKeys()
         let clientId = ClientId.generate().value
 
-        // Check environment variable for secure mode
+        // Check environment variables for CI configuration
         let isSecure: Bool
         if let envSecure = ProcessInfo.processInfo.environment["XMTP_IS_SECURE"] {
             isSecure = envSecure.lowercased() == "true" || envSecure == "1"

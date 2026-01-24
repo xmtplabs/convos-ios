@@ -2,7 +2,15 @@
 import Foundation
 import GRDB
 import Testing
-import XMTPiOS
+@preconcurrency import XMTPiOS
+
+// Set custom XMTP endpoint at module load time (before any async code)
+// @preconcurrency import suppresses strict concurrency warnings for XMTP static properties
+private let _configureXMTPEndpoint: Void = {
+    if let endpoint = ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] {
+        XMTPEnvironment.customLocalAddress = endpoint
+    }
+}()
 
 /// Integration tests for SleepingInboxMessageChecker using real XMTP network (Docker)
 ///
@@ -303,6 +311,8 @@ private class IntegrationTestFixtures {
         ConvosLog.configure(environment: .tests)
         DeviceInfo.resetForTesting()
         DeviceInfo.configure(MockDeviceInfoProvider())
+
+        // XMTP endpoint is configured at module load time via _configureXMTPEndpoint
     }
 
     func createClient() async throws -> (client: any XMTPClientProvider, clientId: String, keys: KeychainIdentityKeys) {

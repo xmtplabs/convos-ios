@@ -1,0 +1,122 @@
+#!/bin/bash
+set -euo pipefail
+
+# Clean up stale ephemeral XMTP backend apps from Fly.io
+# Usage: ./cleanup [--dry-run] [--max-age HOURS]
+# Example: ./cleanup --max-age 2
+
+ORG="xmtp-labs"
+APP_PREFIX="convos-ios-test-"
+MAX_AGE_HOURS=2
+DRY_RUN=false
+
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --dry-run)
+            DRY_RUN=true
+            shift
+            ;;
+        --max-age)
+            MAX_AGE_HOURS="$2"
+            shift 2
+            ;;
+        *)
+            echo "Unknown option: $1"
+            echo "Usage: $0 [--dry-run] [--max-age HOURS]"
+            exit 1
+            ;;
+    esac
+done
+
+if [[ -z "${FLY_API_TOKEN:-}" ]]; then
+    echo "Error: FLY_API_TOKEN environment variable is required"
+    exit 1
+fi
+
+echo "==> Looking for stale test apps (prefix: $APP_PREFIX, max age: $MAX_AGE_HOURS hours)"
+
+# Get current time in seconds since epoch
+NOW=$(date +%s)
+MAX_AGE_SECONDS=$((MAX_AGE_HOURS * 3600))
+
+# List all apps in the org that match our prefix
+APPS=$(flyctl apps list --org "$ORG" --json 2>/dev/null | jq -r '.[].name // empty' | grep "^$APP_PREFIX" || true)
+
+if [[ -z "$APPS" ]]; then
+    echo "No test apps found"
+    exit 0
+fi
+
+DELETED_COUNT=0
+SKIPPED_COUNT=0
+
+while IFS= read -r app; do
+    if [[ -z "$app" ]]; then
+        continue
+    fi
+
+    echo ""
+    echo "Checking app: $app"
+
+    # Get the app's creation time
+    APP_INFO=$(flyctl apps show "$app" --json 2>/dev/null || echo "{}")
+    CREATED_AT=$(echo "$APP_INFO" | jq -r '.CreatedAt // .created_at // empty')
+
+    if [[ -z "$CREATED_AT" ]]; then
+        echo "  Warning: Could not get creation time, skipping"
+        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+        continue
+    fi
+
+    # Parse the timestamp (handle both ISO 8601 formats)
+    # Try GNU date first, then BSD date
+    if date --version 2>/dev/null | grep -q GNU; then
+        CREATED_EPOCH=$(date -d "$CREATED_AT" +%s 2>/dev/null || echo "0")
+    else
+        # BSD date (macOS)
+        CREATED_EPOCH=$(date -j -f "%Y-%m-%dT%H:%M:%S" "${CREATED_AT%%.*}" +%s 2>/dev/null || \
+                       date -j -f "%Y-%m-%dT%H:%M:%SZ" "$CREATED_AT" +%s 2>/dev/null || echo "0")
+    fi
+
+    if [[ "$CREATED_EPOCH" == "0" ]]; then
+        echo "  Warning: Could not parse creation time ($CREATED_AT), skipping"
+        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+        continue
+    fi
+
+    AGE_SECONDS=$((NOW - CREATED_EPOCH))
+    AGE_HOURS=$((AGE_SECONDS / 3600))
+    AGE_MINUTES=$(((AGE_SECONDS % 3600) / 60))
+
+    echo "  Age: ${AGE_HOURS}h ${AGE_MINUTES}m"
+
+    if [[ $AGE_SECONDS -gt $MAX_AGE_SECONDS ]]; then
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo "  [DRY RUN] Would delete: $app"
+        else
+            echo "  Deleting: $app"
+            if flyctl apps destroy "$app" --yes 2>/dev/null; then
+                echo "  Deleted successfully"
+                DELETED_COUNT=$((DELETED_COUNT + 1))
+            else
+                echo "  Warning: Failed to delete $app"
+            fi
+        fi
+    else
+        echo "  Keeping (not old enough)"
+        SKIPPED_COUNT=$((SKIPPED_COUNT + 1))
+    fi
+done <<< "$APPS"
+
+echo ""
+echo "=========================================="
+echo "Cleanup complete"
+echo "=========================================="
+echo "Deleted: $DELETED_COUNT"
+echo "Skipped: $SKIPPED_COUNT"
+
+if [[ "$DRY_RUN" == "true" ]]; then
+    echo ""
+    echo "(This was a dry run - no apps were actually deleted)"
+fi

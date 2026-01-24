@@ -1,6 +1,7 @@
 @testable import ConvosCore
 import Foundation
 import GRDB
+import os.lock
 import Testing
 import XMTPiOS
 
@@ -89,12 +90,21 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
     }
 }
 
-class TestableMockConversations: ConversationsProvider {
+class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
     let syncBehavior: TestableMockClient.SyncBehavior
     let streamBehavior: TestableMockClient.StreamBehavior
 
-    var syncCallCount = 0
-    var streamCallCount = 0
+    private var _syncCallCount = 0
+    private var _streamCallCount = 0
+    private let lock = OSAllocatedUnfairLock()
+
+    var syncCallCount: Int {
+        lock.withLock { _syncCallCount }
+    }
+
+    var streamCallCount: Int {
+        lock.withLock { _streamCallCount }
+    }
 
     init(syncBehavior: TestableMockClient.SyncBehavior, streamBehavior: TestableMockClient.StreamBehavior) {
         self.syncBehavior = syncBehavior
@@ -133,7 +143,7 @@ class TestableMockConversations: ConversationsProvider {
 
     func stream(type: XMTPiOS.ConversationFilterType,
                onClose: (() -> Void)?) -> AsyncThrowingStream<XMTPiOS.Conversation, any Error> {
-        streamCallCount += 1
+        lock.withLock { _streamCallCount += 1 }
         return AsyncThrowingStream { continuation in
             // Call onClose synchronously within the builder to avoid sending a non-Sendable closure across tasks.
             switch streamBehavior {
@@ -163,7 +173,7 @@ class TestableMockConversations: ConversationsProvider {
     }
 
     func syncAllConversations(consentStates: [XMTPiOS.ConsentState]?) async throws -> GroupSyncSummary {
-        syncCallCount += 1
+        lock.withLock { _syncCallCount += 1 }
 
         switch syncBehavior {
         case .succeed:
@@ -186,7 +196,7 @@ class TestableMockConversations: ConversationsProvider {
     func streamAllMessages(type: ConversationFilterType,
                           consentStates: [ConsentState]?,
                           onClose: (() -> Void)?) -> AsyncThrowingStream<DecodedMessage, any Error> {
-        streamCallCount += 1
+        lock.withLock { _streamCallCount += 1 }
         return AsyncThrowingStream { continuation in
             // Same approach here: call onClose synchronously in the builder; only use Task for neverClose without touching onClose.
             switch streamBehavior {

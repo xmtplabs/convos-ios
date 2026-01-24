@@ -58,11 +58,17 @@ struct ClientConversationIdPriorityTests {
         try await fixtures.createTestClients()
 
         guard let clientA = fixtures.clientA as? Client,
-              let clientB = fixtures.clientB else {
+              let clientB = fixtures.clientB,
+              let clientIdA = fixtures.clientIdA else {
             throw TestError.missingClients
         }
 
         let inboxIdA = clientA.inboxID
+
+        // Insert DBInbox record so ConversationWriter can look it up
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBInbox(inboxId: inboxIdA, clientId: clientIdA, createdAt: Date()).insert(db)
+        }
 
         // Create a group
         let group = try await clientA.conversations.newGroup(
@@ -117,11 +123,17 @@ struct ClientConversationIdPriorityTests {
         try await fixtures.createTestClients()
 
         guard let clientA = fixtures.clientA as? Client,
-              let clientB = fixtures.clientB else {
+              let clientB = fixtures.clientB,
+              let clientIdA = fixtures.clientIdA else {
             throw TestError.missingClients
         }
 
         let inboxIdA = clientA.inboxID
+
+        // Insert DBInbox record so ConversationWriter can look it up
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBInbox(inboxId: inboxIdA, clientId: clientIdA, createdAt: Date()).insert(db)
+        }
 
         // Create a group
         let group = try await clientA.conversations.newGroup(
@@ -176,11 +188,17 @@ struct ClientConversationIdPriorityTests {
         try await fixtures.createTestClients()
 
         guard let clientA = fixtures.clientA as? Client,
-              let clientB = fixtures.clientB else {
+              let clientB = fixtures.clientB,
+              let clientIdA = fixtures.clientIdA else {
             throw TestError.missingClients
         }
 
         let inboxIdA = clientA.inboxID
+
+        // Insert DBInbox record so ConversationWriter can look it up
+        try await fixtures.databaseManager.dbWriter.write { db in
+            try DBInbox(inboxId: inboxIdA, clientId: clientIdA, createdAt: Date()).insert(db)
+        }
 
         // Create a group
         let group = try await clientA.conversations.newGroup(

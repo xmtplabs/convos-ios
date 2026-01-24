@@ -1,0 +1,50 @@
+name: Fly.io Cleanup
+
+on:
+  schedule:
+    # Run every hour
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (show what would be deleted without deleting)'
+        required: false
+        default: 'false'
+        type: boolean
+      max_age:
+        description: 'Maximum age in hours before deletion'
+        required: false
+        default: '2'
+        type: string
+
+jobs:
+  cleanup:
+    name: Cleanup Stale Test Apps
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup flyctl
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Run cleanup
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        run: |
+          ARGS=""
+
+          # Handle dry run for scheduled runs vs manual dispatch
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            if [[ "${{ inputs.dry_run }}" == "true" ]]; then
+              ARGS="$ARGS --dry-run"
+            fi
+            ARGS="$ARGS --max-age ${{ inputs.max_age }}"
+          else
+            # Scheduled run - use defaults
+            ARGS="--max-age 2"
+          fi
+
+          ./ci/fly/cleanup $ARGS
