@@ -1,59 +1,26 @@
-#!/usr/bin/env ruby
-require 'bundler/setup'
-require 'xcodeproj'
+#!/usr/bin/env bash
+set -e
 
-# setup paths for the project
-repo_root = Dir.pwd
-project_path = File.expand_path('Convos.xcodeproj', repo_root)
+# Use xcodebuild to get MARKETING_VERSION - most reliable as it uses Xcode's own logic
+BUILD_SETTINGS=$(xcodebuild -project Convos.xcodeproj -showBuildSettings 2>/dev/null)
 
-# ensure project exists
-unless File.exist?(project_path)
-  abort("❌ Error: Xcode project not found at #{project_path}")
-end
+# Extract all MARKETING_VERSION values and get unique ones
+VERSIONS=$(echo "$BUILD_SETTINGS" | \
+           grep 'MARKETING_VERSION = ' | \
+           sed 's/.*MARKETING_VERSION = //' | \
+           sort -u)
 
-# Get current version from Xcode project (marketing version only)
-# Note: Build numbers are automatically incremented and injected by Bitrise using $BITRISE_BUILD_NUMBER at build time
-def get_version(project_path)
-  project = Xcodeproj::Project.open(project_path)
+VERSION_COUNT=$(echo "$VERSIONS" | grep -c .)
 
-  # Get versions from all targets
-  versions = {}
-
-  project.targets.each do |target|
-    target.build_configurations.each do |config|
-      if config.build_settings.key?('MARKETING_VERSION')
-        version = config.build_settings['MARKETING_VERSION']
-        versions[target.name] ||= []
-        versions[target.name] << version
-      end
-    end
-  end
-
-  if versions.empty?
-    abort("❌ Error: MARKETING_VERSION not found in any target's settings")
-  end
-
-  # Check if all versions match
-  all_versions = versions.values.flatten.uniq
-  if all_versions.size > 1
-    puts "❌ Version mismatch detected:"
-    versions.each do |target, target_versions|
-      puts "  📱 #{target}: #{target_versions.uniq.join(', ')}"
-    end
-    abort("Error: All targets must have the same version number")
-  end
-
-  # Return only the marketing version (no build number)
-  # Build numbers are handled by Bitrise using $BITRISE_BUILD_NUMBER at build time
-  all_versions.first
-end
-
-# print the version
-begin
-  version = get_version(project_path)
-  # Only print the version number (clean output for scripts)
-  puts version
-rescue => e
-  puts "❌ Error getting version: #{e.message}"
+if [ "$VERSION_COUNT" -eq 0 ]; then
+  echo "❌ Error: MARKETING_VERSION not found" >&2
   exit 1
-end
+fi
+
+if [ "$VERSION_COUNT" -gt 1 ]; then
+  echo "❌ Error: Version mismatch detected. All targets must have the same version:" >&2
+  echo "$VERSIONS" | while read -r v; do echo "  • $v" >&2; done
+  exit 1
+fi
+
+echo "$VERSIONS"

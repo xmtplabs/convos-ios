@@ -226,43 +226,6 @@ step_bundles:
   Setup:
     steps:
     - script@1:
-        inputs:
-        - content: |-
-            #!/usr/bin/env bash
-            set -e
-            set -o pipefail
-            set -x
-
-            TARGET_RUBY_VERSION="3.3.3"
-
-            # Check if Ruby 3.3.3 is already installed
-            if rbenv versions | grep -q "$TARGET_RUBY_VERSION"; then
-                echo "Ruby $TARGET_RUBY_VERSION is already installed"
-                rbenv global "$TARGET_RUBY_VERSION"
-            else
-                echo "Installing Ruby $TARGET_RUBY_VERSION..."
-                rbenv install "$TARGET_RUBY_VERSION"
-                rbenv global "$TARGET_RUBY_VERSION"
-            fi
-
-            # Verify installation
-            echo "Ruby version:"
-            ruby --version
-
-            # Update RubyGems and install bundler only if needed
-            echo "Checking RubyGems and bundler..."
-            gem update --system
-            if ! gem list bundler -i > /dev/null 2>&1; then
-                echo "Installing bundler..."
-                gem install bundler
-            else
-                echo "Bundler is already installed"
-            fi
-
-            echo "Bundler version:"
-            bundle --version
-        title: Install Ruby 3.3.3
-    - script@1:
         title: Setup
         inputs:
         - content: |-

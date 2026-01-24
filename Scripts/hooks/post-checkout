@@ -15,9 +15,6 @@ if [ "${1}" == "${2}" ]; then exit; fi
 # Git
 cd "${git_root}" && git submodule update --init --recursive
 
-# Install gems via bundler
-bundle install
-
 # Ensure minimal Secrets.swift exists first (important for first-time setup)
 ./Scripts/generate-secrets-local.sh --ensure-only
 
