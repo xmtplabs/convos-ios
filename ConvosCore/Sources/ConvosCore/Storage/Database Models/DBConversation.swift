@@ -1,6 +1,26 @@
 import Foundation
 import GRDB
 
+// MARK: - DBLastMessageWithSource
+
+struct DBLastMessageWithSource: Codable, FetchableRecord, Hashable {
+    let id: String
+    let clientMessageId: String
+    let conversationId: String
+    let senderId: String
+    let dateNs: Int64
+    let date: Date
+    let status: MessageStatus
+    let messageType: DBMessageType
+    let contentType: MessageContentType
+    let text: String?
+    let emoji: String?
+    let invite: MessageInvite?
+    let sourceMessageId: String?
+    let attachmentUrls: [String]
+    let sourceMessageText: String?
+}
+
 // MARK: - DBConversation
 
 struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable, Hashable {
@@ -125,6 +145,28 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         named: "conversationLastMessage",
         request: lastMessageRequest
     )
+
+    nonisolated(unsafe) static let lastMessageWithSourceCTE: CommonTableExpression<DBLastMessageWithSource> =
+        CommonTableExpression<DBLastMessageWithSource>(
+            named: "conversationLastMessageWithSource",
+            sql: """
+                SELECT
+                    m.id, m.clientMessageId, m.conversationId, m.senderId,
+                    m.dateNs, m.date, m.status, m.messageType, m.contentType,
+                    m.text, m.emoji, m.invite, m.sourceMessageId, m.attachmentUrls,
+                    src.text as sourceMessageText
+                FROM message m
+                LEFT JOIN message src ON m.sourceMessageId = src.id
+                WHERE m.contentType != ?
+                AND m.dateNs = (
+                    SELECT MAX(m2.dateNs)
+                    FROM message m2
+                    WHERE m2.conversationId = m.conversationId
+                    AND m2.contentType != ?
+                )
+                """,
+            arguments: [MessageContentType.update.rawValue, MessageContentType.update.rawValue]
+        )
 
     static let localState: HasOneAssociation<DBConversation, ConversationLocalState> = hasOne(
         ConversationLocalState.self,

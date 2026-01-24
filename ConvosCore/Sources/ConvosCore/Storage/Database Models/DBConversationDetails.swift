@@ -7,7 +7,7 @@ struct DBConversationDetails: Codable, FetchableRecord, PersistableRecord, Hasha
     let conversation: DBConversation
     let conversationCreator: DBConversationMemberProfileWithRole
     let conversationMembers: [DBConversationMemberProfileWithRole]
-    let conversationLastMessage: DBMessage?
+    let conversationLastMessageWithSource: DBLastMessageWithSource?
     let conversationLocalState: ConversationLocalState
     let conversationInvite: DBInvite?
 }

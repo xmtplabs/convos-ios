@@ -65,12 +65,12 @@ fileprivate extension Database {
 
 extension QueryInterfaceRequest where RowDecoder == DBConversation {
     func detailedConversationQuery() -> QueryInterfaceRequest<DBConversationDetails> {
-        let lastMessage = DBConversation.association(
-            to: DBConversation.lastMessageCTE,
-            on: { conversation, lastMessage in
-                conversation.id == lastMessage.conversationId
+        let lastMessageWithSource = DBConversation.association(
+            to: DBConversation.lastMessageWithSourceCTE,
+            on: { conversation, cte in
+                conversation.id == cte[Column("conversationId")]
             }
-        ).forKey("conversationLastMessage")
+        ).forKey("conversationLastMessageWithSource")
 
         return self
             .including(optional: DBConversation.invite)
@@ -81,8 +81,8 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
                     .including(required: DBConversationMember.memberProfile)
             )
             .including(required: DBConversation.localState)
-            .with(DBConversation.lastMessageCTE)
-            .including(optional: lastMessage)
+            .with(DBConversation.lastMessageWithSourceCTE)
+            .including(optional: lastMessageWithSource)
             .including(
                 all: DBConversation._members
                     .forKey("conversationMembers")
@@ -91,7 +91,7 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
             )
             .group(DBConversation.Columns.id)
             // Sort by last message date if available, otherwise by conversation createdAt
-            .order(sql: "COALESCE(conversationLastMessage.date, conversation.createdAt) DESC")
+            .order(sql: "COALESCE(conversationLastMessageWithSource.date, conversation.createdAt) DESC")
             .asRequest(of: DBConversationDetails.self)
     }
 }

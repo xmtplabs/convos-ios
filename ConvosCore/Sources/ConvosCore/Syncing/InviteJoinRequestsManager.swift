@@ -16,6 +16,7 @@ public enum InviteJoinRequestError: Error {
 public struct JoinRequestResult: Sendable {
     public let conversationId: String
     public let conversationName: String?
+    public let joinerInboxId: String
 }
 
 protocol InviteJoinRequestsManagerProtocol: Sendable {
@@ -223,7 +224,8 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
             let conversationName = try? group.name()
             return JoinRequestResult(
                 conversationId: group.id,
-                conversationName: conversationName
+                conversationName: conversationName,
+                joinerInboxId: senderInboxId
             )
         case .dm:
             Log.warning("Expected Group but found DM from \(senderInboxId), ignoring invite join request")

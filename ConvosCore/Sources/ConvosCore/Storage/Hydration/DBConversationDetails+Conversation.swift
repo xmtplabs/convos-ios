@@ -2,9 +2,10 @@ import Foundation
 
 extension DBConversationDetails {
     func hydrateConversation() -> Conversation {
-        let lastMessage: MessagePreview? = conversationLastMessage?.hydrateMessagePreview(
+        let lastMessage: MessagePreview? = conversationLastMessageWithSource?.hydrateMessagePreview(
             conversationKind: conversation.kind,
-            currentInboxId: conversation.inboxId
+            currentInboxId: conversation.inboxId,
+            members: conversationMembers
         )
         let members = hydrateConversationMembers(currentInboxId: conversation.inboxId)
         let creator = conversationCreator.hydrateConversationMember(currentInboxId: conversation.inboxId)

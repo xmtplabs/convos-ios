@@ -132,9 +132,20 @@ extension MessagingService {
         let joinRequestResults = await joinRequestsManager.processJoinRequests(since: lastProcessed, client: client)
         if let result = joinRequestResults.first {
             setLastWelcomeProcessed(processTime, for: client.inboxId)
+
+            let displayName = (try? await getComputedDisplayName(
+                conversationId: result.conversationId,
+                currentInboxId: client.inboxId
+            )) ?? result.conversationName.orUntitled
+
+            let joinerName = (try? await getMemberDisplayName(
+                inboxId: result.joinerInboxId,
+                conversationId: result.conversationId
+            )) ?? "Somebody"
+
             return .init(
-                title: result.conversationName,
-                body: "Somebody accepted your invite",
+                title: displayName,
+                body: "\(joinerName) accepted your invite",
                 conversationId: result.conversationId,
                 userInfo: userInfo
             )
@@ -144,9 +155,15 @@ extension MessagingService {
         if let newGroup = try await findNewGroupWeJoined(client: client, existingGroupIds: existingGroupIds) {
             Log.info("We were added to a new group: \(newGroup.conversationId)")
             setLastWelcomeProcessed(processTime, for: client.inboxId)
+
+            let displayName = (try? await getComputedDisplayName(
+                conversationId: newGroup.conversationId,
+                currentInboxId: client.inboxId
+            )) ?? newGroup.conversationName.orUntitled
+
             return .init(
-                title: newGroup.conversationName,
-                body: "Somebody approved your invite",
+                title: displayName,
+                body: "Your invite was approved",
                 conversationId: newGroup.conversationId,
                 userInfo: userInfo
             )
@@ -250,10 +267,19 @@ extension MessagingService {
             )
 
             if let result = await joinRequestsManager.processJoinRequest(message: decodedMessage, client: client) {
-                // Valid join request - show notification
+                let displayName = (try? await getComputedDisplayName(
+                    conversationId: result.conversationId,
+                    currentInboxId: currentInboxId
+                )) ?? result.conversationName.orUntitled
+
+                let joinerName = (try? await getMemberDisplayName(
+                    inboxId: result.joinerInboxId,
+                    conversationId: result.conversationId
+                )) ?? "Somebody"
+
                 return .init(
-                    title: result.conversationName,
-                    body: "Somebody accepted your invite",
+                    title: displayName,
+                    body: "\(joinerName) accepted your invite",
                     conversationId: result.conversationId,
                     userInfo: userInfo
                 )
@@ -298,7 +324,7 @@ extension MessagingService {
         }
 
         let encodedContentType = try? decodedMessage.encodedContent.type
-        guard let encodedContentType, encodedContentType == ContentTypeText else {
+        guard let encodedContentType else {
             return .droppedMessage
         }
 
@@ -306,19 +332,115 @@ extension MessagingService {
 
         _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)
 
-        let content = try decodedMessage.content() as Any
-        guard let textContent = content as? String else {
+        let notificationTitle = (try? group.name()).orUntitled
+
+        let senderName = try await getSenderDisplayName(
+            senderInboxId: decodedMessage.senderInboxId,
+            conversationId: conversationId
+        )
+
+        let otherMemberCount = try await getOtherMemberCount(
+            conversationId: conversationId,
+            currentInboxId: currentInboxId
+        )
+        let shouldShowSenderName = otherMemberCount > 1
+
+        let body = try await buildNotificationBody(
+            encodedContentType: encodedContentType,
+            decodedMessage: decodedMessage,
+            conversationId: conversationId,
+            senderName: senderName,
+            shouldShowSenderName: shouldShowSenderName
+        )
+
+        guard let body else {
             return .droppedMessage
         }
 
-        let notificationTitle = (try? group.name()).orUntitled
-
         return .init(
             title: notificationTitle,
-            body: textContent,
+            body: body,
             conversationId: conversationId,
             userInfo: userInfo
         )
+    }
+
+    private func getSenderDisplayName(
+        senderInboxId: String,
+        conversationId: String
+    ) async throws -> String {
+        try await databaseReader.read { db in
+            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)
+            return profile?.name ?? "Somebody"
+        }
+    }
+
+    private func getOtherMemberCount(
+        conversationId: String,
+        currentInboxId: String
+    ) async throws -> Int {
+        try await databaseReader.read { db in
+            try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                .filter(DBMemberProfile.Columns.inboxId != currentInboxId)
+                .fetchCount(db)
+        }
+    }
+
+    private func buildNotificationBody(
+        encodedContentType: ContentTypeID,
+        decodedMessage: DecodedMessage,
+        conversationId: String,
+        senderName: String,
+        shouldShowSenderName: Bool
+    ) async throws -> String? {
+        switch encodedContentType {
+        case ContentTypeText:
+            let content = try decodedMessage.content() as Any
+            guard let textContent = content as? String else {
+                return nil
+            }
+            return shouldShowSenderName ? "\(senderName): \(textContent)" : textContent
+
+        case ContentTypeReaction, ContentTypeReactionV2:
+            let content = try decodedMessage.content() as Any
+            guard let reaction = content as? Reaction else {
+                return nil
+            }
+            guard reaction.action == .added else {
+                return nil
+            }
+            let emoji = reaction.emoji
+            let sourceMessageText = try await getSourceMessageText(messageId: reaction.reference, conversationId: conversationId)
+            let sourceText = sourceMessageText.formattedAsReactionSource()
+            return shouldShowSenderName ? "\(senderName) \(emoji)'d \(sourceText)" : "\(emoji)'d \(sourceText)"
+
+        case ContentTypeReply:
+            let content = try decodedMessage.content() as Any
+            guard let reply = content as? Reply else {
+                return nil
+            }
+            if let textContent = reply.content as? String {
+                return shouldShowSenderName ? "\(senderName): \(textContent)" : textContent
+            }
+            return nil
+
+        case ContentTypeRemoteAttachment, ContentTypeMultiRemoteAttachment:
+            return shouldShowSenderName ? "\(senderName) sent a photo" : "sent a photo"
+
+        default:
+            return nil
+        }
+    }
+
+    private func getSourceMessageText(messageId: String, conversationId: String) async throws -> String? {
+        try await databaseReader.read { db in
+            let message = try DBMessage.fetchOne(db, key: messageId)
+            guard let message, message.conversationId == conversationId else {
+                return nil
+            }
+            return message.text
+        }
     }
 
     private func handleExplodeSettingsMessage(
@@ -367,6 +489,58 @@ extension MessagingService {
             messageWriter: messageWriter
         )
         return try await conversationWriter.storeWithLatestMessages(conversation: conversation, inboxId: inboxId)
+    }
+
+    // MARK: - Computed Display Name
+
+    private func getComputedDisplayName(
+        conversationId: String,
+        currentInboxId: String
+    ) async throws -> String {
+        try await databaseReader.read { db in
+            guard let conversation = try DBConversation.fetchOne(db, key: conversationId) else {
+                return "Untitled"
+            }
+
+            if let name = conversation.name, !name.isEmpty {
+                return name
+            }
+
+            let memberProfiles = try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                .filter(DBMemberProfile.Columns.inboxId != currentInboxId)
+                .fetchAll(db)
+
+            if memberProfiles.isEmpty {
+                return "New Convo"
+            }
+
+            let namedProfiles = memberProfiles.compactMap { $0.name }.filter { !$0.isEmpty }.sorted()
+            let anonymousCount = memberProfiles.count - namedProfiles.count
+
+            var allNames = namedProfiles
+            if anonymousCount > 1 {
+                allNames.append("Somebodies")
+            } else if anonymousCount == 1 {
+                allNames.append("Somebody")
+            }
+
+            if allNames.isEmpty {
+                return "Untitled"
+            }
+
+            return allNames.joined(separator: ", ")
+        }
+    }
+
+    private func getMemberDisplayName(
+        inboxId: String,
+        conversationId: String
+    ) async throws -> String {
+        try await databaseReader.read { db in
+            let profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+            return profile?.name ?? "Somebody"
+        }
     }
 
     // MARK: - Welcome Message Tracking
