@@ -19,7 +19,7 @@ struct NetworkMonitorTests {
     }
 
     private func waitUntil(
-        timeout: Duration = .seconds(1),
+        timeout: Duration = .seconds(5),
         interval: Duration = .milliseconds(10),
         condition: () async -> Bool
     ) async throws {

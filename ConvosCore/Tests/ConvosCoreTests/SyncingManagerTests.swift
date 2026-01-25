@@ -318,6 +318,28 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
 /// Comprehensive tests for SyncingManager state machine
 @Suite("SyncingManager Tests", .serialized)
 struct SyncingManagerTests {
+
+    private enum TestError: Error {
+        case timeout(String)
+    }
+
+    /// Polling-based wait for condition to become true
+    /// More reliable than fixed sleep for CI environments
+    private func waitUntil(
+        timeout: Duration = .seconds(5),
+        interval: Duration = .milliseconds(50),
+        condition: () async -> Bool
+    ) async throws {
+        let deadline = ContinuousClock.now + timeout
+        while ContinuousClock.now < deadline {
+            if await condition() {
+                return
+            }
+            try await Task.sleep(for: interval)
+        }
+        throw TestError.timeout("Condition not met within \(timeout)")
+    }
+
     // MARK: - Start Flow Tests
 
     @Test("Start from idle starts streams then calls syncAllConversations")
@@ -336,11 +358,13 @@ struct SyncingManagerTests {
         // Start syncing
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Wait a bit for async operations
-        try await Task.sleep(for: .milliseconds(1000))
+        // Wait for async operations to complete using polling
+        let conversations = mockClient.conversationsProvider as! TestableMockConversations
+        try await waitUntil {
+            conversations.streamCallCount > 0 && conversations.syncCallCount > 0
+        }
 
         // Verify streams were started first
-        let conversations = mockClient.conversationsProvider as! TestableMockConversations
         #expect(conversations.streamCallCount > 0, "Streams should be started")
 
         // Verify syncAllConversations was called after streams

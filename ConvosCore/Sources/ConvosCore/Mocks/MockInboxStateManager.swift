@@ -4,6 +4,7 @@ import Foundation
 /// Mock implementation of InboxStateManagerProtocol for testing
 public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked Sendable {
     public var currentState: InboxStateMachine.State
+    public var isSyncReady: Bool = true
 
     private var observers: [WeakStateObserver] = []
     private let mockClient: any XMTPClientProvider

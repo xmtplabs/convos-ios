@@ -5,26 +5,6 @@ import Testing
 
 @Suite("SessionManager Tests", .serialized)
 struct SessionManagerTests {
-
-    private enum TestError: Error {
-        case timeout(String)
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(1),
-        interval: Duration = .milliseconds(10),
-        condition: () async -> Bool
-    ) async throws {
-        let deadline = ContinuousClock.now + timeout
-        while ContinuousClock.now < deadline {
-            if await condition() {
-                return
-            }
-            try await Task.sleep(for: interval)
-        }
-        throw TestError.timeout("Condition not met within \(timeout)")
-    }
-
     // MARK: - Wake Inbox by Conversation ID Tests
 
     @Test("wakeInboxForNotification wakes sleeping client by conversation ID")
@@ -70,6 +50,12 @@ struct SessionManagerTests {
         fixtures.activityRepo.activities = [
             InboxActivity(clientId: clientId, inboxId: inboxId, lastActivity: Date(), conversationCount: 1)
         ]
+
+        // Ensure clean starting state - sleep the inbox if initializationTask woke it
+        // (SessionManager spawns a background task that may wake inboxes with activity)
+        if await fixtures.lifecycleManager.isAwake(clientId: clientId) {
+            await fixtures.lifecycleManager.sleep(clientId: clientId)
+        }
 
         // Verify the inbox starts as not awake
         let initiallyAwake = await fixtures.lifecycleManager.isAwake(clientId: clientId)

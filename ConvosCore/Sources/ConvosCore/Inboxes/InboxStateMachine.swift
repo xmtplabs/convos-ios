@@ -126,6 +126,13 @@ public actor InboxStateMachine {
         }
     }
 
+    var isSyncReady: Bool {
+        get async {
+            guard let syncingManager else { return false }
+            return await syncingManager.isSyncReady
+        }
+    }
+
     var inboxId: String? {
         switch _state {
         case .authorizing(_, let inboxId),

@@ -5,6 +5,7 @@ import GRDB
 // MARK: - Protocol
 
 public protocol SyncingManagerProtocol: Actor {
+    var isSyncReady: Bool { get }
     func start(with client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol)
     func stop() async
     func pause() async
@@ -100,6 +101,11 @@ actor SyncingManager: SyncingManagerProtocol {
     // State machine
     private var _state: State = .idle
     private var actionQueue: [Action] = []
+
+    var isSyncReady: Bool {
+        if case .ready = _state { return true }
+        return false
+    }
     private var isProcessing: Bool = false
     private var currentTask: Task<Void, Never>?
 

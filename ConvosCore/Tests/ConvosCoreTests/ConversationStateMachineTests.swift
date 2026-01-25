@@ -661,6 +661,13 @@ struct ConversationStateMachineTests {
 
         Log.info("Fetched invite URL: \(invite.urlSlug)")
 
+        // Wait for inviter's sync streams to be fully ready before joiner connects
+        // This prevents a race condition where the joiner sends a DM before the inviter's
+        // message stream is connected to receive it
+        try await waitUntil(timeout: .seconds(10)) {
+            await inviterMessagingService.inboxStateManager.isSyncReady
+        }
+
         // Setup joiner messaging service and state machine
         let joinerUnusedInboxCache = UnusedInboxCache(
             keychainService: joinerFixtures.keychainService,
@@ -686,9 +693,10 @@ struct ConversationStateMachineTests {
         await joinerStateMachine.join(inviteCode: invite.urlSlug)
 
         // Wait for ready state
+        // Note: Increased timeout from 10s to 30s for CI reliability with ephemeral Fly.io backends
         var joinerConversationId: String?
         do {
-            joinerConversationId = try await withTimeout(seconds: 10) {
+            joinerConversationId = try await withTimeout(seconds: 30) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):
@@ -846,11 +854,12 @@ struct ConversationStateMachineTests {
         Log.info("Inviter came back online")
 
         // Wait for joiner to reach ready state (join should be processed automatically)
+        // Note: Increased timeout from 10s to 30s for CI reliability with ephemeral Fly.io backends
         var joinerConversationId: String?
         var joinerReachedReady = false
 
         do {
-            joinerConversationId = try await withTimeout(seconds: 10) {
+            joinerConversationId = try await withTimeout(seconds: 30) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):
@@ -1528,6 +1537,13 @@ struct ConversationStateMachineTests {
 
         Log.info("Inviter created conversation with invite: \(invite.urlSlug)")
 
+        // Wait for inviter's sync streams to be fully ready before joiner connects
+        // This prevents a race condition where the joiner sends a DM before the inviter's
+        // message stream is connected to receive it
+        try await waitUntil(timeout: .seconds(10)) {
+            await inviterMessagingService.inboxStateManager.isSyncReady
+        }
+
         // Setup joiner messaging service with different network monitor
         let joinerOperation = AuthorizeInboxOperation.register(
             identityStore: joinerFixtures.identityStore,
@@ -1558,10 +1574,11 @@ struct ConversationStateMachineTests {
         // Join conversation as joiner
         await joinerStateMachine.join(inviteCode: invite.urlSlug)
 
-        // Wait for joiner to be ready (increased timeout to account for XMTP node load)
+        // Wait for joiner to be ready
+        // Note: Increased timeout from 60s to 90s for CI reliability with ephemeral Fly.io backends
         var joinerConversationId: String?
         do {
-            joinerConversationId = try await withTimeout(seconds: 60) {
+            joinerConversationId = try await withTimeout(seconds: 90) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):

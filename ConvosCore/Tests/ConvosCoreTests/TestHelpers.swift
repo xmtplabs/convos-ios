@@ -13,6 +13,27 @@ private let _configureXMTPEndpoint: Void = {
     }
 }()
 
+/// Waits until a condition becomes true, polling at a specified interval
+/// - Parameters:
+///   - timeout: Maximum time to wait (default: 10 seconds)
+///   - interval: Polling interval (default: 50ms)
+///   - condition: Async closure that returns true when condition is met
+/// - Throws: TimeoutError if condition not met within timeout
+func waitUntil(
+    timeout: Duration = .seconds(10),
+    interval: Duration = .milliseconds(50),
+    condition: () async -> Bool
+) async throws {
+    let deadline = ContinuousClock.now + timeout
+    while ContinuousClock.now < deadline {
+        if await condition() {
+            return
+        }
+        try await Task.sleep(for: interval)
+    }
+    throw TimeoutError()
+}
+
 /// Helper to wait for InboxStateMachine to reach a specific state with timeout
 func waitForState(
     _ stateMachine: InboxStateMachine,
@@ -162,6 +183,10 @@ actor MockSyncingManager: SyncingManagerProtocol {
     var stopCallCount = 0
     var pauseCallCount = 0
     var resumeCallCount = 0
+
+    var isSyncReady: Bool {
+        isStarted && !isPaused
+    }
 
     func start(with client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) {
         isStarted = true

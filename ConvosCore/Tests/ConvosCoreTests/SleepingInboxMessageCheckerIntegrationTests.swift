@@ -90,8 +90,13 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         // Sender sends a message (this happens AFTER the sleep time)
         try await group.send(content: "Hello from sender!")
 
-        // Small delay to ensure message is processed by XMTP network
-        try await Task.sleep(for: .milliseconds(500))
+        // Wait for message to propagate through XMTP network before checking
+        // Uses polling instead of fixed delay for reliability across different CI environments
+        try await waitForMessagePropagation(
+            client: receiverClient,
+            expectedMessageCount: 1,
+            timeout: .seconds(10)
+        )
 
         // Run the checker - should detect new message and wake receiver
         await checker.checkNow()
@@ -132,8 +137,14 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         // Sender sends a message BEFORE we mark receiver as sleeping
         try await group.send(content: "Old message before sleep")
 
-        // Small delay to ensure message is processed
-        try await Task.sleep(for: .milliseconds(500))
+        // Wait for message to propagate through XMTP network before continuing
+        // Uses polling instead of fixed delay for reliability across different CI environments
+        // (previously used 2s fixed delay which was unreliable with ephemeral Fly.io backends)
+        try await waitForMessagePropagation(
+            client: receiverClient,
+            expectedMessageCount: 1,
+            timeout: .seconds(10)
+        )
 
         // Save receiver's inbox and conversation to database
         try await fixtures.saveInbox(clientId: receiverClientId, inboxId: receiverClient.inboxID)
@@ -145,12 +156,16 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         await lifecycleManager.setSleeping(clientIds: [receiverClientId], at: sleepTime)
 
         // Set up activity repository
+        // lastActivity is set to 5 seconds before sleep time to provide buffer for:
+        // 1. Clock skew between test machine and XMTP backend (especially Fly.io in CI)
+        // 2. Message timestamp granularity differences
+        // 3. Network propagation delays that may affect timestamp ordering
         let activityRepo = MockInboxActivityRepository()
         activityRepo.activities = [
             InboxActivity(
                 clientId: receiverClientId,
                 inboxId: receiverClient.inboxID,
-                lastActivity: sleepTime.addingTimeInterval(-1),
+                lastActivity: sleepTime.addingTimeInterval(-5),
                 conversationCount: 1
             )
         ]
@@ -220,7 +235,14 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
         // Send old message to group2 BEFORE sleep
         try await group2.send(content: "Old message to group 2")
-        try await Task.sleep(for: .milliseconds(500))
+
+        // Wait for message to propagate through XMTP network before continuing
+        // Uses polling instead of fixed delay for reliability across different CI environments
+        try await waitForMessagePropagation(
+            client: receiver2Client,
+            expectedMessageCount: 1,
+            timeout: .seconds(10)
+        )
 
         // Save inboxes and conversations
         try await fixtures.saveInbox(clientId: receiver1ClientId, inboxId: receiver1Client.inboxID)
@@ -233,10 +255,15 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         let lifecycleManager = TestableInboxLifecycleManager()
         await lifecycleManager.setSleeping(clientIds: [receiver1ClientId, receiver2ClientId], at: sleepTime)
 
-        // Small delay then send NEW message only to group1 (AFTER sleep)
-        try await Task.sleep(for: .milliseconds(100))
+        // Send NEW message only to group1 (AFTER sleep)
         try await group1.send(content: "New message to group 1 after sleep!")
-        try await Task.sleep(for: .milliseconds(500))
+
+        // Wait for message to propagate through XMTP network before checking
+        try await waitForMessagePropagation(
+            client: receiver1Client,
+            expectedMessageCount: 1,
+            timeout: .seconds(10)
+        )
 
         // Set up activity repository
         let activityRepo = MockInboxActivityRepository()
@@ -383,5 +410,40 @@ private class IntegrationTestFixtures {
         createdClients.removeAll()
         try await identityStore.deleteAll()
         try databaseManager.erase()
+    }
+}
+
+// MARK: - Message Propagation Helper
+
+/// Waits for messages to propagate through the XMTP network by polling the receiver's conversations.
+/// This replaces fixed delays with explicit verification, making tests more reliable across
+/// different CI environments (local Docker, ephemeral Fly.io backends, etc.).
+///
+/// - Parameters:
+///   - client: The XMTP client to check for received messages
+///   - expectedMessageCount: Minimum number of messages expected (default: 1)
+///   - timeout: Maximum time to wait for propagation (default: 10 seconds)
+/// - Throws: TimeoutError if messages don't propagate within timeout
+private func waitForMessagePropagation(
+    client: Client,
+    expectedMessageCount: Int = 1,
+    timeout: Duration = .seconds(10)
+) async throws {
+    try await waitUntil(timeout: timeout, interval: .milliseconds(100)) {
+        // Sync conversations to get latest state from network
+        try? await client.conversations.sync()
+
+        // Check if any conversation has the expected number of messages
+        let conversations = try? client.conversations.listGroups()
+        guard let conversations else { return false }
+
+        for conversation in conversations {
+            try? await conversation.sync()
+            let messages = try? await conversation.messages()
+            if let messages, messages.count >= expectedMessageCount {
+                return true
+            }
+        }
+        return false
     }
 }

@@ -7,6 +7,7 @@ public protocol InboxStateObserver: AnyObject {
 
 public protocol InboxStateManagerProtocol: AnyObject, Sendable {
     var currentState: InboxStateMachine.State { get }
+    var isSyncReady: Bool { get async }
 
     func waitForInboxReadyResult() async throws -> InboxReadyResult
     func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult
@@ -38,6 +39,13 @@ public final class InboxStateManager: InboxStateManagerProtocol, @unchecked Send
     public private(set) var isReady: Bool = false
     public private(set) var hasError: Bool = false
     public private(set) var errorMessage: String?
+
+    public var isSyncReady: Bool {
+        get async {
+            guard let stateMachine else { return false }
+            return await stateMachine.isSyncReady
+        }
+    }
 
     private(set) weak var stateMachine: InboxStateMachine?
     private var stateTask: Task<Void, Never>?
