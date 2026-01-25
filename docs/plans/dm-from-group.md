@@ -1,111 +1,117 @@
 # DMs
 
-Today we're introducing private DMs from within group conversations, so you can take a conversation one-on-one without anyone knowing you did.
+Today we're introducing private DMs from within group conversations, so you can take a conversation one-on-one without sending an unwanted message.
 
 ---
 
 ## Meet someone, then meet again
 
-You meet people in group convos. Sometimes you want to connect with them privately. On other apps, sliding into someone's DMs means they see your profile, your history, your identity. On Convos, starting a DM means starting fresh — a new identity for both of you, no strings attached to the group where you met.
+DMs can be unwanted. On other apps, anyone can slide in. On Convos, only people from your convos can reach you. Your conversations act as pre-approval. Joining a group with more unknowns? Turn DMs off for that convo entirely.
 
-## Consent goes both ways
+## You control who can reach you
 
-You can't just DM someone. You signal that you're open to it, they decide if they want to connect. No one gets added to a conversation they didn't agree to. And because the person who accepts creates the DM, they're in control — they decide when it explodes.
+Each conversation has an "Allow DMs" toggle. When enabled, it defaults to "From everyone" in that convo, but you can customize it to only allow DMs from select members. The sender never knows if they're on your list or not.
 
-## Ephemeral by design
+## Fresh identities
 
-The connection between your group identity and your DM identity is temporary. Once the signal expires, there's no trace linking the two. You showed up how you chose in the group, you show up how you choose in the DM.
+Both people get new identities for the DM. There's no connection to your group identity visible to anyone: not the other person, not other group members, not Convos. You decide how to show up in the DM: new name, new photo, or the same as before.
 
 ---
 
 # How DMs work
 
-## Signaling intent
+## Enabling DMs
 
-When you want to DM someone you've met in a group:
+In any conversation, you can toggle "Allow DMs" in settings:
 
-- Long-press their avatar in the message list
-- Tap "Open to DM"
-- A faint green circle appears around your avatar (from their perspective)
+- **Off**: No one from this convo can DM you
+- **From everyone**: Anyone in this convo can DM you (default when enabled)
+- **From select members**: Only specific people you choose can DM you
 
-Behind the scenes, your client creates a fresh inbox — your new identity for this DM. A signal is sent to the other person via XMTP containing your new inbox ID and a short-lived tag. This signal is allowed through because you're already in a trusted conversation together.
+Your `allowsDMs` flag is stored in your profile metadata for the group. Everyone can see who has DMs enabled, but they can't see if someone only allows select members.
 
-## Accepting
+## Sending a DM
 
-When someone signals they're open to a DM with you:
+When you want to DM someone:
 
-- You see a faint green circle around their avatar in the message list and on their profile sheet
-- Tap it to see: "<Name> is open to a DM"
-- Tap "Accept" or "Not interested"
+- Long-press their avatar in the message list, or
+- Tap their avatar to view their profile, then tap "Send DM"
 
-If you accept, your client creates your fresh identity, creates the DM conversation, adds their inbox ID, and locks the conversation so no one else can join. You're the creator — you control when this DM explodes.
+The "Send DM" button only appears if they have DMs enabled for this convo.
 
-If you tap "Not interested," future DM intents from this person are blocked. You can always change your mind later by sending them a DM intent yourself.
+Behind the scenes, your client creates a fresh inbox (your new identity for this DM) and sends a DM request to the other person via XMTP as a disappearing message, so the tie to the original convo is ephemeral.
+
+## Receiving a DM request
+
+When a DM request arrives, your client automatically:
+
+1. Verifies the request is from someone you share a group with
+2. Checks that you have DMs enabled for that group
+3. Creates the DM conversation and adds the sender
+4. Sets consent state based on your settings:
+   - If "From everyone": auto-approves
+   - If "From select members": checks if sender is in your list, then approves if so
+
+The sender doesn't know whether they were auto-approved or silently ignored.
 
 ## The DM appears
 
-Once accepted:
+Once the DM is created:
 
-- The DM shows up in both your home lists immediately
-- The green circle around their avatar becomes solid (no longer faint)
-- Tapping the solid green circle takes you to the DM
-- When the original signal expires, the green circle disappears — the ephemeral link between identities dissolves
-
-## Fresh identities
-
-Both people get new identities for the DM. There's no connection to your group identity visible to anyone — not the other person, not other group members, not Convos. You decide how to show up in the DM: new name, new photo, or the same as before.
-
-## They're in control
-
-The person who accepts the DM request is the creator. They have super admin powers. When they decide the DM has run its course, they can explode it — destroying all messages and both identities cryptographically.
+- It shows up in both home lists immediately
+- Context is shown: "From [display name] in [convo name]" for the receiver, or "To [display name] in [convo name]" for the sender
+- This context expires when the DM request message expires
 
 ---
 
 # Who cares
 
-Group chats are where you meet people. But sometimes you want a private sidebar without broadcasting that you're having one. Traditional messaging apps make this awkward, they reveal your full identity and creates a permanent connection.
+Group chats are where you meet people. But sometimes you want a private sidebar. Traditional messaging apps make this awkward: you're either sending an unwanted message, or building a social graph.
 
-Convos DMs are different. They're initiated with mutual consent, built on fresh identities, and leave no trace connecting back to how you met.
+Convos DMs are different. They're initiated with mutual consent, filtered by your own settings, built on fresh identities, and leave no trace connecting back to how you met.
 
 ---
 
 # Technical notes
 
-## The DMIntent message
+## Profile metadata
 
-When you signal intent to DM, your client sends a custom XMTP content type:
+The `allowsDMs` flag is stored in the user's Profile in the group's custom metadata:
+
+- Everyone in the group can read this flag
+- Used to conditionally show the "Send DM" button
+- Does not reveal whether the user has a select members list
+
+## The DMRequest message
+
+When you send a DM request, your client sends a custom XMTP content type:
 
 - **Your new inbox ID**: The fresh identity you'll use for the DM
 - **A DM tag**: A random identifier to correlate your request with the conversation you're added to
-- **Expiration**: This is a disappearing message (7 days) — when it expires, the green circle goes away
+- **Expiration**: This is a disappearing message. When it expires, the context linking the DM to the original convo disappears
 
 This message is delivered because your existing inbox ID (from the group) already has approved consent state with the recipient.
 
 ## Conversation creation
 
-When the other person accepts:
+When the receiver's client processes the request:
 
-1. They create a new inbox (their fresh DM identity)
-2. They create a new XMTP conversation (they're super admin)
-3. They add your inbox ID to the conversation
-4. They set the DM tag in conversation metadata
-5. They lock the conversation (no additional members allowed)
+1. Creates a new inbox (their fresh DM identity)
+2. Creates a new XMTP conversation (they're super admin)
+3. Adds the sender's inbox ID to the conversation
+4. Sets the DM tag in conversation metadata
+5. Locks the conversation (no additional members allowed)
+6. Sets consent state based on their DM settings
 
-## Verification
+## Consent logic
 
-When you're added to the DM conversation:
+The consent check happens on the receiver's device:
 
-1. Your client syncs the new conversation
-2. Checks if the conversation's DM tag matches the tag from your DMIntent
-3. If it matches, the DM is revealed in your home list
-4. If it doesn't match, the conversation is rejected (someone tried to add you to an unrelated convo)
+- If "From everyone": consent is set to approved immediately
+- If "From select members": consent is approved only if sender is in the list
+- If not approved, the conversation exists but won't surface notifications or appear prominently
 
-## Expiration and the green circle
-
-- The solid green circle persists while the DMIntent message exists
-- Once the disappearing message expires, the circle goes away
-- The DM itself remains — only the visual indicator of "how you connected" dissolves
-- This ensures the link between group identity and DM identity is ephemeral
+The sender has no way to know which path was taken.
 
 ## Locking the conversation
 
@@ -113,60 +119,54 @@ XMTP group permissions are set so:
 
 - Only the two inbox IDs can be members
 - No one can add additional members
-- The creator (accepter) retains super admin for explode control
+- The creator (receiver) retains super admin for explode control
 
 ---
 
 # FAQ
 
-**What if I signal intent but they never see it?**
-The disappearing message expires and the faint green circle goes away. You can signal again whenever you want.
-
 **Can I DM someone I'm not in a group with?**
-Not with this flow. This is specifically for connecting with people you've already met in a conversation. No requests box, ever.
+No. This is specifically for connecting with people you've already met in a conversation. No requests box, ever.
 
-**Do they see my group identity when I signal intent?**
-They see your avatar and name from the group — that's how they know who's reaching out. But the DM itself uses your fresh identity.
+**What if they have DMs off?**
+You won't see the "Send DM" button on their profile. You can't send them a DM from this convo.
+
+**What if I'm not on their select members list?**
+You can still send the DM request. The conversation is created, but they may not see it prominently. You won't know either way.
 
 **Can I change my name/photo for the DM?**
-Yes. When you signal intent, a new inbox is created. You can choose to use your quickname, or not, once the DM starts.
+Yes. When you send a DM request, a new inbox is created. You can choose to use your quickname, or not, once the DM starts.
 
-**Can the other person see that I signaled intent to others?**
-No. The DMIntent is sent via private XMTP DM between your group identities. No one else in the group can see it.
-
-**What if I tapped "Not interested" but changed my mind?**
-Send them a DM intent yourself. That unblocks them and signals you're now open to connecting.
-
-**Can I signal intent to multiple people?**
-Yes. Each intent creates a separate fresh identity, so you can have multiple pending requests at once.
+**What's the context that appears with the DM?**
+"From [display name] in [convo name]". This helps you remember how you met. It disappears when the DM request message expires.
 
 ---
 
 # Decisions
 
-1. **Green circle on profile sheet**: Yes — the DM status indicator appears both in the message list and on the profile sheet.
+1. **Allow DMs toggle**: Per-conversation setting with three states: off, everyone, select members.
 
-2. **DMIntent expiration**: 7 days. Long enough to catch people who don't check the app daily, short enough to feel ephemeral.
+2. **Profile metadata**: The `allowsDMs` flag is public within the group. Select members list is private.
 
-3. **"Not interested" action**: Yes — tapping "Not interested" blocks future DM intents from that person. You can always change your mind by sending them an intent yourself.
+3. **Silent filtering**: Senders don't know if they're on the approved list. No rejection notification.
 
-4. **Multiple pending intents**: Yes — you can signal intent to multiple people at the same time.
+4. **Context expiration**: The link between DM and origin convo is ephemeral, tied to the DM request message lifetime.
 
 ---
 
 # Open Questions
 
-## DM intent discoverability
+## Select members UX
 
-The faint green glow on someone's avatar may not be visible enough — you only see it if that person is actively chatting in the group.
+How do users manage their "select members" list per conversation?
 
-**Constraints:**
-- No badge or dismissable notification
-- Should not feel like a "request" or intrusive
+**Decision**: Inline in settings. Expanding the "Allow DMs" option shows a member picker where users can selectively add members to their allow list.
 
-**Ideas to explore:**
-1. **Sort members list** by who most recently sent a DM intent (one tap away from message list)
-2. **Temporary element** when re-entering the convo that teaches you to look at members list, then auto-dismisses
-3. **Info island treatment** — where it shows "11 people", show something like "New DM request" with motion design that draws attention then removes itself
+## DM request expiration
 
-**Current approach:** Ship with the green glow, learn from usage, iterate.
+How long should the DM request message live before the origin context disappears?
+
+- 7 days: Long enough to catch people who don't check daily
+- 24 hours: More ephemeral, less context lingering
+
+**Leaning toward**: 7 days, same as before.
