@@ -15,6 +15,9 @@ echo "🔍 Running pre-commit checks..."
 # Get staged Swift files
 STAGED_SWIFT_FILES=$(git diff --cached --name-only --diff-filter=d | grep '\.swift$' || true)
 
+# Filter out excluded directories (matches .swiftlint.yml excluded patterns)
+STAGED_SWIFT_FILES=$(echo "$STAGED_SWIFT_FILES" | grep -v -E '^\.derivedData/|^\.build/|/\.build/' || true)
+
 if [ -z "$STAGED_SWIFT_FILES" ]; then
     echo -e "${GREEN}✓ No Swift files staged, skipping checks${NC}"
     exit 0
