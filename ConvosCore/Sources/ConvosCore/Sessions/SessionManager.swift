@@ -531,11 +531,76 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: - Asset Renewal
 
     public func makeAssetRenewalManager() async -> AssetRenewalManager {
-        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
+        let recoveryHandler = ExpiredAssetRecoveryHandler(
+            databaseWriter: databaseWriter,
+            imageCache: ImageCacheContainer.shared
+        )
         return AssetRenewalManager(
             databaseWriter: databaseWriter,
             apiClient: apiClient,
             recoveryHandler: recoveryHandler
         )
+    }
+
+    public func forceReuploadAssetFromCache(_ asset: RenewableAsset) async throws -> Bool {
+        // Get clientId and inboxId for the asset
+        let (clientId, inboxId): (String, String) = try await {
+            switch asset {
+            case let .profileAvatar(_, conversationId, inboxId):
+                // Look up clientId from conversation
+                guard let conv = try await databaseReader.read({ db in
+                    try DBConversation.fetchOne(db, key: conversationId)
+                }) else {
+                    throw SessionManagerError.inboxNotFound
+                }
+                return (conv.clientId, inboxId)
+
+            case let .groupImage(_, conversationId):
+                // Look up both clientId and inboxId from conversation
+                guard let conv = try await databaseReader.read({ db in
+                    try DBConversation.fetchOne(db, key: conversationId)
+                }) else {
+                    throw SessionManagerError.inboxNotFound
+                }
+                return (conv.clientId, conv.inboxId)
+            }
+        }()
+
+        // Get the messaging service (this wakes the inbox if needed)
+        let service = try await messagingService(for: clientId, inboxId: inboxId)
+
+        // Create writers with the service's inboxStateManager
+        let myProfileWriter = MyProfileWriter(
+            inboxStateManager: service.inboxStateManager,
+            databaseWriter: databaseWriter
+        )
+        let inviteWriter = InviteWriter(
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
+        )
+        let conversationMetadataWriter = ConversationMetadataWriter(
+            inboxStateManager: service.inboxStateManager,
+            inviteWriter: inviteWriter,
+            databaseWriter: databaseWriter
+        )
+
+        // Create recovery handler with full capabilities
+        let recoveryHandler = ExpiredAssetRecoveryHandler(
+            databaseWriter: databaseWriter,
+            imageCache: ImageCacheContainer.shared,
+            myProfileWriter: myProfileWriter,
+            conversationMetadataWriter: conversationMetadataWriter
+        )
+
+        // Check if image is in cache
+        guard let url = URL(string: asset.url),
+              ImageCacheContainer.shared.image(for: url) != nil else {
+            Log.info("Image not found in cache for re-upload: \(asset.url)")
+            return false
+        }
+
+        // Perform the re-upload
+        await recoveryHandler.handleExpiredAsset(asset)
+        return true
     }
 }

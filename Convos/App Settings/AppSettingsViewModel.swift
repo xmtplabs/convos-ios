@@ -13,7 +13,7 @@ final class AppSettingsViewModel {
 
     // MARK: - Dependencies
 
-    private let session: any SessionManagerProtocol
+    let session: any SessionManagerProtocol
 
     init(session: any SessionManagerProtocol) {
         self.session = session

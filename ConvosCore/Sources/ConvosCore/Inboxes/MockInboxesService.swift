@@ -135,11 +135,18 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     public func makeAssetRenewalManager() async -> AssetRenewalManager {
         let dbManager = MockDatabaseManager.shared
-        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
+        let recoveryHandler = ExpiredAssetRecoveryHandler(
+            databaseWriter: dbManager.dbWriter,
+            imageCache: ImageCacheContainer.shared
+        )
         return AssetRenewalManager(
             databaseWriter: dbManager.dbWriter,
             apiClient: MockAPIClient(),
             recoveryHandler: recoveryHandler
         )
+    }
+
+    public func forceReuploadAssetFromCache(_ asset: RenewableAsset) async throws -> Bool {
+        false
     }
 }

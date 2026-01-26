@@ -103,6 +103,7 @@ private struct AssetRow: View {
     let onRenewalComplete: (String) -> Void
 
     @State private var isRenewing: Bool = false
+    @State private var isReuploading: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -113,7 +114,7 @@ private struct AssetRow: View {
 
                 Spacer()
 
-                if isRenewing {
+                if isRenewing || isReuploading {
                     ProgressView()
                         .scaleEffect(0.8)
                 }
@@ -152,6 +153,13 @@ private struct AssetRow: View {
                 Label("Renew Asset", systemImage: "arrow.clockwise")
             }
             .disabled(isRenewing || asset.key == nil)
+
+            Button {
+                Task { await forceReuploadFromCache() }
+            } label: {
+                Label("Force Re-upload from Cache", systemImage: "arrow.up.circle")
+            }
+            .disabled(isReuploading)
         }
     }
 
@@ -184,6 +192,24 @@ private struct AssetRow: View {
         } else {
             onRenewalComplete("Renewal failed. Check logs.")
         }
+    }
+
+    private func forceReuploadFromCache() async {
+        guard !isReuploading else { return }
+        isReuploading = true
+
+        do {
+            let success = try await session.forceReuploadAssetFromCache(asset)
+            if success {
+                onRenewalComplete("Re-uploaded from cache successfully")
+            } else {
+                onRenewalComplete("Image not found in cache")
+            }
+        } catch {
+            onRenewalComplete("Re-upload failed: \(error.localizedDescription)")
+        }
+
+        isReuploading = false
     }
 }
 

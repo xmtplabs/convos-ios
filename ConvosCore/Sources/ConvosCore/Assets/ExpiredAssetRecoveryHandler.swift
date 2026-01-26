@@ -1,16 +1,89 @@
 import Foundation
 import GRDB
 
-public struct ExpiredAssetRecoveryHandler: Sendable {
+public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
+    private let imageCache: (any ImageCacheProtocol)?
+    private let myProfileWriter: (any MyProfileWriterProtocol)?
+    private let conversationMetadataWriter: (any ConversationMetadataWriterProtocol)?
 
-    public init(databaseWriter: any DatabaseWriter) {
+    public init(
+        databaseWriter: any DatabaseWriter,
+        imageCache: (any ImageCacheProtocol)? = nil,
+        myProfileWriter: (any MyProfileWriterProtocol)? = nil,
+        conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil
+    ) {
         self.databaseWriter = databaseWriter
+        self.imageCache = imageCache
+        self.myProfileWriter = myProfileWriter
+        self.conversationMetadataWriter = conversationMetadataWriter
     }
 
     public func handleExpiredAsset(_ asset: RenewableAsset) async {
-        Log.warning("Asset expired and cannot be renewed: \(asset.url) - clearing URL")
+        // Try to recover from cache first
+        if await attemptRecoveryFromCache(asset) {
+            return
+        }
+
+        // Fall back to clearing the URL
+        Log.warning("Asset expired and cannot be recovered: \(asset.url) - clearing URL")
         await clearAssetUrl(asset)
+    }
+
+    private func attemptRecoveryFromCache(_ asset: RenewableAsset) async -> Bool {
+        guard let imageCache else {
+            Log.info("No image cache available for recovery")
+            return false
+        }
+
+        // Try to get image from cache using the URL
+        guard let url = URL(string: asset.url),
+              let cachedImage = imageCache.image(for: url) else {
+            Log.info("Image not found in cache for \(asset.url)")
+            return false
+        }
+
+        do {
+            switch asset {
+            case let .profileAvatar(_, conversationId, _):
+                guard let myProfileWriter else {
+                    Log.info("No profile writer available for recovery")
+                    return false
+                }
+
+                try await myProfileWriter.update(avatar: cachedImage, conversationId: conversationId)
+                Log.info("Auto-recovered profile avatar for conversation \(conversationId)")
+                return true
+
+            case let .groupImage(_, conversationId):
+                guard let conversationMetadataWriter else {
+                    Log.info("No conversation metadata writer available for recovery")
+                    return false
+                }
+
+                guard let conversation = try await fetchConversation(id: conversationId) else {
+                    Log.warning("Cannot recover group image - conversation not found: \(conversationId)")
+                    return false
+                }
+
+                try await conversationMetadataWriter.updateImage(cachedImage, for: conversation)
+                Log.info("Auto-recovered group image for conversation \(conversationId)")
+                return true
+            }
+        } catch {
+            Log.error("Failed to recover asset from cache: \(error.localizedDescription)")
+            return false
+        }
+    }
+
+    private func fetchConversation(id: String) async throws -> Conversation? {
+        try await databaseWriter.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.id == id)
+                .detailedConversationQuery()
+                .fetchOne(db)?
+                .hydrateConversation()
+        }
     }
 
     private func clearAssetUrl(_ asset: RenewableAsset) async {
