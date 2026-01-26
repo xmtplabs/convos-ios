@@ -146,6 +146,7 @@ public actor AssetRenewalManager {
             }
 
             // Batch requests to respect server limit
+            // Record progress after each batch to preserve partial success if later batch fails
             var totalRenewed = 0
             var totalFailed = 0
             var allExpiredKeys: [String] = []
@@ -155,25 +156,26 @@ public actor AssetRenewalManager {
                 totalRenewed += result.renewed
                 totalFailed += result.failed
                 allExpiredKeys.append(contentsOf: result.expiredKeys)
+
+                // Record renewed keys from this batch immediately
+                let batchExpiredSet = Set(result.expiredKeys)
+                let batchRenewedKeys = batch.filter { !batchExpiredSet.contains($0) }
+                storage.recordPerAssetRenewals(keys: batchRenewedKeys)
+
+                // Handle expired assets from this batch
+                for expiredKey in result.expiredKeys {
+                    if let asset = keyToAsset[expiredKey] {
+                        await recoveryHandler.handleExpiredAsset(asset)
+                    }
+                }
             }
 
             storage.recordRenewal()
-
-            // Record per-asset renewal for successfully renewed keys (all except expired ones)
-            let expiredSet = Set(allExpiredKeys)
-            let renewedKeys = assetKeys.filter { !expiredSet.contains($0) }
-            storage.recordPerAssetRenewals(keys: renewedKeys)
 
             // Prune keys for assets that no longer exist
             storage.pruneStaleKeys(validKeys: Set(assetKeys))
 
             Log.info("Asset renewal: \(totalRenewed) renewed, \(totalFailed) failed")
-
-            for expiredKey in allExpiredKeys {
-                if let asset = keyToAsset[expiredKey] {
-                    await recoveryHandler.handleExpiredAsset(asset)
-                }
-            }
 
             return AssetRenewalResult(renewed: totalRenewed, failed: totalFailed, expiredKeys: allExpiredKeys)
         } catch {
