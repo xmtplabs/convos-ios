@@ -23,6 +23,9 @@ struct DebugViewSection: View {
     @State private var lastDeviceToken: String = ""
     @State private var debugFileURLs: [URL]?
     @State private var preparingLogs: Bool = false
+    @State private var isRenewingAssets: Bool = false
+    @State private var renewalAlertMessage: String?
+    @State private var showingRenewalAlert: Bool = false
 
     private var bundleIdentifier: String {
         Bundle.main.bundleIdentifier ?? "Unknown"
@@ -179,6 +182,27 @@ struct DebugViewSection: View {
                 }
             }
 
+            Section("Asset Renewal") {
+                NavigationLink {
+                    DebugAssetRenewalView(environment: environment)
+                } label: {
+                    Text("View Renewable Assets")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+
+                Button {
+                    Task { await renewAssetsNow() }
+                } label: {
+                    HStack {
+                        Text("Renew Assets Now")
+                            .foregroundStyle(.colorTextPrimary)
+                        Spacer()
+                        if isRenewingAssets { ProgressView() }
+                    }
+                }
+                .disabled(isRenewingAssets)
+            }
+
             Section {
                 Button {
                     Task { await registerDeviceAgain() }
@@ -197,6 +221,11 @@ struct DebugViewSection: View {
         .task {
             await refreshNotificationStatus()
             await prepareDebugInfoFile()
+        }
+        .alert("Asset Renewal", isPresented: $showingRenewalAlert, presenting: renewalAlertMessage) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
         }
     }
 }
@@ -260,6 +289,30 @@ extension DebugViewSection {
 
     private func resetOnboarding() {
         ConversationOnboardingCoordinator().reset()
+    }
+
+    private func renewAssetsNow() async {
+        guard !isRenewingAssets else { return }
+        isRenewingAssets = true
+
+        let dbManager = DatabaseManager(environment: environment)
+        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
+        let renewalManager = AssetRenewalManager(
+            databaseReader: dbManager.dbReader,
+            apiClient: ConvosAPIClientFactory.client(environment: environment),
+            recoveryHandler: recoveryHandler
+        )
+
+        let result = await renewalManager.forceRenewal()
+
+        isRenewingAssets = false
+
+        if let result {
+            renewalAlertMessage = "Renewed: \(result.renewed)\nFailed: \(result.failed)\nExpired: \(result.expiredKeys.count)"
+        } else {
+            renewalAlertMessage = "Renewal failed. Check logs for details."
+        }
+        showingRenewalAlert = true
     }
 
     func testSentryMessage() {

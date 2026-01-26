@@ -27,7 +27,7 @@ public final class DatabaseManager: DatabaseManagerProtocol {
         dbPool as DatabaseReader
     }
 
-    init(environment: AppEnvironment) {
+    public init(environment: AppEnvironment) {
         self.environment = environment
         do {
             dbPool = try Self.makeDatabasePool(environment: environment)

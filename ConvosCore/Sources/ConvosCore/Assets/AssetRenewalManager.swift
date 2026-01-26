@@ -27,12 +27,19 @@ public actor AssetRenewalManager {
 
     public func performRenewalIfNeeded() async {
         guard shouldPerformRenewal() else { return }
+        _ = await performRenewal()
+    }
 
+    public func forceRenewal() async -> AssetRenewalResult? {
+        await performRenewal()
+    }
+
+    private func performRenewal() async -> AssetRenewalResult? {
         do {
             let assets = try collectAssets()
             guard !assets.isEmpty else {
                 recordRenewal()
-                return
+                return AssetRenewalResult(renewed: 0, failed: 0, expiredKeys: [])
             }
 
             var keyToAsset: [String: RenewableAsset] = [:]
@@ -43,7 +50,7 @@ public actor AssetRenewalManager {
             }
             guard !assetKeys.isEmpty else {
                 recordRenewal()
-                return
+                return AssetRenewalResult(renewed: 0, failed: 0, expiredKeys: [])
             }
 
             let result = try await apiClient.renewAssetsBatch(assetKeys: assetKeys)
@@ -56,8 +63,11 @@ public actor AssetRenewalManager {
                     await recoveryHandler.handleExpiredAsset(asset)
                 }
             }
+
+            return result
         } catch {
             Log.error("Asset renewal failed: \(error.localizedDescription)")
+            return nil
         }
     }
 

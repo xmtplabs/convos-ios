@@ -5,8 +5,8 @@ protocol ConvosAPIClientFactoryType {
     static func client(environment: AppEnvironment, overrideJWTToken: String?) -> any ConvosAPIClientProtocol
 }
 
-enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
-    static func client(environment: AppEnvironment, overrideJWTToken: String? = nil) -> any ConvosAPIClientProtocol {
+public enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
+    public static func client(environment: AppEnvironment, overrideJWTToken: String? = nil) -> any ConvosAPIClientProtocol {
         guard !environment.isTestingEnvironment else {
             return MockAPIClient()
         }

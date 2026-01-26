@@ -18,14 +18,14 @@ public enum RenewableAsset: Sendable {
     }
 }
 
-struct AssetRenewalURLCollector {
+public struct AssetRenewalURLCollector {
     private let databaseReader: any DatabaseReader
 
-    init(databaseReader: any DatabaseReader) {
+    public init(databaseReader: any DatabaseReader) {
         self.databaseReader = databaseReader
     }
 
-    func collectRenewableAssets() throws -> [RenewableAsset] {
+    public func collectRenewableAssets() throws -> [RenewableAsset] {
         try databaseReader.read { db in
             let allInboxIds = try DBInbox.fetchAll(db).map { $0.inboxId }
             guard !allInboxIds.isEmpty else { return [] }
@@ -40,7 +40,9 @@ struct AssetRenewalURLCollector {
                 .fetchAll(db)
 
             for profile in profiles {
-                guard let avatar = profile.avatar, !seenURLs.contains(avatar) else { continue }
+                guard let avatar = profile.avatar,
+                      !seenURLs.contains(avatar),
+                      Self.isValidAssetURL(avatar) else { continue }
                 seenURLs.insert(avatar)
                 assets.append(.profileAvatar(
                     url: avatar,
@@ -57,12 +59,24 @@ struct AssetRenewalURLCollector {
                 .fetchAll(db)
 
             for conv in conversations {
-                guard let imageURL = conv.imageURLString, !seenURLs.contains(imageURL) else { continue }
+                guard let imageURL = conv.imageURLString,
+                      !seenURLs.contains(imageURL),
+                      Self.isValidAssetURL(imageURL) else { continue }
                 seenURLs.insert(imageURL)
                 assets.append(.groupImage(url: imageURL, conversationId: conv.id))
             }
 
             return assets
         }
+    }
+
+    private static func isValidAssetURL(_ urlString: String) -> Bool {
+        guard let url = URL(string: urlString),
+              let scheme = url.scheme,
+              (scheme == "http" || scheme == "https"),
+              url.path.count > 1 else {
+            return false
+        }
+        return true
     }
 }
