@@ -209,7 +209,7 @@ private struct AssetRow: View {
             } else if !result.expiredKeys.isEmpty {
                 onRenewalComplete("Asset expired and was cleared")
             } else {
-                onRenewalComplete("Renewal failed")
+                onRenewalComplete("No renewal needed")
             }
         } else {
             onRenewalComplete("Renewal failed. Check logs.")
