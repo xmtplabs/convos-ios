@@ -137,7 +137,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 includeInfoInPublicPreview: false,
                 expiresAt: signedInvite.conversationExpiresAt,
                 debugInfo: .empty,
-                isLocked: false
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -191,13 +194,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
         let memberProfiles = try conversation.memberProfiles
 
-        // Get old URLs before saving (for cache invalidation)
-        let (oldImageURL, oldMemberProfiles) = try await databaseWriter.read { db -> (String?, [DBMemberProfile]) in
+        // Get old image URL before saving (for change detection)
+        let oldImageURL = try await databaseWriter.read { db -> String? in
             let oldConversation = try DBConversation.fetchOne(db, key: conversation.id)
-            let oldProfiles = try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == conversation.id)
-                .fetchAll(db)
-            return (oldConversation?.imageURLString, oldProfiles)
+            return oldConversation?.imageURLString
         }
 
         // Create database representation
@@ -217,8 +217,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             memberProfiles: memberProfiles
         )
 
-        // Prefetch encrypted profile images in background (with old URLs to invalidate)
-        prefetchEncryptedImages(profiles: memberProfiles, oldProfiles: oldMemberProfiles, group: conversation)
+        // Prefetch encrypted profile images in background
+        prefetchEncryptedImages(profiles: memberProfiles, group: conversation)
 
         // Prefetch encrypted group image in background (invalidate old URL if changed)
         // Use actualClientConversationId to match the ID that ViewModels subscribe to
@@ -260,6 +260,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let name: String?
         let description: String?
         let imageURLString: String?
+        let imageSalt: Data?
+        let imageNonce: Data?
+        let imageEncryptionKey: Data?
         let expiresAt: Date?
         let debugInfo: ConversationDebugInfo
         let isLocked: Bool
@@ -269,11 +272,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let debugInfo = try await conversation.getDebugInformation().toDBDebugInfo()
         let permissionPolicy = try conversation.permissionPolicySet()
         let isLocked = permissionPolicy.addMemberPolicy == .deny
+
+        let encryptedRef = try? conversation.encryptedGroupImage
+        let imageEncryptionKey = try? conversation.imageEncryptionKey
+
         return ConversationMetadata(
             kind: .group,
             name: try conversation.name(),
             description: try conversation.description(),
             imageURLString: try conversation.imageUrl(),
+            imageSalt: encryptedRef?.salt,
+            imageNonce: encryptedRef?.nonce,
+            imageEncryptionKey: imageEncryptionKey,
             expiresAt: try conversation.expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked
@@ -311,7 +321,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             includeInfoInPublicPreview: false,
             expiresAt: metadata.expiresAt,
             debugInfo: metadata.debugInfo,
-            isLocked: metadata.isLocked
+            isLocked: metadata.isLocked,
+            imageSalt: metadata.imageSalt,
+            imageNonce: metadata.imageNonce,
+            imageEncryptionKey: metadata.imageEncryptionKey
         )
     }
 
@@ -463,33 +476,16 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
     }
 
-    private func prefetchEncryptedImages(profiles: [DBMemberProfile], oldProfiles: [DBMemberProfile], group: XMTPiOS.Group) {
+    private func prefetchEncryptedImages(profiles: [DBMemberProfile], group: XMTPiOS.Group) {
         let encryptedProfiles = profiles.filter { $0.avatarSalt != nil && $0.avatarNonce != nil }
         guard !encryptedProfiles.isEmpty else { return }
 
         let groupKey: Data? = try? group.imageEncryptionKey
 
-        let oldAvatarURLsByInboxId = Dictionary(
-            oldProfiles.compactMap { profile -> (String, String)? in
-                guard let avatar = profile.avatar else { return nil }
-                return (profile.inboxId, avatar)
-            },
-            uniquingKeysWith: { first, _ in first }
-        )
-
         Task.detached(priority: .background) {
             guard let groupKey else {
                 Log.info("No image encryption key for group, skipping prefetch")
                 return
-            }
-
-            // Iterate oldAvatarURLsByInboxId to also invalidate avatars for removed members
-            for (inboxId, oldURL) in oldAvatarURLsByInboxId {
-                let newURL = encryptedProfiles.first(where: { $0.inboxId == inboxId })?.avatar
-                if newURL != oldURL {
-                    ImageCacheContainer.shared.removeImage(for: oldURL)
-                    Log.info("Invalidated old profile image cache for: \(inboxId)")
-                }
             }
 
             let prefetcher = EncryptedImagePrefetcher()
@@ -510,26 +506,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let urlString = encryptedRef.url
 
         Task.detached(priority: .background) {
-            if let oldImageURL {
-                ImageCacheContainer.shared.removeImage(for: oldImageURL)
-                Log.info("Invalidated old group image cache for: \(cacheId)")
-            }
-
-            if let cachedImage = await ImageCacheContainer.shared.imageAsync(for: urlString) {
-                ImageCacheContainer.shared.setImage(cachedImage, for: cacheId)
+            // If URL didn't change and we already have a cached image, skip
+            if oldImageURL == nil, await ImageCacheContainer.shared.imageAsync(for: cacheId) != nil {
                 return
             }
 
+            // Fetch new image (either first time, or URL changed)
+            // cacheAfterUpload will replace old image when new one is cached
             do {
                 let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(params: params)
 
-                guard let image = ImageType(data: decryptedData) else {
-                    Log.error("Failed to create image from decrypted group image data")
-                    return
-                }
-
-                ImageCacheContainer.shared.setImage(image, for: urlString)
-                ImageCacheContainer.shared.setImage(image, for: cacheId)
+                // Use data-based overload to avoid re-compression quality loss
+                ImageCacheContainer.shared.cacheAfterUpload(decryptedData, for: cacheId, url: urlString)
                 Log.info("Prefetched encrypted group image for conversation: \(cacheId)")
             } catch {
                 Log.error("Failed to prefetch encrypted group image: \(error)")

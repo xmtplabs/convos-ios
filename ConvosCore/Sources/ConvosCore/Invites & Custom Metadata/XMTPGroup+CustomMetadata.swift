@@ -165,31 +165,39 @@ extension XMTPiOS.Group {
 
     var memberProfiles: [DBMemberProfile] {
         get throws {
-            let customMetadata = try currentCustomMetadata
-            return customMetadata.profiles.map { profile in
-                let avatarUrl: String?
-                let salt: Data?
-                let nonce: Data?
+            try memberProfiles(withKey: imageEncryptionKey)
+        }
+    }
 
-                if profile.hasEncryptedImage, profile.encryptedImage.isValid {
-                    avatarUrl = profile.encryptedImage.url
-                    salt = profile.encryptedImage.salt
-                    nonce = profile.encryptedImage.nonce
-                } else {
-                    avatarUrl = profile.hasImage ? profile.image : nil
-                    salt = nil
-                    nonce = nil
-                }
+    func memberProfiles(withKey groupKey: Data?) throws -> [DBMemberProfile] {
+        let customMetadata = try currentCustomMetadata
+        return customMetadata.profiles.map { profile in
+            let avatarUrl: String?
+            let salt: Data?
+            let nonce: Data?
+            let key: Data?
 
-                return .init(
-                    conversationId: id,
-                    inboxId: profile.inboxIdString,
-                    name: profile.hasName ? profile.name : nil,
-                    avatar: avatarUrl,
-                    avatarSalt: salt,
-                    avatarNonce: nonce
-                )
+            if profile.hasEncryptedImage, profile.encryptedImage.isValid {
+                avatarUrl = profile.encryptedImage.url
+                salt = profile.encryptedImage.salt
+                nonce = profile.encryptedImage.nonce
+                key = groupKey
+            } else {
+                avatarUrl = profile.hasImage ? profile.image : nil
+                salt = nil
+                nonce = nil
+                key = nil
             }
+
+            return .init(
+                conversationId: id,
+                inboxId: profile.inboxIdString,
+                name: profile.hasName ? profile.name : nil,
+                avatar: avatarUrl,
+                avatarSalt: salt,
+                avatarNonce: nonce,
+                avatarKey: key
+            )
         }
     }
 

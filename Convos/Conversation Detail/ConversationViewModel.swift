@@ -314,8 +314,11 @@ class ConversationViewModel {
             }
             .sink { [weak self] _ in
                 guard let self, !self.isConversationImageDirty else { return }
-                self.conversationImage = ImageCache.shared.image(for: self.conversation)
-                self.isConversationImageDirty = false
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.conversationImage = await ImageCache.shared.loadImage(for: self.conversation)
+                    self.isConversationImageDirty = false
+                }
             }
             .store(in: &cancellables)
     }
@@ -323,47 +326,13 @@ class ConversationViewModel {
     private func loadConversationImage(for conversation: Conversation) {
         guard !isConversationImageDirty else { return }
 
-        if let cachedImage = ImageCache.shared.image(for: conversation) {
-            conversationImage = cachedImage
-            isConversationImageDirty = false
-            return
-        }
-
-        guard let imageURL = conversation.imageURL else { return }
-
-        if let cachedImage = ImageCache.shared.image(for: imageURL) {
-            conversationImage = cachedImage
-            isConversationImageDirty = false
-            return
-        }
-
         loadConversationImageTask?.cancel()
         loadConversationImageTask = Task { [weak self] in
             guard let self else { return }
-
-            if let cachedImage = await ImageCache.shared.imageAsync(for: imageURL) {
-                guard !Task.isCancelled, !self.isConversationImageDirty else { return }
-                self.conversationImage = cachedImage
-                self.isConversationImageDirty = false
-                return
-            }
-
-            do {
-                let (data, _) = try await URLSession.shared.data(from: imageURL)
-                guard !Task.isCancelled else { return }
-                guard let image = UIImage(data: data) else { return }
-
-                ImageCache.shared.setImage(image, for: imageURL.absoluteString)
-                ImageCache.shared.setImage(image, for: conversation)
-
-                guard !self.isConversationImageDirty else { return }
-                self.conversationImage = image
-                self.isConversationImageDirty = false
-            } catch {
-                if !Task.isCancelled {
-                    Log.error("Error loading conversation image: \(error)")
-                }
-            }
+            let image = await ImageCache.shared.loadImage(for: conversation)
+            guard !Task.isCancelled, !self.isConversationImageDirty else { return }
+            self.conversationImage = image
+            self.isConversationImageDirty = false
         }
     }
 
@@ -410,7 +379,7 @@ class ConversationViewModel {
         }
 
         if isConversationImageDirty, let conversationImage = conversationImage {
-            ImageCache.shared.setImage(conversationImage, for: conversation)
+            ImageCache.shared.cacheImage(conversationImage, for: conversation.imageCacheIdentifier, imageFormat: .jpg)
             isConversationImageDirty = false
 
             Task { [weak self] in
@@ -465,11 +434,7 @@ class ConversationViewModel {
         isEditingDescription = false
         editingConversationName = conversation.name ?? ""
         editingDescription = conversation.description ?? ""
-        if let imageURL = conversation.imageURL {
-            conversationImage = ImageCache.shared.image(for: imageURL)
-        } else {
-            conversationImage = nil
-        }
+        conversationImage = ImageCache.shared.image(for: conversation)
         isConversationImageDirty = false
     }
 

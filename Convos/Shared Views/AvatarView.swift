@@ -1,16 +1,12 @@
-import Combine
 import ConvosCore
-import Observation
 import SwiftUI
 
 struct AvatarView: View {
-    let imageURL: URL?
     let fallbackName: String
     let cacheableObject: any ImageCacheable
     let placeholderImage: UIImage?
     let placeholderImageName: String?
     @State private var cachedImage: UIImage?
-    @State private var isLoading: Bool = false
 
     var body: some View {
         Group {
@@ -34,49 +30,7 @@ struct AvatarView: View {
         }
         .aspectRatio(1.0, contentMode: .fit)
         .clipShape(Circle())
-        .task(id: imageURL) {
-            await loadImage()
-        }
-        .cachedImage(for: cacheableObject) { image in
-            cachedImage = image
-        }
-    }
-
-    @MainActor
-    private func loadImage() async {
-        let unsafeCacheable = cacheableObject
-        guard let imageURL else {
-            cachedImage = await ImageCache.shared.imageAsync(for: unsafeCacheable)
-            return
-        }
-
-        if let existingImage = await ImageCache.shared.imageAsync(for: imageURL) {
-            cachedImage = existingImage
-            ImageCache.shared.setImage(existingImage, for: unsafeCacheable)
-            return
-        }
-
-        // Show stale object cache as placeholder while fresh URL-based image loads.
-        // Better UX than showing blank/monogram during network fetch.
-        if let cachedObjectImage = await ImageCache.shared.imageAsync(for: unsafeCacheable) {
-            cachedImage = cachedObjectImage
-        }
-
-        isLoading = true
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: imageURL)
-            if let image = UIImage(data: data) {
-                ImageCache.shared.setImage(image, for: imageURL.absoluteString)
-                ImageCache.shared.setImage(image, for: unsafeCacheable)
-                cachedImage = image
-            }
-        } catch {
-            Log.error("Error loading image cacheable object: \(unsafeCacheable) from url: \(imageURL)")
-            cachedImage = nil
-        }
-
-        isLoading = false
+        .cachedImage(for: cacheableObject, into: $cachedImage)
     }
 }
 
@@ -87,7 +41,6 @@ struct ProfileAvatarView: View {
 
     var body: some View {
         AvatarView(
-            imageURL: profile.avatarURL,
             fallbackName: profile.displayName,
             cacheableObject: profile,
             placeholderImage: profileImage,
@@ -97,42 +50,12 @@ struct ProfileAvatarView: View {
 }
 
 /// Lightweight avatar optimized for scroll performance in conversation lists.
-/// Uses synchronous memory cache lookup first - if hit, no async work happens.
-/// Falls back to async loading only if image isn't in memory cache.
-/// This prevents layout invalidation during scroll for already-cached images.
+/// Uses the new cachedImage modifier for automatic loading and URL change detection.
 struct ConversationAvatarView: View {
     let conversation: Conversation
     let conversationImage: UIImage?
 
-    @State private var asyncLoadedImage: UIImage?
-
-    private var imageURL: URL? {
-        switch conversation.avatarType {
-        case .customImage:
-            return conversation.imageURL
-        case .profile(let profile):
-            return profile.avatarURL
-        default:
-            return nil
-        }
-    }
-
-    private var syncCachedImage: UIImage? {
-        // Check URL cache first - this correctly handles URL changes
-        // (identifier cache would return stale image if URL changed)
-        if let url = imageURL {
-            return ImageCache.shared.image(for: url.absoluteString)
-        }
-        // No URL - fall back to identifier cache for non-image avatar types
-        switch conversation.avatarType {
-        case .customImage:
-            return ImageCache.shared.image(for: conversation)
-        case .profile(let profile):
-            return ImageCache.shared.image(for: profile)
-        default:
-            return nil
-        }
-    }
+    @State private var cachedImage: UIImage?
 
     var body: some View {
         Group {
@@ -140,11 +63,7 @@ struct ConversationAvatarView: View {
                 Image(uiImage: conversationImage)
                     .resizable()
                     .scaledToFill()
-            } else if let image = syncCachedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else if let image = asyncLoadedImage {
+            } else if let image = cachedImage {
                 Image(uiImage: image)
                     .resizable()
                     .scaledToFill()
@@ -154,13 +73,7 @@ struct ConversationAvatarView: View {
         }
         .aspectRatio(1.0, contentMode: .fit)
         .clipShape(Circle())
-        .task(id: imageURL) {
-            guard syncCachedImage == nil else { return }
-            await loadImage()
-        }
-        .cachedImage(for: conversation) { image in
-            asyncLoadedImage = image
-        }
+        .cachedImage(for: conversation, into: $cachedImage)
     }
 
     @ViewBuilder
@@ -178,103 +91,19 @@ struct ConversationAvatarView: View {
             MonogramView(name: name)
         }
     }
-
-    @MainActor
-    private func loadImage() async {
-        switch conversation.avatarType {
-        case .customImage:
-            await loadCustomImage()
-        case .profile(let profile):
-            await loadProfileImage(profile)
-        default:
-            break
-        }
-    }
-
-    @MainActor
-    private func loadCustomImage() async {
-        guard let url = conversation.imageURL else {
-            asyncLoadedImage = await ImageCache.shared.imageAsync(for: conversation)
-            return
-        }
-
-        if let existingImage = await ImageCache.shared.imageAsync(for: url) {
-            asyncLoadedImage = existingImage
-            ImageCache.shared.setImage(existingImage, for: conversation)
-            return
-        }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let image = UIImage(data: data) {
-                ImageCache.shared.setImage(image, for: url.absoluteString)
-                ImageCache.shared.setImage(image, for: conversation)
-                asyncLoadedImage = image
-            }
-        } catch {
-            Log.error("Error loading conversation image from url: \(url)")
-        }
-    }
-
-    @MainActor
-    private func loadProfileImage(_ profile: Profile) async {
-        guard let url = profile.avatarURL else {
-            asyncLoadedImage = await ImageCache.shared.imageAsync(for: profile)
-            return
-        }
-
-        if let existingImage = await ImageCache.shared.imageAsync(for: url) {
-            asyncLoadedImage = existingImage
-            ImageCache.shared.setImage(existingImage, for: profile)
-            ImageCache.shared.setImage(existingImage, for: conversation)
-            return
-        }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            if let image = UIImage(data: data) {
-                ImageCache.shared.setImage(image, for: url.absoluteString)
-                ImageCache.shared.setImage(image, for: profile)
-                ImageCache.shared.setImage(image, for: conversation)
-                asyncLoadedImage = image
-            }
-        } catch {
-            Log.error("Error loading profile avatar from url: \(url)")
-        }
-    }
 }
 
 /// Lightweight avatar optimized for scroll performance in lists.
-/// Uses synchronous memory cache lookup first - if hit, no async work happens.
-/// Falls back to async loading only if image isn't in memory cache.
-/// This prevents layout invalidation during scroll for already-cached images.
+/// Uses the new cachedImage modifier for automatic loading and URL change detection.
 struct MessageAvatarView: View {
     let profile: Profile
     let size: CGFloat
 
-    @State private var asyncLoadedImage: UIImage?
-
-    private var imageURL: URL? {
-        profile.avatarURL
-    }
-
-    private var syncCachedImage: UIImage? {
-        // Check URL cache first - this correctly handles URL changes
-        // (identifier cache would return stale image if URL changed)
-        if let url = imageURL {
-            return ImageCache.shared.image(for: url.absoluteString)
-        }
-        // No URL - fall back to identifier cache
-        return ImageCache.shared.image(for: profile)
-    }
+    @State private var cachedImage: UIImage?
 
     var body: some View {
         Group {
-            if let image = syncCachedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-            } else if let image = asyncLoadedImage {
+            if let image = cachedImage {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
@@ -284,38 +113,7 @@ struct MessageAvatarView: View {
         }
         .frame(width: size, height: size)
         .clipShape(Circle())
-        .task(id: imageURL) {
-            guard syncCachedImage == nil else { return }
-            await loadImage()
-        }
-        .cachedImage(for: profile) { image in
-            asyncLoadedImage = image
-        }
-    }
-
-    @MainActor
-    private func loadImage() async {
-        guard let imageURL else {
-            asyncLoadedImage = await ImageCache.shared.imageAsync(for: profile)
-            return
-        }
-
-        if let existingImage = await ImageCache.shared.imageAsync(for: imageURL) {
-            asyncLoadedImage = existingImage
-            ImageCache.shared.setImage(existingImage, for: profile)
-            return
-        }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: imageURL)
-            if let image = UIImage(data: data) {
-                ImageCache.shared.setImage(image, for: imageURL.absoluteString)
-                ImageCache.shared.setImage(image, for: profile)
-                asyncLoadedImage = image
-            }
-        } catch {
-            Log.error("Error loading avatar for profile \(profile.displayName) from url: \(imageURL)")
-        }
+        .cachedImage(for: profile, into: $cachedImage)
     }
 }
 

@@ -22,6 +22,9 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let pinnedOrder: Int?
     public let lastMessage: MessagePreview?
     public let imageURL: URL?
+    public let imageSalt: Data?
+    public let imageNonce: Data?
+    public let imageEncryptionKey: Data?
     public let includeInfoInPublicPreview: Bool
     public let isDraft: Bool
     public let invite: Invite?
@@ -77,13 +80,10 @@ public extension Conversation {
         if imageURL != nil {
             return .customImage
         }
-        if kind == .dm {
-            if let otherMember {
-                return .profile(otherMember.profile)
-            }
-            return .monogram(computedDisplayName)
-        }
         let otherProfiles = membersWithoutCurrent.map(\.profile)
+        if otherProfiles.count == 1, let otherMember = otherProfiles.first {
+            return .profile(otherMember)
+        }
         if otherProfiles.isEmpty || !otherProfiles.hasAnyAvatar {
             return .emoji(defaultEmoji)
         }

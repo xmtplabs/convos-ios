@@ -12,7 +12,12 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
     private static let maxRetryAttempts: Int = 2
     private static let retryDelaySeconds: UInt64 = 1
 
-    init() {}
+    private var inflightFetches: [String: Task<Void, Never>] = [:]
+    private let loader: any EncryptedImageLoaderProtocol
+
+    init(loader: any EncryptedImageLoaderProtocol = EncryptedImageLoaderInstance.shared) {
+        self.loader = loader
+    }
 
     func prefetchProfileImages(
         profiles: [DBMemberProfile],
@@ -41,14 +46,25 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
     }
 
     private func filterUncachedProfiles(_ profiles: [DBMemberProfile]) async -> [DBMemberProfile] {
+        var seen: Set<String> = []
         var uncached: [DBMemberProfile] = []
         for profile in profiles {
-            guard profile.hasValidEncryptedAvatar,
-                  let urlString = profile.avatar else {
+            guard profile.hasValidEncryptedAvatar else {
                 continue
             }
 
-            if await ImageCacheContainer.shared.imageAsync(for: urlString) == nil {
+            let hydratedProfile = profile.hydrateProfile()
+            let identifier = hydratedProfile.imageCacheIdentifier
+
+            guard !seen.contains(identifier) else {
+                continue
+            }
+            seen.insert(identifier)
+
+            let notCached = await ImageCacheContainer.shared.imageAsync(for: hydratedProfile) == nil
+            let urlChanged = await ImageCacheContainer.shared.hasURLChanged(profile.avatar, for: identifier)
+
+            if notCached || urlChanged {
                 uncached.append(profile)
             }
         }
@@ -56,6 +72,23 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
     }
 
     private func prefetchWithRetry(profile: DBMemberProfile, groupKey: Data) async {
+        let inboxId = profile.inboxId
+
+        if let existingTask = inflightFetches[inboxId] {
+            await existingTask.value
+            return
+        }
+
+        let task = Task<Void, Never> {
+            await self.doFetch(profile: profile, groupKey: groupKey)
+        }
+        inflightFetches[inboxId] = task
+
+        await task.value
+        inflightFetches.removeValue(forKey: inboxId)
+    }
+
+    private func doFetch(profile: DBMemberProfile, groupKey: Data) async {
         guard profile.hasValidEncryptedAvatar,
               let urlString = profile.avatar,
               let url = URL(string: urlString),
@@ -75,17 +108,11 @@ actor EncryptedImagePrefetcher: EncryptedImagePrefetcherProtocol {
                     groupKey: groupKey
                 )
 
-                let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(params: params)
+                let decryptedData = try await loader.loadAndDecrypt(params: params)
 
-                guard let image = ImageType(data: decryptedData) else {
-                    throw NSError(
-                        domain: "EncryptedImagePrefetcher",
-                        code: -1,
-                        userInfo: [NSLocalizedDescriptionKey: "Failed to create image from decrypted data"]
-                    )
-                }
-                ImageCacheContainer.shared.setImage(image, for: urlString)
-                ImageCacheContainer.shared.setImage(image, for: profile.inboxId)
+                let hydratedProfile = profile.hydrateProfile()
+                // Use data-based overload to avoid re-compression quality loss
+                ImageCacheContainer.shared.cacheAfterUpload(decryptedData, for: hydratedProfile.imageCacheIdentifier, url: urlString)
                 Log.info("Prefetched encrypted profile image for: \(profile.inboxId)")
                 return
             } catch {

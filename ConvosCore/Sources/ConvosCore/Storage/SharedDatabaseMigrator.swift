@@ -195,6 +195,20 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addAvatarKeyToMemberProfile") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "avatarKey", .blob)
+            }
+        }
+
+        migrator.registerMigration("addGroupImageEncryptionToConversation") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "imageSalt", .blob)
+                t.add(column: "imageNonce", .blob)
+                t.add(column: "imageEncryptionKey", .blob)
+            }
+        }
+
         return migrator
     }
 }

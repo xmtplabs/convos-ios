@@ -191,7 +191,10 @@ struct PendingInviteRepositoryTests {
             includeInfoInPublicPreview: false,
             expiresAt: nil,
             debugInfo: .empty,
-            isLocked: false
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil
         )
     }
 }

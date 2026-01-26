@@ -137,6 +137,11 @@ class MyClass {
 }
 ```
 
+**Comments:**
+- Do not use all-caps for emphasis (e.g., "NOT", "NEVER", "ALWAYS")
+- Use lowercase with appropriate context instead (e.g., "not" or "avoid")
+- Exception: Acronyms like "API", "URL", "JSON" remain uppercase
+
 ### Guard Preference
 Prefer `guard` with early return over `if` with early return for validation and unwrapping:
 ```swift

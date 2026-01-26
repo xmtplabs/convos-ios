@@ -8,7 +8,8 @@ extension DBMemberProfile {
             name: name,
             avatar: avatar,
             avatarSalt: avatarSalt,
-            avatarNonce: avatarNonce
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey
         )
     }
 }

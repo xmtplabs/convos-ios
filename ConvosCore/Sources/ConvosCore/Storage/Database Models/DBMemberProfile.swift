@@ -11,6 +11,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let avatar: Column = Column(CodingKeys.avatar)
         static let avatarSalt: Column = Column(CodingKeys.avatarSalt)
         static let avatarNonce: Column = Column(CodingKeys.avatarNonce)
+        static let avatarKey: Column = Column(CodingKeys.avatarKey)
     }
 
     let conversationId: String
@@ -19,6 +20,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     let avatar: String?
     let avatarSalt: Data?
     let avatarNonce: Data?
+    let avatarKey: Data?
 
     init(
         conversationId: String,
@@ -26,7 +28,8 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         name: String?,
         avatar: String?,
         avatarSalt: Data? = nil,
-        avatarNonce: Data? = nil
+        avatarNonce: Data? = nil,
+        avatarKey: Data? = nil
     ) {
         self.conversationId = conversationId
         self.inboxId = inboxId
@@ -34,6 +37,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.avatar = avatar
         self.avatarSalt = avatarSalt
         self.avatarNonce = avatarNonce
+        self.avatarKey = avatarKey
     }
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
@@ -86,7 +90,8 @@ extension DBMemberProfile {
             name: name,
             avatar: avatar,
             avatarSalt: avatarSalt,
-            avatarNonce: avatarNonce
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey
         )
     }
 
@@ -97,18 +102,20 @@ extension DBMemberProfile {
             name: name,
             avatar: avatar,
             avatarSalt: avatarSalt,
-            avatarNonce: avatarNonce
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey
         )
     }
 
-    func with(avatar: String?, salt: Data?, nonce: Data?) -> DBMemberProfile {
+    func with(avatar: String?, salt: Data?, nonce: Data?, key: Data?) -> DBMemberProfile {
         .init(
             conversationId: conversationId,
             inboxId: inboxId,
             name: name,
             avatar: avatar,
             avatarSalt: salt,
-            avatarNonce: nonce
+            avatarNonce: nonce,
+            avatarKey: key
         )
     }
 

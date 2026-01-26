@@ -42,7 +42,10 @@ struct SessionManagerTests {
                 includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
-                isLocked: false
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil
             ).insert(db)
         }
 
@@ -110,7 +113,10 @@ struct SessionManagerTests {
                 includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
-                isLocked: false
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil
             ).insert(db)
         }
 
@@ -146,7 +152,10 @@ struct SessionManagerTests {
                 includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
-                isLocked: false
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil
             ).insert(db)
         }
 
@@ -190,7 +199,10 @@ struct SessionManagerTests {
                 includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
-                isLocked: false
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -212,7 +224,10 @@ struct SessionManagerTests {
                 includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
-                isLocked: false
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil
             ).insert(db)
         }
 
@@ -260,7 +275,10 @@ struct SessionManagerTests {
                 includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
-                isLocked: false
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -282,7 +300,10 @@ struct SessionManagerTests {
                 includeInfoInPublicPreview: false,
                 expiresAt: nil,
                 debugInfo: .empty,
-                isLocked: false
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil
             ).insert(db)
         }
 

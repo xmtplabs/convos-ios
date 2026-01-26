@@ -66,6 +66,17 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         self.databaseWriter = databaseWriter
     }
 
+    // MARK: - Invite Preview Sync
+
+    private func syncInvitePreview(for conversation: DBConversation) async throws {
+        _ = try await inviteWriter.update(
+            for: conversation.id,
+            name: conversation.includeInfoInPublicPreview ? conversation.name : nil,
+            description: conversation.includeInfoInPublicPreview ? conversation.description : nil,
+            imageURL: conversation.includeInfoInPublicPreview ? conversation.publicImageURLString : nil
+        )
+    }
+
     // MARK: - Conversation Metadata Updates
 
     func updateName(_ name: String, for conversationId: String) async throws {
@@ -91,12 +102,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             return updatedConversation
         }
 
-        _ = try await inviteWriter.update(
-            for: updatedConversation.id,
-            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
-            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
-            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
-        )
+        try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated conversation name for \(conversationId): \(truncatedName)")
     }
@@ -121,12 +127,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             return updatedConversation
         }
 
-        _ = try await inviteWriter.update(
-            for: updatedConversation.id,
-            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
-            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
-            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
-        )
+        try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated conversation expiresAt for \(conversationId): \(expiresAt)")
     }
@@ -152,12 +153,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             return updatedConversation
         }
 
-        _ = try await inviteWriter.update(
-            for: updatedConversation.id,
-            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
-            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
-            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
-        )
+        try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated conversation description for \(conversationId): \(description)")
     }
@@ -170,7 +166,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             throw ConversationMetadataError.conversationNotFound(conversationId: conversation.id)
         }
 
-        guard let compressedImageData = ImageCacheContainer.shared.resizeCacheAndGetData(
+        guard let compressedImageData = ImageCacheContainer.shared.prepareForUpload(
             image,
             for: conversation
         ) else {
@@ -254,19 +250,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             ImageCacheContainer.shared.removeImage(for: oldPublicImageURL)
         }
 
+        // Cache the uploaded image using the new URL-tracking API
+        // Uses prepareForUpload + cacheAfterUpload to avoid double-caching
         if let cachedImage = ImageType(data: compressedImageData) {
-            ImageCacheContainer.shared.setImage(cachedImage, for: encryptedAssetUrl)
-            if let publicImageUrl {
-                ImageCacheContainer.shared.setImage(cachedImage, for: publicImageUrl)
-            }
+            ImageCacheContainer.shared.cacheAfterUpload(cachedImage, for: conversation, url: encryptedAssetUrl)
         }
 
-        _ = try await inviteWriter.update(
-            for: updatedConversation.id,
-            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
-            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
-            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
-        )
+        try await syncInvitePreview(for: updatedConversation)
 
         if includePublicPreview {
             Log.info("Public preview URL set for invites")
@@ -322,12 +312,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         guard let updatedConversation else { return }
 
-        _ = try await inviteWriter.update(
-            for: updatedConversation.id,
-            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
-            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
-            imageURL: updatedConversation.includeInfoInPublicPreview ? updatedConversation.publicImageURLString : nil
-        )
+        try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated includeInfoInPublicPreview for \(conversationId): \(enabled)")
     }
@@ -414,12 +399,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             return updated
         }
 
-        _ = try await inviteWriter.update(
-            for: updatedConversation.id,
-            name: updatedConversation.includeInfoInPublicPreview ? updatedConversation.name : nil,
-            description: updatedConversation.includeInfoInPublicPreview ? updatedConversation.description : nil,
-            imageURL: publicImageUrl
-        )
+        try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated conversation image for \(conversationId): \(imageURL)")
     }

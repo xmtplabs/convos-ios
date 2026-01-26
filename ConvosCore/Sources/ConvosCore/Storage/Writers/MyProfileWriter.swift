@@ -80,7 +80,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
         guard let avatarImage = avatar else {
             ImageCacheContainer.shared.removeImage(for: profile.hydrateProfile())
-            let updatedProfile = profile.with(avatar: nil, salt: nil, nonce: nil)
+            let updatedProfile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
             try await databaseWriter.write { db in
                 try updatedProfile.save(db)
             }
@@ -89,7 +89,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         let hydratedProfile = profile.hydrateProfile()
-        guard let compressedImageData = ImageCacheContainer.shared.resizeCacheAndGetData(
+        guard let compressedImageData = ImageCacheContainer.shared.prepareForUpload(
             avatarImage,
             for: hydratedProfile
         ) else {
@@ -112,13 +112,15 @@ class MyProfileWriter: MyProfileWriterProtocol {
         let updatedProfile = profile.with(
             avatar: uploadedAssetUrl,
             salt: encryptedPayload.salt,
-            nonce: encryptedPayload.nonce
+            nonce: encryptedPayload.nonce,
+            key: groupKey
         )
 
         try await group.updateProfile(updatedProfile)
 
+        // Cache the uploaded image using the new URL-tracking API
         if let image = ImageType(data: compressedImageData) {
-            ImageCacheContainer.shared.setImage(image, for: uploadedAssetUrl)
+            ImageCacheContainer.shared.cacheAfterUpload(image, for: hydratedProfile, url: uploadedAssetUrl)
         }
 
         try await databaseWriter.write { db in

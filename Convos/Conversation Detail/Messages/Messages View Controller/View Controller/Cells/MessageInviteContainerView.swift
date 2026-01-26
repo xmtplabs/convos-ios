@@ -141,7 +141,7 @@ struct MessageInviteView: View {
                 let (data, _) = try await URLSession.shared.data(from: imageURL)
                 if let image = UIImage(data: data) {
                     // Cache the image for future use
-                    ImageCache.shared.setImage(image, for: invite)
+                    ImageCache.shared.cacheAfterUpload(image, for: invite, url: imageURL.absoluteString)
                     cachedImage = image
                 }
             } catch {

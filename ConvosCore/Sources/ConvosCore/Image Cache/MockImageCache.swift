@@ -9,19 +9,27 @@ import Combine
 public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
     public init() {}
 
-    // MARK: - Object-based Methods
+    // MARK: - Primary API (object-based with URL tracking)
+
+    public func loadImage(for object: any ImageCacheable) async -> ImageType? { nil }
 
     public func image(for object: any ImageCacheable) -> ImageType? { nil }
 
     public func imageAsync(for object: any ImageCacheable) async -> ImageType? { nil }
 
-    public func setImage(_ image: ImageType, for object: any ImageCacheable) {}
-
-    public func resizeCacheAndGetData(_ image: ImageType, for object: any ImageCacheable) -> Data? { nil }
-
     public func removeImage(for object: any ImageCacheable) {}
 
-    // MARK: - Identifier-based Methods
+    // MARK: - Upload Support
+
+    public func prepareForUpload(_ image: ImageType, for object: any ImageCacheable) -> Data? { nil }
+
+    public func cacheAfterUpload(_ image: ImageType, for object: any ImageCacheable, url: String) {}
+
+    public func cacheAfterUpload(_ image: ImageType, for identifier: String, url: String) {}
+
+    public func cacheAfterUpload(_ imageData: Data, for identifier: String, url: String) {}
+
+    // MARK: - Identifier-based (for QR codes, generated images)
 
     public func image(for identifier: String, imageFormat: ImageFormat) -> ImageType? { nil }
 
@@ -29,22 +37,27 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     public func cacheImage(_ image: ImageType, for identifier: String, imageFormat: ImageFormat) {}
 
-    public func resizeCacheAndGetData(_ image: ImageType, for identifier: String) -> Data? { nil }
-
     public func removeImage(for identifier: String) {}
 
-    // MARK: - URL-based Methods
+    // MARK: - URL Change Detection
 
-    public func image(for url: URL) -> ImageType? { nil }
+    public func hasURLChanged(_ url: String?, for identifier: String) async -> Bool { false }
 
-    public func imageAsync(for url: URL) async -> ImageType? { nil }
-
-    public func setImage(_ image: ImageType, for url: String) {}
+    // MARK: - Observation
 
     public var cacheUpdates: AnyPublisher<String, Never> {
         _cacheUpdates.eraseToAnyPublisher()
     }
 
+    /// Publisher that emits when an image URL changes for an identifier.
+    ///
+    /// - Important: **For testing only.** Do not use this for UI observation.
+    ///   Use `cacheUpdates` instead, which emits when an image is cached and ready to display.
+    internal var urlChanges: AnyPublisher<ImageURLChange, Never> {
+        _urlChanges.eraseToAnyPublisher()
+    }
+
     private var _cacheUpdates: CurrentValueSubject<String, Never> = .init("")
+    private var _urlChanges: PassthroughSubject<ImageURLChange, Never> = .init()
 }
 #endif

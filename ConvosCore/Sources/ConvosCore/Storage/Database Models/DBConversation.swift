@@ -44,6 +44,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let expiresAt: Column = Column(CodingKeys.expiresAt)
         static let debugInfo: Column = Column(CodingKeys.debugInfo)
         static let isLocked: Column = Column(CodingKeys.isLocked)
+        static let imageSalt: Column = Column(CodingKeys.imageSalt)
+        static let imageNonce: Column = Column(CodingKeys.imageNonce)
+        static let imageEncryptionKey: Column = Column(CodingKeys.imageEncryptionKey)
     }
 
     let id: String
@@ -63,6 +66,9 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let expiresAt: Date?
     let debugInfo: ConversationDebugInfo
     let isLocked: Bool
+    let imageSalt: Data?
+    let imageNonce: Data?
+    let imageEncryptionKey: Data?
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
         [Columns.creatorId, Columns.id],
@@ -215,7 +221,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -237,7 +246,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -259,7 +271,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -281,7 +296,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -303,7 +321,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -327,7 +348,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -349,7 +373,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -371,7 +398,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -393,7 +423,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -415,7 +448,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -437,7 +473,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -459,7 +498,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 
@@ -481,7 +523,10 @@ extension DBConversation {
             includeInfoInPublicPreview: includeInfoInPublicPreview,
             expiresAt: expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey
         )
     }
 

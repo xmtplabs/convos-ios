@@ -5,7 +5,11 @@ import Foundation
 
 /// Protocol for image caching implementations
 public protocol ImageCacheProtocol: AnyObject, Sendable {
-    // MARK: - Object-based Methods
+    // MARK: - Primary API (object-based with URL tracking)
+
+    /// Load image for an ImageCacheable object, using its URL for fetching
+    /// Handles memory → disk → network with URL tracking
+    func loadImage(for object: any ImageCacheable) async -> ImageType?
 
     /// Get cached image for any ImageCacheable object (synchronous, memory only)
     func image(for object: any ImageCacheable) -> ImageType?
@@ -13,16 +17,24 @@ public protocol ImageCacheProtocol: AnyObject, Sendable {
     /// Get cached image for any ImageCacheable object (async, checks memory → disk)
     func imageAsync(for object: any ImageCacheable) async -> ImageType?
 
-    /// Set cached image for any ImageCacheable object
-    func setImage(_ image: ImageType, for object: any ImageCacheable)
-
-    /// Resize, cache, and return JPEG data for upload
-    func resizeCacheAndGetData(_ image: ImageType, for object: any ImageCacheable) -> Data?
-
     /// Remove cached image for any ImageCacheable object
     func removeImage(for object: any ImageCacheable)
 
-    // MARK: - Identifier-based Methods
+    // MARK: - Upload Support
+
+    /// Prepare an image for upload by resizing/compressing and caching it
+    func prepareForUpload(_ image: ImageType, for object: any ImageCacheable) -> Data?
+
+    /// Cache an image after upload completes, updating URL tracking
+    func cacheAfterUpload(_ image: ImageType, for object: any ImageCacheable, url: String)
+
+    /// Cache an image after fetching/decrypting, updating URL tracking (identifier-based)
+    func cacheAfterUpload(_ image: ImageType, for identifier: String, url: String)
+
+    /// Cache pre-compressed image data after fetching/decrypting (avoids re-compression)
+    func cacheAfterUpload(_ imageData: Data, for identifier: String, url: String)
+
+    // MARK: - Identifier-based (for QR codes, generated images)
 
     /// Get cached image by identifier (synchronous, memory only)
     func image(for identifier: String, imageFormat: ImageFormat) -> ImageType?
@@ -33,23 +45,19 @@ public protocol ImageCacheProtocol: AnyObject, Sendable {
     /// Cache image by identifier
     func cacheImage(_ image: ImageType, for identifier: String, imageFormat: ImageFormat)
 
-    /// Resize, cache, and return JPEG data for upload (identifier-based)
-    func resizeCacheAndGetData(_ image: ImageType, for identifier: String) -> Data?
-
     /// Remove cached image by identifier
     func removeImage(for identifier: String)
 
-    // MARK: - URL-based Methods
+    // MARK: - URL Change Detection
 
-    /// Get cached image by URL (synchronous, memory only)
-    func image(for url: URL) -> ImageType?
+    /// Check if the URL has changed for an identifier (without updating tracker)
+    /// Used by prefetcher to detect if it needs to re-fetch encrypted images
+    func hasURLChanged(_ url: String?, for identifier: String) async -> Bool
 
-    /// Get cached image by URL (async, checks memory → disk)
-    func imageAsync(for url: URL) async -> ImageType?
+    // MARK: - Observation
 
-    /// Set cached image for URL string
-    func setImage(_ image: ImageType, for url: String)
-
+    /// Publisher that emits when a specific cached image is updated and ready to display.
+    /// Views should observe this to know when to refresh their image.
     var cacheUpdates: AnyPublisher<String, Never> { get }
 }
 

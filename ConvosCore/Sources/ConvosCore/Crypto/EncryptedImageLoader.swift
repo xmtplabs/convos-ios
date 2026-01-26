@@ -53,3 +53,13 @@ public enum EncryptedImageLoader {
         return try await loadAndDecrypt(params: params)
     }
 }
+
+public final class EncryptedImageLoaderInstance: EncryptedImageLoaderProtocol, Sendable {
+    public static let shared: any EncryptedImageLoaderProtocol = EncryptedImageLoaderInstance()
+
+    private init() {}
+
+    public func loadAndDecrypt(params: EncryptedImageParams) async throws -> Data {
+        try await EncryptedImageLoader.loadAndDecrypt(params: params)
+    }
+}

@@ -93,7 +93,7 @@ class MyProfileViewModel {
 
     private func update(profileImage: UIImage, conversationId: String) {
         self.profileImage = profileImage
-        ImageCache.shared.setImage(profileImage, for: profile)
+        ImageCache.shared.cacheImage(profileImage, for: profile.imageCacheIdentifier, imageFormat: .jpg)
 
         updateImageTask?.cancel()
         beginUpdate()
