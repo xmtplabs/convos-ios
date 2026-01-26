@@ -103,7 +103,7 @@ import Testing
         let inboxId = "test-inbox-to-delete"
         let clientId = "test-client-to-delete"
         let keys = try await keychainStore.generateKeys()
-        let identity = try await keychainStore.save(inboxId: inboxId, clientId: clientId, keys: keys)
+        _ = try await keychainStore.save(inboxId: inboxId, clientId: clientId, keys: keys)
         #expect(try await keychainStore.identity(for: inboxId).inboxId == inboxId)
 
         // When
@@ -130,11 +130,11 @@ import Testing
         let inboxId = "test-inbox-delete-by-client"
         let clientId = "test-client-delete-by-client"
         let keys = try await keychainStore.generateKeys()
-        let identity = try await keychainStore.save(inboxId: inboxId, clientId: clientId, keys: keys)
+        _ = try await keychainStore.save(inboxId: inboxId, clientId: clientId, keys: keys)
         #expect(try await keychainStore.identity(for: inboxId).inboxId == inboxId)
 
         // When - Delete using clientId instead of inboxId
-        try await keychainStore.delete(clientId: clientId)
+        _ = try await keychainStore.delete(clientId: clientId)
 
         // Then - Identity should be deleted
         do {
@@ -168,7 +168,7 @@ import Testing
 
         // When & Then - Should throw an error
         do {
-            try await keychainStore.delete(clientId: nonExistentClientId)
+            _ = try await keychainStore.delete(clientId: nonExistentClientId)
             #expect(Bool(false), "Expected error when deleting non-existent clientId")
         } catch {
             // Expected to throw an error
@@ -183,13 +183,14 @@ import Testing
 
         // Given
         let numberOfIdentities = 10
+        let store = keychainStore
 
         // When - Create multiple identities concurrently
         let identities = try await withThrowingTaskGroup(of: KeychainIdentity.self) { group in
             for i in 0..<numberOfIdentities {
                 group.addTask {
-                    let keys = try await self.keychainStore.generateKeys()
-                    return try await self.keychainStore.save(inboxId: "concurrent-inbox-\(i)", clientId: "concurrent-client-\(i)", keys: keys)
+                    let keys = try await store.generateKeys()
+                    return try await store.save(inboxId: "concurrent-inbox-\(i)", clientId: "concurrent-client-\(i)", keys: keys)
                 }
             }
 
@@ -223,7 +224,7 @@ import Testing
         let keys = try await keychainStore.generateKeys()
 
         // When
-        let identity = try await keychainStore.save(inboxId: longInboxId, clientId: longClientId, keys: keys)
+        _ = try await keychainStore.save(inboxId: longInboxId, clientId: longClientId, keys: keys)
         let loadedIdentity = try await keychainStore.identity(for: longInboxId)
 
         // Then
@@ -240,7 +241,7 @@ import Testing
         let keys = try await keychainStore.generateKeys()
 
         // When
-        let identity = try await keychainStore.save(inboxId: inboxIdWithSpecialChars, clientId: clientIdWithSpecialChars, keys: keys)
+        _ = try await keychainStore.save(inboxId: inboxIdWithSpecialChars, clientId: clientIdWithSpecialChars, keys: keys)
         let loadedIdentity = try await keychainStore.identity(for: inboxIdWithSpecialChars)
 
         // Then
@@ -257,7 +258,7 @@ import Testing
         let keys = try await keychainStore.generateKeys()
 
         // When
-        let identity = try await keychainStore.save(inboxId: inboxIdWithUnicode, clientId: clientIdWithUnicode, keys: keys)
+        _ = try await keychainStore.save(inboxId: inboxIdWithUnicode, clientId: clientIdWithUnicode, keys: keys)
         let loadedIdentity = try await keychainStore.identity(for: inboxIdWithUnicode)
 
         // Then
