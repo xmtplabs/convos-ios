@@ -64,6 +64,7 @@ public struct AssetRenewalStorage: Sendable {
 
 public actor AssetRenewalManager {
     public static let defaultRenewalInterval: TimeInterval = 15 * 24 * 60 * 60 // 15 days
+    private static let batchSize: Int = 100
 
     private let databaseReader: any DatabaseReader
     private let apiClient: any ConvosAPIClientProtocol
@@ -144,25 +145,37 @@ public actor AssetRenewalManager {
                 return AssetRenewalResult(renewed: 0, failed: 0, expiredKeys: [])
             }
 
-            let result = try await apiClient.renewAssetsBatch(assetKeys: assetKeys)
+            // Batch requests to respect server limit
+            var totalRenewed = 0
+            var totalFailed = 0
+            var allExpiredKeys: [String] = []
+
+            for batch in assetKeys.chunked(into: Self.batchSize) {
+                let result = try await apiClient.renewAssetsBatch(assetKeys: batch)
+                totalRenewed += result.renewed
+                totalFailed += result.failed
+                allExpiredKeys.append(contentsOf: result.expiredKeys)
+            }
+
             storage.recordRenewal()
 
             // Record per-asset renewal for successfully renewed keys (all except expired ones)
-            let renewedKeys = assetKeys.filter { !result.expiredKeys.contains($0) }
+            let expiredSet = Set(allExpiredKeys)
+            let renewedKeys = assetKeys.filter { !expiredSet.contains($0) }
             storage.recordPerAssetRenewals(keys: renewedKeys)
 
             // Prune keys for assets that no longer exist
             storage.pruneStaleKeys(validKeys: Set(assetKeys))
 
-            Log.info("Asset renewal: \(result.renewed) renewed, \(result.failed) failed")
+            Log.info("Asset renewal: \(totalRenewed) renewed, \(totalFailed) failed")
 
-            for expiredKey in result.expiredKeys {
+            for expiredKey in allExpiredKeys {
                 if let asset = keyToAsset[expiredKey] {
                     await recoveryHandler.handleExpiredAsset(asset)
                 }
             }
 
-            return result
+            return AssetRenewalResult(renewed: totalRenewed, failed: totalFailed, expiredKeys: allExpiredKeys)
         } catch {
             Log.error("Asset renewal failed: \(error.localizedDescription)")
             return nil
@@ -172,5 +185,13 @@ public actor AssetRenewalManager {
     private func collectAssets() throws -> [RenewableAsset] {
         let collector = AssetRenewalURLCollector(databaseReader: databaseReader)
         return try collector.collectRenewableAssets()
+    }
+}
+
+private extension Array {
+    func chunked(into size: Int) -> [[Element]] {
+        stride(from: 0, to: count, by: size).map {
+            Array(self[$0..<Swift.min($0 + size, count)])
+        }
     }
 }
