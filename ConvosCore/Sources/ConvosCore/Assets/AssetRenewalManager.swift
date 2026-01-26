@@ -152,21 +152,26 @@ public actor AssetRenewalManager {
             var allExpiredKeys: [String] = []
 
             for batch in assetKeys.chunked(into: Self.batchSize) {
-                let result = try await apiClient.renewAssetsBatch(assetKeys: batch)
-                totalRenewed += result.renewed
-                totalFailed += result.failed
-                allExpiredKeys.append(contentsOf: result.expiredKeys)
+                do {
+                    let result = try await apiClient.renewAssetsBatch(assetKeys: batch)
+                    totalRenewed += result.renewed
+                    totalFailed += result.failed
+                    allExpiredKeys.append(contentsOf: result.expiredKeys)
 
-                // Record renewed keys from this batch immediately
-                let batchExpiredSet = Set(result.expiredKeys)
-                let batchRenewedKeys = batch.filter { !batchExpiredSet.contains($0) }
-                storage.recordPerAssetRenewals(keys: batchRenewedKeys)
+                    // Record renewed keys from this batch immediately
+                    let batchExpiredSet = Set(result.expiredKeys)
+                    let batchRenewedKeys = batch.filter { !batchExpiredSet.contains($0) }
+                    storage.recordPerAssetRenewals(keys: batchRenewedKeys)
 
-                // Handle expired assets from this batch
-                for expiredKey in result.expiredKeys {
-                    if let asset = keyToAsset[expiredKey] {
-                        await recoveryHandler.handleExpiredAsset(asset)
+                    // Handle expired assets from this batch
+                    for expiredKey in result.expiredKeys {
+                        if let asset = keyToAsset[expiredKey] {
+                            await recoveryHandler.handleExpiredAsset(asset)
+                        }
                     }
+                } catch {
+                    Log.error("Batch renewal failed, continuing with remaining batches: \(error.localizedDescription)")
+                    totalFailed += batch.count
                 }
             }
 
