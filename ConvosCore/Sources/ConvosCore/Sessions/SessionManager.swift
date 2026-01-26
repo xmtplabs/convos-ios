@@ -103,6 +103,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 guard let self, !Task.isCancelled else { return }
                 await self.lifecycleManager.prepareUnusedInboxIfNeeded()
             }
+
+            guard !Task.isCancelled else { return }
+            Task(priority: .utility) { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
+                let renewalManager = AssetRenewalManager(
+                    databaseReader: self.databaseReader,
+                    apiClient: ConvosAPIClientFactory.client(environment: self.environment),
+                    recoveryHandler: recoveryHandler
+                )
+                await renewalManager.performRenewalIfNeeded()
+            }
         }
     }
 
