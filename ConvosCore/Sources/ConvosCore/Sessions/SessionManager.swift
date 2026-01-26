@@ -29,6 +29,7 @@ enum SessionManagerError: Error {
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var leftConversationObserver: Any?
     private var foregroundObserverTask: Task<Void, Never>?
+    private var assetRenewalTask: Task<Void, Never>?
 
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -105,7 +106,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             }
 
             guard !Task.isCancelled else { return }
-            Task(priority: .utility) { [weak self] in
+            self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
                 let renewalManager = AssetRenewalManager(
@@ -122,6 +123,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         unusedInboxPrepTask?.cancel()
         foregroundObserverTask?.cancel()
+        assetRenewalTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }

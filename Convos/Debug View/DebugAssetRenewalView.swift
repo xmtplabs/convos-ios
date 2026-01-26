@@ -83,9 +83,12 @@ struct DebugAssetRenewalView: View {
         errorMessage = nil
 
         do {
-            let dbManager = DatabaseManager(environment: environment)
-            let collector = AssetRenewalURLCollector(databaseReader: dbManager.dbReader)
-            assets = try collector.collectRenewableAssets()
+            let env = environment
+            assets = try await Task.detached {
+                let dbManager = DatabaseManager(environment: env)
+                let collector = AssetRenewalURLCollector(databaseReader: dbManager.dbReader)
+                return try collector.collectRenewableAssets()
+            }.value
         } catch {
             errorMessage = "Failed to load assets: \(error.localizedDescription)"
         }
@@ -185,15 +188,18 @@ private struct AssetRow: View {
         guard !isRenewing else { return }
         isRenewing = true
 
-        let dbManager = DatabaseManager(environment: environment)
-        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
-        let renewalManager = AssetRenewalManager(
-            databaseReader: dbManager.dbReader,
-            apiClient: ConvosAPIClientFactory.client(environment: environment),
-            recoveryHandler: recoveryHandler
-        )
-
-        let result = await renewalManager.renewSingleAsset(asset)
+        let env = environment
+        let assetToRenew = asset
+        let result = await Task.detached {
+            let dbManager = DatabaseManager(environment: env)
+            let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
+            let renewalManager = AssetRenewalManager(
+                databaseReader: dbManager.dbReader,
+                apiClient: ConvosAPIClientFactory.client(environment: env),
+                recoveryHandler: recoveryHandler
+            )
+            return await renewalManager.renewSingleAsset(assetToRenew)
+        }.value
 
         isRenewing = false
 
