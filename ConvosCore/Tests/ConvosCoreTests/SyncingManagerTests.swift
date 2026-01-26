@@ -313,6 +313,10 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
 
     func unregisterInstallation(clientId: String) async throws {
     }
+
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
+    }
 }
 
 /// Comprehensive tests for SyncingManager state machine

@@ -392,4 +392,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             return nil
         }
     }
+
+    // MARK: - Asset Renewal
+
+    public func makeAssetRenewalManager() async -> AssetRenewalManager {
+        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
+        return AssetRenewalManager(
+            databaseReader: databaseReader,
+            apiClient: ConvosAPIClientFactory.client(environment: environment),
+            recoveryHandler: recoveryHandler
+        )
+    }
 }

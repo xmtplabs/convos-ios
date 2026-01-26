@@ -59,4 +59,8 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Helpers
 
     func inboxId(for conversationId: String) async -> String?
+
+    // MARK: Asset Renewal
+
+    func makeAssetRenewalManager() async -> AssetRenewalManager
 }
