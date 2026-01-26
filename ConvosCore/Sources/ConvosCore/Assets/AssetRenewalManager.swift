@@ -11,6 +11,7 @@ public actor AssetRenewalManager {
 
     private enum Constant {
         static let lastRenewalDateKey: String = "assetRenewalLastDate"
+        static let perAssetRenewalDatesKey: String = "assetRenewalPerAssetDates"
     }
 
     public init(
@@ -34,6 +35,40 @@ public actor AssetRenewalManager {
         await performRenewal()
     }
 
+    public func renewSingleAsset(_ asset: RenewableAsset) async -> AssetRenewalResult? {
+        guard let key = asset.key else { return nil }
+
+        do {
+            let result = try await apiClient.renewAssetsBatch(assetKeys: [key])
+
+            if result.renewed > 0 {
+                recordPerAssetRenewal(key: key)
+            }
+
+            if result.expiredKeys.contains(key) {
+                await recoveryHandler.handleExpiredAsset(asset)
+            }
+
+            return result
+        } catch {
+            Log.error("Single asset renewal failed: \(error.localizedDescription)")
+            return nil
+        }
+    }
+
+    public static func lastRenewalDate(for assetKey: String) -> Date? {
+        guard let dict = UserDefaults.standard.dictionary(forKey: Constant.perAssetRenewalDatesKey),
+              let interval = dict[assetKey] as? TimeInterval else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: interval)
+    }
+
+    public static func nextRenewalDate(for assetKey: String, interval: TimeInterval = defaultRenewalInterval) -> Date? {
+        guard let lastDate = lastRenewalDate(for: assetKey) else { return nil }
+        return lastDate.addingTimeInterval(interval)
+    }
+
     private func performRenewal() async -> AssetRenewalResult? {
         do {
             let assets = try collectAssets()
@@ -55,6 +90,10 @@ public actor AssetRenewalManager {
 
             let result = try await apiClient.renewAssetsBatch(assetKeys: assetKeys)
             recordRenewal()
+
+            // Record per-asset renewal for successfully renewed keys (all except expired ones)
+            let renewedKeys = assetKeys.filter { !result.expiredKeys.contains($0) }
+            recordPerAssetRenewals(keys: renewedKeys)
 
             Log.info("Asset renewal: \(result.renewed) renewed, \(result.failed) failed")
 
@@ -80,6 +119,21 @@ public actor AssetRenewalManager {
 
     private func recordRenewal() {
         UserDefaults.standard.set(Date(), forKey: Constant.lastRenewalDateKey)
+    }
+
+    private func recordPerAssetRenewal(key: String) {
+        var dict = UserDefaults.standard.dictionary(forKey: Constant.perAssetRenewalDatesKey) ?? [:]
+        dict[key] = Date().timeIntervalSince1970
+        UserDefaults.standard.set(dict, forKey: Constant.perAssetRenewalDatesKey)
+    }
+
+    private func recordPerAssetRenewals(keys: [String]) {
+        var dict = UserDefaults.standard.dictionary(forKey: Constant.perAssetRenewalDatesKey) ?? [:]
+        let now = Date().timeIntervalSince1970
+        for key in keys {
+            dict[key] = now
+        }
+        UserDefaults.standard.set(dict, forKey: Constant.perAssetRenewalDatesKey)
     }
 
     private func collectAssets() throws -> [RenewableAsset] {
