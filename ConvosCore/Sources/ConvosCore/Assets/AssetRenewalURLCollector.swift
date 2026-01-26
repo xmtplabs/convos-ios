@@ -73,7 +73,7 @@ public struct AssetRenewalURLCollector {
     private static func isValidAssetURL(_ urlString: String) -> Bool {
         guard let url = URL(string: urlString),
               let scheme = url.scheme,
-              (scheme == "http" || scheme == "https"),
+              scheme == "http" || scheme == "https",
               url.path.count > 1 else {
             return false
         }
