@@ -95,6 +95,9 @@ public actor AssetRenewalManager {
             let renewedKeys = assetKeys.filter { !result.expiredKeys.contains($0) }
             recordPerAssetRenewals(keys: renewedKeys)
 
+            // Prune keys for assets that no longer exist
+            pruneStaleKeys(validKeys: Set(assetKeys))
+
             Log.info("Asset renewal: \(result.renewed) renewed, \(result.failed) failed")
 
             for expiredKey in result.expiredKeys {
@@ -134,6 +137,19 @@ public actor AssetRenewalManager {
             dict[key] = now
         }
         UserDefaults.standard.set(dict, forKey: Constant.perAssetRenewalDatesKey)
+    }
+
+    private func pruneStaleKeys(validKeys: Set<String>) {
+        guard var dict = UserDefaults.standard.dictionary(forKey: Constant.perAssetRenewalDatesKey) else {
+            return
+        }
+        let staleKeys = dict.keys.filter { !validKeys.contains($0) }
+        guard !staleKeys.isEmpty else { return }
+        for key in staleKeys {
+            dict.removeValue(forKey: key)
+        }
+        UserDefaults.standard.set(dict, forKey: Constant.perAssetRenewalDatesKey)
+        Log.info("Pruned \(staleKeys.count) stale asset renewal keys")
     }
 
     private func collectAssets() throws -> [RenewableAsset] {

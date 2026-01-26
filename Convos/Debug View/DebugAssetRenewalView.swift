@@ -84,15 +84,19 @@ struct DebugAssetRenewalView: View {
 
         do {
             let env = environment
-            assets = try await Task.detached {
+            let loadedAssets = try await Task.detached {
                 let dbManager = DatabaseManager(environment: env)
                 let collector = AssetRenewalURLCollector(databaseReader: dbManager.dbReader)
                 return try collector.collectRenewableAssets()
             }.value
+            guard !Task.isCancelled else { return }
+            assets = loadedAssets
         } catch {
+            guard !Task.isCancelled else { return }
             errorMessage = "Failed to load assets: \(error.localizedDescription)"
         }
 
+        guard !Task.isCancelled else { return }
         isLoading = false
     }
 }
