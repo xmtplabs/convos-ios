@@ -36,6 +36,15 @@ public final class DatabaseManager: DatabaseManagerProtocol {
         }
     }
 
+    /// Creates a DatabaseManager for debug views that don't have access to SessionManager's dependencies.
+    ///
+    /// - Warning: This creates a separate database connection pool. Changes made through this connection
+    ///   may not trigger observation updates in the main app's publishers. Ideally, debug views should
+    ///   receive the database reader/writer through proper dependency injection instead.
+    ///
+    /// - Note: This is public because debug views (DebugAssetRenewalView, DebugViewSection) are in the
+    ///   main app target and don't have access to SessionManager's database dependencies through the
+    ///   current view hierarchy. A future refactor could inject these dependencies via SwiftUI Environment.
     public static func makeForDebug(environment: AppEnvironment) -> DatabaseManager {
         DatabaseManager(environment: environment)
     }

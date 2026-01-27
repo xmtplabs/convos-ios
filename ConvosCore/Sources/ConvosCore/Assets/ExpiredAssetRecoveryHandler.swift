@@ -23,7 +23,9 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
                         .filter(DBMemberProfile.Columns.avatar == url)
                         .fetchAll(db)
                     for var profile in profiles {
-                        profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
+                        profile = profile
+                            .with(avatar: nil, salt: nil, nonce: nil, key: nil)
+                            .with(avatarLastRenewed: nil)
                         try profile.save(db)
                     }
                     if !profiles.isEmpty {
@@ -36,7 +38,9 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
                         .filter(DBConversation.Columns.imageURLString == url)
                         .fetchAll(db)
                     for var conv in conversations {
-                        conv = conv.with(imageURLString: nil)
+                        conv = conv
+                            .with(imageURLString: nil)
+                            .with(imageLastRenewed: nil)
                         try conv.save(db)
                     }
                     if !conversations.isEmpty {
