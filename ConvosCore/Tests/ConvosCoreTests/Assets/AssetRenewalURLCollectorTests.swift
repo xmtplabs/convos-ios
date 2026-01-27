@@ -26,7 +26,7 @@ struct AssetRenewalURLCollectorTests {
         let assets = try collector.collectRenewableAssets()
 
         #expect(assets.count == 1)
-        if case let .profileAvatar(url, conversationId, inboxId) = assets.first {
+        if case let .profileAvatar(url, conversationId, inboxId, _) = assets.first {
             #expect(url == avatarURL)
             #expect(conversationId == "convo-1")
             #expect(inboxId == "inbox-1")
@@ -55,7 +55,7 @@ struct AssetRenewalURLCollectorTests {
         let assets = try collector.collectRenewableAssets()
 
         #expect(assets.count == 1)
-        if case let .groupImage(url, conversationId) = assets.first {
+        if case let .groupImage(url, conversationId, _) = assets.first {
             #expect(url == groupImageURL)
             #expect(conversationId == "convo-1")
         } else {
@@ -174,7 +174,7 @@ struct AssetRenewalURLCollectorTests {
         let assets = try collector.collectRenewableAssets()
 
         #expect(assets.count == 1)
-        if case let .profileAvatar(url, _, inboxId) = assets.first {
+        if case let .profileAvatar(url, _, inboxId, _) = assets.first {
             #expect(url == myAvatarURL)
             #expect(inboxId == "my-inbox")
         } else {
@@ -187,7 +187,8 @@ struct AssetRenewalURLCollectorTests {
         let asset = RenewableAsset.profileAvatar(
             url: "https://example.com/abc123.bin",
             conversationId: "convo-1",
-            inboxId: "inbox-1"
+            inboxId: "inbox-1",
+            lastRenewed: nil
         )
 
         #expect(asset.key == "abc123.bin")
@@ -196,7 +197,7 @@ struct AssetRenewalURLCollectorTests {
     @Test("Key is nil for URL without path")
     func testKeyNilForInvalidURL() {
         // URL with only "/" path (count == 1) should return nil
-        let asset = RenewableAsset.groupImage(url: "https://example.com", conversationId: "convo-1")
+        let asset = RenewableAsset.groupImage(url: "https://example.com", conversationId: "convo-1", lastRenewed: nil)
         #expect(asset.key == nil)
     }
 }
@@ -238,6 +239,9 @@ private extension AssetRenewalURLCollectorTests {
             expiresAt: nil,
             debugInfo: .empty,
             isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
             imageLastRenewed: imageLastRenewed
         )
     }

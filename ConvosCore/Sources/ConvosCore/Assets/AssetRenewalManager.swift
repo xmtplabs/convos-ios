@@ -143,17 +143,23 @@ public actor AssetRenewalManager {
         try await databaseWriter.write { db in
             for asset in assets {
                 switch asset {
-                case let .profileAvatar(url, conversationId, inboxId, _):
-                    if var profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId),
-                       profile.avatar == url {
+                case let .profileAvatar(url, _, _, _):
+                    // Update ALL profiles with this avatar URL (same person may appear in multiple conversations)
+                    let profiles = try DBMemberProfile
+                        .filter(DBMemberProfile.Columns.avatar == url)
+                        .fetchAll(db)
+                    for var profile in profiles {
                         profile = profile.with(avatarLastRenewed: now)
                         try profile.save(db)
                     }
-                case let .groupImage(url, conversationId, _):
-                    if var conversation = try DBConversation.fetchOne(db, key: conversationId),
-                       conversation.imageURLString == url {
-                        conversation = conversation.with(imageLastRenewed: now)
-                        try conversation.save(db)
+                case let .groupImage(url, _, _):
+                    // Update ALL conversations with this image URL (for consistency with ExpiredAssetRecoveryHandler)
+                    let conversations = try DBConversation
+                        .filter(DBConversation.Columns.imageURLString == url)
+                        .fetchAll(db)
+                    for var conv in conversations {
+                        conv = conv.with(imageLastRenewed: now)
+                        try conv.save(db)
                     }
                 }
             }
