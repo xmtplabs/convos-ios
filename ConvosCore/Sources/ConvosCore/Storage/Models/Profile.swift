@@ -80,24 +80,43 @@ public extension Array where Element == Profile {
             .map { $0.displayName }
             .sorted()
         let anonymousCount = filter { $0.name == nil || $0.name?.isEmpty == true }.count
+        let totalCount = namedProfiles.count + anonymousCount
 
-        var allNames = namedProfiles
-        if anonymousCount > 1 {
-            allNames.append("Somebodies")
-        } else if anonymousCount == 1 {
-            allNames.append("Somebody")
+        if namedProfiles.isEmpty {
+            if anonymousCount == 0 {
+                return ""
+            } else if anonymousCount == 1 {
+                return "Somebody"
+            } else {
+                return "Somebodies"
+            }
         }
 
-        switch allNames.count {
-        case 0:
-            return ""
-        case 1:
-            return allNames[0]
-        case 2:
-            return allNames.joined(separator: " & ")
-        default:
-            return allNames.joined(separator: ", ")
+        let maxNames = NameLimits.maxDisplayedMemberNames
+
+        if totalCount <= maxNames {
+            var allNames = namedProfiles
+            if anonymousCount > 1 {
+                allNames.append("Somebodies")
+            } else if anonymousCount == 1 {
+                allNames.append("Somebody")
+            }
+
+            switch allNames.count {
+            case 1:
+                return allNames[0]
+            case 2:
+                return allNames.joined(separator: " & ")
+            default:
+                return allNames.joined(separator: ", ")
+            }
         }
+
+        let namesPrefix = namedProfiles.prefix(maxNames)
+        let othersCount = totalCount - namesPrefix.count
+        let othersText = othersCount == 1 ? "1 other" : "\(othersCount) others"
+
+        return namesPrefix.joined(separator: ", ") + " and " + othersText
     }
 
     var hasAnyNamedProfile: Bool {
