@@ -40,12 +40,16 @@ public actor AssetRenewalManager {
         do {
             let result = try await apiClient.renewAssetsBatch(assetKeys: [key])
 
-            if result.renewed > 0 {
-                try await recordRenewalInDatabase(for: [asset])
-            }
-
             if result.expiredKeys.contains(key) {
                 await recoveryHandler.handleExpiredAsset(asset)
+            }
+
+            if result.renewed > 0 {
+                do {
+                    try await recordRenewalInDatabase(for: [asset])
+                } catch {
+                    Log.error("Failed to record renewal timestamp: \(error.localizedDescription)")
+                }
             }
 
             return result
@@ -94,12 +98,16 @@ public actor AssetRenewalManager {
                         .filter { !batchExpiredSet.contains($0) }
                         .compactMap { keyToAsset[$0] }
 
-                    try await recordRenewalInDatabase(for: renewedAssets)
-
                     for expiredKey in result.expiredKeys {
                         if let asset = keyToAsset[expiredKey] {
                             await recoveryHandler.handleExpiredAsset(asset)
                         }
+                    }
+
+                    do {
+                        try await recordRenewalInDatabase(for: renewedAssets)
+                    } catch {
+                        Log.error("Failed to record renewal timestamps: \(error.localizedDescription)")
                     }
                 } catch {
                     Log.error("Batch renewal failed, continuing with remaining batches: \(error.localizedDescription)")
