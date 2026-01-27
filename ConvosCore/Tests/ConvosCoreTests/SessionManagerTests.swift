@@ -45,7 +45,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil
             ).insert(db)
         }
 
@@ -116,7 +117,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil
             ).insert(db)
         }
 
@@ -155,7 +157,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil
             ).insert(db)
         }
 
@@ -202,7 +205,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -227,7 +231,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil
             ).insert(db)
         }
 
@@ -278,7 +283,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -303,7 +309,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil
             ).insert(db)
         }
 

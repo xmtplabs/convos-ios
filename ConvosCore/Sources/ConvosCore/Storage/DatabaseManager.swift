@@ -27,13 +27,17 @@ public final class DatabaseManager: DatabaseManagerProtocol {
         dbPool as DatabaseReader
     }
 
-    public init(environment: AppEnvironment) {
+    init(environment: AppEnvironment) {
         self.environment = environment
         do {
             dbPool = try Self.makeDatabasePool(environment: environment)
         } catch {
             fatalError("Failed to initialize database: \(error)")
         }
+    }
+
+    public static func makeForDebug(environment: AppEnvironment) -> DatabaseManager {
+        DatabaseManager(environment: environment)
     }
 
     private static func makeDatabasePool(environment: AppEnvironment) throws -> DatabasePool {

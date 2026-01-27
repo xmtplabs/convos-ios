@@ -217,7 +217,8 @@ private extension AssetRenewalURLCollectorTests {
         inboxId: String,
         clientId: String,
         kind: ConversationKind = .dm,
-        imageURL: String? = nil
+        imageURL: String? = nil,
+        imageLastRenewed: Date? = nil
     ) -> DBConversation {
         DBConversation(
             id: id,
@@ -236,7 +237,8 @@ private extension AssetRenewalURLCollectorTests {
             includeInfoInPublicPreview: false,
             expiresAt: nil,
             debugInfo: .empty,
-            isLocked: false
+            isLocked: false,
+            imageLastRenewed: imageLastRenewed
         )
     }
 }

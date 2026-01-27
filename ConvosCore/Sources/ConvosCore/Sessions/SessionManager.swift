@@ -110,7 +110,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 guard let self, !Task.isCancelled else { return }
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
                 let renewalManager = AssetRenewalManager(
-                    databaseReader: self.databaseReader,
+                    databaseWriter: self.databaseWriter,
                     apiClient: ConvosAPIClientFactory.client(environment: self.environment),
                     recoveryHandler: recoveryHandler
                 )
@@ -400,7 +400,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     public func makeAssetRenewalManager() async -> AssetRenewalManager {
         let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
         return AssetRenewalManager(
-            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
             apiClient: ConvosAPIClientFactory.client(environment: environment),
             recoveryHandler: recoveryHandler
         )

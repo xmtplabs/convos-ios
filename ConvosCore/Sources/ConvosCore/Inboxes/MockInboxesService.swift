@@ -103,7 +103,7 @@ public final class MockInboxesService: SessionManagerProtocol {
         let dbManager = MockDatabaseManager.shared
         let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
         return AssetRenewalManager(
-            databaseReader: dbManager.dbReader,
+            databaseWriter: dbManager.dbWriter,
             apiClient: MockAPIClient(),
             recoveryHandler: recoveryHandler
         )

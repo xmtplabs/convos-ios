@@ -85,7 +85,7 @@ struct DebugAssetRenewalView: View {
         do {
             let env = environment
             let loadedAssets = try await Task.detached {
-                let dbManager = DatabaseManager(environment: env)
+                let dbManager = DatabaseManager.makeForDebug(environment: env)
                 let collector = AssetRenewalURLCollector(databaseReader: dbManager.dbReader)
                 return try collector.collectRenewableAssets()
             }.value
@@ -108,13 +108,6 @@ private struct AssetRow: View {
 
     @State private var isRenewing: Bool = false
 
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .short
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
@@ -136,28 +129,6 @@ private struct AssetRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            if let key = asset.key {
-                HStack(spacing: 8) {
-                    if let lastDate = AssetRenewalManager.lastRenewalDate(for: key) {
-                        Text("Last: \(Self.dateFormatter.string(from: lastDate))")
-                    } else {
-                        Text("Last: Never")
-                    }
-
-                    Text("•")
-
-                    if let dueDate = AssetRenewalManager.nextRenewalDate(for: key) {
-                        let isPastDue = dueDate < Date()
-                        Text("Due: \(Self.dateFormatter.string(from: dueDate))")
-                            .foregroundStyle(isPastDue ? .orange : .colorTextSecondary)
-                    } else {
-                        Text("Due: Now")
-                            .foregroundStyle(.orange)
-                    }
-                }
-                .font(.caption2)
-                .foregroundStyle(.colorTextSecondary)
-            }
         }
         .padding(.vertical, 4)
         .contextMenu {
@@ -195,10 +166,10 @@ private struct AssetRow: View {
         let env = environment
         let assetToRenew = asset
         let result = await Task.detached {
-            let dbManager = DatabaseManager(environment: env)
+            let dbManager = DatabaseManager.makeForDebug(environment: env)
             let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
             let renewalManager = AssetRenewalManager(
-                databaseReader: dbManager.dbReader,
+                databaseWriter: dbManager.dbWriter,
                 apiClient: ConvosAPIClientFactory.client(environment: env),
                 recoveryHandler: recoveryHandler
             )

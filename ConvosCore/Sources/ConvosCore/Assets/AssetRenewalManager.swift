@@ -1,85 +1,23 @@
 import Foundation
 import GRDB
 
-public struct AssetRenewalStorage: Sendable {
-    public static let shared: AssetRenewalStorage = AssetRenewalStorage()
-
-    private enum Constant {
-        static let lastRenewalDateKey: String = "assetRenewalLastDate"
-        static let perAssetRenewalDatesKey: String = "assetRenewalPerAssetDates"
-    }
-
-    public func lastRenewalDate(for assetKey: String) -> Date? {
-        guard let dict = UserDefaults.standard.dictionary(forKey: Constant.perAssetRenewalDatesKey),
-              let interval = dict[assetKey] as? TimeInterval else {
-            return nil
-        }
-        return Date(timeIntervalSince1970: interval)
-    }
-
-    public func nextRenewalDate(for assetKey: String, interval: TimeInterval = AssetRenewalManager.defaultRenewalInterval) -> Date? {
-        guard let lastDate = lastRenewalDate(for: assetKey) else { return nil }
-        return lastDate.addingTimeInterval(interval)
-    }
-
-    func shouldPerformRenewal(interval: TimeInterval) -> Bool {
-        guard let lastRenewal = UserDefaults.standard.object(forKey: Constant.lastRenewalDateKey) as? Date else {
-            return true
-        }
-        return Date().timeIntervalSince(lastRenewal) >= interval
-    }
-
-    func recordRenewal() {
-        UserDefaults.standard.set(Date(), forKey: Constant.lastRenewalDateKey)
-    }
-
-    func recordPerAssetRenewal(key: String) {
-        var dict = UserDefaults.standard.dictionary(forKey: Constant.perAssetRenewalDatesKey) ?? [:]
-        dict[key] = Date().timeIntervalSince1970
-        UserDefaults.standard.set(dict, forKey: Constant.perAssetRenewalDatesKey)
-    }
-
-    func recordPerAssetRenewals(keys: [String]) {
-        var dict = UserDefaults.standard.dictionary(forKey: Constant.perAssetRenewalDatesKey) ?? [:]
-        let now = Date().timeIntervalSince1970
-        for key in keys {
-            dict[key] = now
-        }
-        UserDefaults.standard.set(dict, forKey: Constant.perAssetRenewalDatesKey)
-    }
-
-    func pruneStaleKeys(validKeys: Set<String>) {
-        guard var dict = UserDefaults.standard.dictionary(forKey: Constant.perAssetRenewalDatesKey) else {
-            return
-        }
-        let staleKeys = dict.keys.filter { !validKeys.contains($0) }
-        guard !staleKeys.isEmpty else { return }
-        for key in staleKeys {
-            dict.removeValue(forKey: key)
-        }
-        UserDefaults.standard.set(dict, forKey: Constant.perAssetRenewalDatesKey)
-        Log.info("Pruned \(staleKeys.count) stale asset renewal keys")
-    }
-}
-
 public actor AssetRenewalManager {
     public static let defaultRenewalInterval: TimeInterval = 15 * 24 * 60 * 60 // 15 days
     private static let batchSize: Int = 100
 
-    private let databaseReader: any DatabaseReader
+    private let databaseWriter: any DatabaseWriter
     private let apiClient: any ConvosAPIClientProtocol
     private let recoveryHandler: ExpiredAssetRecoveryHandler
     private let renewalInterval: TimeInterval
-    private let storage: AssetRenewalStorage = .shared
     private var isRenewalInProgress: Bool = false
 
     public init(
-        databaseReader: any DatabaseReader,
+        databaseWriter: any DatabaseWriter,
         apiClient: any ConvosAPIClientProtocol,
         recoveryHandler: ExpiredAssetRecoveryHandler,
         renewalInterval: TimeInterval = AssetRenewalManager.defaultRenewalInterval
     ) {
-        self.databaseReader = databaseReader
+        self.databaseWriter = databaseWriter
         self.apiClient = apiClient
         self.recoveryHandler = recoveryHandler
         self.renewalInterval = renewalInterval
@@ -87,14 +25,13 @@ public actor AssetRenewalManager {
 
     public func performRenewalIfNeeded() async {
         guard !isRenewalInProgress else { return }
-        guard storage.shouldPerformRenewal(interval: renewalInterval) else { return }
         isRenewalInProgress = true
         defer { isRenewalInProgress = false }
-        _ = await performRenewal()
+        _ = await performRenewal(forceAll: false)
     }
 
     public func forceRenewal() async -> AssetRenewalResult? {
-        await performRenewal()
+        await performRenewal(forceAll: true)
     }
 
     public func renewSingleAsset(_ asset: RenewableAsset) async -> AssetRenewalResult? {
@@ -104,7 +41,7 @@ public actor AssetRenewalManager {
             let result = try await apiClient.renewAssetsBatch(assetKeys: [key])
 
             if result.renewed > 0 {
-                storage.recordPerAssetRenewal(key: key)
+                try await recordRenewalInDatabase(for: [asset])
             }
 
             if result.expiredKeys.contains(key) {
@@ -118,19 +55,16 @@ public actor AssetRenewalManager {
         }
     }
 
-    public static func lastRenewalDate(for assetKey: String) -> Date? {
-        AssetRenewalStorage.shared.lastRenewalDate(for: assetKey)
-    }
-
-    public static func nextRenewalDate(for assetKey: String, interval: TimeInterval = defaultRenewalInterval) -> Date? {
-        AssetRenewalStorage.shared.nextRenewalDate(for: assetKey, interval: interval)
-    }
-
-    private func performRenewal() async -> AssetRenewalResult? {
+    private func performRenewal(forceAll: Bool) async -> AssetRenewalResult? {
         do {
-            let assets = try collectAssets()
+            let assets: [RenewableAsset]
+            if forceAll {
+                assets = try collectAllAssets()
+            } else {
+                let staleThreshold = Date().addingTimeInterval(-renewalInterval)
+                assets = try collectStaleAssets(olderThan: staleThreshold)
+            }
             guard !assets.isEmpty else {
-                storage.recordRenewal()
                 return AssetRenewalResult(renewed: 0, failed: 0, expiredKeys: [])
             }
 
@@ -141,12 +75,9 @@ public actor AssetRenewalManager {
                 return key
             }
             guard !assetKeys.isEmpty else {
-                storage.recordRenewal()
                 return AssetRenewalResult(renewed: 0, failed: 0, expiredKeys: [])
             }
 
-            // Batch requests to respect server limit
-            // Record progress after each batch to preserve partial success if later batch fails
             var totalRenewed = 0
             var totalFailed = 0
             var allExpiredKeys: [String] = []
@@ -158,12 +89,13 @@ public actor AssetRenewalManager {
                     totalFailed += result.failed
                     allExpiredKeys.append(contentsOf: result.expiredKeys)
 
-                    // Record renewed keys from this batch immediately
                     let batchExpiredSet = Set(result.expiredKeys)
-                    let batchRenewedKeys = batch.filter { !batchExpiredSet.contains($0) }
-                    storage.recordPerAssetRenewals(keys: batchRenewedKeys)
+                    let renewedAssets = batch
+                        .filter { !batchExpiredSet.contains($0) }
+                        .compactMap { keyToAsset[$0] }
 
-                    // Handle expired assets from this batch
+                    try await recordRenewalInDatabase(for: renewedAssets)
+
                     for expiredKey in result.expiredKeys {
                         if let asset = keyToAsset[expiredKey] {
                             await recoveryHandler.handleExpiredAsset(asset)
@@ -175,11 +107,6 @@ public actor AssetRenewalManager {
                 }
             }
 
-            storage.recordRenewal()
-
-            // Prune keys for assets that no longer exist
-            storage.pruneStaleKeys(validKeys: Set(assetKeys))
-
             Log.info("Asset renewal: \(totalRenewed) renewed, \(totalFailed) failed")
 
             return AssetRenewalResult(renewed: totalRenewed, failed: totalFailed, expiredKeys: allExpiredKeys)
@@ -189,9 +116,36 @@ public actor AssetRenewalManager {
         }
     }
 
-    private func collectAssets() throws -> [RenewableAsset] {
-        let collector = AssetRenewalURLCollector(databaseReader: databaseReader)
+    private func collectStaleAssets(olderThan threshold: Date) throws -> [RenewableAsset] {
+        let collector = AssetRenewalURLCollector(databaseReader: databaseWriter)
+        return try collector.collectStaleAssets(olderThan: threshold)
+    }
+
+    private func collectAllAssets() throws -> [RenewableAsset] {
+        let collector = AssetRenewalURLCollector(databaseReader: databaseWriter)
         return try collector.collectRenewableAssets()
+    }
+
+    private func recordRenewalInDatabase(for assets: [RenewableAsset]) async throws {
+        let now = Date()
+        try await databaseWriter.write { db in
+            for asset in assets {
+                switch asset {
+                case let .profileAvatar(url, conversationId, inboxId):
+                    if var profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId),
+                       profile.avatar == url {
+                        profile = profile.with(avatarLastRenewed: now)
+                        try profile.save(db)
+                    }
+                case let .groupImage(url, conversationId):
+                    if var conversation = try DBConversation.fetchOne(db, key: conversationId),
+                       conversation.imageURLString == url {
+                        conversation = conversation.with(imageLastRenewed: now)
+                        try conversation.save(db)
+                    }
+                }
+            }
+        }
     }
 }
 

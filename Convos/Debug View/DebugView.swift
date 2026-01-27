@@ -295,10 +295,10 @@ extension DebugViewSection {
         guard !isRenewingAssets else { return }
         isRenewingAssets = true
 
-        let dbManager = DatabaseManager(environment: environment)
+        let dbManager = DatabaseManager.makeForDebug(environment: environment)
         let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
         let renewalManager = AssetRenewalManager(
-            databaseReader: dbManager.dbReader,
+            databaseWriter: dbManager.dbWriter,
             apiClient: ConvosAPIClientFactory.client(environment: environment),
             recoveryHandler: recoveryHandler
         )

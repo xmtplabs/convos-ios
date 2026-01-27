@@ -5,23 +5,33 @@ import Testing
 
 @Suite("AssetRenewalManager Tests", .serialized)
 struct AssetRenewalManagerTests {
-    @Test("performRenewalIfNeeded skips when interval not reached")
-    func testSkipsWhenNotDue() async throws {
+    @Test("performRenewalIfNeeded skips when no stale assets")
+    func testSkipsWhenNoStaleAssets() async throws {
         let fixtures = try await makeTestFixtures()
-        UserDefaults.standard.set(Date(), forKey: "assetRenewalLastDate")
-        defer { clearUserDefaults() }
+        let recentDate = Date()
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+            try DBMember(inboxId: "inbox-1").insert(db)
+            try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try DBMemberProfile(
+                conversationId: "convo-1",
+                inboxId: "inbox-1",
+                name: "Test",
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: recentDate
+            ).insert(db)
+        }
 
         await fixtures.manager.performRenewalIfNeeded()
 
         #expect(fixtures.mockAPI.renewCallCount == 0)
     }
 
-    @Test("performRenewalIfNeeded runs when interval reached")
-    func testRunsWhenDue() async throws {
+    @Test("performRenewalIfNeeded runs when assets are stale")
+    func testRunsWhenAssetsStale() async throws {
         let fixtures = try await makeTestFixtures()
         let oldDate = Date().addingTimeInterval(-20 * 24 * 60 * 60)
-        UserDefaults.standard.set(oldDate, forKey: "assetRenewalLastDate")
-        defer { clearUserDefaults() }
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
@@ -31,7 +41,8 @@ struct AssetRenewalManagerTests {
                 conversationId: "convo-1",
                 inboxId: "inbox-1",
                 name: "Test",
-                avatar: "https://example.com/avatar.bin"
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: oldDate
             ).insert(db)
         }
 
@@ -40,11 +51,9 @@ struct AssetRenewalManagerTests {
         #expect(fixtures.mockAPI.renewCallCount == 1)
     }
 
-    @Test("performRenewalIfNeeded runs on first launch")
-    func testRunsOnFirstLaunch() async throws {
+    @Test("performRenewalIfNeeded runs for assets never renewed")
+    func testRunsForNeverRenewedAssets() async throws {
         let fixtures = try await makeTestFixtures()
-        UserDefaults.standard.removeObject(forKey: "assetRenewalLastDate")
-        defer { clearUserDefaults() }
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
@@ -54,7 +63,8 @@ struct AssetRenewalManagerTests {
                 conversationId: "convo-1",
                 inboxId: "inbox-1",
                 name: "Test",
-                avatar: "https://example.com/avatar.bin"
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: nil
             ).insert(db)
         }
 
@@ -63,11 +73,10 @@ struct AssetRenewalManagerTests {
         #expect(fixtures.mockAPI.renewCallCount == 1)
     }
 
-    @Test("forceRenewal always runs")
+    @Test("forceRenewal always runs regardless of timestamps")
     func testForceRenewalAlwaysRuns() async throws {
         let fixtures = try await makeTestFixtures()
-        UserDefaults.standard.set(Date(), forKey: "assetRenewalLastDate")
-        defer { clearUserDefaults() }
+        let recentDate = Date()
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
@@ -77,7 +86,8 @@ struct AssetRenewalManagerTests {
                 conversationId: "convo-1",
                 inboxId: "inbox-1",
                 name: "Test",
-                avatar: "https://example.com/avatar.bin"
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: recentDate
             ).insert(db)
         }
 
@@ -86,11 +96,23 @@ struct AssetRenewalManagerTests {
         #expect(fixtures.mockAPI.renewCallCount == 1)
     }
 
-    @Test("renewSingleAsset records per-asset date on success")
-    func testRenewSingleAssetRecordsDate() async throws {
+    @Test("renewSingleAsset records timestamp in database on success")
+    func testRenewSingleAssetRecordsTimestamp() async throws {
         let fixtures = try await makeTestFixtures()
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 1, failed: 0, expiredKeys: [])
-        defer { clearUserDefaults() }
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+            try DBMember(inboxId: "inbox-1").insert(db)
+            try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try DBMemberProfile(
+                conversationId: "convo-1",
+                inboxId: "inbox-1",
+                name: "Test",
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: nil
+            ).insert(db)
+        }
 
         let asset = RenewableAsset.profileAvatar(
             url: "https://example.com/avatar.bin",
@@ -101,14 +123,30 @@ struct AssetRenewalManagerTests {
         let result = await fixtures.manager.renewSingleAsset(asset)
 
         #expect(result?.renewed == 1)
-        #expect(AssetRenewalManager.lastRenewalDate(for: "avatar.bin") != nil)
+
+        let profile = try await fixtures.dbWriter.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        }
+        #expect(profile?.avatarLastRenewed != nil)
     }
 
-    @Test("renewSingleAsset does not record date on failure")
-    func testRenewSingleAssetNoDateOnFailure() async throws {
+    @Test("renewSingleAsset does not record timestamp on failure")
+    func testRenewSingleAssetNoTimestampOnFailure() async throws {
         let fixtures = try await makeTestFixtures()
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 0, failed: 1, expiredKeys: [])
-        defer { clearUserDefaults() }
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+            try DBMember(inboxId: "inbox-1").insert(db)
+            try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try DBMemberProfile(
+                conversationId: "convo-1",
+                inboxId: "inbox-1",
+                name: "Test",
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: nil
+            ).insert(db)
+        }
 
         let asset = RenewableAsset.profileAvatar(
             url: "https://example.com/avatar.bin",
@@ -118,14 +156,16 @@ struct AssetRenewalManagerTests {
 
         _ = await fixtures.manager.renewSingleAsset(asset)
 
-        #expect(AssetRenewalManager.lastRenewalDate(for: "avatar.bin") == nil)
+        let profile = try await fixtures.dbWriter.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        }
+        #expect(profile?.avatarLastRenewed == nil)
     }
 
     @Test("renewSingleAsset handles expired asset by clearing URL")
     func testRenewSingleAssetHandlesExpired() async throws {
         let fixtures = try await makeTestFixtures()
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 0, failed: 1, expiredKeys: ["avatar.bin"])
-        defer { clearUserDefaults() }
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
@@ -149,7 +189,7 @@ struct AssetRenewalManagerTests {
 
         #expect(result?.expiredKeys.contains("avatar.bin") == true)
 
-        let profile = try await fixtures.dbReader.read { db in
+        let profile = try await fixtures.dbWriter.read { db in
             try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
         }
         #expect(profile?.avatar == nil)
@@ -159,7 +199,6 @@ struct AssetRenewalManagerTests {
     func testRenewSingleAssetNilForNoKey() async throws {
         let fixtures = try await makeTestFixtures()
 
-        // URL with path "/" (count == 1) has nil key
         let asset = RenewableAsset.groupImage(url: "https://example.com", conversationId: "convo-1")
 
         let result = await fixtures.manager.renewSingleAsset(asset)
@@ -168,42 +207,10 @@ struct AssetRenewalManagerTests {
         #expect(fixtures.mockAPI.renewCallCount == 0)
     }
 
-    @Test("lastRenewalDate returns nil for unknown key")
-    func testLastRenewalDateNilForUnknown() {
-        clearUserDefaults()
-        #expect(AssetRenewalManager.lastRenewalDate(for: "unknown-key") == nil)
-    }
-
-    @Test("nextRenewalDate returns nil for unknown key")
-    func testNextRenewalDateNilForUnknown() {
-        clearUserDefaults()
-        #expect(AssetRenewalManager.nextRenewalDate(for: "unknown-key") == nil)
-    }
-
-    @Test("nextRenewalDate calculates correctly")
-    func testNextRenewalDateCalculation() {
-        clearUserDefaults()
-        defer { clearUserDefaults() }
-
-        let now = Date()
-        var dict: [String: Any] = [:]
-        dict["test-key"] = now.timeIntervalSince1970
-        UserDefaults.standard.set(dict, forKey: "assetRenewalPerAssetDates")
-
-        let nextDate = AssetRenewalManager.nextRenewalDate(for: "test-key")
-
-        #expect(nextDate != nil)
-        let expectedNext = now.addingTimeInterval(15 * 24 * 60 * 60)
-        let diff = abs(nextDate!.timeIntervalSince(expectedNext))
-        #expect(diff < 1)
-    }
-
-    @Test("Batch renewal records per-asset dates for renewed keys")
-    func testBatchRenewalRecordsPerAssetDates() async throws {
+    @Test("Batch renewal records timestamps for renewed assets")
+    func testBatchRenewalRecordsTimestamps() async throws {
         let fixtures = try await makeTestFixtures()
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 2, failed: 0, expiredKeys: [])
-        UserDefaults.standard.removeObject(forKey: "assetRenewalLastDate")
-        defer { clearUserDefaults() }
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
@@ -220,22 +227,27 @@ struct AssetRenewalManagerTests {
                 conversationId: "convo-1",
                 inboxId: "inbox-1",
                 name: "Test",
-                avatar: "https://example.com/avatar.bin"
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: nil
             ).insert(db)
         }
 
         _ = await fixtures.manager.forceRenewal()
 
-        #expect(AssetRenewalManager.lastRenewalDate(for: "avatar.bin") != nil)
-        #expect(AssetRenewalManager.lastRenewalDate(for: "group.bin") != nil)
+        let profile = try await fixtures.dbWriter.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        }
+        let conversation = try await fixtures.dbWriter.read { db in
+            try DBConversation.fetchOne(db, key: "convo-2")
+        }
+        #expect(profile?.avatarLastRenewed != nil)
+        #expect(conversation?.imageLastRenewed != nil)
     }
 
-    @Test("Batch renewal does not record dates for expired keys")
-    func testBatchRenewalSkipsExpiredKeys() async throws {
+    @Test("Batch renewal does not record timestamps for expired assets")
+    func testBatchRenewalSkipsExpiredAssets() async throws {
         let fixtures = try await makeTestFixtures()
         fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 1, failed: 1, expiredKeys: ["avatar.bin"])
-        UserDefaults.standard.removeObject(forKey: "assetRenewalLastDate")
-        defer { clearUserDefaults() }
 
         try await fixtures.dbWriter.write { db in
             try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
@@ -252,21 +264,54 @@ struct AssetRenewalManagerTests {
                 conversationId: "convo-1",
                 inboxId: "inbox-1",
                 name: "Test",
-                avatar: "https://example.com/avatar.bin"
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: nil
             ).insert(db)
         }
 
         _ = await fixtures.manager.forceRenewal()
 
-        #expect(AssetRenewalManager.lastRenewalDate(for: "avatar.bin") == nil)
-        #expect(AssetRenewalManager.lastRenewalDate(for: "group.bin") != nil)
+        let profile = try await fixtures.dbWriter.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: "convo-1", inboxId: "inbox-1")
+        }
+        let conversation = try await fixtures.dbWriter.read { db in
+            try DBConversation.fetchOne(db, key: "convo-2")
+        }
+        #expect(profile?.avatarLastRenewed == nil)
+        #expect(conversation?.imageLastRenewed != nil)
+    }
+
+    @Test("Batch renewal handles API error gracefully")
+    func testBatchRenewalHandlesApiError() async throws {
+        let fixtures = try await makeTestFixtures()
+        fixtures.mockAPI.renewHandler = { _ in
+            throw NSError(domain: "Test", code: 1)
+        }
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+            try DBMember(inboxId: "inbox-1").insert(db)
+            try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try DBMemberProfile(
+                conversationId: "convo-1",
+                inboxId: "inbox-1",
+                name: "Test",
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: nil
+            ).insert(db)
+        }
+
+        let result = await fixtures.manager.forceRenewal()
+
+        #expect(fixtures.mockAPI.renewCallCount == 1)
+        #expect(result?.failed == 1)
+        #expect(result?.renewed == 0)
     }
 }
 
 private extension AssetRenewalManagerTests {
     struct TestFixtures {
         let dbWriter: any DatabaseWriter
-        let dbReader: any DatabaseReader
         let mockAPI: ConfigurableMockAPIClient
         let manager: AssetRenewalManager
     }
@@ -277,7 +322,7 @@ private extension AssetRenewalManagerTests {
         let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
 
         let manager = AssetRenewalManager(
-            databaseReader: dbManager.dbReader,
+            databaseWriter: dbManager.dbWriter,
             apiClient: mockAPI,
             recoveryHandler: recoveryHandler,
             renewalInterval: 15 * 24 * 60 * 60
@@ -285,15 +330,9 @@ private extension AssetRenewalManagerTests {
 
         return TestFixtures(
             dbWriter: dbManager.dbWriter,
-            dbReader: dbManager.dbReader,
             mockAPI: mockAPI,
             manager: manager
         )
-    }
-
-    func clearUserDefaults() {
-        UserDefaults.standard.removeObject(forKey: "assetRenewalLastDate")
-        UserDefaults.standard.removeObject(forKey: "assetRenewalPerAssetDates")
     }
 
     func makeDBConversation(
@@ -301,7 +340,8 @@ private extension AssetRenewalManagerTests {
         inboxId: String,
         clientId: String,
         kind: ConversationKind = .dm,
-        imageURL: String? = nil
+        imageURL: String? = nil,
+        imageLastRenewed: Date? = nil
     ) -> DBConversation {
         DBConversation(
             id: id,
@@ -320,7 +360,8 @@ private extension AssetRenewalManagerTests {
             includeInfoInPublicPreview: false,
             expiresAt: nil,
             debugInfo: .empty,
-            isLocked: false
+            isLocked: false,
+            imageLastRenewed: imageLastRenewed
         )
     }
 }
@@ -328,12 +369,12 @@ private extension AssetRenewalManagerTests {
 final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable {
     var renewCallCount: Int = 0
     var renewResult: AssetRenewalResult = AssetRenewalResult(renewed: 0, failed: 0, expiredKeys: [])
-    var shouldThrow: Bool = false
+    var renewHandler: (([String]) throws -> AssetRenewalResult)?
 
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
         renewCallCount += 1
-        if shouldThrow {
-            throw NSError(domain: "Test", code: 1)
+        if let handler = renewHandler {
+            return try handler(assetKeys)
         }
         return renewResult
     }
@@ -350,4 +391,3 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {}
     func unregisterInstallation(clientId: String) async throws {}
 }
-
