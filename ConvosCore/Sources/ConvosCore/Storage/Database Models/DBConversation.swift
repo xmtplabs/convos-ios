@@ -441,6 +441,32 @@ extension DBConversation {
         )
     }
 
+    func with(imageURLString: String?, imageSalt: Data?, imageNonce: Data?, imageEncryptionKey: Data?) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            imageLastRenewed: imageLastRenewed
+        )
+    }
+
     func with(publicImageURLString: String?) -> Self {
         .init(
             id: id,

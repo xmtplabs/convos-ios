@@ -39,7 +39,7 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
                         .fetchAll(db)
                     for var conv in conversations {
                         conv = conv
-                            .with(imageURLString: nil)
+                            .with(imageURLString: nil, imageSalt: nil, imageNonce: nil, imageEncryptionKey: nil)
                             .with(imageLastRenewed: nil)
                         try conv.save(db)
                     }
