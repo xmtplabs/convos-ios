@@ -106,6 +106,10 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private var activeConversationId: String?
 
+    // Stream readiness tracking - used to wait for streams to subscribe before signaling ready
+    private var messageStreamReadyContinuation: AsyncStream<Void>.Continuation?
+    private var conversationStreamReadyContinuation: AsyncStream<Void>.Continuation?
+
     // State machine
     private var _state: State = .idle
     private var actionQueue: [Action] = []
@@ -328,8 +332,15 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
-        // Now call syncAllConversations after streams are setup
-        Log.info("Streams started - calling syncAllConversations...")
+        // Wait for streams to enter their async iteration loops before proceeding.
+        // This ensures streams are actually subscribed to the XMTP network before
+        // we signal isSyncReady, preventing race conditions where messages sent
+        // immediately after isSyncReady could be missed.
+        Log.info("Waiting for streams to subscribe...")
+        await waitForStreamsToBeReady()
+
+        // Now call syncAllConversations after streams are subscribed
+        Log.info("Streams subscribed - calling syncAllConversations...")
         syncTask = Task { [weak self, params] in
             guard let self else { return }
             do {
@@ -383,6 +394,70 @@ actor SyncingManager: SyncingManagerProtocol {
         }
     }
 
+    /// Waits for both message and conversation streams to signal they're ready.
+    /// Uses continuations that are resumed by the stream functions when they enter their async loops.
+    /// Includes a timeout to prevent indefinite blocking if streams fail to start.
+    private func waitForStreamsToBeReady() async {
+        // Create AsyncStreams to wait for signals from the stream tasks
+        let (messageReadyStream, messageReadyContinuation) = AsyncStream<Void>.makeStream()
+        let (conversationReadyStream, conversationReadyContinuation) = AsyncStream<Void>.makeStream()
+
+        // Store the continuations so stream tasks can signal readiness
+        messageStreamReadyContinuation = messageReadyContinuation
+        conversationStreamReadyContinuation = conversationReadyContinuation
+
+        await withTaskGroup(of: Void.self) { group in
+            // Wait for message stream to signal ready
+            group.addTask {
+                for await _ in messageReadyStream {
+                    break
+                }
+            }
+
+            // Wait for conversation stream to signal ready
+            group.addTask {
+                for await _ in conversationReadyStream {
+                    break
+                }
+            }
+
+            // Timeout after 10 seconds to prevent indefinite blocking
+            group.addTask {
+                try? await Task.sleep(for: .seconds(10))
+                Log.warning("Stream ready timeout - proceeding anyway")
+            }
+
+            // Wait for both streams to be ready OR timeout
+            var completedCount = 0
+            for await _ in group {
+                completedCount += 1
+                if completedCount >= 2 {
+                    // Both streams ready (or one + timeout), cancel remaining
+                    group.cancelAll()
+                    break
+                }
+            }
+        }
+
+        // Clean up continuations
+        messageStreamReadyContinuation = nil
+        conversationStreamReadyContinuation = nil
+    }
+
+    /// Signals that the message stream has entered its async iteration loop.
+    private func signalMessageStreamReady() {
+        messageStreamReadyContinuation?.yield()
+        messageStreamReadyContinuation?.finish()
+        messageStreamReadyContinuation = nil
+    }
+
+    /// Signals that the conversation stream has entered its async iteration loop.
+    private func signalConversationStreamReady() {
+        conversationStreamReadyContinuation?.yield()
+        conversationStreamReadyContinuation?.finish()
+        conversationStreamReadyContinuation = nil
+    }
+
     private func handlePause() async throws {
         guard case .ready(let params) = _state else {
             Log.warning("Cannot pause - not in ready state")
@@ -428,6 +503,10 @@ actor SyncingManager: SyncingManagerProtocol {
             guard let self else { return }
             await self.runConversationStream(params: params)
         }
+
+        // Wait for streams to subscribe before transitioning to ready
+        Log.info("Waiting for streams to subscribe after resume...")
+        await waitForStreamsToBeReady()
 
         emitStateChange(.ready(params))
         Log.info("Sync resumed")
@@ -482,6 +561,11 @@ actor SyncingManager: SyncingManagerProtocol {
                 }
 
                 Log.info("Starting message stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+
+                // Signal that we're about to subscribe to the stream (only on first attempt)
+                if retryCount == 0 {
+                    signalMessageStreamReady()
+                }
 
                 // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
                 var isFirstMessage = true
@@ -539,6 +623,11 @@ actor SyncingManager: SyncingManagerProtocol {
                 }
 
                 Log.info("Starting conversation stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+
+                // Signal that we're about to subscribe to the stream (only on first attempt)
+                if retryCount == 0 {
+                    signalConversationStreamReady()
+                }
 
                 // Stream conversations - the loop will exit when onClose is called
                 var isFirstConversation = true
