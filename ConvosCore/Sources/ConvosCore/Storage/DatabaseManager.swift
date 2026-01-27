@@ -45,6 +45,10 @@ public final class DatabaseManager: DatabaseManagerProtocol {
     /// - Note: This is public because debug views (DebugAssetRenewalView, DebugViewSection) are in the
     ///   main app target and don't have access to SessionManager's database dependencies through the
     ///   current view hierarchy. A future refactor could inject these dependencies via SwiftUI Environment.
+    ///
+    /// - Important: Each call creates a new DatabasePool. The pool is released when the DatabaseManager
+    ///   is deallocated, but avoid calling this repeatedly in tight loops. For debug UI that refreshes,
+    ///   this is acceptable as pools are released when their Task completes.
     public static func makeForDebug(environment: AppEnvironment) -> DatabaseManager {
         DatabaseManager(environment: environment)
     }

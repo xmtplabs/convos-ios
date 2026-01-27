@@ -48,7 +48,9 @@ public actor AssetRenewalManager {
                 do {
                     try await recordRenewalInDatabase(for: [asset])
                 } catch {
-                    Log.error("Failed to record renewal timestamp: \(error.localizedDescription)")
+                    // Note: We log but continue because the actual renewal succeeded on the server.
+                    // Asset will be re-renewed on next check, which is safe (idempotent).
+                    Log.error("Renewal succeeded but failed to record timestamp (asset will be re-checked): \(error.localizedDescription)")
                 }
             }
 
@@ -107,7 +109,9 @@ public actor AssetRenewalManager {
                     do {
                         try await recordRenewalInDatabase(for: renewedAssets)
                     } catch {
-                        Log.error("Failed to record renewal timestamps: \(error.localizedDescription)")
+                        // Note: We log but continue because the actual renewal succeeded on the server.
+                        // Assets will be re-renewed on next check, which is safe (idempotent).
+                        Log.error("Renewal succeeded but failed to record timestamps (assets will be re-checked): \(error.localizedDescription)")
                     }
                 } catch {
                     Log.error("Batch renewal failed, continuing with remaining batches: \(error.localizedDescription)")
