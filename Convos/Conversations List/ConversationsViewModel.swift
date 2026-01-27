@@ -127,6 +127,15 @@ final class ConversationsViewModel {
     enum ConversationFilter {
         case all
         case unread
+
+        var emptyStateMessage: String {
+            switch self {
+            case .all:
+                return "No convos"
+            case .unread:
+                return "No unread convos"
+            }
+        }
     }
 
     var activeFilter: ConversationFilter = .all
@@ -157,6 +166,10 @@ final class ConversationsViewModel {
 
     var hasUnpinnedConversations: Bool {
         conversations.contains { !$0.isPinned && $0.kind == .group }
+    }
+
+    var isFilteredResultEmpty: Bool {
+        activeFilter != .all && unpinnedConversations.isEmpty && hasUnpinnedConversations
     }
 
     private(set) var hasCreatedMoreThanOneConvo: Bool {

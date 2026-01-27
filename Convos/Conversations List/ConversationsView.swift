@@ -56,12 +56,29 @@ struct ConversationsView: View {
         )
     }
 
+    var filteredEmptyStateView: some View {
+        FilteredEmptyStateView(
+            message: viewModel.activeFilter.emptyStateMessage,
+            onShowAll: { viewModel.activeFilter = .all }
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.top, DesignConstants.Spacing.step6x)
+    }
+
     var conversationsList: some View {
         List(selection: $viewModel.selectedConversationId) {
             if !viewModel.pinnedConversations.isEmpty {
                 Color.clear.frame(height: pinnedSectionHeight)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowSeparator(.hidden)
+            }
+
+            if viewModel.isFilteredResultEmpty {
+                filteredEmptyStateView
+                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
 
             ForEach(viewModel.unpinnedConversations, id: \.id) { conversation in
@@ -166,8 +183,12 @@ struct ConversationsView: View {
             NavigationSplitView {
                 ZStack(alignment: .top) {
                     Group {
-                        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+                        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
                             emptyConversationsViewScrollable
+                        } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+                            ScrollView {
+                                filteredEmptyStateView
+                            }
                         } else {
                             conversationsList
                         }
