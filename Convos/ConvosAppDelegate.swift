@@ -45,9 +45,17 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             await session.wakeInboxForNotification(conversationId: conversationId)
         }
 
-        // Always show explosion notifications (identified by isExplosion flag in userInfo)
+        // Handle explosion notifications - trigger cleanup and show banner
         if notification.request.content.userInfo["isExplosion"] as? Bool == true {
-            Log.info("App in foreground - showing explosion notification banner (always show)")
+            Log.info("App in foreground - explosion notification received, triggering cleanup")
+            let userInfo = notification.request.content.userInfo
+            DispatchQueue.main.async {
+                NotificationCenter.default.post(
+                    name: .conversationExpired,
+                    object: nil,
+                    userInfo: userInfo
+                )
+            }
             return [.banner, .sound]
         }
 
