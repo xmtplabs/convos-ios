@@ -310,26 +310,11 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
-        // Now call syncAllConversations after streams are setup
-        Log.info("Streams started - calling syncAllConversations...")
-        syncTask = Task { [weak self, params] in
-            guard let self else { return }
-            do {
-                try Task.checkCancellation()
-                _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: self.consentStates)
-                try Task.checkCancellation()
-                // Route sync completion through the action queue for consistent state transitions
-                await self.enqueueAction(.syncComplete(params))
-            } catch is CancellationError {
-                Log.info("syncAllConversations cancelled")
-            } catch {
-                Log.error("syncAllConversations failed: \(error)")
-                // Transition to ready state anyway - streams are already running
-                // and will continue to receive updates. The initial sync failure
-                // shouldn't block the app from functioning.
-                await self.enqueueAction(.syncComplete(params))
-            }
-        }
+        // EXPERIMENT: Skip syncAllConversations to allow streams to replay missed messages.
+        // Per XMTP team: syncAll moves the cursor forward, preventing message replay.
+        // Streams should naturally replay missed messages from the last cursor position.
+        Log.info("Streams started - skipping syncAllConversations to allow message replay...")
+        await enqueueAction(.syncComplete(params))
     }
 
     private func handleSyncComplete(params: SyncClientParams, pauseOnComplete: Bool) async throws {
