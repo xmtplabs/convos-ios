@@ -127,6 +127,7 @@ final class ConversationsViewModel {
     enum ConversationFilter {
         case all
         case unread
+        case exploding
 
         var emptyStateMessage: String {
             switch self {
@@ -134,6 +135,8 @@ final class ConversationsViewModel {
                 return "No convos"
             case .unread:
                 return "No unread convos"
+            case .exploding:
+                return "No exploding convos"
             }
         }
     }
@@ -151,6 +154,12 @@ final class ConversationsViewModel {
             return baseConversations
         case .unread:
             return baseConversations.filter { $0.isUnread }
+        case .exploding:
+            let oneYearFromNow = Date().addingTimeInterval(365 * 24 * 60 * 60)
+            return baseConversations.filter { conversation in
+                guard let expiresAt = conversation.expiresAt else { return false }
+                return expiresAt > Date() && expiresAt < oneYearFromNow
+            }
         }
     }
 
@@ -161,6 +170,12 @@ final class ConversationsViewModel {
             return baseConversations
         case .unread:
             return baseConversations.filter { $0.isUnread }
+        case .exploding:
+            let oneYearFromNow = Date().addingTimeInterval(365 * 24 * 60 * 60)
+            return baseConversations.filter { conversation in
+                guard let expiresAt = conversation.expiresAt else { return false }
+                return expiresAt > Date() && expiresAt < oneYearFromNow
+            }
         }
     }
 

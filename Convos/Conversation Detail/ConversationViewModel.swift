@@ -70,7 +70,28 @@ class ConversationViewModel {
         conversation.computedDisplayName
     }
     var conversationInfoSubtitle: String {
-        conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
+        if let expiresAt = scheduledExplosionDate {
+            return formatExplosionCountdown(expiresAt)
+        }
+        return conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
+    }
+
+    private func formatExplosionCountdown(_ date: Date) -> String {
+        let interval = date.timeIntervalSinceNow
+        guard interval > 0 else { return "Exploding..." }
+
+        let totalSeconds = Int(interval)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours >= 24 {
+            let days = hours / 24
+            let remainingHours = hours % 24
+            return "\(days)d \(remainingHours)h"
+        } else {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        }
     }
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
@@ -128,6 +149,22 @@ class ConversationViewModel {
     var showsExplodeNowButton: Bool {
         conversation.members.count > 1 && conversation.creator.isCurrentUser
     }
+
+    var scheduledExplosionDate: Date? {
+        guard let expiresAt = conversation.expiresAt,
+              expiresAt > Date() else { return nil }
+        // Sanity check: ignore dates more than 1 year in the future
+        // This prevents showing invalid countdowns for uninitialized or default dates
+        let oneYearFromNow = Date().addingTimeInterval(365 * 24 * 60 * 60)
+        guard expiresAt < oneYearFromNow else { return nil }
+        return expiresAt
+    }
+
+    var isExplosionScheduled: Bool {
+        scheduledExplosionDate != nil
+    }
+
+    var presentingScheduleExplosion: Bool = false
 
     // MARK: - Lock Conversation
 
@@ -713,6 +750,54 @@ class ConversationViewModel {
                 await MainActor.run {
                     self.explodeState = .error("Explode failed")
                 }
+            }
+        }
+    }
+
+    func scheduleExplosion(at expiresAt: Date) {
+        guard canRemoveMembers else { return }
+
+        if expiresAt <= Date() {
+            explodeConvo()
+            return
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                Log.info("Scheduling explosion for \(expiresAt)...")
+                let messagingService = try await session.messagingService(
+                    for: conversation.clientId,
+                    inboxId: conversation.inboxId
+                )
+                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversation.id) else {
+                    throw ExplodeConvoError.conversationNotFound
+                }
+
+                nonisolated(unsafe) let unsafeConversation = xmtpConversation
+                try await withTimeout(seconds: 20) {
+                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
+                }
+                Log.info("Scheduled explosion message sent successfully for \(expiresAt)")
+
+                try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
+
+                await MainActor.run {
+                    self.presentingScheduleExplosion = false
+                    NotificationCenter.default.post(
+                        name: .conversationScheduledExplosion,
+                        object: nil,
+                        userInfo: [
+                            "conversationId": self.conversation.id,
+                            "expiresAt": expiresAt
+                        ]
+                    )
+                }
+                Log.info("Explosion scheduled for \(expiresAt)")
+            } catch {
+                Log.error("Error scheduling explosion: \(error.localizedDescription)")
             }
         }
     }

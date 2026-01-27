@@ -12,6 +12,7 @@ enum ExplodeSettingsResult: Sendable {
     case fromSelf
     case alreadyExpired
     case applied(expiresAt: Date)
+    case scheduled(expiresAt: Date)
 }
 
 protocol IncomingMessageWriterProtocol: Sendable {
@@ -213,15 +214,14 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             return .fromSelf
         }
 
-        // When scheduled explosions are added, compare settings.expiresAt
-        // against messageSentAt to determine if this is immediate or scheduled.
+        let isScheduled = settings.expiresAt > Date()
 
         do {
             let didUpdate = try await databaseWriter.write { db -> Bool in
                 guard let dbConversation = try DBConversation.fetchOne(db, key: conversationId) else {
                     return false
                 }
-                // Skip if already expired (idempotency)
+                // Skip if already has expiresAt set (idempotency)
                 if dbConversation.expiresAt != nil {
                     return false
                 }
@@ -231,20 +231,34 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             }
 
             guard didUpdate else {
-                Log.info("ExplodeSettings: conversation already expired, skipping")
+                Log.info("ExplodeSettings: conversation already has expiresAt, skipping")
                 return .alreadyExpired
             }
 
-            Log.info("ExplodeSettings: applied, posting conversationExpired notification for \(conversationId)")
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: .conversationExpired,
-                    object: nil,
-                    userInfo: ["conversationId": conversationId]
-                )
+            if isScheduled {
+                Log.info("ExplodeSettings: scheduled for \(settings.expiresAt), posting conversationScheduledExplosion for \(conversationId)")
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .conversationScheduledExplosion,
+                        object: nil,
+                        userInfo: [
+                            "conversationId": conversationId,
+                            "expiresAt": settings.expiresAt
+                        ]
+                    )
+                }
+                return .scheduled(expiresAt: settings.expiresAt)
+            } else {
+                Log.info("ExplodeSettings: immediate, posting conversationExpired for \(conversationId)")
+                DispatchQueue.main.async {
+                    NotificationCenter.default.post(
+                        name: .conversationExpired,
+                        object: nil,
+                        userInfo: ["conversationId": conversationId]
+                    )
+                }
+                return .applied(expiresAt: settings.expiresAt)
             }
-
-            return .applied(expiresAt: settings.expiresAt)
         } catch {
             Log.error("Failed to write expiresAt for conversation \(conversationId): \(error.localizedDescription)")
             return .alreadyExpired

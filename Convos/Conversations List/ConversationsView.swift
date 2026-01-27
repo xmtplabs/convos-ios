@@ -259,13 +259,24 @@ struct ConversationsView: View {
                                     Text("Unread")
                                 }
                             }
+
+                            let explodingAction = {
+                                viewModel.activeFilter = viewModel.activeFilter == .exploding ? .all : .exploding
+                            }
+                            Button(action: explodingAction) {
+                                if viewModel.activeFilter == .exploding {
+                                    Label("Exploding", systemImage: "checkmark")
+                                } else {
+                                    Text("Exploding")
+                                }
+                            }
                         } label: {
                             Image(systemName: "line.3.horizontal.decrease")
-                                .foregroundStyle(viewModel.activeFilter == .unread ? .colorTextPrimaryInverted : .colorFillPrimary)
+                                .foregroundStyle(viewModel.activeFilter != .all ? .colorTextPrimaryInverted : .colorFillPrimary)
                                 .frame(width: 32, height: 32)
-                                .background(viewModel.activeFilter == .unread ? .colorFillPrimary : .clear)
+                                .background(viewModel.activeFilter != .all ? .colorFillPrimary : .clear)
                                 .mask(Circle())
-                                .overlay(Circle().stroke(viewModel.activeFilter == .unread ? .colorFillPrimary : .clear, lineWidth: 2))
+                                .overlay(Circle().stroke(viewModel.activeFilter != .all ? .colorFillPrimary : .clear, lineWidth: 2))
                                 .accessibilityLabel("Filter")
                         }
                         .disabled(!viewModel.hasUnpinnedConversations)

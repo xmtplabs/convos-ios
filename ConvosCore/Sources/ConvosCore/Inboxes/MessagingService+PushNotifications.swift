@@ -474,6 +474,8 @@ extension MessagingService {
                 conversationId: conversationId,
                 userInfo: explosionUserInfo
             )
+        case .scheduled:
+            return .droppedMessage
         case .fromSelf, .alreadyExpired:
             return .droppedMessage
         }

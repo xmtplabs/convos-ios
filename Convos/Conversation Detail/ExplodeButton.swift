@@ -5,6 +5,7 @@ import UIKit
 
 enum ExplodeState: Equatable {
     case ready
+    case scheduled(Date)
     case exploding
     case exploded
     case error(String)
@@ -24,6 +25,15 @@ enum ExplodeState: Equatable {
     var isError: Bool {
         if case .error = self { return true }
         return false
+    }
+    var isScheduled: Bool {
+        if case .scheduled = self { return true }
+        return false
+    }
+
+    var scheduledDate: Date? {
+        if case .scheduled(let date) = self { return date }
+        return nil
     }
 
     static let explodedAnimationDelay: CGFloat = 0.7
@@ -85,6 +95,8 @@ struct ExplodeButton: View {
         switch state {
         case .ready:
             return readyText
+        case .scheduled:
+            return "Scheduled"
         case .exploding, .exploded:
             return explodingText
         case .error(let message):
@@ -108,16 +120,55 @@ struct ExplodeButton: View {
     // MARK: - Body
 
     var body: some View {
-        Button {
-            onExplode()
-        } label: {
-            buttonContent
+        if case .scheduled(let date) = state {
+            scheduledContent(expiresAt: date)
+        } else {
+            Button {
+                onExplode()
+            } label: {
+                buttonContent
+            }
+            .disabled(!state.isReady)
+            .buttonStyle(HoldToConfirmPrimitiveStyle(config: config.buttonStyle))
+            .scaleEffect(buttonScale)
+            .onChange(of: state) { _, newValue in
+                handleStateChange(newValue)
+            }
         }
-        .disabled(!state.isReady)
-        .buttonStyle(HoldToConfirmPrimitiveStyle(config: config.buttonStyle))
-        .scaleEffect(buttonScale)
-        .onChange(of: state) { _, newValue in
-            handleStateChange(newValue)
+    }
+
+    @ViewBuilder
+    private func scheduledContent(expiresAt: Date) -> some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image("explodeIcon")
+                Text("Explodes in \(formatCountdown(until: expiresAt, from: context.date))")
+            }
+            .foregroundStyle(.colorOrange)
+            .font(.subheadline.weight(.medium))
+            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .frame(maxWidth: .infinity)
+            .background(Color.colorOrange.opacity(0.1))
+            .clipShape(Capsule())
+        }
+    }
+
+    private func formatCountdown(until date: Date, from now: Date) -> String {
+        let interval = date.timeIntervalSince(now)
+        guard interval > 0 else { return "00:00:00" }
+
+        let totalSeconds = Int(interval)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours >= 24 {
+            let days = hours / 24
+            let remainingHours = hours % 24
+            return "\(days)d \(remainingHours)h"
+        } else {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
         }
     }
 
@@ -155,6 +206,8 @@ struct ExplodeButton: View {
             case .ready:
                 Text(readyText)
                     .transition(.scale.combined(with: .opacity))
+            case .scheduled:
+                EmptyView()
             case .exploding, .exploded:
                 ShatteringText(
                     text: explodingText,
@@ -190,6 +243,8 @@ struct ExplodeButton: View {
         case .exploded:
             handleExplodedState()
         case .ready:
+            handleReadyState()
+        case .scheduled:
             handleReadyState()
         case .error:
             handleErrorState()

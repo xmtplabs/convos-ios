@@ -252,9 +252,77 @@ actor StreamProcessor: StreamProcessorProtocol {
             currentInboxId: params.client.inboxId
         )
 
-        if case .applied = result {
-            let conversationName = (try? conversation.name()).orUntitled
+        let conversationName = (try? conversation.name()).orUntitled
+
+        switch result {
+        case .applied:
             await postExplosionNotification(conversationName: conversationName, conversationId: conversation.id)
+        case .scheduled(let expiresAt):
+            let senderName = await getSenderDisplayName(senderInboxId: senderInboxId, conversation: conversation)
+            await postScheduledExplosionNotification(
+                senderName: senderName,
+                conversationName: conversationName,
+                conversationId: conversation.id,
+                expiresAt: expiresAt
+            )
+        case .fromSelf, .alreadyExpired:
+            break
+        }
+    }
+
+    private func getSenderDisplayName(senderInboxId: String, conversation: XMTPiOS.Group) async -> String {
+        do {
+            let metadata = try conversation.currentCustomMetadata
+            if let inboxIdData = senderInboxId.data(using: .utf8),
+               let profile = metadata.profiles.first(where: { $0.inboxID == inboxIdData }),
+               profile.hasName, !profile.name.isEmpty {
+                return profile.name
+            }
+        } catch {
+            Log.error("Failed to get sender display name: \(error.localizedDescription)")
+        }
+        return "Someone"
+    }
+
+    private func postScheduledExplosionNotification(
+        senderName: String,
+        conversationName: String,
+        conversationId: String,
+        expiresAt: Date
+    ) async {
+        let content = UNMutableNotificationContent()
+        content.title = "\(senderName) set this convo to explode"
+        content.body = "in \(formatDuration(until: expiresAt))"
+        content.sound = .default
+        content.userInfo = ["isScheduledExplosion": true, "conversationId": conversationId]
+        content.threadIdentifier = conversationId
+
+        let request = UNNotificationRequest(
+            identifier: "scheduled-explosion-\(conversationId)",
+            content: content,
+            trigger: nil
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+        } catch {
+            Log.error("Failed to post scheduled explosion notification: \(error.localizedDescription)")
+        }
+    }
+
+    private func formatDuration(until date: Date) -> String {
+        let interval = date.timeIntervalSinceNow
+        let hours = Int(interval) / 3600
+        let minutes = (Int(interval) % 3600) / 60
+
+        if hours >= 24 {
+            let days = hours / 24
+            let remainingHours = hours % 24
+            return "\(days)d \(remainingHours)h"
+        } else if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
         }
     }
 
