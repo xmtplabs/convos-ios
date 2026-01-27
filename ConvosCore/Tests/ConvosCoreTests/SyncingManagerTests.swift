@@ -357,7 +357,7 @@ struct SyncingManagerTests {
 
     // MARK: - Start Flow Tests
 
-    @Test("Start from idle starts streams without calling syncAllConversations")
+    @Test("Start from idle starts streams then calls syncAllConversations")
     func testStartFlow() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
@@ -377,24 +377,25 @@ struct SyncingManagerTests {
         // Wait for async operations to complete using polling
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
         try await waitUntil {
-            conversations.streamCallCount > 0
+            conversations.streamCallCount > 0 && conversations.syncCallCount > 0
         }
 
-        // Verify streams were started
+        // Verify streams were started first
         #expect(conversations.streamCallCount > 0, "Streams should be started")
 
-        // Verify syncAllConversations was NOT called (streams replay missed messages)
-        #expect(conversations.syncCallCount == 0, "syncAllConversations should not be called - streams replay missed messages")
+        // Verify syncAllConversations was called after streams
+        #expect(conversations.syncCallCount > 0, "syncAllConversations should be called")
 
         // Clean up
         await syncingManager.stop()
         try? await fixtures.cleanup()
     }
 
-    @Test("Start starts streams and transitions to ready")
+    @Test("Start starts streams before syncAllConversations")
     func testStartOrder() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
+        mockClient.syncBehavior = .delay(0.5) // Delay sync to verify streams start first
         let mockAPIClient = TestableMockAPIClient()
 
         let syncingManager = SyncingManager(
@@ -408,7 +409,7 @@ struct SyncingManagerTests {
         // Start syncing
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Wait a short time for streams to start
+        // Wait a short time - streams should be started but sync might not be done yet
         try await Task.sleep(for: .milliseconds(100))
 
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
@@ -518,25 +519,25 @@ struct SyncingManagerTests {
             notificationCenter: MockUserNotificationCenter()
         )
 
-        // Start syncing (streams start, no sync called)
+        // Start syncing (streams start first, then syncAllConversations is called)
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Wait for ready state
-        try await Task.sleep(for: .milliseconds(200))
+        // Wait for initial sync to complete
+        try await Task.sleep(for: .milliseconds(500))
 
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
-        #expect(conversations.syncCallCount == 0, "syncAllConversations should not be called on start")
+        let initialSyncCount = conversations.syncCallCount
 
         // Pause
         await syncingManager.pause()
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(500))
 
         // Resume (should only restart streams, NOT call syncAllConversations)
         await syncingManager.resume()
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(500))
 
-        // Verify syncAllConversations was still not called
-        #expect(conversations.syncCallCount == 0, "syncAllConversations should not be called on resume")
+        // Verify syncAllConversations was NOT called again on resume
+        #expect(conversations.syncCallCount == initialSyncCount, "syncAllConversations should not be called on resume")
 
         // Clean up
         await syncingManager.stop()
@@ -583,7 +584,7 @@ struct SyncingManagerTests {
     func testStartWhileStarting() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
-        mockClient.streamBehavior = .neverClose // Keep streams open to stay in starting state briefly
+        mockClient.syncBehavior = .delay(1.0) // Delay sync to keep in starting state
         let mockAPIClient = TestableMockAPIClient()
 
         let syncingManager = SyncingManager(
@@ -603,12 +604,9 @@ struct SyncingManagerTests {
         // Wait a bit
         try await Task.sleep(for: .milliseconds(100))
 
-        // Verify streams were only started once (2 streams: message + conversation)
+        // Verify syncAllConversations was only called once
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
-        #expect(conversations.streamCallCount == 2, "Streams should only be started once (2 streams)")
-
-        // Verify syncAllConversations was never called
-        #expect(conversations.syncCallCount == 0, "syncAllConversations should not be called")
+        #expect(conversations.syncCallCount == 1, "syncAllConversations should only be called once")
 
         // Clean up
         await syncingManager.stop()
@@ -636,7 +634,7 @@ struct SyncingManagerTests {
         try await Task.sleep(for: .milliseconds(200))
 
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
-        let initialStreamCount = conversations.streamCallCount
+        let initialSyncCount = conversations.syncCallCount
 
         // Start again with same client (should be ignored since already ready with same inboxId)
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
@@ -644,11 +642,8 @@ struct SyncingManagerTests {
         // Wait a bit
         try await Task.sleep(for: .milliseconds(100))
 
-        // Verify streams were NOT started again (duplicate start ignored)
-        #expect(conversations.streamCallCount == initialStreamCount, "Streams should not be started again for same client")
-
-        // Verify syncAllConversations was never called
-        #expect(conversations.syncCallCount == 0, "syncAllConversations should not be called")
+        // Verify syncAllConversations was NOT called again (duplicate start ignored)
+        #expect(conversations.syncCallCount == initialSyncCount, "syncAllConversations should not be called again for same client")
 
         // Clean up
         await syncingManager.stop()
@@ -679,7 +674,7 @@ struct SyncingManagerTests {
         try await Task.sleep(for: .milliseconds(200))
 
         let conversations2 = mockClient2.conversationsProvider as! TestableMockConversations
-        #expect(conversations2.streamCallCount == 0, "Second client should not have been used yet")
+        #expect(conversations2.syncCallCount == 0, "Second client should not have been used yet")
 
         // Start with different client (should stop and restart)
         await syncingManager.start(with: mockClient2, apiClient: mockAPIClient)
@@ -687,13 +682,8 @@ struct SyncingManagerTests {
         // Wait for restart
         try await Task.sleep(for: .milliseconds(300))
 
-        // Verify streams were started on the new client
-        #expect(conversations2.streamCallCount > 0, "Streams should be started on new client after restart")
-
-        // Verify syncAllConversations was never called on either client
-        let conversations1 = mockClient1.conversationsProvider as! TestableMockConversations
-        #expect(conversations1.syncCallCount == 0, "syncAllConversations should not be called on first client")
-        #expect(conversations2.syncCallCount == 0, "syncAllConversations should not be called on second client")
+        // Verify syncAllConversations was called on the new client
+        #expect(conversations2.syncCallCount > 0, "syncAllConversations should be called on new client after restart")
 
         // Clean up
         await syncingManager.stop()
@@ -704,6 +694,7 @@ struct SyncingManagerTests {
     func testPauseWhileStarting() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
+        mockClient.syncBehavior = .delay(0.5) // Keep in starting state for a bit
         mockClient.streamBehavior = .neverClose // Keep streams open
         let mockAPIClient = TestableMockAPIClient()
 
@@ -718,13 +709,13 @@ struct SyncingManagerTests {
         // Start syncing
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Pause (should be deferred until starting completes)
+        // Pause while starting (should be deferred until starting completes)
         await syncingManager.pause()
 
-        // Wait for state transitions to complete
-        try await Task.sleep(for: .milliseconds(200))
+        // Wait for sync to complete - should transition to paused, not ready
+        try await Task.sleep(for: .milliseconds(600))
 
-        // Resume should work (proves we're in paused state)
+        // Resume should work (proves we're in paused state, not ready)
         await syncingManager.resume()
 
         // Wait a bit for resume to complete
@@ -735,10 +726,12 @@ struct SyncingManagerTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Pause during starting state pauses after streams start")
+    @Test("Pause during starting state pauses after sync completes")
     func testPauseDuringStartingState() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
+        // Use a delay to ensure we're in starting state when pause is called
+        mockClient.syncBehavior = .delay(0.3)
         mockClient.streamBehavior = .neverClose
         let mockAPIClient = TestableMockAPIClient()
 
@@ -750,17 +743,19 @@ struct SyncingManagerTests {
             notificationCenter: MockUserNotificationCenter()
         )
 
-        // Start syncing - streams start
+        // Start syncing - this will be in starting state
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Immediately pause
+        // Immediately pause while still in starting state
         // This simulates network disconnection during startup
         await syncingManager.pause()
 
-        // Wait for state transitions
-        try await Task.sleep(for: .milliseconds(200))
+        // Wait for sync to complete
+        // The sync should complete, but we should transition to paused, not ready
+        try await Task.sleep(for: .milliseconds(400))
 
-        // Verify we can resume (proves we ended up in paused state)
+        // Verify we can resume (proves we ended up in paused state, not ready)
+        // If pause was dropped, resume would fail because we'd be in ready state
         await syncingManager.resume()
 
         // Wait for resume to complete
@@ -775,6 +770,8 @@ struct SyncingManagerTests {
     func testPauseThenResumeDuringStarting() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
+        // Use a delay to ensure we're in starting state when pause/resume are called
+        mockClient.syncBehavior = .delay(0.5)
         mockClient.streamBehavior = .neverClose
         let mockAPIClient = TestableMockAPIClient()
 
@@ -786,17 +783,17 @@ struct SyncingManagerTests {
             notificationCenter: MockUserNotificationCenter()
         )
 
-        // Start syncing
+        // Start syncing - this will be in starting state
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Pause
+        // Pause while in starting state
         await syncingManager.pause()
 
-        // Resume (user changed their mind)
+        // Resume while still in starting state (user changed their mind)
         await syncingManager.resume()
 
-        // Wait for state transitions to complete
-        try await Task.sleep(for: .milliseconds(200))
+        // Wait for sync to complete
+        try await Task.sleep(for: .milliseconds(600))
 
         // Should be in ready state (not paused) because resume cancelled the pending pause
         // Verify by trying to pause - if we're in ready, pause will work
@@ -913,7 +910,7 @@ struct SyncingManagerTests {
     func testStopFromStarting() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
-        mockClient.streamBehavior = .neverClose // Keep streams open
+        mockClient.syncBehavior = .delay(1.0) // Keep in starting state
         let mockAPIClient = TestableMockAPIClient()
 
         let syncingManager = SyncingManager(
