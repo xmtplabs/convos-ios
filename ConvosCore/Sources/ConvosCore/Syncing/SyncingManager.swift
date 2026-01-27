@@ -421,10 +421,15 @@ actor SyncingManager: SyncingManagerProtocol {
                 }
             }
 
-            // Timeout after 10 seconds to prevent indefinite blocking
+            // Timeout after 10 seconds to prevent indefinite blocking.
+            // AsyncStream doesn't respond to task cancellation, so we must finish the
+            // continuations to unblock the waiting tasks when timeout fires.
             group.addTask {
                 try? await Task.sleep(for: .seconds(10))
                 Log.warning("Stream ready timeout - proceeding anyway")
+                // Finish continuations so waiting tasks complete (AsyncStream ignores cancelAll)
+                messageReadyContinuation.finish()
+                conversationReadyContinuation.finish()
             }
 
             // Wait for both streams to be ready OR timeout
@@ -432,7 +437,8 @@ actor SyncingManager: SyncingManagerProtocol {
             for await _ in group {
                 completedCount += 1
                 if completedCount >= 2 {
-                    // Both streams ready (or one + timeout), cancel remaining
+                    // At least 2 tasks completed: either both streams ready,
+                    // or one stream + timeout (acceptable fallback)
                     group.cancelAll()
                     break
                 }
