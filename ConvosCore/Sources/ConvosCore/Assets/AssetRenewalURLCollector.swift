@@ -2,19 +2,26 @@ import Foundation
 import GRDB
 
 public enum RenewableAsset: Sendable {
-    case profileAvatar(url: String, conversationId: String, inboxId: String)
-    case groupImage(url: String, conversationId: String)
+    case profileAvatar(url: String, conversationId: String, inboxId: String, lastRenewed: Date?)
+    case groupImage(url: String, conversationId: String, lastRenewed: Date?)
 
     public var url: String {
         switch self {
-        case let .profileAvatar(url, _, _): return url
-        case let .groupImage(url, _): return url
+        case let .profileAvatar(url, _, _, _): return url
+        case let .groupImage(url, _, _): return url
         }
     }
 
     public var key: String? {
         guard let parsed = URL(string: url), parsed.path.count > 1 else { return nil }
         return String(parsed.path.dropFirst())
+    }
+
+    public var lastRenewed: Date? {
+        switch self {
+        case let .profileAvatar(_, _, _, lastRenewed): return lastRenewed
+        case let .groupImage(_, _, lastRenewed): return lastRenewed
+        }
     }
 }
 
@@ -47,7 +54,8 @@ public struct AssetRenewalURLCollector {
                 assets.append(.profileAvatar(
                     url: avatar,
                     conversationId: profile.conversationId,
-                    inboxId: profile.inboxId
+                    inboxId: profile.inboxId,
+                    lastRenewed: profile.avatarLastRenewed
                 ))
             }
 
@@ -63,7 +71,7 @@ public struct AssetRenewalURLCollector {
                       !seenURLs.contains(imageURL),
                       Self.isValidAssetURL(imageURL) else { continue }
                 seenURLs.insert(imageURL)
-                assets.append(.groupImage(url: imageURL, conversationId: conv.id))
+                assets.append(.groupImage(url: imageURL, conversationId: conv.id, lastRenewed: conv.imageLastRenewed))
             }
 
             return assets
@@ -96,7 +104,8 @@ public struct AssetRenewalURLCollector {
                 assets.append(.profileAvatar(
                     url: avatar,
                     conversationId: profile.conversationId,
-                    inboxId: profile.inboxId
+                    inboxId: profile.inboxId,
+                    lastRenewed: profile.avatarLastRenewed
                 ))
             }
 
@@ -116,7 +125,7 @@ public struct AssetRenewalURLCollector {
                       !seenURLs.contains(imageURL),
                       Self.isValidAssetURL(imageURL) else { continue }
                 seenURLs.insert(imageURL)
-                assets.append(.groupImage(url: imageURL, conversationId: conv.id))
+                assets.append(.groupImage(url: imageURL, conversationId: conv.id, lastRenewed: conv.imageLastRenewed))
             }
 
             return assets

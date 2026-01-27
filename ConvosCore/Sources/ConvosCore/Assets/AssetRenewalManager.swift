@@ -131,13 +131,13 @@ public actor AssetRenewalManager {
         try await databaseWriter.write { db in
             for asset in assets {
                 switch asset {
-                case let .profileAvatar(url, conversationId, inboxId):
+                case let .profileAvatar(url, conversationId, inboxId, _):
                     if var profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId),
                        profile.avatar == url {
                         profile = profile.with(avatarLastRenewed: now)
                         try profile.save(db)
                     }
-                case let .groupImage(url, conversationId):
+                case let .groupImage(url, conversationId, _):
                     if var conversation = try DBConversation.fetchOne(db, key: conversationId),
                        conversation.imageURLString == url {
                         conversation = conversation.with(imageLastRenewed: now)

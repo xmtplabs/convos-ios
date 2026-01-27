@@ -129,6 +129,15 @@ private struct AssetRow: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
+            if let lastRenewed = asset.lastRenewed {
+                Text("Last renewed: \(lastRenewed.formatted(date: .abbreviated, time: .shortened))")
+                    .font(.caption2)
+                    .foregroundStyle(.colorTextTertiary)
+            } else {
+                Text("Never renewed")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+            }
         }
         .padding(.vertical, 4)
         .contextMenu {
@@ -152,9 +161,9 @@ private struct AssetRow: View {
 
     private var assetTypeLabel: String {
         switch asset {
-        case let .profileAvatar(_, conversationId, _):
+        case let .profileAvatar(_, conversationId, _, _):
             return "Profile (\(conversationId.prefix(8))…)"
-        case let .groupImage(_, conversationId):
+        case let .groupImage(_, conversationId, _):
             return "Group (\(conversationId.prefix(8))…)"
         }
     }

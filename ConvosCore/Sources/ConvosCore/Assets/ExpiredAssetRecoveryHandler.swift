@@ -17,7 +17,7 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
         do {
             try await databaseWriter.write { db in
                 switch asset {
-                case let .profileAvatar(url, _, _):
+                case let .profileAvatar(url, _, _, _):
                     // Clear ALL profiles with this avatar URL (same person may appear in multiple conversations)
                     let profiles = try DBMemberProfile
                         .filter(DBMemberProfile.Columns.avatar == url)
@@ -30,7 +30,7 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
                         Log.info("Cleared expired profile avatar URL from \(profiles.count) record(s)")
                     }
 
-                case let .groupImage(url, _):
+                case let .groupImage(url, _, _):
                     // Clear ALL conversations with this image URL (unlikely to have duplicates, but for consistency)
                     let conversations = try DBConversation
                         .filter(DBConversation.Columns.imageURLString == url)

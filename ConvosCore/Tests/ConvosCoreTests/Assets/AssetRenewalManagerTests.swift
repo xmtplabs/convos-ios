@@ -117,7 +117,8 @@ struct AssetRenewalManagerTests {
         let asset = RenewableAsset.profileAvatar(
             url: "https://example.com/avatar.bin",
             conversationId: "convo-1",
-            inboxId: "inbox-1"
+            inboxId: "inbox-1",
+            lastRenewed: nil
         )
 
         let result = await fixtures.manager.renewSingleAsset(asset)
@@ -151,7 +152,8 @@ struct AssetRenewalManagerTests {
         let asset = RenewableAsset.profileAvatar(
             url: "https://example.com/avatar.bin",
             conversationId: "convo-1",
-            inboxId: "inbox-1"
+            inboxId: "inbox-1",
+            lastRenewed: nil
         )
 
         _ = await fixtures.manager.renewSingleAsset(asset)
@@ -182,7 +184,8 @@ struct AssetRenewalManagerTests {
         let asset = RenewableAsset.profileAvatar(
             url: "https://example.com/avatar.bin",
             conversationId: "convo-1",
-            inboxId: "inbox-1"
+            inboxId: "inbox-1",
+            lastRenewed: nil
         )
 
         let result = await fixtures.manager.renewSingleAsset(asset)
@@ -199,7 +202,7 @@ struct AssetRenewalManagerTests {
     func testRenewSingleAssetNilForNoKey() async throws {
         let fixtures = try await makeTestFixtures()
 
-        let asset = RenewableAsset.groupImage(url: "https://example.com", conversationId: "convo-1")
+        let asset = RenewableAsset.groupImage(url: "https://example.com", conversationId: "convo-1", lastRenewed: nil)
 
         let result = await fixtures.manager.renewSingleAsset(asset)
 
