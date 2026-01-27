@@ -374,6 +374,13 @@ main() {
 
     # Enforce monotonic bump when current version is known (compare base versions)
     if [ "$current_version" != "unknown" ]; then
+        # Check if base version equals current version
+        if [ "$BASE_VERSION" = "$current_version" ]; then
+            print_error "New base version ($BASE_VERSION) is the same as current ($current_version)"
+            print_status "Use a higher version number or add a prerelease suffix to the existing version"
+            exit 1
+        fi
+
         # Simple version comparison using IFS
         IFS='.' read -r curr_major curr_minor curr_patch <<< "$current_version"
         IFS='.' read -r new_major new_minor new_patch <<< "$BASE_VERSION"
