@@ -147,6 +147,56 @@ struct ConversationInfoView: View {
     }
 
     @ViewBuilder
+    private func explosionCountdownRow(expiresAt: Date) -> some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Group {
+                    Image("explodeIcon")
+                        .font(.headline)
+                        .padding(.horizontal, DesignConstants.Spacing.step2x)
+                        .padding(.vertical, 10.0)
+                        .foregroundStyle(.white)
+                }
+                .frame(width: 40.0, height: 40.0)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                        .fill(Color.colorOrange)
+                        .aspectRatio(1.0, contentMode: .fit)
+                )
+
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text("Explodes in")
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text(formatExplosionCountdown(expiresAt, from: context.date))
+                        .font(.headline.monospacedDigit())
+                        .foregroundStyle(.colorOrange)
+                }
+
+                Spacer()
+            }
+        }
+    }
+
+    private func formatExplosionCountdown(_ date: Date, from now: Date) -> String {
+        let interval = date.timeIntervalSince(now)
+        guard interval > 0 else { return "00:00:00" }
+
+        let totalSeconds = Int(interval)
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours >= 24 {
+            let days = hours / 24
+            let remainingHours = hours % 24
+            return "\(days)d \(remainingHours)h"
+        } else {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        }
+    }
+
+    @ViewBuilder
     private var lockRow: some View {
         FeatureRowItem(
             imageName: nil,
@@ -396,24 +446,40 @@ struct ConversationInfoView: View {
 
                 if viewModel.canRemoveMembers {
                     Section {
-                        Button {
-                            showingExplodeConfirmation = true
-                        } label: {
-                            Text("Explode now")
-                                .foregroundStyle(.colorCaution)
-                        }
-                        .confirmationDialog("", isPresented: $showingExplodeConfirmation) {
-                            Button("Explode", role: .destructive) {
-                                viewModel.explodeConvo()
+                        if let expiresAt = viewModel.scheduledExplosionDate {
+                            let action = {
+                                showingExplodeConfirmation = true
                             }
-
-                            Button("Cancel") {
-                                showingExplodeConfirmation = false
+                            Button(action: action) {
+                                explosionCountdownRow(expiresAt: expiresAt)
+                            }
+                            .buttonStyle(.plain)
+                        } else {
+                            let action = {
+                                viewModel.presentingScheduleExplosion = true
+                            }
+                            Button(action: action) {
+                                Text("Explode")
+                                    .foregroundStyle(.colorCaution)
                             }
                         }
                     } footer: {
-                        Text("Irrecoverably delete the convo for everyone")
-                            .foregroundStyle(.colorTextSecondary)
+                        if viewModel.isExplosionScheduled {
+                            Text("This convo will be deleted for everyone when the timer runs out")
+                                .foregroundStyle(.colorTextSecondary)
+                        } else {
+                            Text("Schedule when this convo will be deleted for everyone")
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                    }
+                    .confirmationDialog("", isPresented: $showingExplodeConfirmation) {
+                        Button("Explode now", role: .destructive) {
+                            viewModel.explodeConvo()
+                        }
+
+                        Button("Cancel") {
+                            showingExplodeConfirmation = false
+                        }
                     }
                 }
             }
@@ -457,6 +523,20 @@ struct ConversationInfoView: View {
                     showingFullInfo = false
                 })
                 .background(.colorBackgroundRaised)
+            }
+            .selfSizingSheet(isPresented: $viewModel.presentingScheduleExplosion) {
+                ScheduleExplosionView(
+                    onSchedule: { date in
+                        viewModel.scheduleExplosion(at: date)
+                    },
+                    onExplodeNow: {
+                        viewModel.presentingScheduleExplosion = false
+                        showingExplodeConfirmation = true
+                    },
+                    onCancel: {
+                        viewModel.presentingScheduleExplosion = false
+                    }
+                )
             }
         }
     }
