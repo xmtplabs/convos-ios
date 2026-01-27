@@ -291,7 +291,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         expiresAt: Date
     ) async {
         let content = UNMutableNotificationContent()
-        content.title = "\(senderName) set this convo to explode"
+        content.title = "\(senderName) set this convo to explode 💣"
         content.body = "in \(formatDuration(until: expiresAt))"
         content.sound = .default
         content.userInfo = ["isScheduledExplosion": true, "conversationId": conversationId]

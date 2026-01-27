@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import GRDB
+import UserNotifications
 @preconcurrency import XMTPiOS
 
 /// Extension providing push notification specific functionality for SingleInboxAuthProcessor
@@ -474,10 +475,54 @@ extension MessagingService {
                 conversationId: conversationId,
                 userInfo: explosionUserInfo
             )
-        case .scheduled:
-            return .droppedMessage
+        case .scheduled(let expiresAt):
+            let conversationName = (try? group.name()).orUntitled
+            let senderName = try await getSenderDisplayName(
+                senderInboxId: decodedMessage.senderInboxId,
+                conversationId: conversationId
+            )
+            let timeUntilExplosion = formatTimeUntilExplosion(expiresAt)
+
+            await scheduleExplosionLocalNotification(
+                conversationId: conversationId,
+                conversationName: conversationName,
+                expiresAt: expiresAt
+            )
+
+            return .init(
+                title: conversationName,
+                body: "\(senderName) set this convo to explode in \(timeUntilExplosion) 💣",
+                conversationId: conversationId,
+                userInfo: userInfo
+            )
         case .fromSelf, .alreadyExpired:
             return .droppedMessage
+        }
+    }
+
+    private func formatTimeUntilExplosion(_ expiresAt: Date) -> String {
+        let interval = expiresAt.timeIntervalSinceNow
+        guard interval > 0 else { return "soon" }
+
+        let totalSeconds = Int(interval)
+        let days = totalSeconds / 86400
+        let hours = (totalSeconds % 86400) / 3600
+        let minutes = (totalSeconds % 3600) / 60
+
+        if days > 0 {
+            if hours > 0 {
+                return "\(days)d \(hours)h"
+            }
+            return "\(days) day\(days == 1 ? "" : "s")"
+        } else if hours > 0 {
+            if minutes > 0 {
+                return "\(hours)h \(minutes)m"
+            }
+            return "\(hours) hour\(hours == 1 ? "" : "s")"
+        } else if minutes > 0 {
+            return "\(minutes) minute\(minutes == 1 ? "" : "s")"
+        } else {
+            return "less than a minute"
         }
     }
 
@@ -560,5 +605,49 @@ extension MessagingService {
     private func setLastWelcomeProcessed(_ date: Date?, for inboxId: String) {
         let key = "\(Self.lastWelcomeProcessedKeyPrefix).\(inboxId)"
         UserDefaults.standard.set(date, forKey: key)
+    }
+
+    // MARK: - Scheduled Explosion Notifications
+
+    private enum ExplosionNotificationConstant {
+        static let explosionIdentifierPrefix: String = "explosion-"
+    }
+
+    private func scheduleExplosionLocalNotification(
+        conversationId: String,
+        conversationName: String,
+        expiresAt: Date
+    ) async {
+        let timeInterval = expiresAt.timeIntervalSinceNow
+        guard timeInterval > 0 else {
+            Log.info("NSE: Skipping explosion notification for \(conversationId), already expired")
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = conversationName
+        content.body = "💥 Boom! This convo exploded. Its messages and members are gone forever"
+        content.sound = .default
+        content.userInfo = ["isExplosion": true, "conversationId": conversationId]
+        content.threadIdentifier = conversationId
+
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: timeInterval,
+            repeats: false
+        )
+
+        let identifier = "\(ExplosionNotificationConstant.explosionIdentifierPrefix)\(conversationId)"
+        let request = UNNotificationRequest(
+            identifier: identifier,
+            content: content,
+            trigger: trigger
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            Log.info("NSE: Scheduled explosion notification for \(conversationId) at \(expiresAt)")
+        } catch {
+            Log.error("NSE: Failed to schedule explosion notification: \(error.localizedDescription)")
+        }
     }
 }

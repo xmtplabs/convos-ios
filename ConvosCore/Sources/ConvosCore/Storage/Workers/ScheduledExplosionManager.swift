@@ -184,7 +184,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
 
         let content = UNMutableNotificationContent()
         content.title = conversationName
-        content.body = "Exploded 💥"
+        content.body = "💥 Boom! This convo exploded. Its messages and members are gone forever"
         content.sound = .default
         content.userInfo = ["isExplosion": true, "conversationId": conversationId]
         content.threadIdentifier = conversationId
@@ -220,7 +220,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         } catch {
             Log.error("Failed to fetch conversation name: \(error)")
         }
-        return "A conversation"
+        return "Untitled"
     }
 
     private func cancelNotifications(for conversationId: String) {

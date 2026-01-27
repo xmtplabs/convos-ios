@@ -684,7 +684,11 @@ class ConversationViewModel {
             }
         }
     }
+}
 
+// MARK: - Explosion Actions
+
+extension ConversationViewModel {
     private enum ExplodeConvoError: Error {
         case conversationNotFound
         case notGroupConversation
@@ -712,7 +716,6 @@ class ConversationViewModel {
                     throw ExplodeConvoError.conversationNotFound
                 }
 
-                // Use nonisolated(unsafe) to capture non-Sendable XMTP Conversation type
                 nonisolated(unsafe) let unsafeConversation = xmtpConversation
                 try await withTimeout(seconds: 20) {
                     try await unsafeConversation.sendExplode(expiresAt: expiresAt)
