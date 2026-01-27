@@ -260,11 +260,13 @@ struct ConversationsView: View {
                                 }
                             }
                         } label: {
-                            Label(
-                                "Filter",
-                                systemImage: viewModel.activeFilter == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease"
-                            )
-                            .foregroundStyle(viewModel.activeFilter == .unread ? .blue : .primary)
+                            Image(systemName: "line.3.horizontal.decrease")
+                                .foregroundStyle(viewModel.activeFilter == .unread ? .colorTextPrimaryInverted : .colorFillPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(viewModel.activeFilter == .unread ? .colorFillPrimary : .clear)
+                                .mask(Circle())
+                                .overlay(Circle().stroke(viewModel.activeFilter == .unread ? .colorFillPrimary : .clear, lineWidth: 2))
+                                .accessibilityLabel("Filter")
                         }
                         .disabled(!viewModel.hasUnpinnedConversations)
                     }
