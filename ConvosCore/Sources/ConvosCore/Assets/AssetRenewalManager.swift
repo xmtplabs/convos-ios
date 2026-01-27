@@ -3,7 +3,7 @@ import GRDB
 
 public actor AssetRenewalManager {
     public static let defaultRenewalInterval: TimeInterval = 15 * 24 * 60 * 60 // 15 days
-    private static let batchSize: Int = 100
+    private static let batchSize: Int = 100 // API limit
 
     private let databaseWriter: any DatabaseWriter
     private let apiClient: any ConvosAPIClientProtocol

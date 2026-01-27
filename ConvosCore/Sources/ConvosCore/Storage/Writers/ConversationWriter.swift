@@ -373,7 +373,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
     /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
     /// and the old image URL for cache invalidation purposes.
-    /// Also handles preserving imageLastRenewed inside the transaction to avoid race conditions.
+    /// Also handles preserving imageLastRenewed inside the transaction (GRDB's serialized write queue
+    /// ensures atomic read-modify-write, preventing concurrent asset renewal from losing timestamps).
     private func saveConversation(
         _ dbConversation: DBConversation,
         in db: Database

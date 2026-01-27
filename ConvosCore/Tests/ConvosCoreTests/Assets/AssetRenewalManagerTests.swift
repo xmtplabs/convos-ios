@@ -310,6 +310,83 @@ struct AssetRenewalManagerTests {
         #expect(result?.failed == 1)
         #expect(result?.renewed == 0)
     }
+
+    @Test("Records renewal for all profiles with same URL")
+    func testRecordsRenewalForAllProfilesWithSameURL() async throws {
+        let fixtures = try await makeTestFixtures()
+        fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 1, failed: 0, expiredKeys: [])
+        let sharedAvatarURL = "https://example.com/shared-avatar.bin"
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+            try DBMember(inboxId: "inbox-1").insert(db)
+            try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try makeDBConversation(id: "convo-2", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try makeDBConversation(id: "convo-3", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try DBMemberProfile(
+                conversationId: "convo-1",
+                inboxId: "inbox-1",
+                name: "Me in convo 1",
+                avatar: sharedAvatarURL,
+                avatarLastRenewed: nil
+            ).insert(db)
+            try DBMemberProfile(
+                conversationId: "convo-2",
+                inboxId: "inbox-1",
+                name: "Me in convo 2",
+                avatar: sharedAvatarURL,
+                avatarLastRenewed: nil
+            ).insert(db)
+            try DBMemberProfile(
+                conversationId: "convo-3",
+                inboxId: "inbox-1",
+                name: "Me in convo 3",
+                avatar: sharedAvatarURL,
+                avatarLastRenewed: nil
+            ).insert(db)
+        }
+
+        _ = await fixtures.manager.forceRenewal()
+
+        #expect(fixtures.mockAPI.renewCallCount == 1)
+
+        let profiles = try await fixtures.dbWriter.read { db in
+            try DBMemberProfile
+                .filter(DBMemberProfile.Columns.avatar == sharedAvatarURL)
+                .fetchAll(db)
+        }
+        #expect(profiles.count == 3)
+        for profile in profiles {
+            #expect(profile.avatarLastRenewed != nil)
+        }
+    }
+
+    @Test("Prevents concurrent renewals via actor isolation")
+    func testPreventsConcurrentRenewals() async throws {
+        let fixtures = try await makeTestFixtures()
+        fixtures.mockAPI.renewResult = AssetRenewalResult(renewed: 1, failed: 0, expiredKeys: [])
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+            try DBMember(inboxId: "inbox-1").insert(db)
+            try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try DBMemberProfile(
+                conversationId: "convo-1",
+                inboxId: "inbox-1",
+                name: "Test",
+                avatar: "https://example.com/avatar.bin",
+                avatarLastRenewed: nil
+            ).insert(db)
+        }
+
+        async let renewal1: Void = fixtures.manager.performRenewalIfNeeded()
+        async let renewal2: Void = fixtures.manager.performRenewalIfNeeded()
+        async let renewal3: Void = fixtures.manager.performRenewalIfNeeded()
+
+        _ = await (renewal1, renewal2, renewal3)
+
+        #expect(fixtures.mockAPI.renewCallCount == 1)
+    }
 }
 
 private extension AssetRenewalManagerTests {
