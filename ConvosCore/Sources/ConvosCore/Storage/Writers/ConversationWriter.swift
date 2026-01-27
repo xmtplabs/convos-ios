@@ -195,18 +195,22 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
         let memberProfiles = try conversation.memberProfiles
 
-        // Get old image URL before saving (for change detection)
-        let oldImageURL = try await databaseWriter.read { db -> String? in
+        // Get old image data before saving (for change detection and preserving renewal timestamp)
+        let (oldImageURL, oldImageLastRenewed) = try await databaseWriter.read { db -> (String?, Date?) in
             let oldConversation = try DBConversation.fetchOne(db, key: conversation.id)
-            return oldConversation?.imageURLString
+            return (oldConversation?.imageURLString, oldConversation?.imageLastRenewed)
         }
+
+        // Preserve imageLastRenewed if the image URL hasn't changed
+        let imageLastRenewed = (oldImageURL == metadata.imageURLString) ? oldImageLastRenewed : nil
 
         // Create database representation
         let dbConversation = try await createDBConversation(
             from: conversation,
             metadata: metadata,
             inboxId: inboxId,
-            clientConversationId: clientConversationId
+            clientConversationId: clientConversationId,
+            imageLastRenewed: imageLastRenewed
         )
 
         // Save to database. Capture the actual clientConversationId used (may be a draft ID
@@ -295,7 +299,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         from conversation: XMTPiOS.Group,
         metadata: ConversationMetadata,
         inboxId: String,
-        clientConversationId: String? = nil
+        clientConversationId: String? = nil,
+        imageLastRenewed: Date? = nil
     ) async throws -> DBConversation {
         // Look up clientId from inbox
         let clientId = try await databaseWriter.read { db in
@@ -326,7 +331,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageSalt: metadata.imageSalt,
             imageNonce: metadata.imageNonce,
             imageEncryptionKey: metadata.imageEncryptionKey,
-            imageLastRenewed: nil
+            imageLastRenewed: imageLastRenewed
         )
     }
 
