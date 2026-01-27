@@ -1,7 +1,8 @@
 #!/bin/bash
 
 # Convos iOS Release Tag Creator
-# This script creates a release tag with proper version bumping
+# This script creates a release branch and PR for version bumping.
+# The tag is automatically created by GitHub Actions when the PR is merged.
 
 set -e  # Exit on any error
 
@@ -14,31 +15,31 @@ NC='\033[0m' # No Color
 
 # Function to print colored output
 print_status() {
-    echo -e "${BLUE}ℹ️  $1${NC}"
+    echo -e "${BLUE}  $1${NC}"
 }
 
 print_success() {
-    echo -e "${GREEN}✅ $1${NC}"
+    echo -e "${GREEN}  $1${NC}"
 }
 
 print_warning() {
-    echo -e "${YELLOW}⚠️  $1${NC}"
+    echo -e "${YELLOW}  $1${NC}"
 }
 
 print_error() {
-    echo -e "${RED}❌ $1${NC}"
+    echo -e "${RED}  $1${NC}"
 }
 
 # Function to check if we're on dev branch
 check_dev_branch() {
     local current_branch=$(git rev-parse --abbrev-ref HEAD)
     if [ "$current_branch" != "dev" ]; then
-        print_error "You must be on the 'dev' branch to create a release tag"
+        print_error "You must be on the 'dev' branch to create a release"
         print_status "Current branch: $current_branch"
         print_status "Please checkout dev branch first: git checkout dev"
         exit 1
     fi
-    print_success "On dev branch ✓"
+    print_success "On dev branch"
 }
 
 # Function to check if working directory is clean
@@ -53,8 +54,24 @@ check_clean_working_dir() {
             exit 1
         fi
     else
-        print_success "Working directory is clean ✓"
+        print_success "Working directory is clean"
     fi
+}
+
+# Function to check if gh CLI is available and authenticated
+check_gh_cli() {
+    if ! command -v gh &> /dev/null; then
+        print_error "GitHub CLI (gh) is not installed"
+        print_status "Install it with: brew install gh"
+        exit 1
+    fi
+
+    if ! gh auth status &> /dev/null; then
+        print_error "GitHub CLI is not authenticated"
+        print_status "Run: gh auth login"
+        exit 1
+    fi
+    print_success "GitHub CLI is authenticated"
 }
 
 # Function to get current version
@@ -77,7 +94,7 @@ update_xcode_version() {
 
     if [ "$DRY_RUN" = true ]; then
         print_status "DRY RUN: Would update version in Xcode project to $new_version..."
-        print_success "DRY RUN: Version update simulation completed ✓"
+        print_success "DRY RUN: Version update simulation completed"
         return 0
     fi
 
@@ -112,7 +129,7 @@ update_xcode_version() {
     if "$SED" --version >/dev/null 2>&1; then
         # GNU sed (Linux)
         if "$SED" -i "s/MARKETING_VERSION = [0-9]*\.[0-9]*\.[0-9]*;/MARKETING_VERSION = $new_version;/g" "$temp_file"; then
-            print_success "Updated MARKETING_VERSION to $new_version ✓"
+            print_success "Updated MARKETING_VERSION to $new_version"
         else
             print_error "Failed to update MARKETING_VERSION"
             rm -f "$temp_file"
@@ -121,7 +138,7 @@ update_xcode_version() {
     else
         # BSD sed (macOS)
         if "$SED" -i '' "s/MARKETING_VERSION = [0-9]*\.[0-9]*\.[0-9]*;/MARKETING_VERSION = $new_version;/g" "$temp_file"; then
-            print_success "Updated MARKETING_VERSION to $new_version ✓"
+            print_success "Updated MARKETING_VERSION to $new_version"
         else
             print_error "Failed to update MARKETING_VERSION"
             rm -f "$temp_file"
@@ -132,11 +149,11 @@ update_xcode_version() {
     # Verify the update in temp file
     local updated_count=$(grep -c "MARKETING_VERSION = $new_version;" "$temp_file" || echo "0")
     if [ "$updated_count" -gt 0 ]; then
-        print_success "Verified $updated_count MARKETING_VERSION entries updated ✓"
+        print_success "Verified $updated_count MARKETING_VERSION entries updated"
 
         # Atomic move of temp file to original
         if mv "$temp_file" "$project_file"; then
-            print_success "Version update completed successfully ✓"
+            print_success "Version update completed successfully"
         else
             print_error "Failed to apply version update"
             rm -f "$temp_file"
@@ -149,13 +166,48 @@ update_xcode_version() {
     fi
 }
 
+# Function to create release branch
+create_release_branch() {
+    local base_version="$1"
+    local branch_name="release/$base_version"
+
+    if [ "$DRY_RUN" = true ]; then
+        print_status "DRY RUN: Would create branch $branch_name..."
+        print_success "DRY RUN: Branch creation simulation completed"
+        return 0
+    fi
+
+    print_status "Creating release branch $branch_name..."
+
+    # Check if branch already exists locally
+    if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+        print_error "Branch $branch_name already exists locally"
+        print_status "Delete it first: git branch -D $branch_name"
+        exit 1
+    fi
+
+    # Check if branch already exists on remote
+    if git ls-remote --exit-code --heads origin "$branch_name" &>/dev/null; then
+        print_error "Branch $branch_name already exists on remote"
+        print_status "Delete it first: git push origin --delete $branch_name"
+        exit 1
+    fi
+
+    if git checkout -b "$branch_name"; then
+        print_success "Created branch $branch_name"
+    else
+        print_error "Failed to create branch $branch_name"
+        exit 1
+    fi
+}
+
 # Function to commit version update
 commit_version_update() {
     local new_version="$1"
 
     if [ "$DRY_RUN" = true ]; then
         print_status "DRY RUN: Would commit version update to $new_version..."
-        print_success "DRY RUN: Commit simulation completed ✓"
+        print_success "DRY RUN: Commit simulation completed"
         return 0
     fi
 
@@ -172,44 +224,85 @@ commit_version_update() {
 
     # Commit the changes
     if git commit -m "chore: bump version to $new_version"; then
-        print_success "Version update committed ✓"
+        print_success "Version update committed"
     else
         print_error "Failed to commit version update"
         exit 1
     fi
 }
 
-# Function to create tag and push atomically
-create_tag_and_push_atomic() {
-    local new_version="$1"
+# Function to push branch and create PR
+push_and_create_pr() {
+    local base_version="$1"
+    local full_version="$2"
+    local branch_name="release/$base_version"
 
     if [ "$DRY_RUN" = true ]; then
-        print_status "DRY RUN: Would create tag $new_version..."
-        print_status "DRY RUN: Would push dev branch and tag atomically to origin..."
-        print_success "DRY RUN: Atomic push simulation completed ✓"
+        print_status "DRY RUN: Would push branch $branch_name to origin..."
+        print_status "DRY RUN: Would create PR from $branch_name to dev..."
+        print_success "DRY RUN: Push and PR creation simulation completed"
         return 0
     fi
 
-    print_status "Creating tag $new_version..."
+    print_status "Pushing branch $branch_name to origin..."
 
-    # Create lightweight tag (GitHub Actions will create a release with notes)
-    if git tag "$new_version"; then
-        print_success "Tag $new_version created locally ✓"
+    if git push -u origin "$branch_name"; then
+        print_success "Branch pushed to origin"
     else
-        print_error "Failed to create tag $new_version"
+        print_error "Failed to push branch"
         exit 1
     fi
 
-    print_status "Pushing dev branch and tag atomically to origin..."
+    print_status "Creating pull request..."
 
-    # Push both the branch and tag atomically in one operation
-    if git push --atomic origin dev "$new_version"; then
-        print_success "Dev branch and tag $new_version pushed atomically ✓"
+    local pr_body
+    pr_body=$(cat <<EOF
+Bumps version to $full_version for release.
+
+## Changes
+- Updates MARKETING_VERSION to $base_version in Xcode project
+
+## After Merge
+When this PR is merged, GitHub Actions will automatically:
+1. Create tag \`$full_version\`
+2. Delete the release branch
+3. Trigger the auto-release workflow to create a GitHub Release
+
+<!-- release-tag: $full_version -->
+EOF
+)
+
+    local pr_url
+    pr_url=$(gh pr create \
+        --base dev \
+        --head "$branch_name" \
+        --title "Release $full_version" \
+        --body "$pr_body")
+
+    if [ -n "$pr_url" ]; then
+        print_success "Pull request created"
+        echo ""
+        echo -e "${GREEN}PR URL: $pr_url${NC}"
     else
-        print_error "Failed to push dev branch and tag atomically"
-        # Clean up the local tag if push failed
-        git tag -d "$new_version" 2>/dev/null
+        print_error "Failed to create pull request"
         exit 1
+    fi
+}
+
+# Function to cleanup on failure
+cleanup_on_failure() {
+    local base_version="$1"
+    local branch_name="release/$base_version"
+
+    print_warning "Cleaning up after failure..."
+
+    # Switch back to dev branch
+    git checkout dev 2>/dev/null || true
+
+    # Delete local release branch if it exists
+    if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+        git branch -D "$branch_name" 2>/dev/null || true
+        print_status "Deleted local branch $branch_name"
     fi
 }
 
@@ -238,13 +331,13 @@ done
 # Main execution
 main() {
     if [ "$DRY_RUN" = true ]; then
-        echo "📦 Convos iOS Release Tag Creator (DRY RUN MODE)"
+        echo "Convos iOS Release Tag Creator (DRY RUN MODE)"
         echo "================================================"
         echo ""
         print_warning "DRY RUN MODE: No actual changes will be made!"
         echo ""
     else
-        echo "📦 Convos iOS Release Tag Creator"
+        echo "Convos iOS Release Tag Creator"
         echo "=================================="
         echo ""
     fi
@@ -252,6 +345,11 @@ main() {
     # Check prerequisites
     check_dev_branch
     check_clean_working_dir
+    check_gh_cli
+
+    # Pull latest dev to ensure we're up to date
+    print_status "Pulling latest dev branch..."
+    git pull origin dev
 
     # Get current version
     local current_version=$(get_current_version)
@@ -286,28 +384,38 @@ main() {
             print_error "New version ($BASE_VERSION) must be greater than current ($current_version)"
             exit 1
         fi
-        print_success "Version bump validation passed ✓"
+        print_success "Version bump validation passed"
     fi
 
     # Confirm action
     echo ""
     if [ "$DRY_RUN" = true ]; then
         print_warning "DRY RUN MODE - This will simulate:"
-        echo "  1. Update MARKETING_VERSION in Xcode project to $BASE_VERSION"
-        echo "  2. Commit the change to dev branch"
-        echo "  3. Create tag $NEW_VERSION (may include prerelease suffix)"
-        echo "  4. Push both tag and dev branch to origin"
-        echo "  5. Trigger GitHub Actions to create release"
+        echo "  1. Create branch release/$BASE_VERSION from dev"
+        echo "  2. Update MARKETING_VERSION in Xcode project to $BASE_VERSION"
+        echo "  3. Commit the change"
+        echo "  4. Push branch to origin"
+        echo "  5. Create PR from release/$BASE_VERSION to dev"
+        echo ""
+        echo "After PR merge, GitHub Actions will:"
+        echo "  - Create tag $NEW_VERSION"
+        echo "  - Delete the release branch"
+        echo "  - Create GitHub Release with release notes"
         echo ""
         print_status "No actual changes will be made!"
         echo ""
     else
         print_warning "This will:"
-        echo "  1. Update MARKETING_VERSION in Xcode project to $BASE_VERSION"
-        echo "  2. Commit the change to dev branch"
-        echo "  3. Create tag $NEW_VERSION (may include prerelease suffix)"
-        echo "  4. Push both tag and dev branch to origin"
-        echo "  5. Trigger GitHub Actions to create release"
+        echo "  1. Create branch release/$BASE_VERSION from dev"
+        echo "  2. Update MARKETING_VERSION in Xcode project to $BASE_VERSION"
+        echo "  3. Commit the change"
+        echo "  4. Push branch to origin"
+        echo "  5. Create PR from release/$BASE_VERSION to dev"
+        echo ""
+        echo "After PR merge, GitHub Actions will:"
+        echo "  - Create tag $NEW_VERSION"
+        echo "  - Delete the release branch"
+        echo "  - Create GitHub Release with release notes"
         echo ""
     fi
 
@@ -320,32 +428,43 @@ main() {
 
     echo ""
 
+    # Set up trap to cleanup on failure (only for non-dry-run)
+    if [ "$DRY_RUN" = false ]; then
+        trap "cleanup_on_failure '$BASE_VERSION'" ERR
+    fi
+
     # Execute the release workflow
+    create_release_branch "$BASE_VERSION"
     update_xcode_version "$BASE_VERSION"
     commit_version_update "$BASE_VERSION"
-    create_tag_and_push_atomic "$NEW_VERSION"
+    push_and_create_pr "$BASE_VERSION" "$NEW_VERSION"
+
+    # Clear the trap on success
+    if [ "$DRY_RUN" = false ]; then
+        trap - ERR
+    fi
 
     echo ""
     if [ "$DRY_RUN" = true ]; then
-        print_success "🔍 DRY RUN COMPLETED: Release workflow simulation finished!"
+        print_success "DRY RUN COMPLETED: Release workflow simulation finished!"
         echo ""
-        print_status "What would happen next in a real run:"
-        echo "  • GitHub Actions would automatically trigger on the tag"
-        echo "  • A release PR would be created from dev → main"
-        echo "  • Review the PR and merge when ready"
-        echo "  • Bitrise would build and deploy to TestFlight"
+        print_status "What would happen in a real run:"
+        echo "  - A release branch and PR would be created"
+        echo "  - Review and merge the PR on GitHub"
+        echo "  - GitHub Actions creates the tag automatically"
+        echo "  - auto-release.yml creates the GitHub Release"
+        echo "  - Bitrise builds and deploys to TestFlight"
         echo ""
         print_status "To perform the actual release, run: ./Scripts/create-release-tag.sh"
     else
-        print_success "🎉 Release tag $NEW_VERSION created successfully!"
+        print_success "Release PR created successfully!"
         echo ""
-        print_status "What happens next:"
-        echo "  • GitHub Actions will automatically trigger on the tag"
-        echo "  • A release PR will be created from dev → main"
-        echo "  • Review the PR and merge when ready"
-        echo "  • Bitrise will build and deploy to TestFlight"
-        echo ""
-        print_status "Check the Actions tab in GitHub for progress"
+        print_status "Next steps:"
+        echo "  1. Review the PR on GitHub"
+        echo "  2. Merge the PR (tag will be created automatically)"
+        echo "  3. GitHub Actions will create the GitHub Release"
+        echo "  4. Run 'make promote-release' to merge dev to main"
+        echo "  5. Bitrise will build and deploy to TestFlight"
     fi
 }
 

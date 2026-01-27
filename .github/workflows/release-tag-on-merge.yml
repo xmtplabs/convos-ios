@@ -1,0 +1,86 @@
+name: Create Release Tag on Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [dev]
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  create-tag:
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract tag version from PR body
+        id: extract
+        run: |
+          PR_BODY="${{ github.event.pull_request.body }}"
+          # Extract version from <!-- release-tag: X.Y.Z --> comment
+          TAG=$(echo "$PR_BODY" | grep -oP '<!-- release-tag: \K[^\s]+(?= -->)' || echo "")
+
+          if [ -z "$TAG" ]; then
+            echo "Error: Could not extract release tag from PR body"
+            echo "Expected format: <!-- release-tag: X.Y.Z -->"
+            exit 1
+          fi
+
+          echo "Extracted tag: $TAG"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+
+      - name: Check if tag already exists
+        id: check-tag
+        run: |
+          TAG="${{ steps.extract.outputs.tag }}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "Tag $TAG already exists"
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "Tag $TAG does not exist"
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Create and push tag
+        if: steps.check-tag.outputs.exists == 'false'
+        run: |
+          TAG="${{ steps.extract.outputs.tag }}"
+          echo "Creating tag $TAG on commit ${{ github.event.pull_request.merge_commit_sha }}"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git tag "$TAG" "${{ github.event.pull_request.merge_commit_sha }}"
+          git push origin "$TAG"
+
+          echo "Tag $TAG created and pushed successfully"
+
+      - name: Delete release branch
+        run: |
+          BRANCH="${{ github.event.pull_request.head.ref }}"
+          echo "Deleting branch $BRANCH"
+
+          # Delete remote branch (local doesn't exist in this checkout)
+          git push origin --delete "$BRANCH" || echo "Branch $BRANCH may have already been deleted"
+
+          echo "Branch cleanup completed"
+
+      - name: Summary
+        run: |
+          TAG="${{ steps.extract.outputs.tag }}"
+          echo "## Release Tag Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** \`$TAG\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit:** \`${{ github.event.pull_request.merge_commit_sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR:** #${{ github.event.pull_request.number }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "The \`auto-release.yml\` workflow will now trigger to create the GitHub Release." >> $GITHUB_STEP_SUMMARY
