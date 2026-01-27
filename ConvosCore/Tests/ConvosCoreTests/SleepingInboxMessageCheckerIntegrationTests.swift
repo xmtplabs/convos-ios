@@ -151,15 +151,13 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await fixtures.saveConversation(id: group.id, clientId: receiverClientId, inboxId: receiverClient.inboxID)
 
         // Now mark receiver as sleeping (AFTER the message was sent)
-        let sleepTime = Date()
+        // Add 5 second buffer for clock skew between test machine and XMTP backend
+        // (especially relevant with ephemeral Fly.io backends in CI)
+        let sleepTime = Date().addingTimeInterval(5)
         let lifecycleManager = TestableInboxLifecycleManager()
         await lifecycleManager.setSleeping(clientIds: [receiverClientId], at: sleepTime)
 
         // Set up activity repository
-        // lastActivity is set to 5 seconds before sleep time to provide buffer for:
-        // 1. Clock skew between test machine and XMTP backend (especially Fly.io in CI)
-        // 2. Message timestamp granularity differences
-        // 3. Network propagation delays that may affect timestamp ordering
         let activityRepo = MockInboxActivityRepository()
         activityRepo.activities = [
             InboxActivity(
