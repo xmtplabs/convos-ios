@@ -350,6 +350,18 @@ actor SyncingManager: SyncingManagerProtocol {
         } else {
             emitStateChange(.ready(params))
             Log.info("syncAllConversations completed, sync ready")
+
+            // Process any join requests that may have been missed during stream startup.
+            // This handles the race condition where a joiner sends a DM before the message
+            // stream has fully subscribed to the XMTP network.
+            await processJoinRequestsAfterSync(params: params)
+        }
+    }
+
+    private func processJoinRequestsAfterSync(params: SyncClientParams) async {
+        let results = await joinRequestsManager.processJoinRequests(since: nil, client: params.client)
+        if !results.isEmpty {
+            Log.info("Processed \(results.count) join requests after sync complete")
         }
     }
 
