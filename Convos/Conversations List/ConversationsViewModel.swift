@@ -132,10 +132,17 @@ final class ConversationsViewModel {
     var activeFilter: ConversationFilter = .all
 
     var pinnedConversations: [Conversation] {
-        conversations
+        let baseConversations = conversations
             .filter { $0.isPinned }
             .filter { $0.kind == .group }
             .sorted { ($0.pinnedOrder ?? Int.max) < ($1.pinnedOrder ?? Int.max) }
+
+        switch activeFilter {
+        case .all:
+            return baseConversations
+        case .unread:
+            return baseConversations.filter { $0.isUnread }
+        }
     }
 
     var unpinnedConversations: [Conversation] {
