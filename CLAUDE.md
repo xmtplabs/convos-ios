@@ -266,6 +266,7 @@ When migrating from `ObservableObject`:
 - **Prefer editing existing files** over creating new ones
 - **Follow existing patterns** in neighboring code
 - **Check dependencies** before using any library
+- **Run `/lint` before committing** - SwiftLint runs via `/lint` command and pre-commit hooks, not during builds (for faster compilation)
 
 ---
 
@@ -281,9 +282,11 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 | `/build` | Build the app (compile only) using "Convos (Dev)" scheme |
 | `/build --run` | Build and launch in an unused simulator |
 | `/test` | Run tests (ConvosCore by default) |
-| `/lint` | Check code with SwiftLint |
+| `/lint` | Check code with SwiftLint (run before committing) |
 | `/format` | Format code with SwiftFormat |
 | `/firebase-token` | Get Firebase App Check debug token from simulator logs |
+
+**Pre-commit workflow:** SwiftLint runs via `/lint` and pre-commit hooks, not during Xcode builds (for faster compilation). The pre-commit hook auto-fixes issues; run `/lint` manually to check before staging.
 
 ### Subagents
 
@@ -407,16 +410,12 @@ main
 
 ### Pre-commit Hooks
 
-A pre-commit hook is available at `.claude/hooks/pre-commit.sh` that:
-- Runs SwiftFormat on staged files
+A pre-commit hook at `Scripts/hooks/pre-commit` is automatically installed by `Scripts/setup.sh`. It:
+- Runs SwiftFormat on staged Swift files
 - Runs SwiftLint with auto-fix
-- Blocks commits with unfixable errors
+- Blocks commits with unfixable lint errors
 
-To install:
-```bash
-ln -sf ../../.claude/hooks/pre-commit.sh .git/hooks/pre-commit
-chmod +x .git/hooks/pre-commit
-```
+If the hook isn't installed, run `Scripts/setup.sh` to set it up.
 
 ### Parallel Task Management
 

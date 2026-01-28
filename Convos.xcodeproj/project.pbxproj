@@ -625,7 +625,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				D80850422DC94FA000E708B0 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				D80850352DC94F4C00E708B0 /* NotificationService */,
@@ -653,7 +652,6 @@
 			buildRules = (
 			);
 			dependencies = (
-				D8084C1C2DC91F1300E708B0 /* PBXTargetDependency */,
 				D808503A2DC94F4C00E708B0 /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
@@ -720,7 +718,6 @@
 			mainGroup = D8A2B6882DA4BA4B00EF8577;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				D80BAEE72DB2F1CD00C2FB42 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */,
 				D8084BA72DC9193A00E708B0 /* XCRemoteSwiftPackageReference "DifferenceKit" */,
 				7A5D3E942E43B82400DA9B83 /* XCRemoteSwiftPackageReference "swiftui-introspect" */,
 			);
@@ -958,18 +955,10 @@
 			target = 7ADC0C6D2E2977800053978A /* ConvosAppClip */;
 			targetProxy = 7ADC0C872E2977810053978A /* PBXContainerItemProxy */;
 		};
-		D8084C1C2DC91F1300E708B0 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			productRef = D8084C1B2DC91F1300E708B0 /* SwiftLintBuildToolPlugin */;
-		};
 		D808503A2DC94F4C00E708B0 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = D80850332DC94F4C00E708B0 /* NotificationService */;
 			targetProxy = D80850392DC94F4C00E708B0 /* PBXContainerItemProxy */;
-		};
-		D80850422DC94FA000E708B0 /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			productRef = D80850412DC94FA000E708B0 /* SwiftLintBuildToolPlugin */;
 		};
 /* End PBXTargetDependency section */
 
@@ -1719,6 +1708,8 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				FUSE_BUILD_SCRIPT_PHASES = YES;
+				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-function-bodies -Xfrontend 100 -Xfrontend -warn-long-expression-type-checking -Xfrontend 100";
 			};
 			name = Dev;
 		};
@@ -1846,6 +1837,8 @@
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				FUSE_BUILD_SCRIPT_PHASES = YES;
+				OTHER_SWIFT_FLAGS = "-Xfrontend -warn-long-function-bodies -Xfrontend 100 -Xfrontend -warn-long-expression-type-checking -Xfrontend 100";
 			};
 			name = Local;
 		};
@@ -2152,14 +2145,6 @@
 				minimumVersion = 1.3.0;
 			};
 		};
-		D80BAEE72DB2F1CD00C2FB42 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/SimplyDanny/SwiftLintPlugins";
-			requirement = {
-				kind = exactVersion;
-				version = 0.62.2;
-			};
-		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -2206,16 +2191,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = D8084BA72DC9193A00E708B0 /* XCRemoteSwiftPackageReference "DifferenceKit" */;
 			productName = DifferenceKit;
-		};
-		D8084C1B2DC91F1300E708B0 /* SwiftLintBuildToolPlugin */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D80BAEE72DB2F1CD00C2FB42 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */;
-			productName = "plugin:SwiftLintBuildToolPlugin";
-		};
-		D80850412DC94FA000E708B0 /* SwiftLintBuildToolPlugin */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = D80BAEE72DB2F1CD00C2FB42 /* XCRemoteSwiftPackageReference "SwiftLintPlugins" */;
-			productName = "plugin:SwiftLintBuildToolPlugin";
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
