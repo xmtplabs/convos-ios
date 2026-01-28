@@ -741,6 +741,20 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for inbox to be fully ready before creating conversation.
+        // In CI, XMTP registration and authentication can take a long time,
+        // so we use a generous timeout (60s) for this step.
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            return
+        }
+
         let inviterStateMachine = ConversationStateMachine(
             inboxStateManager: inviterMessagingService.inboxStateManager,
             identityStore: inviterFixtures.identityStore,
@@ -750,12 +764,10 @@ struct ConversationStateMachineTests {
             clientConversationId: DBConversation.generateDraftConversationId()
         )
 
-        // Create conversation as inviter
+        // Create conversation as inviter (inbox is already ready, so this should be fast)
         await inviterStateMachine.create()
 
-        // Wait for ready state and get conversation ID
-        // Use longer timeout (30s) to account for inbox startup time in CI
-        // (XMTP registration + authentication + conversation creation)
+        // Wait for conversation creation to complete (should be quick since inbox is ready)
         var inviterConversationId: String?
         var inviterInboxId: String?
         do {
@@ -768,7 +780,7 @@ struct ConversationStateMachineTests {
                 throw TestError.timeout("Never reached ready state")
             }
         } catch {
-            Issue.record("Timed out waiting for inviter to be ready: \(error)")
+            Issue.record("Timed out waiting for conversation creation: \(error)")
             await inviterMessagingService.stopAndDelete()
             try? await inviterFixtures.cleanup()
         }
