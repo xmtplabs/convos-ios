@@ -706,6 +706,13 @@ struct ConversationStateMachineTests {
             return
         }
 
+        // Wait for joiner's sync streams to be fully ready before joining.
+        // The XMTP SDK connection pool must be fully initialized to avoid
+        // "Pool needs to reconnect before use" errors.
+        try await waitUntil(timeout: .seconds(10)) {
+            await joinerMessagingService.inboxStateManager.isSyncReady
+        }
+
         let joinerStateMachine = ConversationStateMachine(
             inboxStateManager: joinerMessagingService.inboxStateManager,
             identityStore: joinerFixtures.identityStore,
