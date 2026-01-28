@@ -726,9 +726,10 @@ struct ConversationStateMachineTests {
         await joinerStateMachine.join(inviteCode: invite.urlSlug)
 
         // Wait for ready state
+        // Use 60s timeout to match offline test - join can be slow on CI due to network latency
         var joinerConversationId: String?
         do {
-            joinerConversationId = try await withTimeout(seconds: 30) {
+            joinerConversationId = try await withTimeout(seconds: 60) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):
