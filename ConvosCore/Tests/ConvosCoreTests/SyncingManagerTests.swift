@@ -616,11 +616,13 @@ struct SyncingManagerTests {
         // Immediately try to start again (should be ignored)
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Wait a bit
-        try await Task.sleep(for: .milliseconds(100))
+        // Wait for sync to be called at least once (uses polling for CI reliability)
+        let conversations = mockClient.conversationsProvider as! TestableMockConversations
+        try await waitUntil(timeout: .seconds(5)) {
+            conversations.syncCallCount >= 1
+        }
 
         // Verify syncAllConversations was only called once
-        let conversations = mockClient.conversationsProvider as! TestableMockConversations
         #expect(conversations.syncCallCount == 1, "syncAllConversations should only be called once")
 
         // Clean up
