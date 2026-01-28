@@ -460,11 +460,13 @@ struct SyncingManagerTests {
         // Start syncing (streams start first, then syncAllConversations is called)
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Wait for sync to fail
-        try await Task.sleep(for: .milliseconds(200))
+        // Wait for async operations to complete using polling
+        let conversations = mockClient.conversationsProvider as! TestableMockConversations
+        try await waitUntil {
+            conversations.streamCallCount > 0 && conversations.syncCallCount > 0
+        }
 
         // Verify streams were started
-        let conversations = mockClient.conversationsProvider as! TestableMockConversations
         #expect(conversations.streamCallCount > 0, "Streams should be started")
 
         // Verify syncAllConversations was called (and failed)
