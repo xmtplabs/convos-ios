@@ -754,10 +754,12 @@ struct ConversationStateMachineTests {
         await inviterStateMachine.create()
 
         // Wait for ready state and get conversation ID
+        // Use longer timeout (30s) to account for inbox startup time in CI
+        // (XMTP registration + authentication + conversation creation)
         var inviterConversationId: String?
         var inviterInboxId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 10) {
+            inviterConversationId = try await withTimeout(seconds: 30) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
