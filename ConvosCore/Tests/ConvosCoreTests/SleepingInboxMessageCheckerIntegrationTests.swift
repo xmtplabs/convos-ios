@@ -248,9 +248,13 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await fixtures.saveConversation(id: group1.id, clientId: receiver1ClientId, inboxId: receiver1Client.inboxID)
         try await fixtures.saveConversation(id: group2.id, clientId: receiver2ClientId, inboxId: receiver2Client.inboxID)
 
-        // Mark both receivers as sleeping with a future buffer to account for clock skew
-        // between test machine and XMTP backend (especially with ephemeral Fly.io backends in CI).
-        let sleepTime = Date().addingTimeInterval(5)
+        // Wait for clock skew buffer before setting sleep time.
+        // This ensures the "old" message timestamp from the XMTP backend
+        // is clearly before the sleep time, even with clock skew.
+        try await Task.sleep(for: .seconds(5))
+
+        // Mark both receivers as sleeping
+        let sleepTime = Date()
         let lifecycleManager = TestableInboxLifecycleManager()
         await lifecycleManager.setSleeping(clientIds: [receiver1ClientId, receiver2ClientId], at: sleepTime)
 
