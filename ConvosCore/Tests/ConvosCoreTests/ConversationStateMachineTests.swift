@@ -610,6 +610,18 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for inviter inbox to be ready before creating conversation
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            return
+        }
+
         let inviterStateMachine = ConversationStateMachine(
             inboxStateManager: inviterMessagingService.inboxStateManager,
             identityStore: inviterFixtures.identityStore,
@@ -625,7 +637,7 @@ struct ConversationStateMachineTests {
         // Wait for ready state and get conversation ID
         var inviterConversationId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 10) {
+            inviterConversationId = try await withTimeout(seconds: 30) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -680,6 +692,20 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for joiner inbox to be ready before joining
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            await joinerMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            try? await joinerFixtures.cleanup()
+            return
+        }
+
         let joinerStateMachine = ConversationStateMachine(
             inboxStateManager: joinerMessagingService.inboxStateManager,
             identityStore: joinerFixtures.identityStore,
@@ -693,7 +719,6 @@ struct ConversationStateMachineTests {
         await joinerStateMachine.join(inviteCode: invite.urlSlug)
 
         // Wait for ready state
-        // Note: Increased timeout from 10s to 30s for CI reliability with ephemeral Fly.io backends
         var joinerConversationId: String?
         do {
             joinerConversationId = try await withTimeout(seconds: 30) {
