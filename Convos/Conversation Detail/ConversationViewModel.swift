@@ -30,10 +30,12 @@ class ConversationViewModel {
     private(set) var conversation: Conversation {
         didSet {
             presentingConversationForked = conversation.isForked
-            if oldValue.isDraft, !conversation.isDraft { applyPendingDraftEdits() }
+            if oldValue.isDraft, !conversation.isDraft {
+                applyPendingDraftEdits()
+                _editingIncludeInfoInPublicPreview = nil
+            }
             if !isEditingConversationName { editingConversationName = conversation.name ?? "" }
             if !isEditingDescription { editingDescription = conversation.description ?? "" }
-            _editingIncludeInfoInPublicPreview = nil
         }
     }
 
