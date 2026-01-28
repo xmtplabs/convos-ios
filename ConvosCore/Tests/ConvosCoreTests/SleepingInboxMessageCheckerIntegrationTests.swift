@@ -250,9 +250,7 @@ struct SleepingInboxMessageCheckerIntegrationTests {
 
         // Mark both receivers as sleeping with a future buffer to account for clock skew
         // between test machine and XMTP backend (especially with ephemeral Fly.io backends in CI).
-        // The old message was already sent and propagated, so its XMTP timestamp is in the past.
-        // Adding a buffer ensures sleepTime is solidly after the old message's backend timestamp.
-        let sleepTime = Date().addingTimeInterval(3)
+        let sleepTime = Date().addingTimeInterval(5)
         let lifecycleManager = TestableInboxLifecycleManager()
         await lifecycleManager.setSleeping(clientIds: [receiver1ClientId, receiver2ClientId], at: sleepTime)
 
