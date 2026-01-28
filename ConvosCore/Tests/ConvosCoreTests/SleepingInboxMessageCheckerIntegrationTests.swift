@@ -249,7 +249,9 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await fixtures.saveConversation(id: group2.id, clientId: receiver2ClientId, inboxId: receiver2Client.inboxID)
 
         // Mark both receivers as sleeping
-        let sleepTime = Date()
+        // Add 5 second buffer for clock skew between test machine and XMTP backend
+        // (especially relevant with ephemeral Fly.io backends in CI)
+        let sleepTime = Date().addingTimeInterval(5)
         let lifecycleManager = TestableInboxLifecycleManager()
         await lifecycleManager.setSleeping(clientIds: [receiver1ClientId, receiver2ClientId], at: sleepTime)
 
