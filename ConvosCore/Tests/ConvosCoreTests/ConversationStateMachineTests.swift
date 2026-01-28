@@ -764,14 +764,15 @@ struct ConversationStateMachineTests {
             clientConversationId: DBConversation.generateDraftConversationId()
         )
 
-        // Create conversation as inviter (inbox is already ready, so this should be fast)
+        // Create conversation as inviter
         await inviterStateMachine.create()
 
-        // Wait for conversation creation to complete (should be quick since inbox is ready)
+        // Wait for conversation creation to complete.
+        // XMTP publish() can be slow in CI, so use generous timeout.
         var inviterConversationId: String?
         var inviterInboxId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 30) {
+            inviterConversationId = try await withTimeout(seconds: 60) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -868,12 +869,12 @@ struct ConversationStateMachineTests {
         Log.info("Inviter came back online")
 
         // Wait for joiner to reach ready state (join should be processed automatically)
-        // Note: Increased timeout from 10s to 30s for CI reliability with ephemeral Fly.io backends
+        // Use generous timeout for CI where XMTP operations can be slow.
         var joinerConversationId: String?
         var joinerReachedReady = false
 
         do {
-            joinerConversationId = try await withTimeout(seconds: 30) {
+            joinerConversationId = try await withTimeout(seconds: 60) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):
