@@ -1515,9 +1515,10 @@ struct ConversationStateMachineTests {
         await inviterStateMachine.create()
 
         // Wait for inviter conversation to be ready
+        // XMTP publish() can be slow in CI, so use a generous timeout
         var inviterConversationId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 10) {
+            inviterConversationId = try await withTimeout(seconds: 30) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId

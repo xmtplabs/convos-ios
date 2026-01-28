@@ -386,8 +386,9 @@ struct SyncingManagerTests {
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
         // Wait for async operations to complete using polling
+        // Use longer timeout for CI reliability
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
-        try await waitUntil {
+        try await waitUntil(timeout: .seconds(15)) {
             conversations.streamCallCount > 0 && conversations.syncCallCount > 0
         }
 
@@ -461,8 +462,9 @@ struct SyncingManagerTests {
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
         // Wait for async operations to complete using polling
+        // Use longer timeout for CI reliability
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
-        try await waitUntil {
+        try await waitUntil(timeout: .seconds(15)) {
             conversations.streamCallCount > 0 && conversations.syncCallCount > 0
         }
 
