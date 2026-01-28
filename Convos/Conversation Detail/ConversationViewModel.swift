@@ -164,8 +164,6 @@ class ConversationViewModel {
         scheduledExplosionDate != nil
     }
 
-    var presentingScheduleExplosion: Bool = false
-
     // MARK: - Lock Conversation
 
     var isLocked: Bool {
@@ -788,7 +786,6 @@ extension ConversationViewModel {
                 try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
 
                 await MainActor.run {
-                    self.presentingScheduleExplosion = false
                     NotificationCenter.default.post(
                         name: .conversationScheduledExplosion,
                         object: nil,
