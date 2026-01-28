@@ -1501,6 +1501,20 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for inbox to be fully ready before creating conversation.
+        // In CI, XMTP registration and authentication can take a long time,
+        // so we use a generous timeout (60s) for this step.
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            return
+        }
+
         let inviterStateMachine = ConversationStateMachine(
             inboxStateManager: inviterMessagingService.inboxStateManager,
             identityStore: inviterFixtures.identityStore,
@@ -1513,10 +1527,11 @@ struct ConversationStateMachineTests {
         // Create conversation as inviter
         await inviterStateMachine.create()
 
-        // Wait for inviter conversation to be ready
+        // Wait for inviter conversation to be ready.
+        // XMTP publish() can be slow in CI, so use generous timeout.
         var inviterConversationId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 10) {
+            inviterConversationId = try await withTimeout(seconds: 60) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -1576,6 +1591,20 @@ struct ConversationStateMachineTests {
             identityStore: joinerFixtures.identityStore,
             environment: testEnvironment
         )
+
+        // Wait for joiner inbox to be ready before joining
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            await joinerMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            try? await joinerFixtures.cleanup()
+            return
+        }
 
         let joinerStateMachine = ConversationStateMachine(
             inboxStateManager: joinerMessagingService.inboxStateManager,
