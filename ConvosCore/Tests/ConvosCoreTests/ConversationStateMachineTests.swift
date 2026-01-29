@@ -1613,6 +1613,25 @@ struct ConversationStateMachineTests {
             backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
 
+        // Wait for joiner inbox to be ready before joining
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            await joinerMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            try? await joinerFixtures.cleanup()
+            return
+        }
+
+        // Wait for joiner's sync streams to be ready before joining
+        try await waitUntil(timeout: .seconds(10)) {
+            await joinerMessagingService.inboxStateManager.isSyncReady
+        }
+
         let joinerStateMachine = ConversationStateMachine(
             inboxStateManager: joinerMessagingService.inboxStateManager,
             identityStore: joinerFixtures.identityStore,
