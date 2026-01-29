@@ -18,7 +18,7 @@ private let testPlatformProviders = PlatformProviders.mock
 /// - Delete and stop flows
 /// - State sequence observation
 /// - Multiple conversation creation
-@Suite("ConversationStateMachine Tests", .serialized)
+@Suite("ConversationStateMachine Tests", .serialized, .timeLimit(.minutes(3)))
 struct ConversationStateMachineTests {
     // MARK: - Test Helpers
 

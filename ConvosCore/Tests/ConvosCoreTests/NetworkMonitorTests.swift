@@ -11,7 +11,7 @@ import Testing
 /// - Multiple subscribers to statusSequence
 /// - Network monitor restart after stop
 /// - Edge cases and error handling
-@Suite("NetworkMonitor Tests", .serialized)
+@Suite("NetworkMonitor Tests", .serialized, .timeLimit(.minutes(2)))
 struct NetworkMonitorTests {
 
     private enum TestError: Error {
