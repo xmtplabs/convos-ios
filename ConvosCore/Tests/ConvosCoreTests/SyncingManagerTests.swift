@@ -327,7 +327,7 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
 }
 
 /// Comprehensive tests for SyncingManager state machine
-@Suite("SyncingManager Tests", .serialized)
+@Suite("SyncingManager Tests", .serialized, .timeLimit(.minutes(2)))
 struct SyncingManagerTests {
 
     private enum TestError: Error {

@@ -16,7 +16,7 @@ private let _configureXMTPEndpoint: Void = {
 ///
 /// These tests verify that sleeping inboxes are properly woken when they receive
 /// new messages, using real XMTP clients connected to the local Docker node.
-@Suite("SleepingInboxMessageChecker Integration Tests", .serialized)
+@Suite("SleepingInboxMessageChecker Integration Tests", .serialized, .timeLimit(.minutes(2)))
 struct SleepingInboxMessageCheckerIntegrationTests {
 
     // MARK: - Wake on New Message Tests
