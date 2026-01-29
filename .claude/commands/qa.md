@@ -1,3 +1,7 @@
+---
+description: Create and manage Convos QA stress test conversations
+---
+
 # QA
 
 Create and manage stress test conversations for Convos QA testing.
@@ -14,6 +18,8 @@ Use natural language. Examples:
 /qa add 3 fake members to https://convos.app/v2?i=abc123
 /qa what's running?
 /qa stop stress-test-abc123
+/qa restart in prod
+/qa switch to dev
 /qa update
 ```
 
@@ -115,6 +121,7 @@ fi
 source ~/.convos-qa/.env
 export OPENAI_API_KEY
 export XMTP_ENV=dev
+echo "dev" > ~/.convos-qa/.xmtp_env
 nohup npm start > ~/.convos-qa/convos-agents.log 2>&1 &
 echo $! > ~/.convos-qa/convos-agents.pid
 ```
@@ -132,18 +139,6 @@ done
 
 **Note:** First startup may take ~60 seconds while generating DALL-E avatars.
 
-After setup completes successfully, inform the user:
-```
-✅ QA service is running!
-
-You can also use the web dashboard at: http://localhost:3000
-
-The dashboard lets you:
-- Create stress test conversations
-- View and manage running agents
-- Monitor message activity
-```
-
 ### Step 1: Parse Intent and Execute
 
 Parse the user's natural language to determine:
@@ -156,7 +151,9 @@ Parse the user's natural language to determine:
 | **Invite URL** | URLs containing `convos.app` or invite slugs | None |
 | **Status check** | "status", "what's running", "list", "agents" | - |
 | **Stop agent** | "stop", "kill", "end" + agent ID | - |
-| **Update service** | "update", "upgrade", "pull latest" | - |
+| **Switch to prod** | "restart in prod", "switch to production", "use prod", "prod mode" | - |
+| **Switch to dev** | "restart in dev", "switch to dev", "use dev", "dev mode" | - |
+| **Update** | "update", "upgrade", "pull latest", "get latest" | - |
 
 Then execute the matching action:
 
@@ -204,11 +201,18 @@ Fake members will start messaging automatically.
 #### Intent: Check status
 
 ```bash
+# Get current environment
+cat ~/.convos-qa/.xmtp_env 2>/dev/null || echo "dev"
+
+# Get running agents
 curl -s http://localhost:3000/api/agents
 ```
 
 Response format:
 ```
+**Service Status:**
+- Environment: dev (or production)
+
 **Running Agents (2):**
 
 stress-test-abc123
@@ -225,6 +229,9 @@ stress-test-xyz789
 
 If no agents:
 ```
+**Service Status:**
+- Environment: dev
+
 No running agents.
 
 Use `/qa new convo with 5 members` to create a test conversation.
@@ -241,48 +248,96 @@ Response format:
 ✅ Stopped agent: <agent-id>
 ```
 
-#### Intent: Update service
+#### Intent: Switch to production mode
 
-Pull the latest changes, rebuild, and restart the service:
+Stop the running service and restart with `XMTP_ENV=production`:
 
 ```bash
-# 1. Stop the running service
+# Kill existing process
 kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
 
-# 2. Pull latest changes
-cd ~/.convos-qa/convos-ai && git pull
-
-# 3. Reinstall dependencies if package.json changed
-npm install
-
-# 4. Rebuild TypeScript
-npm run build
-
-# 5. Restart the service
+# Restart with production environment
+cd ~/.convos-qa/convos-ai
 source ~/.convos-qa/.env
 export OPENAI_API_KEY
-export XMTP_ENV=dev
+export XMTP_ENV=production
+echo "production" > ~/.convos-qa/.xmtp_env
 nohup npm start > ~/.convos-qa/convos-agents.log 2>&1 &
 echo $! > ~/.convos-qa/convos-agents.pid
 ```
 
-Wait for health check:
-```bash
-for i in {1..30}; do
-  if curl -s http://localhost:3000/health | grep -q '"status":"ok"'; then
-    echo "✅ convos-agents updated and ready"
-    break
-  fi
-  sleep 1
-done
-```
+Wait for health check (same as bootstrap step 0.5).
 
 Response format:
 ```
-✅ Updated convos-agents service
+✅ Restarted convos-agents in production mode
 
-Changes pulled from git and service restarted.
-Web dashboard: http://localhost:3000
+The service is now using the XMTP production network.
+```
+
+#### Intent: Switch to dev mode
+
+Stop the running service and restart with `XMTP_ENV=dev`:
+
+```bash
+# Kill existing process
+kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
+
+# Restart with dev environment
+cd ~/.convos-qa/convos-ai
+source ~/.convos-qa/.env
+export OPENAI_API_KEY
+export XMTP_ENV=dev
+echo "dev" > ~/.convos-qa/.xmtp_env
+nohup npm start > ~/.convos-qa/convos-agents.log 2>&1 &
+echo $! > ~/.convos-qa/convos-agents.pid
+```
+
+Wait for health check (same as bootstrap step 0.5).
+
+Response format:
+```
+✅ Restarted convos-agents in dev mode
+
+The service is now using the XMTP dev network.
+```
+
+#### Intent: Update to latest version
+
+Stop the service, pull latest changes, rebuild, and restart:
+
+```bash
+# Kill existing process
+kill $(cat ~/.convos-qa/convos-agents.pid) 2>/dev/null
+
+# Pull latest changes
+cd ~/.convos-qa/convos-ai
+git pull
+
+# Reinstall dependencies if package.json changed
+npm install
+
+# Rebuild TypeScript
+npm run build
+
+# Get current environment (default to dev)
+CURRENT_ENV=$(cat ~/.convos-qa/.xmtp_env 2>/dev/null || echo "dev")
+
+# Restart with same environment
+source ~/.convos-qa/.env
+export OPENAI_API_KEY
+export XMTP_ENV=$CURRENT_ENV
+nohup npm start > ~/.convos-qa/convos-agents.log 2>&1 &
+echo $! > ~/.convos-qa/convos-agents.pid
+```
+
+Wait for health check (same as bootstrap step 0.5).
+
+Response format:
+```
+✅ Updated convos-agents to latest version
+
+Pulled latest changes, rebuilt, and restarted in <env> mode.
 ```
 
 ### Step 2: Join in Simulator
@@ -441,6 +496,36 @@ Claude: [Creates stress test, copies invite to simulator clipboard,
         **Members:** Alex, Jordan, Sam, Riley, Morgan
 
         The conversation is now open in the Simulator.
+```
+
+**Switch to production environment:**
+```
+User: /qa restart in prod
+Claude: [Kills existing process, restarts with XMTP_ENV=production]
+
+        ✅ Restarted convos-agents in production mode
+
+        The service is now using the XMTP production network.
+```
+
+**Switch back to dev environment:**
+```
+User: /qa switch to dev
+Claude: [Kills existing process, restarts with XMTP_ENV=dev]
+
+        ✅ Restarted convos-agents in dev mode
+
+        The service is now using the XMTP dev network.
+```
+
+**Update to latest version:**
+```
+User: /qa update
+Claude: [Stops service, pulls latest, rebuilds, restarts]
+
+        ✅ Updated convos-agents to latest version
+
+        Pulled latest changes, rebuilt, and restarted in dev mode.
 ```
 
 ## Cleanup
