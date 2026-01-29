@@ -444,6 +444,18 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for inbox to be ready before creating conversations
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for inbox to be ready: \(error)")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
+        }
+
         let stateMachine = ConversationStateMachine(
             inboxStateManager: messagingService.inboxStateManager,
             identityStore: fixtures.identityStore,
@@ -457,16 +469,17 @@ struct ConversationStateMachineTests {
         await stateMachine.create()
 
         var conversationId1: String?
-        let timeout1 = ContinuousClock.now + .seconds(10)
-        for await state in await stateMachine.stateSequence {
-            if ContinuousClock.now > timeout1 {
-                Issue.record("Timed out waiting for first conversation to be ready")
-                break
+        do {
+            conversationId1 = try await withTimeout(seconds: 30) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
-            if case .ready(let result) = state {
-                conversationId1 = result.conversationId
-                break
-            }
+        } catch {
+            Issue.record("Timed out waiting for first conversation to be ready: \(error)")
         }
 
         #expect(conversationId1 != nil, "Should have first conversation ID")
@@ -475,31 +488,34 @@ struct ConversationStateMachineTests {
         await stateMachine.stop()
 
         // Wait for uninitialized
-        let timeout2 = ContinuousClock.now + .seconds(5)
-        for await state in await stateMachine.stateSequence {
-            if ContinuousClock.now > timeout2 {
-                Issue.record("Timed out waiting for uninitialized state")
-                break
+        do {
+            _ = try await withTimeout(seconds: 10) {
+                for await state in await stateMachine.stateSequence {
+                    if case .uninitialized = state {
+                        return true
+                    }
+                }
+                return false
             }
-            if case .uninitialized = state {
-                break
-            }
+        } catch {
+            Issue.record("Timed out waiting for uninitialized state: \(error)")
         }
 
         // Create second conversation
         await stateMachine.create()
 
         var conversationId2: String?
-        let timeout3 = ContinuousClock.now + .seconds(10)
-        for await state in await stateMachine.stateSequence {
-            if ContinuousClock.now > timeout3 {
-                Issue.record("Timed out waiting for second conversation to be ready")
-                break
+        do {
+            conversationId2 = try await withTimeout(seconds: 30) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
-            if case .ready(let result) = state {
-                conversationId2 = result.conversationId
-                break
-            }
+        } catch {
+            Issue.record("Timed out waiting for second conversation to be ready: \(error)")
         }
 
         #expect(conversationId2 != nil, "Should have second conversation ID")
