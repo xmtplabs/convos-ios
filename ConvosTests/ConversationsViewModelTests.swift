@@ -4,7 +4,7 @@ import ConvosCore
 
 @MainActor
 final class ConversationsViewModelTests: XCTestCase {
-    // MARK: - memory leak bug identified
+    // MARK: - memory leak bug identified in a7dc993
     func testSelectedConversation_leaksWhenWriterCreationNeverCompletes() async {
         // ARRANGE
         let conversation = Conversation.mock(id: "convo-1", clientId: "client-1", inboxId: "inbox-1")
