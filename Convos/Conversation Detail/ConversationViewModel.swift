@@ -786,8 +786,6 @@ extension ConversationViewModel {
                 }
                 Log.info("Scheduled explosion message sent successfully for \(expiresAt)")
 
-                try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
-
                 await MainActor.run {
                     self.explodeState = .scheduled(expiresAt)
                     NotificationCenter.default.post(
@@ -798,6 +796,12 @@ extension ConversationViewModel {
                             "expiresAt": expiresAt
                         ]
                     )
+                }
+
+                do {
+                    try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
+                } catch {
+                    Log.error("Failed to persist expiresAt locally: \(error.localizedDescription)")
                 }
                 Log.info("Explosion scheduled for \(expiresAt)")
             } catch {

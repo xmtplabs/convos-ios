@@ -512,7 +512,7 @@ struct ConversationInfoView: View {
                                     .foregroundStyle(.colorCaution)
                             }
                         } else {
-                            explodeMenu
+                            explodeOptions
                         }
                     } footer: {
                         if viewModel.isExplosionScheduled {
@@ -590,7 +590,7 @@ struct ConversationInfoView: View {
                     pendingExplosionDate = nil
                     pendingExplosionLabel = nil
                 }
-                Button("Start timer", action: confirmAction)
+                Button(pendingExplosionLabel == "now" ? "Explode" : "Start timer", action: confirmAction)
             } message: {
                 Text("The timer cannot be changed or cancelled once it starts.")
             }
@@ -602,55 +602,60 @@ struct ConversationInfoView: View {
 
 extension ConversationInfoView {
     @ViewBuilder
-    var explodeMenu: some View {
-        Menu {
-            Button("1 minute") {
-                pendingExplosionDate = Date().addingTimeInterval(60)
-                pendingExplosionLabel = "1 minute"
-                showingExplodeConfirmation = true
-            }
-
-            Button("1 hour") {
-                pendingExplosionDate = Date().addingTimeInterval(3600)
-                pendingExplosionLabel = "1 hour"
-                showingExplodeConfirmation = true
-            }
-
-            Button("24 hours") {
-                pendingExplosionDate = Date().addingTimeInterval(86400)
-                pendingExplosionLabel = "24 hours"
-                showingExplodeConfirmation = true
-            }
-
-            Button("Sunday at midnight") {
-                pendingExplosionDate = sundayAtMidnight
-                pendingExplosionLabel = "Sunday at midnight"
-                showingExplodeConfirmation = true
-            }
-
-            Button("Choose date and time") {
-                customDate = Date().addingTimeInterval(3600)
-                showingCustomDatePicker = true
-            }
-
-            Divider()
-
-            Button(role: .destructive) {
-                pendingExplosionDate = Date()
-                pendingExplosionLabel = "now"
-                showingExplodeConfirmation = true
-            } label: {
-                Text("Explode now")
-            }
-        } label: {
-            HStack {
-                Text("Explode")
-                    .foregroundStyle(.colorCaution)
-                Spacer()
-            }
-            .contentShape(Rectangle())
+    var explodeOptions: some View {
+        let oneMinuteAction = {
+            pendingExplosionDate = Date().addingTimeInterval(60)
+            pendingExplosionLabel = "1 minute"
+            showingExplodeConfirmation = true
         }
-        .buttonStyle(.plain)
+        Button(action: oneMinuteAction) {
+            Text("1 minute")
+        }
+
+        let oneHourAction = {
+            pendingExplosionDate = Date().addingTimeInterval(3600)
+            pendingExplosionLabel = "1 hour"
+            showingExplodeConfirmation = true
+        }
+        Button(action: oneHourAction) {
+            Text("1 hour")
+        }
+
+        let twentyFourHoursAction = {
+            pendingExplosionDate = Date().addingTimeInterval(86400)
+            pendingExplosionLabel = "24 hours"
+            showingExplodeConfirmation = true
+        }
+        Button(action: twentyFourHoursAction) {
+            Text("24 hours")
+        }
+
+        let sundayAction = {
+            pendingExplosionDate = sundayAtMidnight
+            pendingExplosionLabel = "Sunday at midnight"
+            showingExplodeConfirmation = true
+        }
+        Button(action: sundayAction) {
+            Text("Sunday at midnight")
+        }
+
+        let customAction = {
+            customDate = Date().addingTimeInterval(3600)
+            showingCustomDatePicker = true
+        }
+        Button(action: customAction) {
+            Text("Choose date and time")
+        }
+
+        let explodeNowAction = {
+            pendingExplosionDate = Date()
+            pendingExplosionLabel = "now"
+            showingExplodeConfirmation = true
+        }
+        Button(action: explodeNowAction) {
+            Text("Explode now")
+                .foregroundStyle(.colorCaution)
+        }
     }
 
     @ViewBuilder
