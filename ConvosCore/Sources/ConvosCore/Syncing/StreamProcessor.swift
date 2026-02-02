@@ -312,6 +312,8 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     private func formatDuration(until date: Date) -> String {
         let interval = date.timeIntervalSinceNow
+        guard interval > 0 else { return "soon" }
+
         let hours = Int(interval) / 3600
         let minutes = (Int(interval) % 3600) / 60
 

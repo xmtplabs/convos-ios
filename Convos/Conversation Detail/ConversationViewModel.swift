@@ -757,11 +757,14 @@ extension ConversationViewModel {
 
     func scheduleExplosion(at expiresAt: Date) {
         guard canRemoveMembers else { return }
+        guard case .ready = explodeState else { return }
 
         if expiresAt <= Date() {
             explodeConvo()
             return
         }
+
+        explodeState = .exploding
 
         Task { [weak self] in
             guard let self else { return }
@@ -786,6 +789,7 @@ extension ConversationViewModel {
                 try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
 
                 await MainActor.run {
+                    self.explodeState = .scheduled(expiresAt)
                     NotificationCenter.default.post(
                         name: .conversationScheduledExplosion,
                         object: nil,
@@ -798,6 +802,9 @@ extension ConversationViewModel {
                 Log.info("Explosion scheduled for \(expiresAt)")
             } catch {
                 Log.error("Error scheduling explosion: \(error.localizedDescription)")
+                await MainActor.run {
+                    self.explodeState = .error("Schedule failed")
+                }
             }
         }
     }

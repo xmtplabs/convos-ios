@@ -120,20 +120,22 @@ struct ExplodeButton: View {
     // MARK: - Body
 
     var body: some View {
-        if case .scheduled(let date) = state {
-            scheduledContent(expiresAt: date)
-        } else {
-            Button {
-                onExplode()
-            } label: {
-                buttonContent
+        Group {
+            if case .scheduled(let date) = state {
+                scheduledContent(expiresAt: date)
+            } else {
+                Button {
+                    onExplode()
+                } label: {
+                    buttonContent
+                }
+                .disabled(!state.isReady)
+                .buttonStyle(HoldToConfirmPrimitiveStyle(config: config.buttonStyle))
             }
-            .disabled(!state.isReady)
-            .buttonStyle(HoldToConfirmPrimitiveStyle(config: config.buttonStyle))
-            .scaleEffect(buttonScale)
-            .onChange(of: state) { _, newValue in
-                handleStateChange(newValue)
-            }
+        }
+        .scaleEffect(buttonScale)
+        .onChange(of: state) { _, newValue in
+            handleStateChange(newValue)
         }
     }
 

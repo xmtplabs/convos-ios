@@ -628,11 +628,9 @@ extension ConversationInfoView {
                 showingExplodeConfirmation = true
             }
 
-            Menu("Choose date and time") {
-                Button("Choose date and time") {
-                    customDate = Date().addingTimeInterval(3600)
-                    showingCustomDatePicker = true
-                }
+            Button("Choose date and time") {
+                customDate = Date().addingTimeInterval(3600)
+                showingCustomDatePicker = true
             }
 
             Divider()

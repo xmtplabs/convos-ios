@@ -476,6 +476,7 @@ extension MessagingService {
                 userInfo: explosionUserInfo
             )
         case .scheduled(let expiresAt):
+            _ = try await storeConversation(group, inboxId: currentInboxId)
             let conversationName = (try? group.name()).orUntitled
             let senderName = try await getSenderDisplayName(
                 senderInboxId: decodedMessage.senderInboxId,
@@ -489,9 +490,16 @@ extension MessagingService {
                 expiresAt: expiresAt
             )
 
+            let body: String
+            if timeUntilExplosion == "soon" {
+                body = "\(senderName) set this convo to explode \(timeUntilExplosion) 💣"
+            } else {
+                body = "\(senderName) set this convo to explode in \(timeUntilExplosion) 💣"
+            }
+
             return .init(
                 title: conversationName,
-                body: "\(senderName) set this convo to explode in \(timeUntilExplosion) 💣",
+                body: body,
                 conversationId: conversationId,
                 userInfo: userInfo
             )
