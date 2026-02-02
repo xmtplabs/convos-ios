@@ -603,59 +603,54 @@ struct ConversationInfoView: View {
 extension ConversationInfoView {
     @ViewBuilder
     var explodeOptions: some View {
-        let oneMinuteAction = {
-            pendingExplosionDate = Date().addingTimeInterval(60)
-            pendingExplosionLabel = "1 minute"
-            showingExplodeConfirmation = true
-        }
-        Button(action: oneMinuteAction) {
-            Text("1 minute")
-        }
+        Menu {
+            Button("1 minute") {
+                pendingExplosionDate = Date().addingTimeInterval(60)
+                pendingExplosionLabel = "1 minute"
+                showingExplodeConfirmation = true
+            }
 
-        let oneHourAction = {
-            pendingExplosionDate = Date().addingTimeInterval(3600)
-            pendingExplosionLabel = "1 hour"
-            showingExplodeConfirmation = true
-        }
-        Button(action: oneHourAction) {
-            Text("1 hour")
-        }
+            Button("1 hour") {
+                pendingExplosionDate = Date().addingTimeInterval(3600)
+                pendingExplosionLabel = "1 hour"
+                showingExplodeConfirmation = true
+            }
 
-        let twentyFourHoursAction = {
-            pendingExplosionDate = Date().addingTimeInterval(86400)
-            pendingExplosionLabel = "24 hours"
-            showingExplodeConfirmation = true
-        }
-        Button(action: twentyFourHoursAction) {
-            Text("24 hours")
-        }
+            Button("24 hours") {
+                pendingExplosionDate = Date().addingTimeInterval(86400)
+                pendingExplosionLabel = "24 hours"
+                showingExplodeConfirmation = true
+            }
 
-        let sundayAction = {
-            pendingExplosionDate = sundayAtMidnight
-            pendingExplosionLabel = "Sunday at midnight"
-            showingExplodeConfirmation = true
-        }
-        Button(action: sundayAction) {
-            Text("Sunday at midnight")
-        }
+            Button("Sunday at midnight") {
+                pendingExplosionDate = sundayAtMidnight
+                pendingExplosionLabel = "Sunday at midnight"
+                showingExplodeConfirmation = true
+            }
 
-        let customAction = {
-            customDate = Date().addingTimeInterval(3600)
-            showingCustomDatePicker = true
-        }
-        Button(action: customAction) {
-            Text("Choose date and time")
-        }
+            Button("Choose date and time") {
+                customDate = Date().addingTimeInterval(3600)
+                showingCustomDatePicker = true
+            }
 
-        let explodeNowAction = {
-            pendingExplosionDate = Date()
-            pendingExplosionLabel = "now"
-            showingExplodeConfirmation = true
+            Divider()
+
+            Button(role: .destructive) {
+                pendingExplosionDate = Date()
+                pendingExplosionLabel = "now"
+                showingExplodeConfirmation = true
+            } label: {
+                Text("Explode now")
+            }
+        } label: {
+            HStack {
+                Text("Explode")
+                    .foregroundStyle(.colorCaution)
+                Spacer()
+            }
+            .contentShape(Rectangle())
         }
-        Button(action: explodeNowAction) {
-            Text("Explode now")
-                .foregroundStyle(.colorCaution)
-        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
