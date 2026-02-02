@@ -104,6 +104,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = ConvosTests.xctestplan; sourceTree = "<group>"; };
 		7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7AC599312E5592F900D65D07 /* KeychainIdentityStoreExample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeychainIdentityStoreExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -120,20 +121,6 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
-		7A68D6442EE38812009F4FA4 /* Exceptions for "ConvosTests" folder in "ConvosTests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				ConversationOnboardingCoordinatorTests.swift,
-			);
-			target = 7ACA8BA22DE16DE200848799 /* ConvosTests */;
-		};
-		7A9C77CE2EC2819D00E19ECF /* Exceptions for "Convos" folder in "ConvosTests" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				Profile/QuicknameSettings.swift,
-			);
-			target = 7ACA8BA22DE16DE200848799 /* ConvosTests */;
-		};
 		7ADC0C942E2977820053978A /* Exceptions for "ConvosAppClip" folder in "ConvosAppClip" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -296,9 +283,6 @@
 		};
 		7ACA8BA42DE16DE200848799 /* ConvosTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
-			exceptions = (
-				7A68D6442EE38812009F4FA4 /* Exceptions for "ConvosTests" folder in "ConvosTests" target */,
-			);
 			path = ConvosTests;
 			sourceTree = "<group>";
 		};
@@ -332,7 +316,6 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				D8A2B6A32DA4BA4C00EF8577 /* Exceptions for "Convos" folder in "Convos" target */,
-				7A9C77CE2EC2819D00E19ECF /* Exceptions for "Convos" folder in "ConvosTests" target */,
 				DAE6B1002E70955E0062483A /* Exceptions for "Convos" folder in "ConvosAppClip" target */,
 			);
 			path = Convos;
@@ -435,6 +418,7 @@
 		D8A2B6882DA4BA4B00EF8577 = {
 			isa = PBXGroup;
 			children = (
+				4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */,
 				7AD5458D2E4EA89400500ADF /* ConvosCore */,
 				D8477AD42DCBA52F00E31E54 /* .env */,
 				D8477AD52DCBA52F00E31E54 /* .env.example */,

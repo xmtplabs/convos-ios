@@ -8,16 +8,21 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
     var mockNotificationCenter: MockNotificationCenter!
     let testConversationId = "test-conversation-id"
 
+    func cleanUpUserDefaults(target userDefaults: UserDefaults = .standard) {
+        // Clean up user defaults after each test
+        userDefaults.removeObject(forKey: "hasShownQuicknameEditor")
+        userDefaults.removeObject(forKey: "hasCompletedConversationOnboarding")
+        userDefaults.removeObject(forKey: "hasSetQuicknameForConversation_\(testConversationId)")
+        userDefaults.removeObject(forKey: "hasSeenAddAsQuickname")
+    }
+
     override func setUp() async throws {
         try await super.setUp()
         mockNotificationCenter = MockNotificationCenter()
         coordinator = ConversationOnboardingCoordinator(notificationCenter: mockNotificationCenter)
 
         // Clear user defaults before each test
-        UserDefaults.standard.removeObject(forKey: "hasShownQuicknameEditor")
-        UserDefaults.standard.removeObject(forKey: "hasCompletedConversationOnboarding")
-        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(testConversationId)")
-        UserDefaults.standard.removeObject(forKey: "hasSeenAddAsQuickname")
+        cleanUpUserDefaults()
     }
 
     override func tearDown() async throws {
@@ -25,16 +30,12 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         mockNotificationCenter = nil
 
         // Clean up user defaults after each test
-        UserDefaults.standard.removeObject(forKey: "hasShownQuicknameEditor")
-        UserDefaults.standard.removeObject(forKey: "hasCompletedConversationOnboarding")
-        UserDefaults.standard.removeObject(forKey: "hasSetQuicknameForConversation_\(testConversationId)")
-        UserDefaults.standard.removeObject(forKey: "hasSeenAddAsQuickname")
+        cleanUpUserDefaults()
 
         try await super.tearDown()
     }
 
     // MARK: - Initial State Tests
-
     func testInitialState() {
         XCTAssertEqual(coordinator.state, .idle)
     }
@@ -59,8 +60,9 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         await coordinator.start(for: testConversationId)
         XCTAssertTrue(coordinator.isWaitingForInviteAcceptance)
 
-        // When notifications already granted and we're waiting, go to idle state
-        XCTAssertEqual(coordinator.state, .idle)
+        // When notifications are already granted and we're still waiting for invite acceptance,
+        // we should remain in started state (no onboarding UI yet).
+        XCTAssertEqual(coordinator.state, .started)
     }
 
     func testInviteWasAccepted_NotificationsAlreadyGranted_GoesToQuickname() async {
@@ -282,7 +284,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
         // Start in denied state
         await coordinator.start(for: testConversationId)
-        await coordinator.setupQuicknameDidAutoDismiss()
+        await coordinator.didSelectQuickname()
         XCTAssertEqual(coordinator.state, .notificationsDenied)
 
         // User enables notifications in iOS Settings
@@ -291,15 +293,11 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         // Simulate app becoming active
         NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
 
-        // Give it time to process
-        try? await Task.sleep(for: .milliseconds(100))
-
-        // Should show success state
-        XCTAssertEqual(coordinator.state, .notificationsEnabled)
+        await waitForState(.notificationsEnabled)
 
         // After delay, should complete
-        try? await Task.sleep(for: .seconds(2.1))
-        XCTAssertEqual(coordinator.state, .idle)
+        await waitForAutodismiss()
+        await waitForState(.idle)
     }
 
     func testAppBecomesActive_DeniedState_EnabledAfterInviteFlow_ContinuesToQuickname() async {
@@ -315,14 +313,41 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         // Simulate app becoming active
         NotificationCenter.default.post(name: UIApplication.didBecomeActiveNotification, object: nil)
 
-        // Give it time to process
-        try? await Task.sleep(for: .milliseconds(100))
-
         // Should show success state
-        XCTAssertEqual(coordinator.state, .notificationsEnabled)
+        await waitForState(.notificationsEnabled)
 
         // After delay, should go to quickname (not complete, because invite flow)
-        try? await Task.sleep(for: .seconds(2.1))
-        XCTAssertEqual(coordinator.state, .setupQuickname)
+        await waitForAutodismiss()
+        await waitForState(.setupQuickname)
+    }
+
+
+    private func waitForState(
+        _ expected: ConversationOnboardingState,
+        timeout: TimeInterval = 0.3,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) async {
+        let deadline = Date().addingTimeInterval(timeout)
+
+        while Date() < deadline {
+            if coordinator.state == expected {
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(2))
+        }
+
+        XCTFail(
+            "Timed out waiting for state \(expected). Last state: \(coordinator.state)",
+            file: file,
+            line: line
+        )
+    }
+
+    private func waitForAutodismiss() async {
+        let duration = TimeInterval(ConversationOnboardingState.unitTestAutodismissDuration)
+        let extraMargin = 0.05
+        try? await Task.sleep(for: .seconds(duration + extraMargin))
     }
 }
+
