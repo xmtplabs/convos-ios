@@ -70,7 +70,6 @@ struct ConversationInfoView: View {
     @State private var pendingExplosionDate: Date?
     @State private var pendingExplosionLabel: String?
     @State private var showingCustomDatePicker: Bool = false
-    @State private var showingExplodeOptions: Bool = false
     @State private var customDate: Date = Date().addingTimeInterval(3600)
     @State private var presentingEditView: Bool = false
     @State private var showingLockConfirmation: Bool = false
@@ -501,15 +500,17 @@ struct ConversationInfoView: View {
                 if viewModel.canRemoveMembers {
                     Section {
                         if let expiresAt = viewModel.scheduledExplosionDate {
+                            explosionCountdownRow(expiresAt: expiresAt)
+
                             let action = {
                                 pendingExplosionDate = Date()
                                 pendingExplosionLabel = "now"
                                 showingExplodeConfirmation = true
                             }
                             Button(action: action) {
-                                explosionCountdownRow(expiresAt: expiresAt)
+                                Text("Explode now")
+                                    .foregroundStyle(.colorCaution)
                             }
-                            .buttonStyle(.plain)
                         } else {
                             explodeMenu
                         }
@@ -518,7 +519,7 @@ struct ConversationInfoView: View {
                             Text("This convo will be deleted for everyone when the timer runs out")
                                 .foregroundStyle(.colorTextSecondary)
                         } else {
-                            Text("Schedule when this convo will be deleted for everyone")
+                            Text("Choose when this convo will be deleted for everyone")
                                 .foregroundStyle(.colorTextSecondary)
                         }
                     }
@@ -565,9 +566,6 @@ struct ConversationInfoView: View {
                 })
                 .background(.colorBackgroundRaised)
             }
-            .selfSizingSheet(isPresented: $showingExplodeOptions) {
-                explodeOptionsSheet
-            }
             .sheet(isPresented: $showingCustomDatePicker) {
                 customDatePickerSheet
             }
@@ -605,10 +603,48 @@ struct ConversationInfoView: View {
 extension ConversationInfoView {
     @ViewBuilder
     var explodeMenu: some View {
-        let action = {
-            showingExplodeOptions = true
-        }
-        Button(action: action) {
+        Menu {
+            Button("1 minute") {
+                pendingExplosionDate = Date().addingTimeInterval(60)
+                pendingExplosionLabel = "1 minute"
+                showingExplodeConfirmation = true
+            }
+
+            Button("1 hour") {
+                pendingExplosionDate = Date().addingTimeInterval(3600)
+                pendingExplosionLabel = "1 hour"
+                showingExplodeConfirmation = true
+            }
+
+            Button("24 hours") {
+                pendingExplosionDate = Date().addingTimeInterval(86400)
+                pendingExplosionLabel = "24 hours"
+                showingExplodeConfirmation = true
+            }
+
+            Button("Sunday at midnight") {
+                pendingExplosionDate = sundayAtMidnight
+                pendingExplosionLabel = "Sunday at midnight"
+                showingExplodeConfirmation = true
+            }
+
+            Menu("Choose date and time") {
+                Button("Choose date and time") {
+                    customDate = Date().addingTimeInterval(3600)
+                    showingCustomDatePicker = true
+                }
+            }
+
+            Divider()
+
+            Button(role: .destructive) {
+                pendingExplosionDate = Date()
+                pendingExplosionLabel = "now"
+                showingExplodeConfirmation = true
+            } label: {
+                Text("Explode now")
+            }
+        } label: {
             HStack {
                 Text("Explode")
                     .foregroundStyle(.colorCaution)
@@ -620,148 +656,39 @@ extension ConversationInfoView {
     }
 
     @ViewBuilder
-    var explodeOptionsSheet: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                Text("Explode")
-                    .font(.system(.largeTitle))
-                    .fontWeight(.bold)
-
-                Text("Choose when this convo will be deleted for everyone")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-            }
-            .padding(.bottom, DesignConstants.Spacing.step2x)
-
-            VStack(spacing: DesignConstants.Spacing.step2x) {
-                explodeOptionButton(title: "Explode in 1 minute") {
-                    showingExplodeOptions = false
-                    pendingExplosionDate = Date().addingTimeInterval(60)
-                    pendingExplosionLabel = "1 minute"
-                    showingExplodeConfirmation = true
-                }
-
-                explodeOptionButton(title: "1 hour") {
-                    showingExplodeOptions = false
-                    pendingExplosionDate = Date().addingTimeInterval(3600)
-                    pendingExplosionLabel = "1 hour"
-                    showingExplodeConfirmation = true
-                }
-
-                explodeOptionButton(title: "24 hours") {
-                    showingExplodeOptions = false
-                    pendingExplosionDate = Date().addingTimeInterval(86400)
-                    pendingExplosionLabel = "24 hours"
-                    showingExplodeConfirmation = true
-                }
-
-                explodeOptionButton(title: "Sunday at midnight") {
-                    showingExplodeOptions = false
-                    pendingExplosionDate = sundayAtMidnight
-                    pendingExplosionLabel = "Sunday at midnight"
-                    showingExplodeConfirmation = true
-                }
-
-                explodeOptionButton(title: "Custom") {
-                    showingExplodeOptions = false
-                    customDate = Date().addingTimeInterval(3600)
-                    showingCustomDatePicker = true
-                }
-
-                explodeOptionButton(title: "Explode now", isDestructive: true) {
-                    showingExplodeOptions = false
-                    pendingExplosionDate = Date()
-                    pendingExplosionLabel = "now"
-                    showingExplodeConfirmation = true
-                }
-            }
-
-            let cancelAction = {
-                showingExplodeOptions = false
-            }
-            Button(action: cancelAction) {
-                Text("Cancel")
-                    .font(.body.weight(.medium))
-                    .foregroundStyle(.colorTextSecondary)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, DesignConstants.Spacing.step3x)
-            }
-            .buttonStyle(.plain)
-        }
-        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
-        .padding(.bottom, DesignConstants.Spacing.step3x)
-    }
-
-    @ViewBuilder
-    func explodeOptionButton(
-        title: String,
-        isDestructive: Bool = false,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.body)
-                .foregroundStyle(isDestructive ? .colorCaution : .colorTextPrimary)
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, DesignConstants.Spacing.step3x)
-                .background(
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .fill(.colorFillMinimal)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
     var customDatePickerSheet: some View {
-        VStack(spacing: 0) {
+        NavigationStack {
             DatePicker(
                 "Explode at",
                 selection: $customDate,
                 in: minimumCustomDate...,
                 displayedComponents: [.date, .hourAndMinute]
             )
-            .datePickerStyle(.graphical)
+            .datePickerStyle(.wheel)
             .labelsHidden()
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-
-            Spacer()
-                .frame(height: DesignConstants.Spacing.step4x)
-
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                let confirmAction = {
-                    showingCustomDatePicker = false
-                    pendingExplosionDate = customDate
-                    pendingExplosionLabel = formatExplosionDuration(for: customDate)
-                    showingExplodeConfirmation = true
+            .padding()
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    let cancelAction = {
+                        showingCustomDatePicker = false
+                    }
+                    Button("Cancel", action: cancelAction)
                 }
-                Button(action: confirmAction) {
-                    Text("Schedule")
-                        .font(.body.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, DesignConstants.Spacing.step3x)
-                        .background(
-                            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                                .fill(.colorOrange)
-                        )
-                }
-                .buttonStyle(.plain)
-
-                let cancelAction = {
-                    showingCustomDatePicker = false
-                }
-                Button(action: cancelAction) {
-                    Text("Cancel")
-                        .font(.body)
-                        .foregroundStyle(.colorTextSecondary)
+                ToolbarItem(placement: .confirmationAction) {
+                    let confirmAction = {
+                        showingCustomDatePicker = false
+                        pendingExplosionDate = customDate
+                        pendingExplosionLabel = formatExplosionDuration(for: customDate)
+                        showingExplodeConfirmation = true
+                    }
+                    Button("Schedule", action: confirmAction)
+                        .fontWeight(.semibold)
                 }
             }
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .padding(.bottom, DesignConstants.Spacing.step4x)
+            .navigationTitle("Custom timer")
+            .navigationBarTitleDisplayMode(.inline)
         }
-        .padding(.top, DesignConstants.Spacing.step4x)
-        .presentationDetents([.large])
+        .presentationDetents([.medium])
     }
 }
 
