@@ -5,18 +5,22 @@ import Foundation
 
 /// Mock implementation of ConversationsRepositoryProtocol for testing
 public final class MockConversationsRepository: ConversationsRepositoryProtocol, @unchecked Sendable {
-    public var mockConversations: [Conversation]
+    private let subject: CurrentValueSubject<[Conversation], Never>
 
     public init(conversations: [Conversation] = [.mock(), .mock(), .mock()]) {
-        self.mockConversations = conversations
+        self.subject = CurrentValueSubject(conversations)
     }
 
     public var conversationsPublisher: AnyPublisher<[Conversation], Never> {
-        Just(mockConversations).eraseToAnyPublisher()
+        subject.eraseToAnyPublisher()
     }
 
     public func fetchAll() throws -> [Conversation] {
-        mockConversations
+        subject.value
+    }
+
+    public func send(_ conversations: [Conversation]) {
+        subject.send(conversations)
     }
 }
 
@@ -24,18 +28,22 @@ public final class MockConversationsRepository: ConversationsRepositoryProtocol,
 
 /// Mock implementation of ConversationsCountRepositoryProtocol for testing
 public final class MockConversationsCountRepository: ConversationsCountRepositoryProtocol, @unchecked Sendable {
-    public var mockCount: Int
+    private let subject: CurrentValueSubject<Int, Never>
 
     public init(count: Int = 1) {
-        self.mockCount = count
+        self.subject = CurrentValueSubject(count)
     }
 
     public var conversationsCount: AnyPublisher<Int, Never> {
-        Just(mockCount).eraseToAnyPublisher()
+        subject.eraseToAnyPublisher()
     }
 
     public func fetchCount() throws -> Int {
-        mockCount
+        subject.value
+    }
+
+    public func send(_ count: Int) {
+        subject.send(count)
     }
 }
 

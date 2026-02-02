@@ -1,8 +1,12 @@
 import Combine
 import Foundation
 
-public final class MockInboxesService: SessionManagerProtocol {
-    private let mockMessagingService: MockMessagingService = MockMessagingService()
+public final class MockInboxesService: @unchecked Sendable, SessionManagerProtocol {
+    private let mockMessagingService: MockMessagingService
+    private let conversationsRepositoryProvider: ConversationsRepositoryProtocol
+    private let conversationsCountRepositoryProvider: ConversationsCountRepositoryProtocol
+    private let pinnedConversationsCountRepositoryProvider: PinnedConversationsCountRepositoryProtocol
+    private let messagingServiceHandler: ((String, String) async throws -> AnyMessagingService)?
 
     public func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, any Error> {
         AsyncThrowingStream { continuation in
@@ -34,7 +38,18 @@ public final class MockInboxesService: SessionManagerProtocol {
         "mock-inbox-id"
     }
 
-    public init() {
+    public init(
+        conversationsRepository: ConversationsRepositoryProtocol = MockConversationsRepository(),
+        conversationsCountRepository: ConversationsCountRepositoryProtocol = MockConversationsCountRepository(),
+        pinnedConversationsCountRepository: PinnedConversationsCountRepositoryProtocol = MockPinnedConversationsCountRepository(),
+        messagingServiceHandler: ((String, String) async throws -> AnyMessagingService)? = nil,
+        mockMessagingService: MockMessagingService = MockMessagingService()
+    ) {
+        self.conversationsRepositoryProvider = conversationsRepository
+        self.conversationsCountRepositoryProvider = conversationsCountRepository
+        self.pinnedConversationsCountRepositoryProvider = pinnedConversationsCountRepository
+        self.messagingServiceHandler = messagingServiceHandler
+        self.mockMessagingService = mockMessagingService
     }
 
     // MARK: - Inbox Management
@@ -52,21 +67,25 @@ public final class MockInboxesService: SessionManagerProtocol {
     // MARK: - Messaging Services
 
     public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
-        mockMessagingService
+        if let messagingServiceHandler {
+            return try await messagingServiceHandler(clientId, inboxId)
+        }
+
+        return mockMessagingService
     }
 
     // MARK: - Factory methods for repositories
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
-        MockConversationsRepository()
+        conversationsRepositoryProvider
     }
 
     public func conversationsCountRepo(for consent: [Consent], kinds: [ConversationKind]) -> any ConversationsCountRepositoryProtocol {
-        MockConversationsCountRepository()
+        conversationsCountRepositoryProvider
     }
 
     public func pinnedConversationsCountRepo() -> any PinnedConversationsCountRepositoryProtocol {
-        MockPinnedConversationsCountRepository()
+        pinnedConversationsCountRepositoryProvider
     }
 
     public func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol {
