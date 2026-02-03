@@ -577,7 +577,7 @@ struct ConversationInfoView: View {
                     pendingExplosionDate = nil
                     pendingExplosionLabel = nil
                 }
-                Button("Cancel", role: .cancel, action: cancelAction)
+                Button("Cancel", role: .destructive, action: cancelAction)
 
                 let confirmAction = {
                     if let date = pendingExplosionDate {
