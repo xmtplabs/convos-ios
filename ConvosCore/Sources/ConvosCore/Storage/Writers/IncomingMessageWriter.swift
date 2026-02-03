@@ -265,7 +265,8 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             }
 
             // Check if scheduled AFTER DB write to avoid time drift during async operation
-            let isScheduled = settings.expiresAt > Date()
+            // Use 5s threshold to ensure enough time for notification scheduling
+            let isScheduled = settings.expiresAt.timeIntervalSinceNow > 5.0
             if isScheduled {
                 Log.info("ExplodeSettings: scheduled for \(settings.expiresAt), posting conversationScheduledExplosion for \(conversationId)")
                 DispatchQueue.main.async {
