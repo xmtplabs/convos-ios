@@ -10,6 +10,9 @@ enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
         guard !environment.isTestingEnvironment else {
             return MockAPIClient()
         }
+        if environment.skipBackendAuth {
+            return NoOpAPIClient()
+        }
         return ConvosAPIClient(
             environment: environment,
             overrideJWTToken: overrideJWTToken

@@ -136,7 +136,7 @@ public enum KeychainIdentityStoreError: Error, LocalizedError {
 private struct KeychainQuery {
     let account: String
     let service: String
-    let accessGroup: String
+    let accessGroup: String?
     let accessible: CFString
     let accessControl: SecAccessControl?
     let clientId: String?
@@ -144,7 +144,7 @@ private struct KeychainQuery {
     init(
         account: String,
         service: String,
-        accessGroup: String,
+        accessGroup: String?,
         accessible: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
         accessControl: SecAccessControl? = nil,
         clientId: String? = nil
@@ -161,9 +161,13 @@ private struct KeychainQuery {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: account,
-            kSecAttrService as String: service,
-            kSecAttrAccessGroup as String: accessGroup
+            kSecAttrService as String: service
         ]
+
+        // Only include access group if provided (CLI mode uses nil for local keychain)
+        if let accessGroup = accessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
 
         // Add clientId as generic attribute for direct lookup
         if let clientId = clientId, let clientIdData = clientId.data(using: .utf8) {
@@ -215,13 +219,13 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Properties
 
     private let keychainService: String
-    private let keychainAccessGroup: String
+    private let keychainAccessGroup: String?
 
     static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
 
     // MARK: - Initialization
 
-    public init(accessGroup: String) {
+    public init(accessGroup: String?) {
         self.keychainAccessGroup = accessGroup
         self.keychainService = Self.defaultService
     }
@@ -260,19 +264,24 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             throw KeychainIdentityStoreError.identityNotFound("Invalid clientId encoding: \(clientId)")
         }
 
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccessGroup as String: keychainAccessGroup,
             kSecAttrGeneric as String: clientIdData,
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll
         ]
 
+        if let accessGroup = keychainAccessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
+
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
 
-        guard status != errSecItemNotFound else {
+        // Both errSecItemNotFound and errSecParam (-50) indicate no matching item found.
+        // errSecParam can occur when querying without an access group on macOS.
+        guard status != errSecItemNotFound && status != errSecParam else {
             throw KeychainIdentityStoreError.identityNotFound("No identity found with clientId: \(clientId)")
         }
 
@@ -300,13 +309,16 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func loadAll() throws -> [KeychainIdentity] {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
-            kSecAttrAccessGroup as String: keychainAccessGroup,
             kSecMatchLimit as String: kSecMatchLimitAll,
             kSecReturnData as String: true
         ]
+
+        if let accessGroup = keychainAccessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -351,11 +363,14 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func deleteAll() throws {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: keychainService,
-            kSecAttrAccessGroup as String: keychainAccessGroup
+            kSecAttrService as String: keychainService
         ]
+
+        if let accessGroup = keychainAccessGroup {
+            query[kSecAttrAccessGroup as String] = accessGroup
+        }
 
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
@@ -386,14 +401,21 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
         let data = try JSONEncoder().encode(identity)
 
-        // Create access control for enhanced security
-        guard let accessControl = SecAccessControlCreateWithFlags(
-            nil,
-            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            [],
-            nil
-        ) else {
-            throw KeychainIdentityStoreError.keychainOperationFailed(errSecNotAvailable, "create access control")
+        // Use SecAccessControl when we have an access group (iOS with app group sharing)
+        // Otherwise use standard accessibility (CLI/macOS with local keychain)
+        let accessControl: SecAccessControl?
+        if keychainAccessGroup != nil {
+            guard let ac = SecAccessControlCreateWithFlags(
+                nil,
+                kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+                [],
+                nil
+            ) else {
+                throw KeychainIdentityStoreError.keychainOperationFailed(errSecNotAvailable, "create access control")
+            }
+            accessControl = ac
+        } else {
+            accessControl = nil
         }
 
         let query = KeychainQuery(

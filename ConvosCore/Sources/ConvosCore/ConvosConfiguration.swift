@@ -15,6 +15,10 @@ public struct ConvosConfiguration: Sendable {
     public let xmtpEndpoint: String?
     public let xmtpNetwork: String?
     public let gatewayUrl: String?
+    public let databaseDirectoryURL: URL?
+    public let skipBackendAuth: Bool
+    public let keychainAccessGroup: String?
+    public let useLocalKeychain: Bool
 
     public init(
         apiBaseURL: String,
@@ -22,7 +26,11 @@ public struct ConvosConfiguration: Sendable {
         relyingPartyIdentifier: String,
         xmtpEndpoint: String? = nil,
         xmtpNetwork: String? = nil,
-        gatewayUrl: String? = nil
+        gatewayUrl: String? = nil,
+        databaseDirectoryURL: URL? = nil,
+        skipBackendAuth: Bool = false,
+        keychainAccessGroup: String? = nil,
+        useLocalKeychain: Bool = false
     ) {
         self.apiBaseURL = apiBaseURL
         self.appGroupIdentifier = appGroupIdentifier
@@ -30,5 +38,9 @@ public struct ConvosConfiguration: Sendable {
         self.xmtpEndpoint = xmtpEndpoint
         self.xmtpNetwork = xmtpNetwork
         self.gatewayUrl = gatewayUrl
+        self.databaseDirectoryURL = databaseDirectoryURL
+        self.skipBackendAuth = skipBackendAuth
+        self.keychainAccessGroup = keychainAccessGroup
+        self.useLocalKeychain = useLocalKeychain
     }
 }

@@ -210,4 +210,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
         try await localStateWriter.setMuted(!enabled, for: conversationId)
     }
+
+    func messageStreamProvider() -> any MessageStreamProviderProtocol {
+        MessageStreamProvider(inboxStateManager: inboxStateManager)
+    }
 }

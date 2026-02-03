@@ -84,6 +84,11 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
             return
         }
 
+        if environment.skipBackendAuth {
+            Log.info("Skipping device registration (skipBackendAuth enabled)")
+            return
+        }
+
         guard !isRegistering else {
             Log.info("Registration already in progress, skipping")
             return

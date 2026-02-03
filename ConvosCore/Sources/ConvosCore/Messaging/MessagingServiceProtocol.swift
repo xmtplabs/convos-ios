@@ -49,6 +49,8 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     ) async throws -> String
 
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
+
+    func messageStreamProvider() -> any MessageStreamProviderProtocol
 }
 
 public extension MessagingServiceProtocol {

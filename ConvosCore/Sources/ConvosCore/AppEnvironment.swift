@@ -109,11 +109,23 @@ public enum AppEnvironment: Sendable {
         }
     }
 
-    public var keychainAccessGroup: String {
-        // Use the app group identifier with team prefix for keychain sharing
-        // This matches $(AppIdentifierPrefix)$(APP_GROUP_IDENTIFIER) in entitlements
-        let teamPrefix = "FY4NZR34Z3."
-        return teamPrefix + appGroupIdentifier
+    public var keychainAccessGroup: String? {
+        switch self {
+        case .local(config: let config), .dev(config: let config), .production(config: let config):
+            // Check if local-only keychain is requested (CLI mode)
+            if config.useLocalKeychain {
+                return nil
+            }
+            // Use explicit access group if provided
+            if let customGroup = config.keychainAccessGroup {
+                return customGroup
+            }
+            // Default: team-prefixed app group for iOS
+            let teamPrefix = "FY4NZR34Z3."
+            return teamPrefix + config.appGroupIdentifier
+        case .tests:
+            return nil
+        }
     }
 
     public var relyingPartyIdentifier: String {
@@ -213,6 +225,24 @@ public extension AppEnvironment {
         }
     }
 
+    var databaseDirectoryURL: URL? {
+        switch self {
+        case .local(let config), .dev(let config), .production(let config):
+            return config.databaseDirectoryURL
+        case .tests:
+            return nil
+        }
+    }
+
+    var skipBackendAuth: Bool {
+        switch self {
+        case .local(let config), .dev(let config), .production(let config):
+            return config.skipBackendAuth
+        case .tests:
+            return true
+        }
+    }
+
     var defaultXMTPLogsDirectoryURL: URL {
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory
@@ -227,6 +257,10 @@ public extension AppEnvironment {
     }
 
     var defaultDatabasesDirectoryURL: URL {
+        if let customURL = databaseDirectoryURL {
+            return customURL
+        }
+
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory
         }

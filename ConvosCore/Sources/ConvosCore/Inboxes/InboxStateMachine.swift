@@ -354,6 +354,11 @@ public actor InboxStateMachine {
 
             case (.authenticatingBackend, let .authorized(clientId, result)):
                 try await handleAuthorized(clientId: clientId, result: result)
+            // When skipBackendAuth=true, handleClientAuthorized/handleClientRegistered skip
+            // .authenticatingBackend state and directly enqueue .authorized action
+            case (.authorizing, let .authorized(clientId, result)),
+                 (.registering, let .authorized(clientId, result)):
+                try await handleAuthorized(clientId: clientId, result: result)
 
             case (let .ready(clientId, result), .delete):
                 try await handleDelete(clientId: clientId, client: result.client, apiClient: result.apiClient)
@@ -514,12 +519,14 @@ public actor InboxStateMachine {
     private func handleClientAuthorized(clientId: String, client: any XMTPClientProvider) async throws {
         try Task.checkCancellation()
 
-        emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
-
-        Log.info("Authenticating with backend...")
-        try await authenticateBackend()
-
-        try Task.checkCancellation()
+        if !environment.skipBackendAuth {
+            emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
+            Log.info("Authenticating with backend...")
+            try await authenticateBackend()
+            try Task.checkCancellation()
+        } else {
+            Log.info("Skipping backend authentication (skipBackendAuth enabled)")
+        }
 
         enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
     }
@@ -527,11 +534,14 @@ public actor InboxStateMachine {
     private func handleClientRegistered(clientId: String, client: any XMTPClientProvider) async throws {
         try Task.checkCancellation()
 
-        emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
-        Log.info("Authenticating with backend...")
-        try await authenticateBackend()
-
-        try Task.checkCancellation()
+        if !environment.skipBackendAuth {
+            emitStateChange(.authenticatingBackend(clientId: clientId, inboxId: client.inboxId))
+            Log.info("Authenticating with backend...")
+            try await authenticateBackend()
+            try Task.checkCancellation()
+        } else {
+            Log.info("Skipping backend authentication (skipBackendAuth enabled)")
+        }
 
         enqueueAction(.authorized(clientId: clientId, result: .init(client: client, apiClient: apiClient)))
     }
