@@ -577,7 +577,7 @@ struct ConversationInfoView: View {
                     pendingExplosionDate = nil
                     pendingExplosionLabel = nil
                 }
-                Button("Cancel", role: .destructive, action: cancelAction)
+                Button("Cancel", role: .cancel, action: cancelAction)
 
                 let confirmAction = {
                     if let date = pendingExplosionDate {
@@ -590,7 +590,7 @@ struct ConversationInfoView: View {
                     pendingExplosionDate = nil
                     pendingExplosionLabel = nil
                 }
-                Button(pendingExplosionLabel == "now" ? "Explode" : "Start", action: confirmAction)
+                Button(pendingExplosionLabel == "now" ? "Explode" : "Start", role: .destructive, action: confirmAction)
             } message: {
                 Text("The timer cannot be changed or cancelled once it starts.")
             }
@@ -684,7 +684,7 @@ extension ConversationInfoView {
             .navigationTitle("Explode")
             .navigationBarTitleDisplayMode(.inline)
         }
-        .presentationDetents([.medium])
+        .presentationDetents([.height(340)])
     }
 }
 
