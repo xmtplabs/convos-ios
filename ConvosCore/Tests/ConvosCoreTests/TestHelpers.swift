@@ -288,3 +288,36 @@ public actor MockNetworkMonitor: NetworkMonitorProtocol {
         }
     }
 }
+
+class NotificationCapture {
+    private(set) var postedNotifications: [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] = []
+    private var observers: [NSObjectProtocol] = []
+
+    func startCapturing(_ name: Notification.Name) {
+        let observer = NotificationCenter.default.addObserver(
+            forName: name,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            self?.postedNotifications.append((notification.name, notification.userInfo))
+        }
+        observers.append(observer)
+    }
+
+    func stopCapturing() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
+    }
+
+    func hasNotification(_ name: Notification.Name) -> Bool {
+        postedNotifications.contains { $0.name == name }
+    }
+
+    func notifications(named name: Notification.Name) -> [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] {
+        postedNotifications.filter { $0.name == name }
+    }
+
+    func reset() {
+        postedNotifications.removeAll()
+    }
+}

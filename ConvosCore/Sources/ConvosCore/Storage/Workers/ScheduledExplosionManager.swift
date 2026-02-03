@@ -11,6 +11,7 @@ public protocol ScheduledExplosionManagerProtocol {}
 final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unchecked Sendable {
     private let databaseReader: any DatabaseReader
     private let appLifecycle: any AppLifecycleProviding
+    private let notificationCenter: any UserNotificationCenterProtocol
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
 
     private enum Constant {
@@ -21,10 +22,12 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
 
     init(
         databaseReader: any DatabaseReader,
-        appLifecycle: any AppLifecycleProviding
+        appLifecycle: any AppLifecycleProviding,
+        notificationCenter: any UserNotificationCenterProtocol = UNUserNotificationCenter.current()
     ) {
         self.databaseReader = databaseReader
         self.appLifecycle = appLifecycle
+        self.notificationCenter = notificationCenter
         setupObservers()
         scheduleRemindersForPendingExplosions()
     }
@@ -166,7 +169,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         )
 
         do {
-            try await UNUserNotificationCenter.current().add(request)
+            try await notificationCenter.add(request)
             Log.info("ScheduledExplosionManager: Scheduled 1-hour reminder for \(conversationId) at \(reminderDate)")
         } catch {
             Log.error("Failed to schedule explosion reminder: \(error.localizedDescription)")
@@ -204,7 +207,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         )
 
         do {
-            try await UNUserNotificationCenter.current().add(request)
+            try await notificationCenter.add(request)
             Log.info("ScheduledExplosionManager: Scheduled explosion notification for \(conversationId) at \(expiresAt)")
         } catch {
             Log.error("Failed to schedule explosion notification: \(error.localizedDescription)")
@@ -228,7 +231,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     private func cancelNotifications(for conversationId: String) {
         let reminderIdentifier = "\(Constant.reminderIdentifierPrefix)\(conversationId)"
         let explosionIdentifier = "\(Constant.explosionIdentifierPrefix)\(conversationId)"
-        UNUserNotificationCenter.current().removePendingNotificationRequests(
+        notificationCenter.removePendingNotificationRequests(
             withIdentifiers: [reminderIdentifier, explosionIdentifier]
         )
         Log.info("ScheduledExplosionManager: Cancelled notifications for \(conversationId)")
