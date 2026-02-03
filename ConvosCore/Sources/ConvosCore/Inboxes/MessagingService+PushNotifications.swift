@@ -503,7 +503,7 @@ extension MessagingService {
                 conversationId: conversationId,
                 userInfo: userInfo
             )
-        case .fromSelf, .alreadyExpired:
+        case .fromSelf, .alreadyExpired, .unauthorized:
             return .droppedMessage
         }
     }

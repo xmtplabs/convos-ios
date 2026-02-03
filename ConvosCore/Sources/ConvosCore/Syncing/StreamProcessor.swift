@@ -265,7 +265,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                 conversationId: conversation.id,
                 expiresAt: expiresAt
             )
-        case .fromSelf, .alreadyExpired:
+        case .fromSelf, .alreadyExpired, .unauthorized:
             break
         }
     }

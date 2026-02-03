@@ -11,6 +11,7 @@ struct IncomingMessageWriterResult: Sendable {
 enum ExplodeSettingsResult: Sendable {
     case fromSelf
     case alreadyExpired
+    case unauthorized
     case applied(expiresAt: Date)
     case scheduled(expiresAt: Date)
 }
@@ -216,23 +217,53 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
 
         let isScheduled = settings.expiresAt > Date()
 
+        enum WriteResult {
+            case updated
+            case alreadyExpired
+            case unauthorized
+            case notFound
+        }
+
         do {
-            let didUpdate = try await databaseWriter.write { db -> Bool in
+            let writeResult = try await databaseWriter.write { db -> WriteResult in
                 guard let dbConversation = try DBConversation.fetchOne(db, key: conversationId) else {
-                    return false
+                    return .notFound
                 }
+
+                // Permission check: only creator or admin/superAdmin can explode
+                let isCreator = senderInboxId == dbConversation.creatorId
+                var hasAdminRole = false
+                if !isCreator {
+                    if let senderMember = try DBConversationMember.fetchOne(
+                        db,
+                        key: ["conversationId": conversationId, "inboxId": senderInboxId]
+                    ) {
+                        hasAdminRole = senderMember.role == .admin || senderMember.role == .superAdmin
+                    }
+                }
+
+                guard isCreator || hasAdminRole else {
+                    return .unauthorized
+                }
+
                 // Skip if already has expiresAt set (idempotency)
                 if dbConversation.expiresAt != nil {
-                    return false
+                    return .alreadyExpired
                 }
                 let updated = dbConversation.with(expiresAt: settings.expiresAt)
                 try updated.save(db)
-                return true
+                return .updated
             }
 
-            guard didUpdate else {
-                Log.info("ExplodeSettings: conversation already has expiresAt, skipping")
+            switch writeResult {
+            case .notFound, .alreadyExpired:
+                Log.info("ExplodeSettings: conversation not found or already has expiresAt, skipping")
                 return .alreadyExpired
+            case .unauthorized:
+                Log.warning("ExplodeSettings: sender \(senderInboxId) is not authorized to explode conversation \(conversationId)")
+                return .unauthorized
+            case .updated:
+                break
             }
 
             if isScheduled {
