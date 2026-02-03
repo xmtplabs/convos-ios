@@ -20,7 +20,7 @@ struct ExplosionCountdownBadge: View {
     }
 
     private func formatCountdown(_ interval: TimeInterval) -> String {
-        let totalSeconds = Int(interval)
+        let totalSeconds = Int(ceil(interval))
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60

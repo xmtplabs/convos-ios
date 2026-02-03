@@ -80,7 +80,7 @@ class ConversationViewModel {
         let interval = date.timeIntervalSinceNow
         guard interval > 0 else { return "Exploding..." }
 
-        let totalSeconds = Int(interval)
+        let totalSeconds = Int(ceil(interval))
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60

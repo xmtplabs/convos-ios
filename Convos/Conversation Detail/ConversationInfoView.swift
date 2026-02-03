@@ -236,7 +236,7 @@ struct ConversationInfoView: View {
         let interval = date.timeIntervalSince(now)
         guard interval > 0 else { return "00:00:00" }
 
-        let totalSeconds = Int(interval)
+        let totalSeconds = Int(ceil(interval))
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
         let seconds = totalSeconds % 60
@@ -646,6 +646,7 @@ extension ConversationInfoView {
             Divider()
 
             Button(role: .destructive) {
+                pendingExplosionInterval = nil
                 pendingExplosionDate = Date()
                 pendingExplosionLabel = "now"
                 showingExplodeConfirmation = true
