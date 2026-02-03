@@ -590,7 +590,7 @@ struct ConversationInfoView: View {
                     pendingExplosionDate = nil
                     pendingExplosionLabel = nil
                 }
-                Button(pendingExplosionLabel == "now" ? "Explode" : "Start timer", action: confirmAction)
+                Button(pendingExplosionLabel == "now" ? "Explode" : "Start", action: confirmAction)
             } message: {
                 Text("The timer cannot be changed or cancelled once it starts.")
             }
@@ -670,7 +670,11 @@ extension ConversationInfoView {
                     let cancelAction = {
                         showingCustomDatePicker = false
                     }
-                    Button("Cancel", action: cancelAction)
+                    Button(action: cancelAction) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.colorTextTertiary)
+                    }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     let confirmAction = {
@@ -679,11 +683,14 @@ extension ConversationInfoView {
                         pendingExplosionLabel = formatExplosionDuration(for: customDate)
                         showingExplodeConfirmation = true
                     }
-                    Button("Schedule", action: confirmAction)
-                        .fontWeight(.semibold)
+                    Button(action: confirmAction) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.title2)
+                            .foregroundStyle(.colorFillPrimary)
+                    }
                 }
             }
-            .navigationTitle("Custom timer")
+            .navigationTitle("Explode")
             .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.medium])
