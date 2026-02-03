@@ -1,11 +1,11 @@
-@preconcurrency import UserNotifications
 import Foundation
+@preconcurrency import UserNotifications
 
 public final class MockUserNotificationCenter: UserNotificationCenterProtocol, @unchecked Sendable {
     private var _addedRequests: [UNNotificationRequest] = []
     private var _removedIdentifiers: [String] = []
     private var _shouldThrowOnAdd: Bool = false
-    private let queue = DispatchQueue(label: "MockUserNotificationCenter")
+    private let queue: DispatchQueue = DispatchQueue(label: "MockUserNotificationCenter")
 
     public var addedRequests: [UNNotificationRequest] {
         queue.sync { _addedRequests }
