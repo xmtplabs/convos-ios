@@ -168,6 +168,9 @@ struct ExplodeButton: View {
         if hours >= 24 {
             let days = hours / 24
             let remainingHours = hours % 24
+            if remainingHours == 0 {
+                return "\(days)d"
+            }
             return "\(days)d \(remainingHours)h"
         } else {
             return String(format: "%02d:%02d:%02d", hours, minutes, seconds)

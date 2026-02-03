@@ -350,9 +350,13 @@ extension Array where Element == MessageWithDetails {
                             )
                         }
                     if let expiresAt = update.expiresAt {
+                        let originalDuration = ExplosionDurationFormatter.format(
+                            from: dbMessage.date,
+                            until: expiresAt
+                        )
                         metadataChanges.append(.init(
                             field: .expiresAt,
-                            oldValue: nil,
+                            oldValue: originalDuration,
                             newValue: expiresAt.ISO8601Format()
                         ))
                     }

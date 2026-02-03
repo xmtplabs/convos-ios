@@ -179,9 +179,8 @@ public extension ConversationUpdate {
             return "\(creatorDisplayName) changed the convo description to \"\(newValue)\""
         } else if let metadataChange = metadataChanges.first,
                   metadataChange.field == .expiresAt,
-                  let newValue = metadataChange.newValue {
-            if let expiresAt = ISO8601DateFormatter().date(from: newValue) {
-                let duration = ExplosionDurationFormatter.format(until: expiresAt)
+                  metadataChange.newValue != nil {
+            if let duration = metadataChange.oldValue {
                 return "\(creatorDisplayName) set this convo to explode in \(duration)"
             }
             return "\(creatorDisplayName) set this convo to explode"

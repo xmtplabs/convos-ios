@@ -2,7 +2,14 @@ import Foundation
 
 public enum ExplosionDurationFormatter {
     public static func format(until date: Date) -> String {
-        let interval = date.timeIntervalSinceNow
+        format(interval: date.timeIntervalSinceNow)
+    }
+
+    public static func format(from startDate: Date, until endDate: Date) -> String {
+        format(interval: endDate.timeIntervalSince(startDate))
+    }
+
+    public static func format(interval: TimeInterval) -> String {
         guard interval > 0 else { return "< 1m" }
 
         let totalMinutes = Int(ceil(interval / 60))
