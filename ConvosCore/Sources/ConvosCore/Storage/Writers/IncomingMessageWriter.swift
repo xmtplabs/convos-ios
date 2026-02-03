@@ -215,8 +215,6 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             return .fromSelf
         }
 
-        let isScheduled = settings.expiresAt > Date()
-
         enum WriteResult {
             case updated
             case alreadyExpired
@@ -266,6 +264,8 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 break
             }
 
+            // Check if scheduled AFTER DB write to avoid time drift during async operation
+            let isScheduled = settings.expiresAt > Date()
             if isScheduled {
                 Log.info("ExplodeSettings: scheduled for \(settings.expiresAt), posting conversationScheduledExplosion for \(conversationId)")
                 DispatchQueue.main.async {
