@@ -132,7 +132,9 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     ) async {
         let reminderDate = expiresAt.addingTimeInterval(-Constant.oneHourInSeconds)
 
-        guard reminderDate > Date() else {
+        // Capture interval BEFORE any async operations to avoid time drift
+        let reminderInterval = reminderDate.timeIntervalSinceNow
+        guard reminderInterval > 0 else {
             Log.info("ScheduledExplosionManager: Skipping reminder for \(conversationId), less than 1 hour away")
             return
         }
@@ -152,7 +154,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         content.threadIdentifier = conversationId
 
         let trigger = UNTimeIntervalNotificationTrigger(
-            timeInterval: reminderDate.timeIntervalSinceNow,
+            timeInterval: reminderInterval,
             repeats: false
         )
 
