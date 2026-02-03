@@ -666,28 +666,19 @@ extension ConversationInfoView {
             .labelsHidden()
             .padding()
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    let cancelAction = {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(role: .cancel) {
                         showingCustomDatePicker = false
                     }
-                    Button(action: cancelAction) {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.colorTextTertiary)
-                    }
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    let confirmAction = {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(role: .confirm) {
                         showingCustomDatePicker = false
                         pendingExplosionDate = customDate
                         pendingExplosionLabel = formatExplosionDuration(for: customDate)
                         showingExplodeConfirmation = true
                     }
-                    Button(action: confirmAction) {
-                        Image(systemName: "checkmark.circle.fill")
-                            .font(.title2)
-                            .foregroundStyle(.colorFillPrimary)
-                    }
+                    .tint(.colorBackgroundInverted)
                 }
             }
             .navigationTitle("Explode")
