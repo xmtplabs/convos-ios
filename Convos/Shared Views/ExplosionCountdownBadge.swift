@@ -23,10 +23,13 @@ struct ExplosionCountdownBadge: View {
         let totalSeconds = Int(interval)
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
 
         if hours >= 24 {
             let days = hours / 24
             return "\(days)d"
+        } else if hours == 0 && minutes == 0 {
+            return String(format: "0:%02d", seconds)
         } else {
             return String(format: "%d:%02d", hours, minutes)
         }
@@ -35,6 +38,7 @@ struct ExplosionCountdownBadge: View {
 
 #Preview {
     VStack(spacing: 20) {
+        ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(30))
         ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(90))
         ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(3700))
         ExplosionCountdownBadge(expiresAt: Date().addingTimeInterval(50000))

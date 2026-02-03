@@ -68,6 +68,7 @@ struct ConversationInfoView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeConfirmation: Bool = false
     @State private var pendingExplosionDate: Date?
+    @State private var pendingExplosionInterval: TimeInterval?
     @State private var pendingExplosionLabel: String?
     @State private var showingCustomDatePicker: Bool = false
     @State private var customDate: Date = Date().addingTimeInterval(3600)
@@ -575,19 +576,28 @@ struct ConversationInfoView: View {
             ) {
                 let cancelAction = {
                     pendingExplosionDate = nil
+                    pendingExplosionInterval = nil
                     pendingExplosionLabel = nil
                 }
                 Button("Cancel", role: .cancel, action: cancelAction)
 
                 let confirmAction = {
-                    if let date = pendingExplosionDate {
-                        if date.timeIntervalSinceNow <= 0 {
-                            viewModel.explodeConvo()
-                        } else {
-                            viewModel.scheduleExplosion(at: date)
-                        }
+                    let date: Date
+                    if let interval = pendingExplosionInterval {
+                        date = Date().addingTimeInterval(interval)
+                    } else if let storedDate = pendingExplosionDate {
+                        date = storedDate
+                    } else {
+                        return
+                    }
+
+                    if date.timeIntervalSinceNow <= 0 {
+                        viewModel.explodeConvo()
+                    } else {
+                        viewModel.scheduleExplosion(at: date)
                     }
                     pendingExplosionDate = nil
+                    pendingExplosionInterval = nil
                     pendingExplosionLabel = nil
                 }
                 Button(pendingExplosionLabel == "now" ? "Explode" : "Start", role: .destructive, action: confirmAction)
@@ -605,19 +615,19 @@ extension ConversationInfoView {
     var explodeOptions: some View {
         Menu {
             Button("1 minute") {
-                pendingExplosionDate = Date().addingTimeInterval(60)
+                pendingExplosionInterval = 60
                 pendingExplosionLabel = "1 minute"
                 showingExplodeConfirmation = true
             }
 
             Button("1 hour") {
-                pendingExplosionDate = Date().addingTimeInterval(3600)
+                pendingExplosionInterval = 3600
                 pendingExplosionLabel = "1 hour"
                 showingExplodeConfirmation = true
             }
 
             Button("24 hours") {
-                pendingExplosionDate = Date().addingTimeInterval(86400)
+                pendingExplosionInterval = 86400
                 pendingExplosionLabel = "24 hours"
                 showingExplodeConfirmation = true
             }
