@@ -3,27 +3,28 @@ import Foundation
 public enum ExplosionDurationFormatter {
     public static func format(until date: Date) -> String {
         let interval = date.timeIntervalSinceNow
-        guard interval > 0 else { return "soon" }
+        guard interval > 0 else { return "< 1m" }
 
-        let hours = Int(interval) / 3600
-        let minutes = (Int(interval) % 3600) / 60
+        let totalMinutes = Int(ceil(interval / 60))
 
-        if hours >= 24 {
-            let days = hours / 24
-            let remainingHours = hours % 24
+        if totalMinutes >= 24 * 60 {
+            let days = totalMinutes / (24 * 60)
+            let remainingHours = (totalMinutes % (24 * 60)) / 60
             if remainingHours == 0 {
                 return "\(days)d"
             }
             return "\(days)d \(remainingHours)h"
-        } else if hours > 0 {
+        } else if totalMinutes >= 60 {
+            let hours = totalMinutes / 60
+            let minutes = totalMinutes % 60
             if minutes == 0 {
                 return "\(hours)h"
             }
             return "\(hours)h \(minutes)m"
-        } else if minutes > 0 {
-            return "\(minutes)m"
+        } else if totalMinutes > 0 {
+            return "\(totalMinutes)m"
         } else {
-            return "soon"
+            return "< 1m"
         }
     }
 }
