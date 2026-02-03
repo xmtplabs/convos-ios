@@ -29,9 +29,9 @@ struct ExplosionCountdownBadge: View {
             let days = hours / 24
             return "\(days)d"
         } else if hours == 0 && minutes == 0 {
-            return String(format: "0:%02d", seconds)
+            return String(format: "00:%02d", seconds)
         } else {
-            return String(format: "%d:%02d", hours, minutes)
+            return String(format: "%02d:%02d", hours, minutes)
         }
     }
 }
