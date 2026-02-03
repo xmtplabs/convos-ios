@@ -590,7 +590,7 @@ struct ConversationInfoView: View {
                     pendingExplosionDate = nil
                     pendingExplosionLabel = nil
                 }
-                Button(pendingExplosionLabel == "now" ? "Explode" : "Start", role: .destructive, action: confirmAction)
+                Button(pendingExplosionLabel == "now" ? "Explode" : "Start", action: confirmAction)
             } message: {
                 Text("The timer cannot be changed or cancelled once it starts.")
             }
