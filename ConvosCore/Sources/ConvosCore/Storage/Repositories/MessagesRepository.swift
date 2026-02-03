@@ -341,19 +341,27 @@ extension Array where Element == MessageWithDetails {
                         conversationId: conversation.id,
                         inboxIds: update.removedInboxIds
                     )
+                    var metadataChanges: [ConversationUpdate.MetadataChange] = update.metadataChanges
+                        .map {
+                            .init(
+                                field: .init(rawValue: $0.field) ?? .unknown,
+                                oldValue: $0.oldValue,
+                                newValue: $0.newValue
+                            )
+                        }
+                    if let expiresAt = update.expiresAt {
+                        metadataChanges.append(.init(
+                            field: .expiresAt,
+                            oldValue: nil,
+                            newValue: expiresAt.ISO8601Format()
+                        ))
+                    }
                     messageContent = .update(
                         .init(
                             creator: initiatedByMember.hydrateConversationMember(currentInboxId: conversation.inboxId),
                             addedMembers: addedMembers.map { $0.hydrateConversationMember(currentInboxId: conversation.inboxId) },
                             removedMembers: removedMembers.map { $0.hydrateConversationMember(currentInboxId: conversation.inboxId) },
-                            metadataChanges: update.metadataChanges
-                                .map {
-                                    .init(
-                                        field: .init(rawValue: $0.field) ?? .unknown,
-                                        oldValue: $0.oldValue,
-                                        newValue: $0.newValue
-                                    )
-                                }
+                            metadataChanges: metadataChanges
                         )
                     )
                 }

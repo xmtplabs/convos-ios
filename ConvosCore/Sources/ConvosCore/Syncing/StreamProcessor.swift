@@ -292,7 +292,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     ) async {
         let content = UNMutableNotificationContent()
         content.title = "\(senderName) set this convo to explode 💣"
-        content.body = "in \(formatDuration(until: expiresAt))"
+        content.body = "in \(ExplosionDurationFormatter.format(until: expiresAt))"
         content.sound = .default
         content.userInfo = ["isScheduledExplosion": true, "conversationId": conversationId]
         content.threadIdentifier = conversationId
@@ -307,24 +307,6 @@ actor StreamProcessor: StreamProcessorProtocol {
             try await UNUserNotificationCenter.current().add(request)
         } catch {
             Log.error("Failed to post scheduled explosion notification: \(error.localizedDescription)")
-        }
-    }
-
-    private func formatDuration(until date: Date) -> String {
-        let interval = date.timeIntervalSinceNow
-        guard interval > 0 else { return "soon" }
-
-        let hours = Int(interval) / 3600
-        let minutes = (Int(interval) % 3600) / 60
-
-        if hours >= 24 {
-            let days = hours / 24
-            let remainingHours = hours % 24
-            return "\(days)d \(remainingHours)h"
-        } else if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else {
-            return "\(minutes)m"
         }
     }
 
