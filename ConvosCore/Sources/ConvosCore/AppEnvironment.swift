@@ -112,8 +112,8 @@ public enum AppEnvironment: Sendable {
     public var keychainAccessGroup: String? {
         switch self {
         case .local(config: let config), .dev(config: let config), .production(config: let config):
-            // Check if local-only keychain is requested (CLI mode)
-            if config.useLocalKeychain {
+            // Check if local-only keychain is requested (CLI mode without explicit group)
+            if config.useLocalKeychain && config.keychainAccessGroup == nil {
                 return nil
             }
             // Use explicit access group if provided
@@ -125,6 +125,16 @@ public enum AppEnvironment: Sendable {
             return teamPrefix + config.appGroupIdentifier
         case .tests:
             return nil
+        }
+    }
+
+    public var keychainService: String {
+        switch self {
+        case .local(config: let config), .dev(config: let config), .production(config: let config):
+            // Use explicit service if provided, otherwise default
+            return config.keychainService ?? "org.convos.ios.KeychainIdentityStore.v2"
+        case .tests:
+            return "org.convos.tests.KeychainIdentityStore.v2"
         }
     }
 

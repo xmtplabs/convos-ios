@@ -18,6 +18,7 @@ public struct ConvosConfiguration: Sendable {
     public let databaseDirectoryURL: URL?
     public let skipBackendAuth: Bool
     public let keychainAccessGroup: String?
+    public let keychainService: String?
     public let useLocalKeychain: Bool
 
     public init(
@@ -30,6 +31,7 @@ public struct ConvosConfiguration: Sendable {
         databaseDirectoryURL: URL? = nil,
         skipBackendAuth: Bool = false,
         keychainAccessGroup: String? = nil,
+        keychainService: String? = nil,
         useLocalKeychain: Bool = false
     ) {
         self.apiBaseURL = apiBaseURL
@@ -41,6 +43,7 @@ public struct ConvosConfiguration: Sendable {
         self.databaseDirectoryURL = databaseDirectoryURL
         self.skipBackendAuth = skipBackendAuth
         self.keychainAccessGroup = keychainAccessGroup
+        self.keychainService = keychainService
         self.useLocalKeychain = useLocalKeychain
     }
 }

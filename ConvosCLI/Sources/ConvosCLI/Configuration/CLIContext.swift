@@ -54,7 +54,8 @@ public final class CLIContext: @unchecked Sendable {
 
             // Create ConvosCore configuration
             // skipBackendAuth: true disables Firebase App Check which isn't supported on macOS
-            // useLocalKeychain: true uses local keychain without access group (no entitlements needed)
+            // keychainAccessGroup: CLI uses team-prefixed bundle ID for code-signing based isolation
+            // keychainService: CLI uses separate service to avoid conflicts with iOS app
             let config = ConvosConfiguration(
                 apiBaseURL: environment.apiBaseURL,
                 appGroupIdentifier: environment.appGroupIdentifier,
@@ -62,7 +63,8 @@ public final class CLIContext: @unchecked Sendable {
                 xmtpNetwork: environment.xmtpNetwork,
                 databaseDirectoryURL: dataDirectory.databaseDirectoryURL,
                 skipBackendAuth: true,
-                useLocalKeychain: true
+                keychainAccessGroup: "FY4NZR34Z3.com.xmtp.convos-cli",
+                keychainService: "com.xmtp.convos-cli.KeychainIdentityStore.v2"
             )
 
             // Create app environment

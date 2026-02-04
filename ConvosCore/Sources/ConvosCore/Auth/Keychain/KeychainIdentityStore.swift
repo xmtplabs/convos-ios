@@ -212,22 +212,29 @@ public protocol KeychainIdentityStoreProtocol: Actor {
 /// - Private key for XMTP message signing
 /// - Database encryption key for local XMTP database
 ///
-/// Keys are stored in the app group keychain with AfterFirstUnlock protection,
-/// allowing access to the notification extension. Enforces clientId uniqueness
-/// to prevent duplicate identities.
+/// Security model:
+/// - iOS app: Uses app group keychain with team-prefixed access group for sharing
+///   with notification extension. Protected by AfterFirstUnlock.
+/// - macOS CLI: Uses explicit access group (team-prefixed bundle ID) for code-signing
+///   based isolation. Only apps signed with the same Developer ID can access.
+/// - Tests: Uses local keychain without access group.
+///
+/// The service name should be unique per application to avoid conflicts:
+/// - iOS: "org.convos.ios.KeychainIdentityStore.v2"
+/// - CLI: "com.xmtp.convos-cli.KeychainIdentityStore.v2"
 public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Properties
 
     private let keychainService: String
     private let keychainAccessGroup: String?
 
-    static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
+    public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
 
     // MARK: - Initialization
 
-    public init(accessGroup: String?) {
+    public init(accessGroup: String?, service: String = KeychainIdentityStore.defaultService) {
         self.keychainAccessGroup = accessGroup
-        self.keychainService = Self.defaultService
+        self.keychainService = service
     }
 
     // MARK: - Public Interface
