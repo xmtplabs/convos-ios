@@ -67,9 +67,7 @@ struct ConversationInfoView: View {
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeConfirmation: Bool = false
-    @State private var pendingExplosionDate: Date?
-    @State private var pendingExplosionInterval: TimeInterval?
-    @State private var pendingExplosionLabel: String?
+    @State private var pendingExplosion: PendingExplosion?
     @State private var showingCustomDatePicker: Bool = false
     @State private var customDate: Date = Date().addingTimeInterval(3600)
     @State private var presentingEditView: Bool = false
@@ -103,37 +101,20 @@ struct ConversationInfoView: View {
         Date().addingTimeInterval(60)
     }
 
-    private func formatExplosionDuration(for date: Date) -> String {
-        let interval = date.timeIntervalSinceNow
-        if interval <= 0 {
-            return "now"
-        } else if interval < 120 {
-            return "1 minute"
-        } else if interval < 3600 {
-            let minutes = Int(interval / 60)
-            return "\(minutes) minutes"
-        } else if interval < 7200 {
-            return "1 hour"
-        } else if interval < 86400 {
-            let hours = Int(interval / 3600)
-            return "\(hours) hours"
-        } else {
-            let days = Int(interval / 86400)
-            return days == 1 ? "1 day" : "\(days) days"
-        }
-    }
-
     private var explosionAlertTitle: String {
-        guard let label = pendingExplosionLabel else {
+        guard let pending = pendingExplosion else {
             return "Explode convo?"
         }
-        if label == "now" {
+        switch pending {
+        case .now:
             return "Explode convo now?"
-        }
-        if label.contains("Sunday") || label.contains("midnight") {
+        case .fixedDate(_, let label):
             return "Explode convo on \(label)?"
+        case .delay(_, let label):
+            return "Explode convo in \(label)?"
+        case .customDate(let date):
+            return "Explode convo in \(ExplosionDurationFormatter.format(until: date))?"
         }
-        return "Explode convo in \(label)?"
     }
 
     @ViewBuilder
@@ -486,8 +467,7 @@ struct ConversationInfoView: View {
                             explosionCountdownRow(expiresAt: expiresAt)
 
                             let action = {
-                                pendingExplosionDate = Date()
-                                pendingExplosionLabel = "now"
+                                pendingExplosion = .now
                                 showingExplodeConfirmation = true
                             }
                             Button(action: action) {
@@ -557,32 +537,22 @@ struct ConversationInfoView: View {
                 isPresented: $showingExplodeConfirmation
             ) {
                 let cancelAction = {
-                    pendingExplosionDate = nil
-                    pendingExplosionInterval = nil
-                    pendingExplosionLabel = nil
+                    pendingExplosion = nil
                 }
                 Button("Cancel", role: .cancel, action: cancelAction)
 
                 let confirmAction = {
-                    let date: Date
-                    if let interval = pendingExplosionInterval {
-                        date = Date().addingTimeInterval(interval)
-                    } else if let storedDate = pendingExplosionDate {
-                        date = storedDate
-                    } else {
-                        return
-                    }
-
+                    guard let pending = pendingExplosion else { return }
+                    let date = pending.resolvedDate
                     if date.timeIntervalSinceNow <= 0 {
                         viewModel.explodeConvo()
                     } else {
                         viewModel.scheduleExplosion(at: date)
                     }
-                    pendingExplosionDate = nil
-                    pendingExplosionInterval = nil
-                    pendingExplosionLabel = nil
+                    pendingExplosion = nil
                 }
-                Button(pendingExplosionLabel == "now" ? "Explode" : "Start", role: .destructive, action: confirmAction)
+                let confirmLabel = pendingExplosion?.isNow == true ? "Explode" : "Start"
+                Button(confirmLabel, role: .destructive, action: confirmAction)
             } message: {
                 Text("The timer cannot be changed or cancelled once it starts.")
             }
@@ -597,26 +567,22 @@ extension ConversationInfoView {
     var explodeOptions: some View {
         Menu {
             Button("1 minute") {
-                pendingExplosionInterval = 60
-                pendingExplosionLabel = "1 minute"
+                pendingExplosion = .delay(interval: 60, label: "1 minute")
                 showingExplodeConfirmation = true
             }
 
             Button("1 hour") {
-                pendingExplosionInterval = 3600
-                pendingExplosionLabel = "1 hour"
+                pendingExplosion = .delay(interval: 3600, label: "1 hour")
                 showingExplodeConfirmation = true
             }
 
             Button("24 hours") {
-                pendingExplosionInterval = 86400
-                pendingExplosionLabel = "24 hours"
+                pendingExplosion = .delay(interval: 86400, label: "24 hours")
                 showingExplodeConfirmation = true
             }
 
             Button("Sunday at midnight") {
-                pendingExplosionDate = sundayAtMidnight
-                pendingExplosionLabel = "Sunday at midnight"
+                pendingExplosion = .fixedDate(date: sundayAtMidnight, label: "Sunday at midnight")
                 showingExplodeConfirmation = true
             }
 
@@ -628,9 +594,7 @@ extension ConversationInfoView {
             Divider()
 
             Button(role: .destructive) {
-                pendingExplosionInterval = nil
-                pendingExplosionDate = Date()
-                pendingExplosionLabel = "now"
+                pendingExplosion = .now
                 showingExplodeConfirmation = true
             } label: {
                 Text("Explode now")
@@ -667,8 +631,7 @@ extension ConversationInfoView {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(role: .confirm) {
                         showingCustomDatePicker = false
-                        pendingExplosionDate = customDate
-                        pendingExplosionLabel = formatExplosionDuration(for: customDate)
+                        pendingExplosion = .customDate(date: customDate)
                         showingExplodeConfirmation = true
                     }
                     .tint(.colorBackgroundInverted)
@@ -701,6 +664,31 @@ struct DebugLogsTextView: View {
                     }
                 }
             }
+        }
+    }
+}
+
+// MARK: - PendingExplosion
+
+private enum PendingExplosion {
+    case now
+    case delay(interval: TimeInterval, label: String)
+    case fixedDate(date: Date, label: String)
+    case customDate(date: Date)
+
+    var isNow: Bool {
+        if case .now = self { return true }
+        return false
+    }
+
+    var resolvedDate: Date {
+        switch self {
+        case .now:
+            return Date()
+        case .delay(let interval, _):
+            return Date().addingTimeInterval(interval)
+        case .fixedDate(let date, _), .customDate(let date):
+            return date
         }
     }
 }

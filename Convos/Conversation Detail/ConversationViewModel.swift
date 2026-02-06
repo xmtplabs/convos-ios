@@ -676,7 +676,7 @@ extension ConversationViewModel {
 
     func explodeConvo() {
         guard canRemoveMembers else { return }
-        guard case .ready = explodeState else { return }
+        guard explodeState.isReady || explodeState.isError else { return }
 
         explodeState = .exploding
 
@@ -733,7 +733,7 @@ extension ConversationViewModel {
 
     func scheduleExplosion(at expiresAt: Date) {
         guard canRemoveMembers else { return }
-        guard case .ready = explodeState else { return }
+        guard explodeState.isReady || explodeState.isError else { return }
 
         if expiresAt <= Date() {
             explodeConvo()
