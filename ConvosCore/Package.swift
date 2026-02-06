@@ -21,7 +21,10 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
-        .package(url: "https://github.com/xmtp/xmtp-ios.git", exact: "4.9.0-dev.fce3ad0"),
+        .package(
+            url: "https://github.com/xmtp/libxmtp.git",
+            revision: "ios-4.9.0-dev.6ecd439"
+        ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
@@ -32,7 +35,7 @@ let package = Package(
         .target(
             name: "ConvosCore",
             dependencies: [
-                .product(name: "XMTPiOS", package: "xmtp-ios"),
+                .product(name: "XMTPiOS", package: "libxmtp"),
                 .product(name: "GRDB", package: "GRDB.swift"),
                 .product(name: "FirebaseCore", package: "firebase-ios-sdk"),
                 .product(name: "FirebaseAppCheck", package: "firebase-ios-sdk"),

@@ -17,15 +17,16 @@ public protocol SyncingManagerProtocol: Actor {
 ///
 /// Marked @unchecked Sendable because:
 /// - XMTPClientProvider wraps XMTPiOS.Client which is not Sendable
-/// - However, XMTP Client is designed for concurrent use (async/await API)
-/// - All access is properly isolated through actors in the state machine
+/// - ConvosAPIClient is marked @unchecked Sendable
 public struct SyncClientParams: @unchecked Sendable {
     public let client: AnyClientProvider
     public let apiClient: any ConvosAPIClientProtocol
+    public let consentStates: [ConsentState]
 
-    public init(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol) {
+    public init(client: AnyClientProvider, apiClient: any ConvosAPIClientProtocol, consentStates: [ConsentState] = [.allowed, .unknown]) {
         self.client = client
         self.apiClient = apiClient
+        self.consentStates = consentStates
     }
 }
 
@@ -43,6 +44,10 @@ public struct SyncClientParams: @unchecked Sendable {
 /// The manager maintains separate streams for conversations and messages with
 /// automatic retry and backoff handling. It uses a state machine pattern to
 /// manage lifecycle transitions and ensure proper sequencing of operations.
+enum SyncingError: Error {
+    case streamRetriesExhausted
+}
+
 actor SyncingManager: SyncingManagerProtocol {
     // MARK: - State Machine
 
@@ -52,6 +57,7 @@ actor SyncingManager: SyncingManagerProtocol {
         case pause
         case resume
         case stop
+        case streamFailed
     }
 
     enum State: Sendable {
@@ -90,7 +96,9 @@ actor SyncingManager: SyncingManagerProtocol {
     private let identityStore: any KeychainIdentityStoreProtocol
     private let streamProcessor: any StreamProcessorProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
-    private let consentStates: [ConsentState] = [.allowed, .unknown]
+    // Maximum consecutive stream failures before giving up. Prevents FD exhaustion when
+    // XMTP service is unavailable (each failed connection attempt can leak file descriptors).
+    private let maxStreamRetries: Int = 10
 
     private var messageStreamTask: Task<Void, Never>?
     private var conversationStreamTask: Task<Void, Never>?
@@ -258,6 +266,14 @@ actor SyncingManager: SyncingManagerProtocol {
                 Log.info("Resume requested while starting - cancelling pending pause")
                 emitStateChange(.starting(params, pauseOnComplete: false))
 
+            case (.ready, .streamFailed), (.starting, .streamFailed):
+                await cancelAndAwaitTasks()
+                emitStateChange(.error(SyncingError.streamRetriesExhausted))
+                Log.error("Streams exhausted max retries, transitioning to error state")
+
+            case (.error, .streamFailed):
+                break
+
             case (.ready, .stop), (.paused, .stop), (.error, .stop), (.starting, .stop):
                 try await handleStop()
 
@@ -316,7 +332,7 @@ actor SyncingManager: SyncingManagerProtocol {
             guard let self else { return }
             do {
                 try Task.checkCancellation()
-                _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: self.consentStates)
+                _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
                 try Task.checkCancellation()
                 // Route sync completion through the action queue for consistent state transitions
                 await self.enqueueAction(.syncComplete(params))
@@ -455,7 +471,7 @@ actor SyncingManager: SyncingManagerProtocol {
     private func runMessageStream(params: SyncClientParams) async {
         var retryCount = 0
 
-        while !Task.isCancelled {
+        while !Task.isCancelled && retryCount < maxStreamRetries {
             do {
                 // Exponential backoff
                 if retryCount > 0 {
@@ -463,17 +479,18 @@ actor SyncingManager: SyncingManagerProtocol {
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
 
-                Log.info("Starting message stream (attempt \(retryCount + 1))")
+                Log.info("Starting message stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
 
                 // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
                 var isFirstMessage = true
-                for try await message in params.client.conversationsProvider.streamAllMessages(
+                let stream = params.client.conversationsProvider.streamAllMessages(
                     type: .all,
-                    consentStates: consentStates,
+                    consentStates: params.consentStates,
                     onClose: {
                         Log.info("Message stream closed via onClose callback")
                     }
-                ) {
+                )
+                for try await message in stream {
                     // Check cancellation
                     try Task.checkCancellation()
 
@@ -502,28 +519,34 @@ actor SyncingManager: SyncingManagerProtocol {
                 Log.error("Message stream error: \(error)")
             }
         }
+
+        if !Task.isCancelled && retryCount >= maxStreamRetries {
+            Log.error("Message stream: max retries (\(maxStreamRetries)) exceeded, giving up")
+            enqueueAction(.streamFailed)
+        }
     }
 
     private func runConversationStream(params: SyncClientParams) async {
         var retryCount = 0
 
-        while !Task.isCancelled {
+        while !Task.isCancelled && retryCount < maxStreamRetries {
             do {
                 if retryCount > 0 {
                     let delay = TimeInterval.calculateExponentialBackoff(for: retryCount)
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
 
-                Log.info("Starting conversation stream (attempt \(retryCount + 1))")
+                Log.info("Starting conversation stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
 
                 // Stream conversations - the loop will exit when onClose is called
                 var isFirstConversation = true
-                for try await conversation in params.client.conversationsProvider.stream(
+                let stream = params.client.conversationsProvider.stream(
                     type: .groups,
                     onClose: {
                         Log.info("Conversation stream closed via onClose callback")
                     }
-                ) {
+                )
+                for try await conversation in stream {
                     guard case .group(let conversation) = conversation else {
                         continue
                     }
@@ -554,6 +577,11 @@ actor SyncingManager: SyncingManagerProtocol {
                 retryCount += 1
                 Log.error("Conversation stream error: \(error)")
             }
+        }
+
+        if !Task.isCancelled && retryCount >= maxStreamRetries {
+            Log.error("Conversation stream: max retries (\(maxStreamRetries)) exceeded, giving up")
+            enqueueAction(.streamFailed)
         }
     }
 

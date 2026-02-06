@@ -78,6 +78,8 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     private let activityRepository: any InboxActivityRepositoryProtocol
     private let pendingInviteRepository: any PendingInviteRepositoryProtocol
     private let unusedInboxCache: any UnusedInboxCacheProtocol
+    private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
+    private let apiClient: (any ConvosAPIClientProtocol)?
 
     public var awakeClientIds: Set<String> {
         Set(awakeInboxes.keys)
@@ -100,7 +102,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     }
 
     public init(
-        maxAwakeInboxes: Int = 25,
+        maxAwakeInboxes: Int = 10,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         identityStore: any KeychainIdentityStoreProtocol,
@@ -108,7 +110,9 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         platformProviders: PlatformProviders,
         activityRepository: (any InboxActivityRepositoryProtocol)? = nil,
         pendingInviteRepository: (any PendingInviteRepositoryProtocol)? = nil,
-        unusedInboxCache: (any UnusedInboxCacheProtocol)? = nil
+        unusedInboxCache: (any UnusedInboxCacheProtocol)? = nil,
+        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) {
         self.maxAwakeInboxes = maxAwakeInboxes
         self.databaseReader = databaseReader
@@ -120,8 +124,12 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         self.pendingInviteRepository = pendingInviteRepository ?? PendingInviteRepository(databaseReader: databaseReader)
         self.unusedInboxCache = unusedInboxCache ?? UnusedInboxCache(
             identityStore: identityStore,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
         )
+        self.deviceRegistrationManager = deviceRegistrationManager
+        self.apiClient = apiClient
     }
 
     public func setActiveClientId(_ clientId: String?) {
@@ -481,7 +489,9 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             environment: environment,
             identityStore: identityStore,
             startsStreamingServices: true,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
         )
     }
 }

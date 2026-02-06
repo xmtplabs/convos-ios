@@ -28,7 +28,7 @@ extension XMTPiOS.Group {
             do {
                 let currentAppData = try self.appData()
                 return ConversationCustomMetadata.parseAppData(currentAppData)
-            } catch XMTPiOS.GenericError.GroupError(message: _) {
+            } catch {
                 return .init()
             }
         }

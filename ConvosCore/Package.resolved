@@ -1,5 +1,5 @@
 {
-  "originHash" : "7a25b9bbc06a6bfc8386d61fb70f43822c429bd706baea9a07a995421fac9f0f",
+  "originHash" : "71fc4f0a471170157f392192c900a8a7ad94ed62bd37ed05387c05a3a3b85a2e",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -137,6 +137,15 @@
       }
     },
     {
+      "identity" : "libxmtp",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/xmtp/libxmtp.git",
+      "state" : {
+        "branch" : "ios-4.9.0-dev.6ecd439",
+        "revision" : "297e684d07e78f87da617be80565359c315ba6f0"
+      }
+    },
+    {
       "identity" : "nanopb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/firebase/nanopb.git",
@@ -195,8 +204,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-nio.git",
       "state" : {
-        "revision" : "663ddc80f2081c8f22e417cbac5f80270a93795e",
-        "version" : "2.91.0"
+        "revision" : "5e72fc102906ebe75a3487595a653e6f43725552",
+        "version" : "2.94.0"
       }
     },
     {
@@ -231,17 +240,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-system.git",
       "state" : {
-        "revision" : "395a77f0aa927f0ff73941d7ac35f2b46d47c9db",
-        "version" : "1.6.3"
-      }
-    },
-    {
-      "identity" : "xmtp-ios",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/xmtp/xmtp-ios.git",
-      "state" : {
-        "revision" : "fce3ad0a3381ecc08cb305b60c70b888db8c2284",
-        "version" : "4.9.0-dev.fce3ad0"
+        "revision" : "7c6ad0fc39d0763e0b699210e4124afd5041c5df",
+        "version" : "1.6.4"
       }
     }
   ],

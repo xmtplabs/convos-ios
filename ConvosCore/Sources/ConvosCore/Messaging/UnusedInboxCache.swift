@@ -49,6 +49,8 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
     private let keychainService: any KeychainServiceProtocol
     private let identityStore: any KeychainIdentityStoreProtocol
     private let platformProviders: PlatformProviders
+    private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
+    private let apiClient: (any ConvosAPIClientProtocol)?
     private var unusedMessagingService: MessagingService?
     private var isCreatingUnusedInbox: Bool = false
     private var backgroundCreationTask: Task<Void, Never>?
@@ -59,11 +61,15 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
     public init(
         keychainService: any KeychainServiceProtocol = KeychainService(),
         identityStore: any KeychainIdentityStoreProtocol,
-        platformProviders: PlatformProviders
+        platformProviders: PlatformProviders,
+        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) {
         self.keychainService = keychainService
         self.identityStore = identityStore
         self.platformProviders = platformProviders
+        self.deviceRegistrationManager = deviceRegistrationManager
+        self.apiClient = apiClient
     }
 
     // MARK: - Public Methods
@@ -174,7 +180,9 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
                     databaseWriter: databaseWriter,
                     environment: environment,
                     startsStreamingServices: true,
-                    platformProviders: platformProviders
+                    platformProviders: platformProviders,
+                    deviceRegistrationManager: deviceRegistrationManager,
+                    apiClient: apiClient
                 )
 
                 // Schedule creation of a new unused inbox for next time
@@ -272,7 +280,9 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
         )
 
         return MessagingService(
@@ -306,7 +316,9 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             databaseWriter: databaseWriter,
             environment: environment,
             startsStreamingServices: true,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
         )
 
         let messagingService = MessagingService(
@@ -366,7 +378,9 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
         )
 
         let tempMessagingService = MessagingService(

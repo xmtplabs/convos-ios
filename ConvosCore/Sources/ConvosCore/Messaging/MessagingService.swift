@@ -33,7 +33,9 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         identityStore: any KeychainIdentityStoreProtocol,
         startsStreamingServices: Bool,
         overrideJWTToken: String? = nil,
-        platformProviders: PlatformProviders
+        platformProviders: PlatformProviders,
+        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) -> MessagingService {
         let authorizationOperation = AuthorizeInboxOperation.authorize(
             inboxId: inboxId,
@@ -44,7 +46,9 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             environment: environment,
             startsStreamingServices: startsStreamingServices,
             overrideJWTToken: overrideJWTToken,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
         )
         return MessagingService(
             authorizationOperation: authorizationOperation,

@@ -382,8 +382,9 @@ public actor ConversationStateMachine {
         let client = inboxReady.client
 
         // Create the optimistic conversation
-        // Safe to use nonisolated(unsafe) because XMTP's Conversation API is entirely
-        // async/await-based, so concurrent access is inherently serialized by the runtime.
+        // nonisolated(unsafe) is used because XMTP types are not Sendable. This is safe
+        // here because prepareConversation() is a one-shot operation, not a long-running
+        // stream that could overlap with other XMTP operations.
         nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
 
         // Publish the conversation
@@ -710,8 +711,9 @@ public actor ConversationStateMachine {
         client: any XMTPClientProvider,
         apiClient: any ConvosAPIClientProtocol
     ) async throws {
-        // Safe to use nonisolated(unsafe) because XMTP's Conversations API is entirely
-        // async/await-based, so concurrent access is inherently serialized by the runtime.
+        // nonisolated(unsafe) is used because XMTP types are not Sendable. This is safe
+        // here because findConversation() is a one-shot operation, not a long-running
+        // stream that could overlap with other XMTP operations.
         nonisolated(unsafe) let conversationsProvider = client.conversationsProvider
         let externalConversation = try await conversationsProvider.findConversation(conversationId: conversationId)
         try await externalConversation?.updateConsentState(state: .denied)

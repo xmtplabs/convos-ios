@@ -41,6 +41,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let platformProviders: PlatformProviders
     private let lifecycleManager: any InboxLifecycleManagerProtocol
     private let sleepingInboxChecker: SleepingInboxMessageChecker
+    private let apiClient: any ConvosAPIClientProtocol
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
@@ -58,12 +59,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             environment: environment,
             platformProviders: platformProviders
         )
+        self.apiClient = ConvosAPIClientFactory.client(environment: environment)
         let resolvedLifecycleManager = lifecycleManager ?? InboxLifecycleManager(
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             identityStore: identityStore,
             environment: environment,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: self.deviceRegistrationManager,
+            apiClient: self.apiClient
         )
         self.lifecycleManager = resolvedLifecycleManager
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
