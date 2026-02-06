@@ -1,3 +1,4 @@
+import ConvosCore
 import SwiftUI
 import UIKit
 
@@ -144,7 +145,7 @@ struct ExplodeButton: View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Image("explodeIcon")
-                Text("Explodes in \(formatCountdown(until: expiresAt, from: context.date))")
+                Text("Explodes in \(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))")
             }
             .foregroundStyle(.colorOrange)
             .font(.subheadline.weight(.medium))
@@ -153,27 +154,6 @@ struct ExplodeButton: View {
             .frame(maxWidth: .infinity)
             .background(Color.colorOrange.opacity(0.1))
             .clipShape(Capsule())
-        }
-    }
-
-    private func formatCountdown(until date: Date, from now: Date) -> String {
-        let interval = date.timeIntervalSince(now)
-        guard interval > 0 else { return "00:00:00" }
-
-        let totalSeconds = Int(ceil(interval))
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours >= 24 {
-            let days = hours / 24
-            let remainingHours = hours % 24
-            if remainingHours == 0 {
-                return "\(days)d"
-            }
-            return "\(days)d \(remainingHours)h"
-        } else {
-            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
         }
     }
 

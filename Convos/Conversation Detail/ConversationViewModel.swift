@@ -71,27 +71,9 @@ class ConversationViewModel {
     }
     var conversationInfoSubtitle: String {
         if let expiresAt = scheduledExplosionDate {
-            return formatExplosionCountdown(expiresAt)
+            return ExplosionDurationFormatter.countdown(until: expiresAt)
         }
         return conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
-    }
-
-    private func formatExplosionCountdown(_ date: Date) -> String {
-        let interval = date.timeIntervalSinceNow
-        guard interval > 0 else { return "Exploding..." }
-
-        let totalSeconds = Int(ceil(interval))
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours >= 24 {
-            let days = hours / 24
-            let remainingHours = hours % 24
-            return "\(days)d \(remainingHours)h"
-        } else {
-            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
-        }
     }
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
@@ -720,9 +702,7 @@ extension ConversationViewModel {
                 }
                 Log.info("ExplodeSettings message sent successfully")
 
-                await MainActor.run {
-                    self.explodeState = .exploded
-                }
+                self.explodeState = .exploded
 
                 guard case .group(let group) = xmtpConversation else {
                     throw ExplodeConvoError.notGroupConversation
@@ -741,16 +721,12 @@ extension ConversationViewModel {
                 try await group.updateConsentState(state: .denied)
                 Log.info("Denied exploded conversation to prevent re-sync")
 
-                await MainActor.run {
-                    self.presentingConversationSettings = false
-                    self.conversation.postLeftConversationNotification()
-                }
+                self.presentingConversationSettings = false
+                self.conversation.postLeftConversationNotification()
                 Log.info("Explode complete, inbox deletion triggered")
             } catch {
                 Log.error("Error exploding convo: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.explodeState = .error("Explode failed")
-                }
+                self.explodeState = .error("Explode failed")
             }
         }
     }
@@ -786,17 +762,15 @@ extension ConversationViewModel {
                 }
                 Log.info("Scheduled explosion message sent successfully for \(expiresAt)")
 
-                await MainActor.run {
-                    self.explodeState = .scheduled(expiresAt)
-                    NotificationCenter.default.post(
-                        name: .conversationScheduledExplosion,
-                        object: nil,
-                        userInfo: [
-                            "conversationId": self.conversation.id,
-                            "expiresAt": expiresAt
-                        ]
-                    )
-                }
+                self.explodeState = .scheduled(expiresAt)
+                NotificationCenter.default.post(
+                    name: .conversationScheduledExplosion,
+                    object: nil,
+                    userInfo: [
+                        "conversationId": self.conversation.id,
+                        "expiresAt": expiresAt
+                    ]
+                )
 
                 do {
                     try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
@@ -806,9 +780,7 @@ extension ConversationViewModel {
                 Log.info("Explosion scheduled for \(expiresAt)")
             } catch {
                 Log.error("Error scheduling explosion: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.explodeState = .error("Schedule failed")
-                }
+                self.explodeState = .error("Schedule failed")
             }
         }
     }

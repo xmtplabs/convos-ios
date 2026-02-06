@@ -42,7 +42,7 @@ struct ConversationToolbarButton: View {
     private var subtitleView: some View {
         if let expiresAt = scheduledExplosionDate {
             TimelineView(.periodic(from: .now, by: 1.0)) { context in
-                Text(formatExplosionCountdown(expiresAt, from: context.date))
+                Text(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))
                     .lineLimit(1)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.colorOrange)
@@ -52,24 +52,6 @@ struct ConversationToolbarButton: View {
                 .lineLimit(1)
                 .font(.caption)
                 .foregroundStyle(.colorTextSecondary)
-        }
-    }
-
-    private func formatExplosionCountdown(_ date: Date, from now: Date) -> String {
-        let interval = date.timeIntervalSince(now)
-        guard interval > 0 else { return "Exploding..." }
-
-        let totalSeconds = Int(ceil(interval))
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours >= 24 {
-            let days = hours / 24
-            let remainingHours = hours % 24
-            return "\(days)d \(remainingHours)h"
-        } else {
-            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
         }
     }
 

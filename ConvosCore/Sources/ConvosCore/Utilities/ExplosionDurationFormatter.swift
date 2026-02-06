@@ -34,4 +34,48 @@ public enum ExplosionDurationFormatter {
             return "< 1m"
         }
     }
+
+    // MARK: - Countdown (HH:MM:SS)
+
+    public static func countdown(until date: Date, from now: Date = Date()) -> String {
+        countdown(interval: date.timeIntervalSince(now))
+    }
+
+    public static func countdown(interval: TimeInterval) -> String {
+        guard interval > 0 else { return "Exploding..." }
+
+        let totalSeconds = Int(ceil(interval))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours >= 24 {
+            let days = hours / 24
+            let remainingHours = hours % 24
+            if remainingHours == 0 {
+                return "\(days)d"
+            }
+            return "\(days)d \(remainingHours)h"
+        } else {
+            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
+        }
+    }
+
+    // MARK: - Compact Countdown (HH:MM for badge)
+
+    public static func compactCountdown(interval: TimeInterval) -> String {
+        let totalSeconds = Int(ceil(interval))
+        let hours = totalSeconds / 3600
+        let minutes = (totalSeconds % 3600) / 60
+        let seconds = totalSeconds % 60
+
+        if hours >= 24 {
+            let days = hours / 24
+            return "\(days)d"
+        } else if hours == 0 && minutes == 0 {
+            return String(format: "00:%02d", seconds)
+        } else {
+            return String(format: "%02d:%02d", hours, minutes)
+        }
+    }
 }

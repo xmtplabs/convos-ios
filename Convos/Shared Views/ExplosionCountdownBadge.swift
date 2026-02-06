@@ -1,3 +1,4 @@
+import ConvosCore
 import SwiftUI
 
 struct ExplosionCountdownBadge: View {
@@ -8,7 +9,7 @@ struct ExplosionCountdownBadge: View {
             let remaining = expiresAt.timeIntervalSince(context.date)
             if remaining > 0 {
                 let isUrgent = remaining <= 24 * 3600
-                Text(formatCountdown(remaining))
+                Text(ExplosionDurationFormatter.compactCountdown(interval: remaining))
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(isUrgent ? .colorCaution : .colorTextSecondary)
                     .padding(.horizontal, DesignConstants.Spacing.step2x)
@@ -16,22 +17,6 @@ struct ExplosionCountdownBadge: View {
                     .background(isUrgent ? .colorCaution.opacity(0.15) : .colorFillMinimal)
                     .clipShape(Capsule())
             }
-        }
-    }
-
-    private func formatCountdown(_ interval: TimeInterval) -> String {
-        let totalSeconds = Int(ceil(interval))
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours >= 24 {
-            let days = hours / 24
-            return "\(days)d"
-        } else if hours == 0 && minutes == 0 {
-            return String(format: "00:%02d", seconds)
-        } else {
-            return String(format: "%02d:%02d", hours, minutes)
         }
     }
 }

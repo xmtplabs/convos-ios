@@ -268,7 +268,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             let isScheduled = settings.expiresAt.timeIntervalSinceNow > 0
             if isScheduled {
                 Log.info("ExplodeSettings: scheduled for \(settings.expiresAt), posting conversationScheduledExplosion for \(conversationId)")
-                DispatchQueue.main.async {
+                await MainActor.run {
                     NotificationCenter.default.post(
                         name: .conversationScheduledExplosion,
                         object: nil,
@@ -281,7 +281,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 return .scheduled(expiresAt: settings.expiresAt)
             } else {
                 Log.info("ExplodeSettings: immediate, posting conversationExpired for \(conversationId)")
-                DispatchQueue.main.async {
+                await MainActor.run {
                     NotificationCenter.default.post(
                         name: .conversationExpired,
                         object: nil,

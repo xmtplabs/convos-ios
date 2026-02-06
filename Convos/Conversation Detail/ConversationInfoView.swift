@@ -222,31 +222,13 @@ struct ConversationInfoView: View {
                     Text("Explodes in")
                         .font(.body)
                         .foregroundStyle(.colorTextPrimary)
-                    Text(formatExplosionCountdown(expiresAt, from: context.date))
+                    Text(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))
                         .font(.headline.monospacedDigit())
                         .foregroundStyle(.colorOrange)
                 }
 
                 Spacer()
             }
-        }
-    }
-
-    private func formatExplosionCountdown(_ date: Date, from now: Date) -> String {
-        let interval = date.timeIntervalSince(now)
-        guard interval > 0 else { return "00:00:00" }
-
-        let totalSeconds = Int(ceil(interval))
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        let seconds = totalSeconds % 60
-
-        if hours >= 24 {
-            let days = hours / 24
-            let remainingHours = hours % 24
-            return "\(days)d \(remainingHours)h"
-        } else {
-            return String(format: "%02d:%02d:%02d", hours, minutes, seconds)
         }
     }
 
