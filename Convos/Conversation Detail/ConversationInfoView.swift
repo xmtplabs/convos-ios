@@ -85,14 +85,14 @@ struct ConversationInfoView: View {
         viewModel.conversation.members.count > maxMembersToShow
     }
 
-    private var sundayAtMidnight: Date {
+    private var sundayAtMidnight: Date? {
         let calendar = Calendar.current
         let today = Date()
         let weekday = calendar.component(.weekday, from: today)
         let daysUntilSunday = (8 - weekday) % 7
         let adjustedDays = daysUntilSunday == 0 ? 7 : daysUntilSunday
         guard let nextSunday = calendar.date(byAdding: .day, value: adjustedDays, to: today) else {
-            return today
+            return nil
         }
         return calendar.startOfDay(for: nextSunday)
     }
@@ -581,9 +581,11 @@ extension ConversationInfoView {
                 showingExplodeConfirmation = true
             }
 
-            Button("Sunday at midnight") {
-                pendingExplosion = .fixedDate(date: sundayAtMidnight, label: "Sunday at midnight")
-                showingExplodeConfirmation = true
+            if let sunday = sundayAtMidnight {
+                Button("Sunday at midnight") {
+                    pendingExplosion = .fixedDate(date: sunday, label: "Sunday at midnight")
+                    showingExplodeConfirmation = true
+                }
             }
 
             Button("Choose date and time") {
