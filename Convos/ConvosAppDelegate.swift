@@ -48,14 +48,11 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         // Handle explosion notifications - trigger cleanup and show banner
         if notification.request.content.userInfo["isExplosion"] as? Bool == true {
             Log.info("App in foreground - explosion notification received, triggering cleanup")
-            let userInfo = notification.request.content.userInfo
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: .conversationExpired,
-                    object: nil,
-                    userInfo: userInfo
-                )
-            }
+            NotificationCenter.default.post(
+                name: .conversationExpired,
+                object: nil,
+                userInfo: notification.request.content.userInfo
+            )
             return [.banner, .sound]
         }
 

@@ -68,15 +68,6 @@ struct ConversationsListItem: View {
     private var isUnread: Bool { conversation.isUnread }
     private var lastMessage: MessagePreview? { conversation.lastMessage }
     private var createdAt: Date { conversation.createdAt }
-    private var scheduledExplosionDate: Date? {
-        guard let expiresAt = conversation.expiresAt,
-              expiresAt > Date() else { return nil }
-        // Sanity check: ignore dates more than 1 year in the future
-        let oneYearFromNow = Date().addingTimeInterval(365 * 24 * 60 * 60)
-        guard expiresAt < oneYearFromNow else { return nil }
-        return expiresAt
-    }
-
     var body: some View {
         ListItemView(
             title: title,
@@ -97,7 +88,7 @@ struct ConversationsListItem: View {
                 }
             },
             accessoryContent: {
-                if let expiresAt = scheduledExplosionDate {
+                if let expiresAt = conversation.scheduledExplosionDate {
                     ExplosionCountdownBadge(expiresAt: expiresAt)
                 }
             }

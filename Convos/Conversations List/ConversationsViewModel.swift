@@ -155,11 +155,7 @@ final class ConversationsViewModel {
         case .unread:
             return baseConversations.filter { $0.isUnread }
         case .exploding:
-            let oneYearFromNow = Date().addingTimeInterval(365 * 24 * 60 * 60)
-            return baseConversations.filter { conversation in
-                guard let expiresAt = conversation.expiresAt else { return false }
-                return expiresAt > Date() && expiresAt < oneYearFromNow
-            }
+            return baseConversations.filter { $0.scheduledExplosionDate != nil }
         }
     }
 
@@ -171,11 +167,7 @@ final class ConversationsViewModel {
         case .unread:
             return baseConversations.filter { $0.isUnread }
         case .exploding:
-            let oneYearFromNow = Date().addingTimeInterval(365 * 24 * 60 * 60)
-            return baseConversations.filter { conversation in
-                guard let expiresAt = conversation.expiresAt else { return false }
-                return expiresAt > Date() && expiresAt < oneYearFromNow
-            }
+            return baseConversations.filter { $0.scheduledExplosionDate != nil }
         }
     }
 

@@ -133,13 +133,7 @@ class ConversationViewModel {
     }
 
     var scheduledExplosionDate: Date? {
-        guard let expiresAt = conversation.expiresAt,
-              expiresAt > Date() else { return nil }
-        // Sanity check: ignore dates more than 1 year in the future
-        // This prevents showing invalid countdowns for uninitialized or default dates
-        let oneYearFromNow = Date().addingTimeInterval(365 * 24 * 60 * 60)
-        guard expiresAt < oneYearFromNow else { return nil }
-        return expiresAt
+        conversation.scheduledExplosionDate
     }
 
     var isExplosionScheduled: Bool {
