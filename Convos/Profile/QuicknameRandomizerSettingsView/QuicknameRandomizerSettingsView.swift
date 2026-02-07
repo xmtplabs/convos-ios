@@ -37,6 +37,7 @@ struct QuicknameRandomizerSettingsView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
 
+
                 Section {
                     TagsField(
                         viewModel: tagsViewModel,

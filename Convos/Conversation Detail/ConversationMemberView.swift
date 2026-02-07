@@ -57,6 +57,7 @@ struct ConversationMemberView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
 
+
                 if viewModel.canRemoveMembers {
                     Section {
                         Button {
@@ -69,6 +70,7 @@ struct ConversationMemberView: View {
                     } footer: {
                         Text("Remove \(member.profile.displayName.capitalized) from the convo")
                     }
+    
                 }
             }
         }

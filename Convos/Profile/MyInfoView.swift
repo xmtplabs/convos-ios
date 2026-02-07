@@ -150,6 +150,7 @@ struct MyInfoView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
 
+
                 Section {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Text("Social names · Phone number")
@@ -169,6 +170,7 @@ struct MyInfoView: View {
                     }
                 }
 
+
                 Section {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Text("Human · Age")
@@ -187,6 +189,7 @@ struct MyInfoView: View {
                         Spacer()
                     }
                 }
+
             }
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .contentMargins(.top, 0.0)

@@ -244,7 +244,7 @@ struct ConversationInfoView: View {
                         }
                     }
                 }
-                .listRowBackground(Color.colorBackgroundSurfaceless)
+
 
                 Section {
                     convoCodeRow
@@ -254,7 +254,7 @@ struct ConversationInfoView: View {
                     Text("No one new can join the convo when it's locked")
                         .foregroundStyle(.colorTextSecondary)
                 }
-                .listRowBackground(Color.colorBackgroundSurfaceless)
+
 
                 Section {
                     FeatureRowItem(
@@ -298,7 +298,7 @@ struct ConversationInfoView: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.colorTextSecondary)
                 }
-                .listRowBackground(Color.colorBackgroundSurfaceless)
+
 
                 Section {
                     FeatureRowItem(
@@ -314,7 +314,7 @@ struct ConversationInfoView: View {
                         .font(.footnote.weight(.semibold))
                         .foregroundStyle(.colorTextSecondary)
                 }
-                .listRowBackground(Color.colorBackgroundSurfaceless)
+
 
                 Section {
                     HStack {
@@ -327,8 +327,8 @@ struct ConversationInfoView: View {
                     Text("Choose when this convo disappears from your device")
                         .foregroundStyle(.colorTextSecondary)
                 }
-                .listRowBackground(Color.colorBackgroundSurfaceless)
                 .disabled(true)
+
 
                 Section {
                     NavigationLink {
@@ -346,7 +346,7 @@ struct ConversationInfoView: View {
                     Text("Choose who can manage the group")
                         .foregroundStyle(.colorTextSecondary)
                 }
-                .listRowBackground(Color.colorBackgroundSurfaceless)
+
 
                 if !ConfigManager.shared.currentEnvironment.isProduction {
                     Section {
@@ -398,7 +398,7 @@ struct ConversationInfoView: View {
                             exportedLogsURL = nil
                         }
                     }
-                    .listRowBackground(Color.colorBackgroundSurfaceless)
+    
                 }
 
                 if viewModel.canRemoveMembers {
@@ -422,7 +422,7 @@ struct ConversationInfoView: View {
                         Text("Irrecoverably delete the convo for everyone")
                             .foregroundStyle(.colorTextSecondary)
                     }
-                    .listRowBackground(Color.colorBackgroundSurfaceless)
+    
                 }
             }
             .scrollContentBackground(.hidden)
