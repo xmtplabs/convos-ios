@@ -65,7 +65,6 @@ struct ConversationInfoEditView: View {
                     }
                 }
 
-
                 Section {
                     Toggle(isOn: $viewModel.includeInfoInPublicPreview) {
                         Text("Include info with invites")
@@ -76,7 +75,6 @@ struct ConversationInfoEditView: View {
                         .font(.footnote)
                         .foregroundStyle(.colorTextSecondary)
                 }
-
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)

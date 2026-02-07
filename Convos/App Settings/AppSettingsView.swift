@@ -71,7 +71,6 @@ struct AppSettingsView: View {
                     }
                 }
 
-
                 Section {
                     NavigationLink {
                         EmptyView()
@@ -100,7 +99,6 @@ struct AppSettingsView: View {
                     Text("Preferences")
                         .foregroundStyle(.colorTextSecondary)
                 }
-
 
                 Section {
                     Button {
@@ -160,7 +158,6 @@ struct AppSettingsView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
 
-
                 Section {
                     Button(role: .destructive) {
                         showingDeleteAllDataConfirmation = true
@@ -178,7 +175,6 @@ struct AppSettingsView: View {
                         .interactiveDismissDisabled(viewModel.isDeleting)
                     }
                 }
-
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)

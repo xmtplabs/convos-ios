@@ -245,7 +245,6 @@ struct ConversationInfoView: View {
                     }
                 }
 
-
                 Section {
                     convoCodeRow
 
@@ -254,7 +253,6 @@ struct ConversationInfoView: View {
                     Text("No one new can join the convo when it's locked")
                         .foregroundStyle(.colorTextSecondary)
                 }
-
 
                 Section {
                     FeatureRowItem(
@@ -299,7 +297,6 @@ struct ConversationInfoView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
 
-
                 Section {
                     FeatureRowItem(
                         imageName: nil,
@@ -315,7 +312,6 @@ struct ConversationInfoView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
 
-
                 Section {
                     HStack {
                         Text("Vanish")
@@ -328,7 +324,6 @@ struct ConversationInfoView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
                 .disabled(true)
-
 
                 Section {
                     NavigationLink {
@@ -346,7 +341,6 @@ struct ConversationInfoView: View {
                     Text("Choose who can manage the group")
                         .foregroundStyle(.colorTextSecondary)
                 }
-
 
                 if !ConfigManager.shared.currentEnvironment.isProduction {
                     Section {
@@ -398,7 +392,6 @@ struct ConversationInfoView: View {
                             exportedLogsURL = nil
                         }
                     }
-    
                 }
 
                 if viewModel.canRemoveMembers {
@@ -422,7 +415,6 @@ struct ConversationInfoView: View {
                         Text("Irrecoverably delete the convo for everyone")
                             .foregroundStyle(.colorTextSecondary)
                     }
-    
                 }
             }
             .scrollContentBackground(.hidden)
