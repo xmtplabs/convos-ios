@@ -28,7 +28,7 @@ struct PinnedConversationItem: View {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Text(conversation.title)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.colorTextSecondary)
                     .lineLimit(1)
                     .truncationMode(.tail)
 
@@ -64,8 +64,8 @@ struct PinnedConversationItem: View {
     private func messagePreviewOverlay(text: String) -> some View {
         if showingMessagePreview {
             Text(text)
-                .font(.caption2)
-                .foregroundColor(.primary)
+                .font(.caption)
+                .foregroundStyle(.colorTextPrimary)
                 .lineLimit(2)
                 .truncationMode(.tail)
                 .padding(.horizontal, DesignConstants.Spacing.step3x)

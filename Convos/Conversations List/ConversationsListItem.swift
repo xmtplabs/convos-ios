@@ -27,31 +27,28 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(title)
-                    .font(isUnread ? .body.weight(.semibold) : .body)
-                    .foregroundColor(.primary)
+                    .font(.callout.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
                     .truncationMode(.tail)
                     .lineLimit(1)
 
-                HStack {
-                    subtitle()
-                        .font(.subheadline)
-                        .foregroundColor(isUnread ? .primary : .secondary)
-                        .lineLimit(1)
+                subtitle()
+                    .font(.callout)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Spacer()
-
-                    if isMuted {
-                        Image(systemName: "bell.slash.fill")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-                }
+            if isMuted {
+                Image(systemName: "bell.slash.fill")
+                    .font(.callout)
+                    .foregroundStyle(.colorFillTertiary)
             }
 
             if isUnread {
                 Circle()
                     .fill(Color.primary)
-                    .frame(width: 12, height: 12)
+                    .frame(width: 16, height: 16)
             }
 
             accessoryContent()
@@ -84,7 +81,7 @@ struct ConversationsListItem: View {
                 HStack(spacing: DesignConstants.Spacing.stepX) {
                     if let message = lastMessage {
                         RelativeDateLabel(date: message.createdAt)
-                        Text("•")
+                        Text("·").foregroundStyle(.colorTextTertiary)
                         Text(message.text)
                     } else {
                         RelativeDateLabel(date: createdAt)
