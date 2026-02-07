@@ -12,7 +12,7 @@ struct QRCodeView: View {
     private let displaySize: CGFloat = 220.0
 
     init(url: URL,
-         backgroundColor: Color = .colorBackgroundPrimary,
+         backgroundColor: Color = .colorBackgroundSurfaceless,
          foregroundColor: Color = .colorTextPrimary,
          centerImage: Image? = nil) {
         self.url = url

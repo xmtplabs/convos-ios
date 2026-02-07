@@ -225,7 +225,7 @@ struct ConversationsView: View {
                 } action: { newValue in
                     sidebarWidth = newValue.width
                 }
-                .background(.colorBackgroundPrimary)
+                .background(.colorBackgroundSurfaceless)
                 .toolbarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
@@ -342,7 +342,7 @@ struct ConversationsView: View {
                 viewModel: newConvoViewModel,
                 quicknameViewModel: quicknameViewModel
             )
-            .background(.colorBackgroundPrimary)
+            .background(.colorBackgroundSurfaceless)
             .interactiveDismissDisabled(newConvoViewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance)
             .navigationTransition(
                 .zoom(

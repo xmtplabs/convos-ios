@@ -54,7 +54,7 @@ Button(action: { /* action */ }) {
 ## Design System
 
 The project uses custom colors and components:
-- Colors: `colorBackgroundPrimary`, `colorTextPrimary`, `colorBubble`, etc.
+- Colors: `colorBackgroundSurfaceless`, `colorTextPrimary`, `colorBubble`, etc.
 - Components: `AvatarView`, shared views in `Convos/Shared Views/`
 - Check `Convos/Design System/` for design tokens
 

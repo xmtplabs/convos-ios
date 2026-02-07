@@ -64,7 +64,7 @@ struct NewConversationView: View {
                         }
                     }
                 }
-                .background(.colorBackgroundPrimary)
+                .background(.colorBackgroundSurfaceless)
                 .sheet(isPresented: $viewModel.presentingJoinConversationSheet) {
                     JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { inviteCode in
                         viewModel.joinConversation(inviteCode: inviteCode)
