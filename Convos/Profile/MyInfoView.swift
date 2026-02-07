@@ -191,6 +191,8 @@ struct MyInfoView: View {
                 }
 
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundRaisedSecondary)
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .contentMargins(.top, 0.0)
             .listSectionMargins(.all, 0.0)

@@ -180,6 +180,8 @@ struct AppSettingsView: View {
                 }
 
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundRaisedSecondary)
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {

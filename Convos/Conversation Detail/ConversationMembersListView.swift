@@ -21,6 +21,8 @@ struct ConversationMembersListView: View {
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(.colorBackgroundRaisedSecondary)
         .navigationTitle(viewModel.conversation.membersCountString)
     }
 }
