@@ -27,7 +27,7 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(title)
-                    .font(.callout.weight(.medium))
+                    .font(isUnread ? .body.weight(.medium) : .body)
                     .foregroundStyle(.colorTextPrimary)
                     .truncationMode(.tail)
                     .lineLimit(1)
