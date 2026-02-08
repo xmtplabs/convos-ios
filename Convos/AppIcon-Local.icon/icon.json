@@ -1,7 +1,17 @@
 {
-  "fill" : {
-    "solid" : "extended-gray:1.00000,1.00000"
-  },
+  "fill-specializations" : [
+    {
+      "value" : {
+        "solid" : "extended-gray:1.00000,1.00000"
+      }
+    },
+    {
+      "appearance" : "dark",
+      "value" : {
+        "solid" : "srgb:0.01680,0.19835,1.00000,1.00000"
+      }
+    }
+  ],
   "groups" : [
     {
       "blur-material-specializations" : [
@@ -23,7 +33,15 @@
           ],
           "fill-specializations" : [
             {
-              "value" : "none"
+              "value" : {
+                "solid" : "srgb:0.01680,0.19835,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-gray:1.00000,1.00000"
+              }
             },
             {
               "appearance" : "tinted",
@@ -67,6 +85,17 @@
       "layers" : [
         {
           "fill-specializations" : [
+            {
+              "value" : {
+                "solid" : "srgb:0.01680,0.19835,1.00000,1.00000"
+              }
+            },
+            {
+              "appearance" : "dark",
+              "value" : {
+                "solid" : "extended-gray:1.00000,1.00000"
+              }
+            },
             {
               "appearance" : "tinted",
               "value" : {

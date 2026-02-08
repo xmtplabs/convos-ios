@@ -169,6 +169,8 @@
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
 				"App Settings/AppSettingsView.swift",
+				"AppIcon-Dev.icon",
+				"AppIcon-Local.icon",
 				"AppIcon-Prod.icon",
 				Assets.xcassets,
 				Config/config.local.json,
