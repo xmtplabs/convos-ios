@@ -67,23 +67,27 @@ struct ScheduledExplosionManagerTests {
         let expiresAt = Date().addingTimeInterval(1800)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
-        NotificationCenter.default.post(
-            name: .conversationScheduledExplosion,
-            object: nil,
-            userInfo: [
-                "conversationId": fixtures.conversationId,
-                "expiresAt": expiresAt
-            ]
-        )
+        let conversationId = fixtures.conversationId
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .conversationScheduledExplosion,
+                object: nil,
+                userInfo: [
+                    "conversationId": conversationId,
+                    "expiresAt": expiresAt
+                ]
+            )
+        }
 
-        try await Task.sleep(for: .milliseconds(200))
+        let explosionIdentifier = "explosion-\(conversationId)"
+        try await waitForCondition(timeout: 2.0) {
+            fixtures.notificationCenter.hasRequest(withIdentifier: explosionIdentifier)
+        }
 
         let hasReminder = fixtures.notificationCenter.hasRequest(
-            withIdentifier: "explosion-reminder-\(fixtures.conversationId)"
+            withIdentifier: "explosion-reminder-\(conversationId)"
         )
-        let hasExplosion = fixtures.notificationCenter.hasRequest(
-            withIdentifier: "explosion-\(fixtures.conversationId)"
-        )
+        let hasExplosion = fixtures.notificationCenter.hasRequest(withIdentifier: explosionIdentifier)
 
         #expect(!hasReminder, "Should not schedule reminder when < 1 hour")
         #expect(hasExplosion, "Should still schedule explosion notification")
@@ -95,14 +99,16 @@ struct ScheduledExplosionManagerTests {
         let expiresAt = Date().addingTimeInterval(-60)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
-        NotificationCenter.default.post(
-            name: .conversationScheduledExplosion,
-            object: nil,
-            userInfo: [
-                "conversationId": fixtures.conversationId,
-                "expiresAt": expiresAt
-            ]
-        )
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .conversationScheduledExplosion,
+                object: nil,
+                userInfo: [
+                    "conversationId": fixtures.conversationId,
+                    "expiresAt": expiresAt
+                ]
+            )
+        }
 
         try await Task.sleep(for: .milliseconds(200))
 
@@ -123,33 +129,39 @@ struct ScheduledExplosionManagerTests {
         let expiresAt = Date().addingTimeInterval(7200)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
-        NotificationCenter.default.post(
-            name: .conversationScheduledExplosion,
-            object: nil,
-            userInfo: [
-                "conversationId": fixtures.conversationId,
-                "expiresAt": expiresAt
-            ]
-        )
+        let conversationId = fixtures.conversationId
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .conversationScheduledExplosion,
+                object: nil,
+                userInfo: [
+                    "conversationId": conversationId,
+                    "expiresAt": expiresAt
+                ]
+            )
+        }
 
-        try await Task.sleep(for: .milliseconds(200))
+        let reminderIdentifier = "explosion-reminder-\(conversationId)"
+        try await waitForCondition(timeout: 2.0) {
+            fixtures.notificationCenter.hasRequest(withIdentifier: reminderIdentifier)
+        }
 
-        let hasReminderBefore = fixtures.notificationCenter.hasRequest(
-            withIdentifier: "explosion-reminder-\(fixtures.conversationId)"
-        )
+        let hasReminderBefore = fixtures.notificationCenter.hasRequest(withIdentifier: reminderIdentifier)
         #expect(hasReminderBefore, "Should have reminder before cancel")
 
-        NotificationCenter.default.post(
-            name: .conversationExpired,
-            object: nil,
-            userInfo: ["conversationId": fixtures.conversationId]
-        )
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .conversationExpired,
+                object: nil,
+                userInfo: ["conversationId": conversationId]
+            )
+        }
 
         try await Task.sleep(for: .milliseconds(100))
 
         let removedIds = fixtures.notificationCenter.removedIdentifiers
-        #expect(removedIds.contains("explosion-reminder-\(fixtures.conversationId)"))
-        #expect(removedIds.contains("explosion-\(fixtures.conversationId)"))
+        #expect(removedIds.contains("explosion-reminder-\(conversationId)"))
+        #expect(removedIds.contains("explosion-\(conversationId)"))
     }
 
     @Test("Notification content has correct format")
@@ -158,22 +170,26 @@ struct ScheduledExplosionManagerTests {
         let expiresAt = Date().addingTimeInterval(7200)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
-        NotificationCenter.default.post(
-            name: .conversationScheduledExplosion,
-            object: nil,
-            userInfo: [
-                "conversationId": fixtures.conversationId,
-                "expiresAt": expiresAt
-            ]
-        )
+        let conversationId = fixtures.conversationId
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .conversationScheduledExplosion,
+                object: nil,
+                userInfo: [
+                    "conversationId": conversationId,
+                    "expiresAt": expiresAt
+                ]
+            )
+        }
 
-        try await Task.sleep(for: .milliseconds(200))
+        let reminderIdentifier = "explosion-reminder-\(conversationId)"
+        try await waitForCondition(timeout: 2.0) {
+            fixtures.notificationCenter.hasRequest(withIdentifier: reminderIdentifier)
+        }
 
-        let reminderRequest = fixtures.notificationCenter.getRequest(
-            withIdentifier: "explosion-reminder-\(fixtures.conversationId)"
-        )
+        let reminderRequest = fixtures.notificationCenter.getRequest(withIdentifier: reminderIdentifier)
         let explosionRequest = fixtures.notificationCenter.getRequest(
-            withIdentifier: "explosion-\(fixtures.conversationId)"
+            withIdentifier: "explosion-\(conversationId)"
         )
 
         #expect(reminderRequest != nil)
@@ -183,16 +199,16 @@ struct ScheduledExplosionManagerTests {
             #expect(reminderContent.title == "Test Conversation")
             #expect(reminderContent.body == "Will explode in 1h")
             #expect(reminderContent.userInfo["isExplosionReminder"] as? Bool == true)
-            #expect(reminderContent.userInfo["conversationId"] as? String == fixtures.conversationId)
-            #expect(reminderContent.threadIdentifier == fixtures.conversationId)
+            #expect(reminderContent.userInfo["conversationId"] as? String == conversationId)
+            #expect(reminderContent.threadIdentifier == conversationId)
         }
 
         if let explosionContent = explosionRequest?.content {
             #expect(explosionContent.title == "Test Conversation")
             #expect(explosionContent.body.contains("Boom!"))
             #expect(explosionContent.userInfo["isExplosion"] as? Bool == true)
-            #expect(explosionContent.userInfo["conversationId"] as? String == fixtures.conversationId)
-            #expect(explosionContent.threadIdentifier == fixtures.conversationId)
+            #expect(explosionContent.userInfo["conversationId"] as? String == conversationId)
+            #expect(explosionContent.threadIdentifier == conversationId)
         }
     }
 
@@ -202,16 +218,21 @@ struct ScheduledExplosionManagerTests {
         let expiresAt = Date().addingTimeInterval(7200)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
-        NotificationCenter.default.post(
-            name: fixtures.appLifecycle.didBecomeActiveNotification,
-            object: nil
-        )
+        let conversationId = fixtures.conversationId
+        let activeNotification = fixtures.appLifecycle.didBecomeActiveNotification
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: activeNotification,
+                object: nil
+            )
+        }
 
-        try await Task.sleep(for: .milliseconds(200))
+        let explosionIdentifier = "explosion-\(conversationId)"
+        try await waitForCondition(timeout: 2.0) {
+            fixtures.notificationCenter.hasRequest(withIdentifier: explosionIdentifier)
+        }
 
-        let hasExplosion = fixtures.notificationCenter.hasRequest(
-            withIdentifier: "explosion-\(fixtures.conversationId)"
-        )
+        let hasExplosion = fixtures.notificationCenter.hasRequest(withIdentifier: explosionIdentifier)
         #expect(hasExplosion, "Should schedule explosion on app active")
     }
 }
