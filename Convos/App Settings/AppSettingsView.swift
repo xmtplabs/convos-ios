@@ -8,15 +8,18 @@ struct ConvosToolbarButton: View {
         Button {
             action()
         } label: {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
+            HStack(spacing: DesignConstants.Spacing.stepX) {
                 Image("convosOrangeIcon")
+                    .resizable()
                     .renderingMode(.template)
                     .foregroundStyle(.colorFillPrimary)
+                    .frame(width: 16.0, height: 20.0)
                     .frame(width: 24.0, height: 24.0)
 
                 Text("Convos")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.colorTextPrimary)
+                    .font(.body)
+                    .foregroundStyle(.colorFillPrimary)
+                    .padding(.trailing, DesignConstants.Spacing.stepX)
             }
             .padding(padding ? DesignConstants.Spacing.step2x : 0)
         }
