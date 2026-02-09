@@ -16,7 +16,7 @@ struct ConversationsListEmptyCTA: View {
                     .fontWeight(.bold)
                     .foregroundStyle(.colorTextPrimary)
                 Text("Chat instantly, with anybody.\nNo accounts. New you every time.")
-                    .font(.body)
+                    .font(.callout)
                     .foregroundStyle(.colorTextSecondary)
                 HStack {
                     Button {

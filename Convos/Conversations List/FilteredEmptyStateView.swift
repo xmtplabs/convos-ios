@@ -8,7 +8,7 @@ struct FilteredEmptyStateView: View {
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             Text(message)
-                .font(.body)
+                .font(.callout)
                 .foregroundStyle(.colorTextSecondary)
 
             let showAllAction = { onShowAll() }
