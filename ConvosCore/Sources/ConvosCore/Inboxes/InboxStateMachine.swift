@@ -722,7 +722,30 @@ public actor InboxStateMachine {
     private func handleEnterForeground(clientId: String, result: InboxReadyResult) async throws {
         Log.info("App entering foreground, resuming sync for clientId \(clientId)...")
 
-        try await result.client.reconnectLocalDatabase()
+        let maxAttempts: Int = 3
+        var lastError: (any Error)?
+
+        for attempt in 1...maxAttempts {
+            do {
+                if attempt > 1 {
+                    Log.info("Retrying reconnectLocalDatabase (attempt \(attempt)/\(maxAttempts))")
+                    try await Task.sleep(nanoseconds: 200_000_000)
+                }
+                try Task.checkCancellation()
+                try await result.client.reconnectLocalDatabase()
+                lastError = nil
+                break
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+                Log.error("reconnectLocalDatabase attempt \(attempt)/\(maxAttempts) failed: \(error.localizedDescription)")
+            }
+        }
+
+        if let lastError {
+            throw lastError
+        }
 
         // Restart network monitoring
         await startNetworkMonitoring()
