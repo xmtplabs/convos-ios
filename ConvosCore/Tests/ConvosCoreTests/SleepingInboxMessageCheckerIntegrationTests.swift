@@ -16,7 +16,7 @@ private let _configureXMTPEndpoint: Void = {
 ///
 /// These tests verify that sleeping inboxes are properly woken when they receive
 /// new messages, using real XMTP clients connected to the local Docker node.
-@Suite("SleepingInboxMessageChecker Integration Tests", .serialized)
+@Suite("SleepingInboxMessageChecker Integration Tests", .serialized, .timeLimit(.minutes(2)))
 struct SleepingInboxMessageCheckerIntegrationTests {
 
     // MARK: - Wake on New Message Tests
@@ -247,6 +247,11 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await fixtures.saveInbox(clientId: receiver2ClientId, inboxId: receiver2Client.inboxID)
         try await fixtures.saveConversation(id: group1.id, clientId: receiver1ClientId, inboxId: receiver1Client.inboxID)
         try await fixtures.saveConversation(id: group2.id, clientId: receiver2ClientId, inboxId: receiver2Client.inboxID)
+
+        // Wait for clock skew buffer before setting sleep time.
+        // This ensures the "old" message timestamp from the XMTP backend
+        // is clearly before the sleep time, even with clock skew.
+        try await Task.sleep(for: .seconds(5))
 
         // Mark both receivers as sleeping
         let sleepTime = Date()

@@ -17,7 +17,7 @@ private let testEnvironment = AppEnvironment.tests
 /// - Keychain fallback path
 /// - Clearing unused inboxes
 /// - Ensuring same inbox is never consumed twice
-@Suite("UnusedInboxCache Tests")
+@Suite("UnusedInboxCache Tests", .timeLimit(.minutes(3)))
 struct UnusedInboxCacheTests {
     // MARK: - Test Helpers
 

@@ -106,6 +106,10 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private var activeConversationId: String?
 
+    // Stream readiness tracking - used to wait for streams to subscribe before signaling ready
+    private var messageStreamReadyContinuation: AsyncStream<Void>.Continuation?
+    private var conversationStreamReadyContinuation: AsyncStream<Void>.Continuation?
+
     // State machine
     private var _state: State = .idle
     private var actionQueue: [Action] = []
@@ -316,6 +320,10 @@ actor SyncingManager: SyncingManagerProtocol {
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
+        // Set up stream readiness tracking BEFORE creating tasks to avoid race conditions.
+        // If we create tasks first, they might signal readiness before continuations are set up.
+        let streams = setupStreamReadinessTracking()
+
         messageStreamTask = Task { [weak self, params] in
             guard let self else { return }
             await self.runMessageStream(params: params)
@@ -326,8 +334,15 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
-        // Now call syncAllConversations after streams are setup
-        Log.info("Streams started - calling syncAllConversations...")
+        // Wait for streams to enter their async iteration loops before proceeding.
+        // This ensures streams are actually subscribed to the XMTP network before
+        // we signal isSyncReady, preventing race conditions where messages sent
+        // immediately after isSyncReady could be missed.
+        Log.info("Waiting for streams to subscribe...")
+        await waitForStreamsToBeReady(messageStream: streams.messageStream, conversationStream: streams.conversationStream)
+
+        // Now call syncAllConversations after streams are subscribed
+        Log.info("Streams subscribed - calling syncAllConversations...")
         syncTask = Task { [weak self, params] in
             guard let self else { return }
             do {
@@ -381,6 +396,85 @@ actor SyncingManager: SyncingManagerProtocol {
         }
     }
 
+    /// Waits for both message and conversation streams to signal they're ready.
+    /// Sets up stream readiness tracking by creating continuations that stream tasks will signal.
+    /// Must be called BEFORE creating stream tasks to avoid race conditions.
+    /// Returns the streams to wait on.
+    private func setupStreamReadinessTracking() -> (messageStream: AsyncStream<Void>, conversationStream: AsyncStream<Void>) {
+        let (messageReadyStream, messageReadyContinuation) = AsyncStream<Void>.makeStream()
+        let (conversationReadyStream, conversationReadyContinuation) = AsyncStream<Void>.makeStream()
+
+        messageStreamReadyContinuation = messageReadyContinuation
+        conversationStreamReadyContinuation = conversationReadyContinuation
+
+        return (messageReadyStream, conversationReadyStream)
+    }
+
+    /// Waits for streams to signal they've entered their async iteration loops.
+    /// Uses continuations that are resumed by the stream functions when they enter their async loops.
+    /// Includes a timeout to prevent indefinite blocking if streams fail to start.
+    private func waitForStreamsToBeReady(
+        messageStream: AsyncStream<Void>,
+        conversationStream: AsyncStream<Void>
+    ) async {
+        await withTaskGroup(of: Void.self) { [messageStreamReadyContinuation, conversationStreamReadyContinuation] group in
+            // Wait for message stream to signal ready
+            group.addTask {
+                for await _ in messageStream {
+                    break
+                }
+            }
+
+            // Wait for conversation stream to signal ready
+            group.addTask {
+                for await _ in conversationStream {
+                    break
+                }
+            }
+
+            // Timeout after 10 seconds to prevent indefinite blocking.
+            // AsyncStream doesn't respond to task cancellation, so we must finish the
+            // continuations to unblock the waiting tasks when timeout fires.
+            group.addTask {
+                try? await Task.sleep(for: .seconds(10))
+                Log.warning("Stream ready timeout - proceeding anyway")
+                // Finish continuations so waiting tasks complete (AsyncStream ignores cancelAll)
+                messageStreamReadyContinuation?.finish()
+                conversationStreamReadyContinuation?.finish()
+            }
+
+            // Wait for both streams to be ready OR timeout
+            var completedCount = 0
+            for await _ in group {
+                completedCount += 1
+                if completedCount >= 2 {
+                    // At least 2 tasks completed: either both streams ready,
+                    // or one stream + timeout (acceptable fallback)
+                    group.cancelAll()
+                    break
+                }
+            }
+        }
+
+        // Clean up continuations
+        messageStreamReadyContinuation = nil
+        conversationStreamReadyContinuation = nil
+    }
+
+    /// Signals that the message stream has entered its async iteration loop.
+    private func signalMessageStreamReady() {
+        messageStreamReadyContinuation?.yield()
+        messageStreamReadyContinuation?.finish()
+        messageStreamReadyContinuation = nil
+    }
+
+    /// Signals that the conversation stream has entered its async iteration loop.
+    private func signalConversationStreamReady() {
+        conversationStreamReadyContinuation?.yield()
+        conversationStreamReadyContinuation?.finish()
+        conversationStreamReadyContinuation = nil
+    }
+
     private func handlePause() async throws {
         guard case .ready(let params) = _state else {
             Log.warning("Cannot pause - not in ready state")
@@ -417,6 +511,9 @@ actor SyncingManager: SyncingManagerProtocol {
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
+        // Set up stream readiness tracking BEFORE creating tasks to avoid race conditions.
+        let streams = setupStreamReadinessTracking()
+
         messageStreamTask = Task { [weak self, params] in
             guard let self else { return }
             await self.runMessageStream(params: params)
@@ -426,6 +523,10 @@ actor SyncingManager: SyncingManagerProtocol {
             guard let self else { return }
             await self.runConversationStream(params: params)
         }
+
+        // Wait for streams to subscribe before transitioning to ready
+        Log.info("Waiting for streams to subscribe after resume...")
+        await waitForStreamsToBeReady(messageStream: streams.messageStream, conversationStream: streams.conversationStream)
 
         emitStateChange(.ready(params))
         Log.info("Sync resumed")
@@ -480,6 +581,11 @@ actor SyncingManager: SyncingManagerProtocol {
                 }
 
                 Log.info("Starting message stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+
+                // Signal that we're about to subscribe to the stream (only on first attempt)
+                if retryCount == 0 {
+                    signalMessageStreamReady()
+                }
 
                 // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
                 var isFirstMessage = true
@@ -537,6 +643,11 @@ actor SyncingManager: SyncingManagerProtocol {
                 }
 
                 Log.info("Starting conversation stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+
+                // Signal that we're about to subscribe to the stream (only on first attempt)
+                if retryCount == 0 {
+                    signalConversationStreamReady()
+                }
 
                 // Stream conversations - the loop will exit when onClose is called
                 var isFirstConversation = true
