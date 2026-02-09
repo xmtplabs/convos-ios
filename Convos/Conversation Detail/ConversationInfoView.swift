@@ -186,7 +186,7 @@ struct ConversationInfoView: View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Group {
-                    Image("explodeIcon")
+                    Image(systemName: "burst")
                         .font(.headline)
                         .padding(.horizontal, DesignConstants.Spacing.step2x)
                         .padding(.vertical, 10.0)

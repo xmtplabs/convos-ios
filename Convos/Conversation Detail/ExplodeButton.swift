@@ -87,7 +87,7 @@ struct ExplodeButton: View {
 
     // MARK: - Private State
 
-    @State private var iconRotation: Double = 0
+    @State private var isBouncing: Bool = false
     @State private var buttonScale: CGFloat = 1.0
 
     // MARK: - Computed Properties
@@ -144,7 +144,7 @@ struct ExplodeButton: View {
     private func scheduledContent(expiresAt: Date) -> some View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image("explodeIcon")
+                Image(systemName: "burst")
                 Text("Explodes in \(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))")
             }
             .foregroundStyle(.colorOrange)
@@ -171,9 +171,8 @@ struct ExplodeButton: View {
     }
 
     private var iconView: some View {
-        // Main icon
-        Image("explodeIcon")
-            .rotationEffect(.degrees(iconRotation))
+        Image(systemName: "burst")
+            .symbolEffect(.bounce.up.byLayer, options: .repeat(.periodic(delay: 0.0)), value: isBouncing)
             .scaleEffect(iconScale)
             .blur(radius: state.isExploded ? config.iconExplodeBlur : 0)
             .opacity(state.isExploded ? 0 : 1)
@@ -238,16 +237,12 @@ struct ExplodeButton: View {
 
     private func handleExplodingState() {
         UIImpactFeedbackGenerator(style: config.explodingHapticStyle).impactOccurred()
-        // Sync icon spin with hold duration
-        let spinDuration = config.iconSpinDuration > 0 ? config.iconSpinDuration : config.buttonStyle.duration
-        withAnimation(.linear(duration: spinDuration)) {
-            iconRotation = 360
-        }
+        isBouncing = true
     }
 
     private func handleExplodedState() {
         UIImpactFeedbackGenerator(style: config.explodedHapticStyle).impactOccurred()
-        iconRotation = 0
+        isBouncing = false
 
         // Ripple effect
         withAnimation(.spring(response: config.rippleResponse, dampingFraction: config.rippleDamping)) {
@@ -263,9 +258,7 @@ struct ExplodeButton: View {
     }
 
     private func handleReadyState() {
-        withAnimation(.easeOut(duration: 0.3)) {
-            iconRotation = 0
-        }
+        isBouncing = false
         buttonScale = 1.0
     }
 

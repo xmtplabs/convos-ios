@@ -10,6 +10,7 @@ struct ExplodeConvoSheet: View {
     @State private var pendingSchedule: ScheduleOption?
     @State private var showingCustomDatePicker: Bool = false
     @State private var customDate: Date = Date().addingTimeInterval(3600)
+    @State private var explodeState: ExplodeState = .ready
 
     private var sundayAtMidnight: Date? {
         let calendar = Calendar.current
@@ -129,20 +130,20 @@ struct ExplodeConvoSheet: View {
     }
 
     private var holdToExplodeButton: some View {
-        let action = { onExplodeNow() }
-        return Button(action: action) {
-            Text("Hold to Explode Now")
-            .foregroundStyle(.white)
-            .frame(maxWidth: .infinity)
+        ExplodeButton(
+            state: explodeState,
+            readyText: "Hold to Explode Now",
+            explodingText: "Exploding..."
+        ) {
+            explodeState = .exploding
+            onExplodeNow()
+            Task {
+                try? await Task.sleep(for: .seconds(0.5))
+                explodeState = .exploded
+                try? await Task.sleep(for: .seconds(ExplodeState.explodedAnimationDelay))
+                onCancel()
+            }
         }
-        .buttonStyle(HoldToConfirmPrimitiveStyle(config: holdToExplodeConfig))
-    }
-
-    private var holdToExplodeConfig: HoldToConfirmStyleConfig {
-        var config = HoldToConfirmStyleConfig.default
-        config.duration = 1.5
-        config.backgroundColor = .colorOrange
-        return config
     }
 
     @ViewBuilder
