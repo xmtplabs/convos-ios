@@ -24,10 +24,10 @@ struct FeatureRowItem<AccessoryView: View>: View {
                 image
                     .font(.headline)
                     .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .padding(.vertical, 10.0)
+                    .padding(.vertical, DesignConstants.Spacing.step3x)
                     .foregroundStyle(iconForegroundColor)
             }
-            .frame(width: 40.0, height: 40.0)
+            .frame(width: DesignConstants.Spacing.step10x, height: DesignConstants.Spacing.step10x)
             .background(
                 RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
                     .fill(iconBackgroundColor)
@@ -189,10 +189,10 @@ struct ConversationInfoView: View {
                     Image(systemName: "burst")
                         .font(.headline)
                         .padding(.horizontal, DesignConstants.Spacing.step2x)
-                        .padding(.vertical, 10.0)
+                        .padding(.vertical, DesignConstants.Spacing.step3x)
                         .foregroundStyle(.white)
                 }
-                .frame(width: 40.0, height: 40.0)
+                .frame(width: DesignConstants.Spacing.step10x, height: DesignConstants.Spacing.step10x)
                 .background(
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
                         .fill(Color.colorOrange)

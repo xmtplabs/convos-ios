@@ -140,6 +140,7 @@ struct ExplodeConvoSheet: View {
             onExplodeNow()
             explodeTask = Task {
                 try? await Task.sleep(for: .seconds(0.5))
+                guard !Task.isCancelled else { return }
                 explodeState = .exploded
                 try? await Task.sleep(for: .seconds(ExplodeState.explodedAnimationDelay))
                 guard !Task.isCancelled else { return }

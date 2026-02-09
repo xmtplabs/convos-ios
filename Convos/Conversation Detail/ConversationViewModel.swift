@@ -191,6 +191,9 @@ class ConversationViewModel {
     @ObservationIgnored
     private var loadConversationImageTask: Task<Void, Never>?
 
+    @ObservationIgnored
+    private var explodeTask: Task<Void, Never>?
+
     // MARK: - Init
 
     static func create(
@@ -674,7 +677,8 @@ extension ConversationViewModel {
 
         explodeState = .exploding
 
-        Task { [weak self] in
+        explodeTask?.cancel()
+        explodeTask = Task { [weak self] in
             guard let self else { return }
 
             do {
@@ -721,6 +725,9 @@ extension ConversationViewModel {
             } catch {
                 Log.error("Error exploding convo: \(error.localizedDescription)")
                 self.explodeState = .error("Explode failed")
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                self.explodeState = .ready
             }
         }
     }
@@ -736,7 +743,8 @@ extension ConversationViewModel {
 
         explodeState = .exploding
 
-        Task { [weak self] in
+        explodeTask?.cancel()
+        explodeTask = Task { [weak self] in
             guard let self else { return }
 
             do {
@@ -775,6 +783,9 @@ extension ConversationViewModel {
             } catch {
                 Log.error("Error scheduling explosion: \(error.localizedDescription)")
                 self.explodeState = .error("Schedule failed")
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                self.explodeState = .ready
             }
         }
     }

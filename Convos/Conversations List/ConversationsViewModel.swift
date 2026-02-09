@@ -543,6 +543,11 @@ final class ConversationsViewModel {
                     return
                 }
 
+                guard case .group(let group) = xmtpConversation else {
+                    Log.error("Cannot explode non-group conversation: \(conversationId)")
+                    return
+                }
+
                 nonisolated(unsafe) let unsafeConversation = xmtpConversation
                 try await withTimeout(seconds: 20) {
                     try await unsafeConversation.sendExplode(expiresAt: expiresAt)
@@ -552,7 +557,6 @@ final class ConversationsViewModel {
                 try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
                 try await metadataWriter.removeMembers(memberInboxIds, from: conversationId)
 
-                guard case .group(let group) = xmtpConversation else { return }
                 try await group.updateConsentState(state: .denied)
 
                 conversation.postLeftConversationNotification()

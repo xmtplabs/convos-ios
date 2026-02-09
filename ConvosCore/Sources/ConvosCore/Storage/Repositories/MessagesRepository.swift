@@ -354,6 +354,8 @@ extension Array where Element == MessageWithDetails {
                             from: dbMessage.date,
                             until: expiresAt
                         )
+                        // oldValue carries the pre-formatted duration string for display
+                        // (e.g. "24 hours") rather than the actual previous metadata value
                         metadataChanges.append(.init(
                             field: .expiresAt,
                             oldValue: originalDuration,
