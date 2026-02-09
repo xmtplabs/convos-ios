@@ -111,6 +111,14 @@ struct ConversationsView: View {
     @ViewBuilder
     func conversationListItem(_ conversation: Conversation) -> some View {
         ConversationsListItem(conversation: conversation)
+            .background(
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                    .fill(.colorBackgroundPrimary)
+            )
+            .contentShape(
+                .contextMenuPreview,
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+            )
             .contextMenu {
                 conversationContextMenuContent(
                     conversation: conversation,
@@ -120,19 +128,19 @@ struct ConversationsView: View {
                 )
             }
             .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                if conversation.creator.isCurrentUser {
-                    let explodeAction = { conversationPendingExplosion = conversation }
-                    Button(action: explodeAction) {
-                        Image("explodeIcon")
-                    }
-                    .tint(.colorOrange)
-                }
-
                 let deleteAction = { conversationPendingDeletion = conversation }
                 Button(action: deleteAction) {
                     Image(systemName: "trash")
                 }
                 .tint(.colorCaution)
+
+                if conversation.creator.isCurrentUser {
+                    let explodeAction = { conversationPendingExplosion = conversation }
+                    Button(action: explodeAction) {
+                        Image(systemName: "burst")
+                    }
+                    .tint(.colorBackgroundInverted)
+                }
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
@@ -399,7 +407,6 @@ struct ConversationsView: View {
                         conversationPendingExplosion = nil
                     }
                 )
-                .background(.colorBackgroundRaised)
             }
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in

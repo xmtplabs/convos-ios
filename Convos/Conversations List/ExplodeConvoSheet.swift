@@ -131,10 +131,7 @@ struct ExplodeConvoSheet: View {
     private var holdToExplodeButton: some View {
         let action = { onExplodeNow() }
         return Button(action: action) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Image("explodeIcon")
-                Text("Hold to Explode Now")
-            }
+            Text("Hold to Explode Now")
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
         }
