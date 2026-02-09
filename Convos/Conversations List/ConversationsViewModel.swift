@@ -514,6 +514,103 @@ final class ConversationsViewModel {
         }
     }
 
+    func explodeConversation(_ conversation: Conversation) {
+        guard conversation.scheduledExplosionDate == nil else {
+            Log.warning("Conversation \(conversation.id) already has a scheduled explosion")
+            return
+        }
+
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+        let memberInboxIds = conversation.members.map { $0.profile.inboxId }
+
+        if let index = conversations.firstIndex(of: conversation) {
+            conversations.remove(at: index)
+        }
+        if selectedConversation == conversation {
+            selectedConversation = nil
+        }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let expiresAt = Date()
+                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversationId) else {
+                    Log.error("Conversation not found for explosion: \(conversationId)")
+                    return
+                }
+
+                nonisolated(unsafe) let unsafeConversation = xmtpConversation
+                try await withTimeout(seconds: 20) {
+                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
+                }
+
+                let metadataWriter = messagingService.conversationMetadataWriter()
+                try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
+                try await metadataWriter.removeMembers(memberInboxIds, from: conversationId)
+
+                guard case .group(let group) = xmtpConversation else { return }
+                try await group.updateConsentState(state: .denied)
+
+                conversation.postLeftConversationNotification()
+                Log.info("Exploded conversation from list: \(conversationId)")
+            } catch {
+                Log.error("Error exploding conversation from list: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func scheduleConversationExplosion(_ conversation: Conversation, at expiresAt: Date) {
+        guard conversation.scheduledExplosionDate == nil else {
+            Log.warning("Conversation \(conversation.id) already has a scheduled explosion")
+            return
+        }
+
+        if expiresAt <= Date() {
+            explodeConversation(conversation)
+            return
+        }
+
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversationId) else {
+                    Log.error("Conversation not found for scheduling explosion: \(conversationId)")
+                    return
+                }
+
+                nonisolated(unsafe) let unsafeConversation = xmtpConversation
+                try await withTimeout(seconds: 20) {
+                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
+                }
+
+                NotificationCenter.default.post(
+                    name: .conversationScheduledExplosion,
+                    object: nil,
+                    userInfo: [
+                        "conversationId": conversationId,
+                        "expiresAt": expiresAt
+                    ]
+                )
+
+                let metadataWriter = messagingService.conversationMetadataWriter()
+                try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
+                Log.info("Scheduled explosion from list for conversation: \(conversationId) at \(expiresAt)")
+            } catch {
+                Log.error("Error scheduling explosion from list: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func getOrCreateWriter(for conversation: Conversation) async throws -> any ConversationLocalStateWriterProtocol {
         let inboxId = conversation.inboxId
         let clientId = conversation.clientId

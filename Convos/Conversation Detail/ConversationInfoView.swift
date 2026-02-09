@@ -321,6 +321,33 @@ struct ConversationInfoView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
 
+                if viewModel.canRemoveMembers {
+                    Section {
+                        if let expiresAt = viewModel.scheduledExplosionDate {
+                            explosionCountdownRow(expiresAt: expiresAt)
+
+                            let action = {
+                                pendingExplosion = .now
+                                showingExplodeConfirmation = true
+                            }
+                            Button(action: action) {
+                                Text("Explode now")
+                                    .foregroundStyle(.colorCaution)
+                            }
+                        } else {
+                            explodeOptions
+                        }
+                    } footer: {
+                        if viewModel.isExplosionScheduled {
+                            Text("This convo will be deleted for everyone when the timer runs out")
+                                .foregroundStyle(.colorTextSecondary)
+                        } else {
+                            Text("Choose when this convo will be deleted for everyone")
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                    }
+                }
+
                 Section {
                     FeatureRowItem(
                         imageName: nil,
@@ -457,33 +484,6 @@ struct ConversationInfoView: View {
                         } catch {
                             Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
                             exportedLogsURL = nil
-                        }
-                    }
-                }
-
-                if viewModel.canRemoveMembers {
-                    Section {
-                        if let expiresAt = viewModel.scheduledExplosionDate {
-                            explosionCountdownRow(expiresAt: expiresAt)
-
-                            let action = {
-                                pendingExplosion = .now
-                                showingExplodeConfirmation = true
-                            }
-                            Button(action: action) {
-                                Text("Explode now")
-                                    .foregroundStyle(.colorCaution)
-                            }
-                        } else {
-                            explodeOptions
-                        }
-                    } footer: {
-                        if viewModel.isExplosionScheduled {
-                            Text("This convo will be deleted for everyone when the timer runs out")
-                                .foregroundStyle(.colorTextSecondary)
-                        } else {
-                            Text("Choose when this convo will be deleted for everyone")
-                                .foregroundStyle(.colorTextSecondary)
                         }
                     }
                 }

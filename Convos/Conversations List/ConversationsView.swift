@@ -11,6 +11,7 @@ struct ConversationsView: View {
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @State private var conversationPendingDeletion: Conversation?
+    @State private var conversationPendingExplosion: Conversation?
     @State private var scrollOffset: CGFloat = 0
     @State private var pinnedSectionHeight: CGFloat = 0
 
@@ -114,10 +115,19 @@ struct ConversationsView: View {
                 conversationContextMenuContent(
                     conversation: conversation,
                     viewModel: viewModel,
+                    onExplode: { conversationPendingExplosion = conversation },
                     onDelete: { conversationPendingDeletion = conversation }
                 )
             }
             .swipeActions(edge: .leading, allowsFullSwipe: false) {
+                if conversation.creator.isCurrentUser {
+                    let explodeAction = { conversationPendingExplosion = conversation }
+                    Button(action: explodeAction) {
+                        Image("explodeIcon")
+                    }
+                    .tint(.colorOrange)
+                }
+
                 let deleteAction = { conversationPendingDeletion = conversation }
                 Button(action: deleteAction) {
                     Image(systemName: "trash")
@@ -199,6 +209,7 @@ struct ConversationsView: View {
                             pinnedConversations: viewModel.pinnedConversations,
                             viewModel: viewModel,
                             conversationPendingDeletion: $conversationPendingDeletion,
+                            conversationPendingExplosion: $conversationPendingExplosion,
                             onSelectConversation: { conversation in
                                 viewModel.selectedConversationId = conversation.id
                             }
@@ -369,6 +380,27 @@ struct ConversationsView: View {
         .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
             PinLimitInfoView()
                 .background(.colorBackgroundRaised)
+        }
+        .selfSizingSheet(isPresented: Binding(
+            get: { conversationPendingExplosion != nil },
+            set: { if !$0 { conversationPendingExplosion = nil } }
+        )) {
+            if let conversation = conversationPendingExplosion {
+                ExplodeConvoSheet(
+                    onSchedule: { date in
+                        viewModel.scheduleConversationExplosion(conversation, at: date)
+                        conversationPendingExplosion = nil
+                    },
+                    onExplodeNow: {
+                        viewModel.explodeConversation(conversation)
+                        conversationPendingExplosion = nil
+                    },
+                    onCancel: {
+                        conversationPendingExplosion = nil
+                    }
+                )
+                .background(.colorBackgroundRaised)
+            }
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
