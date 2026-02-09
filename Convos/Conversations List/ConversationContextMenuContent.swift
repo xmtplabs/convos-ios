@@ -64,11 +64,15 @@ func conversationContextMenuContent(
 
     if conversation.creator.isCurrentUser {
         Button(action: onExplode) {
-            Label("Explode for everyone", systemImage: "burst")
+            Text("Explode")
+            Text("For everyone")
+            Image(systemName: "burst")
         }
     }
 
     Button(role: .destructive, action: onDelete) {
-        Label("Delete for me", systemImage: "trash")
+        Text("Delete")
+        Text("For me")
+        Image(systemName: "trash")
     }
 }
