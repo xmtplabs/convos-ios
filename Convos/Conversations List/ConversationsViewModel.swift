@@ -593,6 +593,9 @@ final class ConversationsViewModel {
                     try await unsafeConversation.sendExplode(expiresAt: expiresAt)
                 }
 
+                let metadataWriter = messagingService.conversationMetadataWriter()
+                try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
+
                 NotificationCenter.default.post(
                     name: .conversationScheduledExplosion,
                     object: nil,
@@ -601,9 +604,6 @@ final class ConversationsViewModel {
                         "expiresAt": expiresAt
                     ]
                 )
-
-                let metadataWriter = messagingService.conversationMetadataWriter()
-                try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
                 Log.info("Scheduled explosion from list for conversation: \(conversationId) at \(expiresAt)")
             } catch {
                 Log.error("Error scheduling explosion from list: \(error.localizedDescription)")

@@ -160,12 +160,12 @@ struct ExplodeConvoSheet: View {
             .padding()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(role: .cancel) {
+                    Button("Cancel", role: .cancel) {
                         showingCustomDatePicker = false
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(role: .confirm) {
+                    Button("Confirm", role: .destructive) {
                         showingCustomDatePicker = false
                         onSchedule(customDate)
                     }

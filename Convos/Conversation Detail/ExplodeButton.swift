@@ -143,9 +143,10 @@ struct ExplodeButton: View {
     @ViewBuilder
     private func scheduledContent(expiresAt: Date) -> some View {
         TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            let isExpired = context.date >= expiresAt
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Image(systemName: "burst")
-                Text("Explodes in \(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))")
+                Text(isExpired ? "Exploding..." : "Explodes in \(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))")
             }
             .foregroundStyle(.colorOrange)
             .font(.subheadline.weight(.medium))

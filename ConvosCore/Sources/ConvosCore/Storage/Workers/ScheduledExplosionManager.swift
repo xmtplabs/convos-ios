@@ -13,6 +13,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     private let appLifecycle: any AppLifecycleProviding
     private let notificationCenter: any UserNotificationCenterProtocol
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+    nonisolated(unsafe) private var schedulingTasks: [String: Task<Void, Never>] = [:]
 
     private enum Constant {
         static let reminderIdentifierPrefix: String = "explosion-reminder-"
@@ -72,9 +73,11 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     }
 
     private func handleScheduledExplosion(conversationId: String, expiresAt: Date) {
-        Task { [weak self] in
+        schedulingTasks[conversationId]?.cancel()
+        schedulingTasks[conversationId] = Task { [weak self] in
             guard let self else { return }
             await self.scheduleNotifications(conversationId: conversationId, expiresAt: expiresAt)
+            self.schedulingTasks[conversationId] = nil
         }
     }
 
@@ -229,6 +232,8 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     }
 
     private func cancelNotifications(for conversationId: String) {
+        schedulingTasks[conversationId]?.cancel()
+        schedulingTasks[conversationId] = nil
         let reminderIdentifier = "\(Constant.reminderIdentifierPrefix)\(conversationId)"
         let explosionIdentifier = "\(Constant.explosionIdentifierPrefix)\(conversationId)"
         notificationCenter.removePendingNotificationRequests(
