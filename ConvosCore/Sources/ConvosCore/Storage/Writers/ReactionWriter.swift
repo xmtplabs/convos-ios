@@ -160,9 +160,10 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
 
         // Send to network - only mark as failed if THIS fails
         do {
+            let encodedContent = try ReactionCodec().encode(content: reaction)
             try await conversation.send(
-                content: reaction,
-                options: .init(contentType: ContentTypeReaction)
+                encodedContent: encodedContent,
+                visibilityOptions: MessageVisibilityOptions(shouldPush: true)
             )
             Log.info("Sent reaction \(emoji) to message \(messageId)")
         } catch {
@@ -247,10 +248,8 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
                 referenceInboxId: sourceMessage.senderId
             )
 
-            try await conversation.send(
-                content: reaction,
-                options: .init(contentType: ContentTypeReaction)
-            )
+            let encodedContent = try ReactionCodec().encode(content: reaction)
+            try await conversation.send(encodedContent: encodedContent)
             Log.info("Sent remove reaction \(emoji) for message \(messageId)")
         } catch {
             // Restore the reaction if network failed
