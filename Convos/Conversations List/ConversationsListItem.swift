@@ -53,7 +53,7 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
 
             accessoryContent()
         }
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
         .frame(maxWidth: .infinity, alignment: .leading)
     }

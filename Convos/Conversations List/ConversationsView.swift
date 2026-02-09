@@ -401,6 +401,7 @@ struct ConversationsView: View {
                     },
                     onExplodeNow: {
                         viewModel.explodeConversation(conversation)
+                        conversationPendingExplosion = nil
                     },
                     onCancel: {
                         conversationPendingExplosion = nil
