@@ -626,17 +626,19 @@ extension ConversationInfoView {
             .padding()
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button(role: .cancel) {
+                    Button("Cancel", role: .cancel) {
                         showingCustomDatePicker = false
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(role: .confirm) {
+                    let confirmAction = {
                         showingCustomDatePicker = false
-                        pendingExplosion = .customDate(date: customDate)
+                        let date = max(customDate, Date().addingTimeInterval(60))
+                        pendingExplosion = .customDate(date: date)
                         showingExplodeConfirmation = true
                     }
-                    .tint(.colorBackgroundInverted)
+                    Button("Confirm", action: confirmAction)
+                        .tint(.colorBackgroundInverted)
                 }
             }
             .navigationTitle("Explode")

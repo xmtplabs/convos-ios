@@ -11,6 +11,7 @@ struct ExplodeConvoSheet: View {
     @State private var showingCustomDatePicker: Bool = false
     @State private var customDate: Date = Date().addingTimeInterval(3600)
     @State private var explodeState: ExplodeState = .ready
+    @State private var explodeTask: Task<Void, Never>?
 
     private var sundayAtMidnight: Date? {
         let calendar = Calendar.current
@@ -137,13 +138,15 @@ struct ExplodeConvoSheet: View {
         ) {
             explodeState = .exploding
             onExplodeNow()
-            Task {
+            explodeTask = Task {
                 try? await Task.sleep(for: .seconds(0.5))
                 explodeState = .exploded
                 try? await Task.sleep(for: .seconds(ExplodeState.explodedAnimationDelay))
+                guard !Task.isCancelled else { return }
                 onCancel()
             }
         }
+        .onDisappear { explodeTask?.cancel() }
     }
 
     @ViewBuilder
@@ -165,11 +168,14 @@ struct ExplodeConvoSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Confirm", role: .destructive) {
+                    let confirmAction = {
                         showingCustomDatePicker = false
-                        onSchedule(customDate)
+                        let date = max(customDate, Date().addingTimeInterval(60))
+                        pendingSchedule = .init(label: date.formatted(date: .abbreviated, time: .shortened), date: date)
+                        showingConfirmation = true
                     }
-                    .tint(.colorBackgroundInverted)
+                    Button("Confirm", action: confirmAction)
+                        .tint(.colorBackgroundInverted)
                 }
             }
             .navigationTitle("Explode")
