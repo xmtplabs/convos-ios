@@ -66,7 +66,8 @@ extension PlatformProviders {
         PlatformProviders(
             appLifecycle: MockAppLifecycleProvider(),
             deviceInfo: MockDeviceInfoProvider(),
-            pushNotificationRegistrar: MockPushNotificationRegistrarProvider()
+            pushNotificationRegistrar: MockPushNotificationRegistrarProvider(),
+            notificationCenter: MockUserNotificationCenter()
         )
     }
 }

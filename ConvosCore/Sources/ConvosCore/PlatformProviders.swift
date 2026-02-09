@@ -44,7 +44,7 @@ public struct PlatformProviders: Sendable {
         appLifecycle: any AppLifecycleProviding,
         deviceInfo: any DeviceInfoProviding,
         pushNotificationRegistrar: any PushNotificationRegistrarProtocol,
-        notificationCenter: any UserNotificationCenterProtocol = MockUserNotificationCenter()
+        notificationCenter: any UserNotificationCenterProtocol
     ) {
         self.appLifecycle = appLifecycle
         self.deviceInfo = deviceInfo
@@ -134,7 +134,8 @@ extension PlatformProviders {
         PlatformProviders(
             appLifecycle: MockAppLifecycleProvider(),
             deviceInfo: MockDeviceInfoProvider(),
-            pushNotificationRegistrar: MockPushNotificationRegistrarProvider()
+            pushNotificationRegistrar: MockPushNotificationRegistrarProvider(),
+            notificationCenter: MockUserNotificationCenter()
         )
     }
 }

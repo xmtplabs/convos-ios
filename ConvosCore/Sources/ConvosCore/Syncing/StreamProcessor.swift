@@ -78,7 +78,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
-        notificationCenter: any UserNotificationCenterProtocol = MockUserNotificationCenter()
+        notificationCenter: any UserNotificationCenterProtocol
     ) {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter

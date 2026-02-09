@@ -5,15 +5,16 @@ import UserNotifications
 public protocol ScheduledExplosionManagerProtocol {}
 
 /// @unchecked Sendable: Protocol dependencies (DatabaseReader, AppLifecycle)
-/// are all Sendable. The `observers` array is marked `nonisolated(unsafe)` and only modified
-/// during init (setupObservers) and deinit. NotificationCenter callbacks use weak self
-/// and dispatch work to async Tasks.
+/// are all Sendable. The `observers` array is only modified during init and deinit.
+/// The `schedulingTasks` dictionary is protected by `taskLock` to prevent data races
+/// from concurrent notification callbacks.
 final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unchecked Sendable {
     private let databaseReader: any DatabaseReader
     private let appLifecycle: any AppLifecycleProviding
     private let notificationCenter: any UserNotificationCenterProtocol
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
-    nonisolated(unsafe) private var schedulingTasks: [String: Task<Void, Never>] = [:]
+    private let taskLock: NSLock = NSLock()
+    private var _schedulingTasks: [String: Task<Void, Never>] = [:]
 
     private enum Constant {
         static let reminderIdentifierPrefix: String = "explosion-reminder-"
@@ -73,12 +74,13 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     }
 
     private func handleScheduledExplosion(conversationId: String, expiresAt: Date) {
-        schedulingTasks[conversationId]?.cancel()
-        schedulingTasks[conversationId] = Task { [weak self] in
+        taskLock.lock()
+        _schedulingTasks[conversationId]?.cancel()
+        _schedulingTasks[conversationId] = Task { [weak self] in
             guard let self else { return }
             await self.scheduleNotifications(conversationId: conversationId, expiresAt: expiresAt)
-            self.schedulingTasks[conversationId] = nil
         }
+        taskLock.unlock()
     }
 
     private func scheduleNotifications(
@@ -232,8 +234,10 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     }
 
     private func cancelNotifications(for conversationId: String) {
-        schedulingTasks[conversationId]?.cancel()
-        schedulingTasks[conversationId] = nil
+        taskLock.lock()
+        _schedulingTasks[conversationId]?.cancel()
+        _schedulingTasks[conversationId] = nil
+        taskLock.unlock()
         let reminderIdentifier = "\(Constant.reminderIdentifierPrefix)\(conversationId)"
         let explosionIdentifier = "\(Constant.explosionIdentifierPrefix)\(conversationId)"
         notificationCenter.removePendingNotificationRequests(
