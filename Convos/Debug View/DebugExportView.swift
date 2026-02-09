@@ -8,6 +8,8 @@ struct DebugExportView: View {
         List {
             DebugViewSection(environment: environment)
         }
+        .scrollContentBackground(.hidden)
+        .background(.colorBackgroundRaisedSecondary)
         .navigationTitle("Debug")
         .toolbarTitleDisplayMode(.inline)
     }

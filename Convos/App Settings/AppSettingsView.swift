@@ -179,6 +179,8 @@ struct AppSettingsView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundRaisedSecondary)
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
@@ -190,7 +192,7 @@ struct AppSettingsView: View {
 
                 ToolbarItem(placement: .principal) {
                     ConvosToolbarButton(padding: true) {}
-                        .glassEffect(.regular.tint(.colorBackgroundPrimary).interactive(), in: Capsule())
+                        .glassEffect(.regular.tint(.colorBackgroundSurfaceless).interactive(), in: Capsule())
                         .disabled(true)
                 }
             }

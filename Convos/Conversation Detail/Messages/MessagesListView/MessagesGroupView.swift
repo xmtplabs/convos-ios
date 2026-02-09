@@ -154,7 +154,7 @@ struct MessagesGroupView: View {
         )
         .padding()
     }
-    .background(.colorBackgroundPrimary)
+    .background(.colorBackgroundSurfaceless)
 }
 
 #Preview("Outgoing Messages") {
@@ -168,7 +168,7 @@ struct MessagesGroupView: View {
         )
         .padding()
     }
-    .background(.colorBackgroundPrimary)
+    .background(.colorBackgroundSurfaceless)
 }
 
 #Preview("Mixed Published/Unpublished") {
@@ -182,7 +182,7 @@ struct MessagesGroupView: View {
         )
         .padding()
     }
-    .background(.colorBackgroundPrimary)
+    .background(.colorBackgroundSurfaceless)
 }
 
 #Preview("Incoming With Reactions") {
@@ -196,7 +196,7 @@ struct MessagesGroupView: View {
         )
         .padding()
     }
-    .background(.colorBackgroundPrimary)
+    .background(.colorBackgroundSurfaceless)
 }
 
 #Preview("Outgoing With Reactions") {
@@ -210,5 +210,5 @@ struct MessagesGroupView: View {
         )
         .padding()
     }
-    .background(.colorBackgroundPrimary)
+    .background(.colorBackgroundSurfaceless)
 }

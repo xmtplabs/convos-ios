@@ -72,6 +72,8 @@ struct ConversationMemberView: View {
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(.colorBackgroundRaisedSecondary)
     }
 }
 

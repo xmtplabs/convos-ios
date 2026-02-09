@@ -72,7 +72,7 @@ struct ChipView: View {
         .zIndex(isSelected ? 100 : 0)
         .background(
             RoundedRectangle(cornerRadius: isSelected ? 0.0 : DesignConstants.CornerRadius.large)
-                .fill(isSelected ? Color.colorBorderSubtle2 : Color.colorBackgroundPrimary)
+                .fill(isSelected ? Color.colorBorderSubtle2 : Color.colorBackgroundSurfaceless)
                 .overlay(
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
                         .inset(by: 0.5)

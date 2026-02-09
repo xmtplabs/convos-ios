@@ -148,7 +148,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel: viewModel,
                 quicknameViewModel: quicknameViewModel
             )
-            .background(.colorBackgroundPrimary)
+            .background(.colorBackgroundSurfaceless)
             .interactiveDismissDisabled(viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in

@@ -81,7 +81,7 @@ struct ConversationsListEmptyCTA: View {
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .padding(DesignConstants.Spacing.step6x)
-        .background(.colorBackgroundPrimary)
+        .background(.colorBackgroundSurfaceless)
     }
 }
 

@@ -42,7 +42,7 @@ struct MessageReactionsView: View {
                 )
             }
             .frame(width: containerWidth, height: Constant.height)
-            .background(.colorBackgroundPrimary)
+            .background(.colorBackgroundSurfaceless)
             .clipShape(Capsule())
             .shadow(
                 color: Color.black.opacity(0.15),

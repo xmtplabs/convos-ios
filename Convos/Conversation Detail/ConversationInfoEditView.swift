@@ -76,6 +76,8 @@ struct ConversationInfoEditView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundRaisedSecondary)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
