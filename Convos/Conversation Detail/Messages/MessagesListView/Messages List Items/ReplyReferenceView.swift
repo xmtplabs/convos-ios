@@ -55,16 +55,16 @@ struct ReplyReferenceView: View {
             .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
             .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step3x : 0.0)
 
-            HStack(alignment: .bottom, spacing: 0.0) {
-                if isOutgoing {
-                    Spacer()
-                        .frame(minWidth: 50.0)
-                        .layoutPriority(-1)
-                }
+            if let key = attachmentKey {
+                ReplyReferencePhotoPreview(attachmentKey: key)
+            } else {
+                HStack(alignment: .bottom, spacing: 0.0) {
+                    if isOutgoing {
+                        Spacer()
+                            .frame(minWidth: 50.0)
+                            .layoutPriority(-1)
+                    }
 
-                if let key = attachmentKey {
-                    ReplyReferencePhotoPreview(attachmentKey: key)
-                } else {
                     Text(previewText)
                         .font(.footnote)
                         .foregroundStyle(.colorTextSecondary)
@@ -75,12 +75,12 @@ struct ReplyReferenceView: View {
                             RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
                                 .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
                         )
-                }
 
-                if !isOutgoing {
-                    Spacer()
-                        .frame(minWidth: 50.0)
-                        .layoutPriority(-1)
+                    if !isOutgoing {
+                        Spacer()
+                            .frame(minWidth: 50.0)
+                            .layoutPriority(-1)
+                    }
                 }
             }
         }
