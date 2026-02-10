@@ -59,30 +59,17 @@ struct ReplyReferenceView: View {
                 ReplyReferencePhotoPreview(attachmentKey: key)
                     .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
-                HStack(alignment: .bottom, spacing: 0.0) {
-                    if isOutgoing {
-                        Spacer()
-                            .frame(minWidth: 50.0)
-                            .layoutPriority(-1)
-                    }
-
-                    Text(previewText)
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                        .lineLimit(1)
-                        .padding(.horizontal, DesignConstants.Spacing.step3x)
-                        .padding(.vertical, DesignConstants.Spacing.step2x)
-                        .background(
-                            RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
-                                .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
-                        )
-
-                    if !isOutgoing {
-                        Spacer()
-                            .frame(minWidth: 50.0)
-                            .layoutPriority(-1)
-                    }
-                }
+                Text(previewText)
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .padding(.vertical, DesignConstants.Spacing.step2x)
+                    .background(
+                        RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
+                            .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
+                    )
+                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             }
         }
         .padding(.top, DesignConstants.Spacing.stepX)
