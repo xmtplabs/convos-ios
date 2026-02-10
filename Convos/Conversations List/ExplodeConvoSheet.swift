@@ -29,7 +29,7 @@ struct ExplodeConvoSheet: View {
         guard let pending = pendingSchedule else {
             return "Explode convo?"
         }
-        return "Explode convo in \(pending.label)?"
+        return "Explode convo \(pending.preposition) \(pending.label)?"
     }
 
     var body: some View {
@@ -60,7 +60,7 @@ struct ExplodeConvoSheet: View {
 
                 if let sunday = sundayAtMidnight {
                     scheduleRow(label: "Sunday at midnight") {
-                        pendingSchedule = .init(label: "Sunday at midnight", date: sunday)
+                        pendingSchedule = .init(label: "Sunday at midnight", date: sunday, preposition: "on")
                         showingConfirmation = true
                     }
                 }
@@ -172,7 +172,7 @@ struct ExplodeConvoSheet: View {
                     let confirmAction = {
                         showingCustomDatePicker = false
                         let date = max(customDate, Date().addingTimeInterval(60))
-                        pendingSchedule = .init(label: date.formatted(date: .abbreviated, time: .shortened), date: date)
+                        pendingSchedule = .init(label: date.formatted(date: .abbreviated, time: .shortened), date: date, preposition: "on")
                         showingConfirmation = true
                     }
                     Button("Confirm", action: confirmAction)
@@ -188,6 +188,7 @@ struct ExplodeConvoSheet: View {
     private struct ScheduleOption {
         let label: String
         let date: Date
+        var preposition: String = "in"
     }
 }
 
