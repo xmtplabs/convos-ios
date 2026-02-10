@@ -1,5 +1,7 @@
 import ConvosCore
+import ConvosLogging
 import SwiftUI
+import UIKit
 
 struct ReplyReferenceView: View {
     let replySender: ConversationMember
@@ -13,8 +15,21 @@ struct ReplyReferenceView: View {
             return String(text.prefix(80))
         case .emoji(let emoji):
             return emoji
+        case .attachment, .attachments:
+            return "Photo"
         default:
             return ""
+        }
+    }
+
+    private var attachmentKey: String? {
+        switch parentMessage.content {
+        case .attachment(let attachment):
+            return attachment.key
+        case .attachments(let attachments):
+            return attachments.first?.key
+        default:
+            return nil
         }
     }
 
@@ -45,12 +60,7 @@ struct ReplyReferenceView: View {
                         .layoutPriority(-1)
                 }
 
-                Text(previewText)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .lineLimit(1)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-                    .padding(.vertical, DesignConstants.Spacing.step2x)
+                replyPreviewContent
                     .background(
                         RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
                             .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
@@ -67,6 +77,29 @@ struct ReplyReferenceView: View {
         .padding(.bottom, DesignConstants.Spacing.stepX)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Reply to \(parentMessage.sender.profile.displayName): \(previewText)")
+    }
+
+    @ViewBuilder
+    private var replyPreviewContent: some View {
+        if let key = attachmentKey {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                ReplyReferenceThumbnail(attachmentKey: key)
+                Text(previewText)
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.leading, DesignConstants.Spacing.stepX)
+            .padding(.trailing, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.stepX)
+        } else {
+            Text(previewText)
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .lineLimit(1)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .padding(.vertical, DesignConstants.Spacing.step2x)
+        }
     }
 }
 
@@ -113,4 +146,45 @@ struct ReplyReferenceView: View {
         isOutgoing: true
     )
     .padding()
+}
+
+// MARK: - Thumbnail
+
+private struct ReplyReferenceThumbnail: View {
+    let attachmentKey: String
+
+    @State private var loadedImage: UIImage?
+
+    private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
+    private static let thumbnailSize: CGFloat = 32.0
+
+    var body: some View {
+        Group {
+            if let image = loadedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 6.0))
+            } else {
+                RoundedRectangle(cornerRadius: 6.0)
+                    .fill(.quaternary)
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+            }
+        }
+        .task {
+            if let cachedImage = await ImageCache.shared.imageAsync(for: attachmentKey) {
+                loadedImage = cachedImage
+                return
+            }
+            do {
+                let data = try await Self.loader.loadImageData(from: attachmentKey)
+                if let image = UIImage(data: data) {
+                    loadedImage = image
+                }
+            } catch {
+                Log.error("Failed to load reply reference thumbnail: \(error)")
+            }
+        }
+    }
 }

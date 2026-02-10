@@ -104,6 +104,10 @@ private struct ReplyPhotoThumbnail: View {
             }
         }
         .task {
+            if let cachedImage = await ImageCache.shared.imageAsync(for: attachmentKey) {
+                loadedImage = cachedImage
+                return
+            }
             do {
                 let data = try await Self.loader.loadImageData(from: attachmentKey)
                 if let image = UIImage(data: data) {
