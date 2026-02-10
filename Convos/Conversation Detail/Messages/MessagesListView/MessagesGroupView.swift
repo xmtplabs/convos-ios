@@ -38,9 +38,9 @@ struct MessagesGroupView: View {
             let allMessages = group.allMessages
             ForEach(Array(allMessages.enumerated()), id: \.element.base.id) { index, message in
                 let isReply = if case .reply = message { true } else { false }
-                let isAttachment = message.base.content.isAttachment
+                let isFullWidthAttachment = message.base.content.isAttachment && !isReply
 
-                if index == 0 && !group.sender.isCurrentUser && !isReply && !isAttachment {
+                if index == 0 && !group.sender.isCurrentUser && !isReply && !isFullWidthAttachment {
                     Text(group.sender.profile.displayName)
                         .scaleEffect(isAppearing ? 0.9 : 1.0)
                         .opacity(isAppearing ? 0.0 : 1.0)
@@ -65,7 +65,7 @@ struct MessagesGroupView: View {
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
                     // Show avatar spacer for incoming non-attachment messages only
-                    if !group.sender.isCurrentUser && !isAttachment {
+                    if !group.sender.isCurrentUser && !isFullWidthAttachment {
                         Color.clear
                             .frame(width: avatarSize, height: avatarSize)
                     }
@@ -109,7 +109,7 @@ struct MessagesGroupView: View {
                         }
                     }
                 }
-                .padding(.leading, !group.sender.isCurrentUser && !isAttachment ? DesignConstants.Spacing.step2x : 0)
+                .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step2x : 0)
 
                 if !message.base.reactions.isEmpty {
                     ReactionIndicatorView(

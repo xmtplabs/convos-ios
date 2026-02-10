@@ -418,7 +418,24 @@ extension Array where Element == DBMessage {
             replyContent = .text(dbMessage.text ?? "")
         case .emoji:
             replyContent = .emoji(dbMessage.emoji ?? "")
-        case .update, .invite, .attachments:
+        case .attachments:
+            let keys: [String] = dbMessage.attachmentUrls
+            let localStates = try AttachmentLocalState
+                .filter(keys.contains(AttachmentLocalState.Columns.attachmentKey))
+                .fetchAll(database)
+            let statesDict = Dictionary(uniqueKeysWithValues: localStates.map { ($0.attachmentKey, $0) })
+            let hydratedAttachments = keys.map { key in
+                let localState = statesDict[key]
+                return HydratedAttachment(
+                    key: key,
+                    isRevealed: localState?.isRevealed ?? false,
+                    isHiddenByOwner: localState?.isHiddenByOwner ?? false,
+                    width: localState?.width,
+                    height: localState?.height
+                )
+            }
+            replyContent = .attachments(hydratedAttachments)
+        case .update, .invite:
             return nil
         }
 

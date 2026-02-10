@@ -24,6 +24,11 @@ struct MessagesGroupItemView: View {
         message.origin == .inserted
     }
 
+    private var isReply: Bool {
+        if case .reply = message { return true }
+        return false
+    }
+
     var body: some View {
         VStack(alignment: message.base.sender.isCurrentUser ? .trailing : .leading, spacing: 0.0) {
             if case .reply(let reply, _) = message {
@@ -158,37 +163,11 @@ struct MessagesGroupItemView: View {
                 .padding(.trailing, DesignConstants.Spacing.step4x)
 
             case .attachment(let attachment):
-                AttachmentPlaceholder(
-                    attachment: attachment,
-                    isOutgoing: message.base.sender.isCurrentUser,
-                    profile: message.base.sender.profile,
-                    shouldBlurPhotos: shouldBlurPhotos,
-                    onReveal: { onPhotoRevealed(attachment.key) },
-                    onHide: { onPhotoHidden(attachment.key) },
-                    onDoubleTap: { onDoubleTap(message) },
-                    onReply: { onReply(message) },
-                    onDimensionsLoaded: { width, height in
-                        onPhotoDimensionsLoaded(attachment.key, width, height)
-                    }
-                )
-                .id(message.base.id)
+                attachmentView(for: attachment)
 
             case .attachments(let attachments):
                 if let attachment = attachments.first {
-                    AttachmentPlaceholder(
-                        attachment: attachment,
-                        isOutgoing: message.base.sender.isCurrentUser,
-                        profile: message.base.sender.profile,
-                        shouldBlurPhotos: shouldBlurPhotos,
-                        onReveal: { onPhotoRevealed(attachment.key) },
-                        onHide: { onPhotoHidden(attachment.key) },
-                        onDoubleTap: { onDoubleTap(message) },
-                        onReply: { onReply(message) },
-                        onDimensionsLoaded: { width, height in
-                            onPhotoDimensionsLoaded(attachment.key, width, height)
-                        }
-                    )
-                    .id(message.base.id)
+                    attachmentView(for: attachment)
                 }
 
             case .update:
@@ -216,6 +195,43 @@ struct MessagesGroupItemView: View {
                     isAppearing = false
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func attachmentView(for attachment: HydratedAttachment) -> some View {
+        if isReply {
+            AttachmentPlaceholder(
+                attachment: attachment,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile,
+                shouldBlurPhotos: shouldBlurPhotos,
+                onReveal: { onPhotoRevealed(attachment.key) },
+                onHide: { onPhotoHidden(attachment.key) },
+                onDoubleTap: { onDoubleTap(message) },
+                onReply: { onReply(message) },
+                onDimensionsLoaded: { width, height in
+                    onPhotoDimensionsLoaded(attachment.key, width, height)
+                }
+            )
+            .clipShape(RoundedRectangle(cornerRadius: 20.0))
+            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .id(message.base.id)
+        } else {
+            AttachmentPlaceholder(
+                attachment: attachment,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile,
+                shouldBlurPhotos: shouldBlurPhotos,
+                onReveal: { onPhotoRevealed(attachment.key) },
+                onHide: { onPhotoHidden(attachment.key) },
+                onDoubleTap: { onDoubleTap(message) },
+                onReply: { onReply(message) },
+                onDimensionsLoaded: { width, height in
+                    onPhotoDimensionsLoaded(attachment.key, width, height)
+                }
+            )
+            .id(message.base.id)
         }
     }
 }
