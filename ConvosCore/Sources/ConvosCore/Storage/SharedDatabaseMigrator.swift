@@ -209,6 +209,21 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("deduplicateReactions") { db in
+            try db.execute(sql: """
+                DELETE FROM message
+                WHERE messageType = 'reaction'
+                AND sourceMessageId IS NOT NULL
+                AND rowid NOT IN (
+                    SELECT MIN(rowid)
+                    FROM message
+                    WHERE messageType = 'reaction'
+                    AND sourceMessageId IS NOT NULL
+                    GROUP BY sourceMessageId, senderId, emoji
+                )
+                """)
+        }
+
         return migrator
     }
 }
