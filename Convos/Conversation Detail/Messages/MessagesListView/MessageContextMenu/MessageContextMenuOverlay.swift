@@ -347,8 +347,8 @@ struct MessageContextMenuOverlay: View {
                     Divider()
                         .padding(.horizontal, C.actionPaddingH)
                     let copyAction = {
-                        onCopy(text)
                         dismissMenu()
+                        onCopy(text)
                     }
                     Button(action: copyAction) {
                         Label("Copy", systemImage: "doc.on.doc")
