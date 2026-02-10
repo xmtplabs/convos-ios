@@ -160,7 +160,7 @@ struct ConversationInfoView: View {
                 .frame(width: DesignConstants.Spacing.step10x, height: DesignConstants.Spacing.step10x)
                 .background(
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .fill(Color.colorOrange)
+                        .fill(Color.colorCaution)
                         .aspectRatio(1.0, contentMode: .fit)
                 )
 
@@ -170,7 +170,7 @@ struct ConversationInfoView: View {
                         .foregroundStyle(.colorTextPrimary)
                     Text(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))
                         .font(.headline.monospacedDigit())
-                        .foregroundStyle(.colorOrange)
+                        .foregroundStyle(.colorCaution)
                 }
 
                 Spacer()

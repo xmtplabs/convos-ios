@@ -45,7 +45,7 @@ struct ConversationToolbarButton: View {
                 Text(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))
                     .lineLimit(1)
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.colorOrange)
+                    .foregroundStyle(.colorCaution)
             }
         } else {
             Text(subtitle)
