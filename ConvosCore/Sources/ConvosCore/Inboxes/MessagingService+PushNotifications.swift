@@ -465,6 +465,14 @@ extension MessagingService {
 
         switch result {
         case .applied:
+            let center = UNUserNotificationCenter.current()
+            let delivered = await center.deliveredNotifications()
+            let toRemove = delivered
+                .filter { $0.request.content.threadIdentifier == conversationId }
+                .map { $0.request.identifier }
+            if !toRemove.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: toRemove)
+            }
             let conversationName = (try? group.name()).orUntitled
             var explosionUserInfo = userInfo
             explosionUserInfo["isExplosion"] = true

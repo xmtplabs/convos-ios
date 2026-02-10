@@ -9,11 +9,18 @@ import UserNotifications
 class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     var session: (any SessionManagerProtocol)?
     var pushNotificationRegistrar: (any PushNotificationRegistrarProtocol)?
+    private var leftConversationObserver: Any?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         SentryConfiguration.configure()
         UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
+        leftConversationObserver = NotificationCenter.default.addObserver(
+            forName: .leftConversationNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let conversationId = notification.userInfo?["conversationId"] as? String else { return }
+            Task { await self?.clearDeliveredNotifications(for: conversationId) }
+        }
         return true
     }
 
