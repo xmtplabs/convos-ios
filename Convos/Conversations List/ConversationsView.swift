@@ -113,7 +113,7 @@ struct ConversationsView: View {
         ConversationsListItem(conversation: conversation)
             .background(
                 RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-                    .fill(.colorBackgroundPrimary)
+                    .fill(.colorBackgroundSurfaceless)
             )
             .contentShape(
                 .contextMenuPreview,

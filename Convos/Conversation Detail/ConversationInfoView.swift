@@ -66,10 +66,7 @@ struct ConversationInfoView: View {
     let focusCoordinator: FocusCoordinator
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @State private var showingExplodeConfirmation: Bool = false
-    @State private var pendingExplosion: PendingExplosion?
-    @State private var showingCustomDatePicker: Bool = false
-    @State private var customDate: Date = Date().addingTimeInterval(3600)
+    @State private var showingExplodeSheet: Bool = false
     @State private var presentingEditView: Bool = false
     @State private var showingLockConfirmation: Bool = false
     @State private var showingLockedInfo: Bool = false
@@ -83,38 +80,6 @@ struct ConversationInfoView: View {
     }
     private var showViewAllMembers: Bool {
         viewModel.conversation.members.count > maxMembersToShow
-    }
-
-    private var sundayAtMidnight: Date? {
-        let calendar = Calendar.current
-        let today = Date()
-        let weekday = calendar.component(.weekday, from: today)
-        let daysUntilSunday = (8 - weekday) % 7
-        let adjustedDays = daysUntilSunday == 0 ? 7 : daysUntilSunday
-        guard let nextSunday = calendar.date(byAdding: .day, value: adjustedDays, to: today) else {
-            return nil
-        }
-        return calendar.startOfDay(for: nextSunday)
-    }
-
-    private var minimumCustomDate: Date {
-        Date().addingTimeInterval(60)
-    }
-
-    private var explosionAlertTitle: String {
-        guard let pending = pendingExplosion else {
-            return "Explode convo?"
-        }
-        switch pending {
-        case .now:
-            return "Explode convo now?"
-        case .fixedDate(_, let label):
-            return "Explode convo on \(label)?"
-        case .delay(_, let label):
-            return "Explode convo in \(label)?"
-        case .customDate(let date):
-            return "Explode convo in \(ExplosionDurationFormatter.format(until: date))?"
-        }
     }
 
     @ViewBuilder
@@ -325,17 +290,12 @@ struct ConversationInfoView: View {
                     Section {
                         if let expiresAt = viewModel.scheduledExplosionDate {
                             explosionCountdownRow(expiresAt: expiresAt)
+                        }
 
-                            let action = {
-                                pendingExplosion = .now
-                                showingExplodeConfirmation = true
-                            }
-                            Button(action: action) {
-                                Text("Explode now")
-                                    .foregroundStyle(.colorCaution)
-                            }
-                        } else {
-                            explodeOptions
+                        let action = { showingExplodeSheet = true }
+                        Button(action: action) {
+                            Text(viewModel.isExplosionScheduled ? "Explode now" : "Explode")
+                                .foregroundStyle(.colorCaution)
                         }
                     } footer: {
                         if viewModel.isExplosionScheduled {
@@ -529,124 +489,26 @@ struct ConversationInfoView: View {
                 })
                 .background(.colorBackgroundRaised)
             }
-            .sheet(isPresented: $showingCustomDatePicker) {
-                customDatePickerSheet
-            }
-            .alert(
-                explosionAlertTitle,
-                isPresented: $showingExplodeConfirmation
-            ) {
-                let cancelAction = {
-                    pendingExplosion = nil
-                }
-                Button("Cancel", role: .cancel, action: cancelAction)
-
-                let confirmAction = {
-                    guard let pending = pendingExplosion else { return }
-                    let date = pending.resolvedDate
-                    if date.timeIntervalSinceNow <= 0 {
-                        viewModel.explodeConvo()
-                    } else {
+            .selfSizingSheet(isPresented: $showingExplodeSheet) {
+                ExplodeConvoSheet(
+                    onSchedule: { date in
                         viewModel.scheduleExplosion(at: date)
+                        showingExplodeSheet = false
+                    },
+                    onExplodeNow: {
+                        viewModel.explodeConvo()
+                        showingExplodeSheet = false
+                    },
+                    onCancel: {
+                        showingExplodeSheet = false
                     }
-                    pendingExplosion = nil
-                }
-                let confirmLabel = pendingExplosion?.isNow == true ? "Explode" : "Start"
-                Button(confirmLabel, role: .destructive, action: confirmAction)
-            } message: {
-                Text("The timer cannot be changed or cancelled once it starts.")
+                )
+                .presentationBackground(.colorBackgroundRaised)
             }
         }
     }
 }
 
-// MARK: - Explosion Scheduling UI
-
-extension ConversationInfoView {
-    @ViewBuilder
-    var explodeOptions: some View {
-        Menu {
-            Button("1 minute") {
-                pendingExplosion = .delay(interval: 60, label: "1 minute")
-                showingExplodeConfirmation = true
-            }
-
-            Button("1 hour") {
-                pendingExplosion = .delay(interval: 3600, label: "1 hour")
-                showingExplodeConfirmation = true
-            }
-
-            Button("24 hours") {
-                pendingExplosion = .delay(interval: 86400, label: "24 hours")
-                showingExplodeConfirmation = true
-            }
-
-            if let sunday = sundayAtMidnight {
-                Button("Sunday at midnight") {
-                    pendingExplosion = .fixedDate(date: sunday, label: "Sunday at midnight")
-                    showingExplodeConfirmation = true
-                }
-            }
-
-            Button("Choose date and time") {
-                customDate = Date().addingTimeInterval(3600)
-                showingCustomDatePicker = true
-            }
-
-            Divider()
-
-            Button(role: .destructive) {
-                pendingExplosion = .now
-                showingExplodeConfirmation = true
-            } label: {
-                Text("Explode now")
-            }
-        } label: {
-            HStack {
-                Text("Explode")
-                    .foregroundStyle(.colorCaution)
-                Spacer()
-            }
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-    }
-
-    @ViewBuilder
-    var customDatePickerSheet: some View {
-        NavigationStack {
-            DatePicker(
-                "Explode at",
-                selection: $customDate,
-                in: minimumCustomDate...,
-                displayedComponents: [.date, .hourAndMinute]
-            )
-            .datePickerStyle(.wheel)
-            .labelsHidden()
-            .padding()
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel", role: .cancel) {
-                        showingCustomDatePicker = false
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    let confirmAction = {
-                        showingCustomDatePicker = false
-                        let date = max(customDate, Date().addingTimeInterval(60))
-                        pendingExplosion = .customDate(date: date)
-                        showingExplodeConfirmation = true
-                    }
-                    Button("Confirm", action: confirmAction)
-                        .tint(.colorBackgroundInverted)
-                }
-            }
-            .navigationTitle("Explode")
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .presentationDetents([.height(340)])
-    }
-}
 
 struct DebugLogsTextView: View {
     @State var logs: String
@@ -668,31 +530,6 @@ struct DebugLogsTextView: View {
                     }
                 }
             }
-        }
-    }
-}
-
-// MARK: - PendingExplosion
-
-private enum PendingExplosion {
-    case now
-    case delay(interval: TimeInterval, label: String)
-    case fixedDate(date: Date, label: String)
-    case customDate(date: Date)
-
-    var isNow: Bool {
-        if case .now = self { return true }
-        return false
-    }
-
-    var resolvedDate: Date {
-        switch self {
-        case .now:
-            return Date()
-        case .delay(let interval, _):
-            return Date().addingTimeInterval(interval)
-        case .fixedDate(let date, _), .customDate(let date):
-            return date
         }
     }
 }
