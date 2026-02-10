@@ -43,6 +43,9 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
 
         let clientMessageId = UUID().uuidString
 
+        let isContentEmoji = text.allCharactersEmoji
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+
         try await databaseWriter.write { db in
             let localReply = DBMessage(
                 id: clientMessageId,
@@ -53,9 +56,9 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
                 date: date,
                 status: .unpublished,
                 messageType: .reply,
-                contentType: .text,
-                text: text,
-                emoji: nil,
+                contentType: isContentEmoji ? .emoji : .text,
+                text: isContentEmoji ? nil : text,
+                emoji: isContentEmoji ? trimmedText : nil,
                 invite: nil,
                 sourceMessageId: parentMessageId,
                 attachmentUrls: [],
