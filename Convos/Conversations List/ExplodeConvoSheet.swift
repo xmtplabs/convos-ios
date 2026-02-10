@@ -162,25 +162,28 @@ struct ExplodeConvoSheet: View {
             .datePickerStyle(.wheel)
             .labelsHidden()
             .padding()
+            .navigationTitle("Explode")
+            .toolbarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Cancel", role: .cancel) {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button(role: .cancel) {
                         showingCustomDatePicker = false
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
+                ToolbarItem(placement: .confirmationAction) {
                     let confirmAction = {
                         showingCustomDatePicker = false
                         let date = max(customDate, Date().addingTimeInterval(60))
                         pendingSchedule = .init(label: date.formatted(date: .abbreviated, time: .shortened), date: date, preposition: "on")
                         showingConfirmation = true
                     }
-                    Button("Confirm", action: confirmAction)
-                        .tint(.colorBackgroundInverted)
+                    Button(action: confirmAction) {
+                        Label("Done", systemImage: "checkmark")
+                            .labelStyle(.iconOnly)
+                    }
+                    .tint(.colorBackgroundInverted)
                 }
             }
-            .navigationTitle("Explode")
-            .navigationBarTitleDisplayMode(.inline)
         }
         .presentationDetents([.height(340)])
     }
@@ -192,7 +195,7 @@ struct ExplodeConvoSheet: View {
     }
 }
 
-#Preview {
+#Preview("Explode Sheet") {
     @Previewable @State var presenting: Bool = true
     VStack {
         let toggleAction = { presenting.toggle() }
@@ -208,4 +211,33 @@ struct ExplodeConvoSheet: View {
         )
         .background(.colorBackgroundRaised)
     }
+}
+
+#Preview("Date Picker") {
+    @Previewable @State var customDate: Date = Date().addingTimeInterval(3600)
+    NavigationStack {
+        DatePicker(
+            "Explode at",
+            selection: $customDate,
+            in: Date().addingTimeInterval(60)...,
+            displayedComponents: [.date, .hourAndMinute]
+        )
+        .datePickerStyle(.wheel)
+        .labelsHidden()
+        .padding()
+        .navigationTitle("Explode")
+        .toolbarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .cancellationAction) {
+                Button(role: .cancel) {}
+            }
+            ToolbarItem(placement: .confirmationAction) {
+                Button(action: {}) {
+                    Label("Done", systemImage: "checkmark")
+                        .labelStyle(.iconOnly)
+                }
+            }
+        }
+    }
+    .presentationDetents([.height(340)])
 }
