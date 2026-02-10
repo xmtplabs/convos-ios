@@ -85,21 +85,37 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     }
 
     private func messageHeight(for message: AnyMessage, width: CGFloat) -> CGFloat {
+        var height: CGFloat
         switch message.base.content {
         case .attachment(let attachment):
-            return attachmentHeight(for: attachment, width: width)
+            height = attachmentHeight(for: attachment, width: width)
         case .attachments(let attachments):
             guard let first = attachments.first else { return 50.0 }
-            return attachmentHeight(for: first, width: width)
+            height = attachmentHeight(for: first, width: width)
         case .emoji:
-            return 80.0
+            height = 80.0
         case .text:
-            return 40.0
+            height = 40.0
         case .invite:
-            return 80.0
+            height = 80.0
         case .update:
-            return 30.0
+            height = 30.0
         }
+
+        if case .reply(let reply, _) = message {
+            let isParentPhoto = reply.parentMessage.content.isAttachment
+            // avatar row + spacing
+            height += 24.0
+            if isParentPhoto {
+                // photo preview (max 80) + spacing
+                height += 88.0
+            } else {
+                // text preview bubble + spacing
+                height += 32.0
+            }
+        }
+
+        return height
     }
 
     func alignmentForItem(_ messagesLayout: MessagesCollectionLayout,

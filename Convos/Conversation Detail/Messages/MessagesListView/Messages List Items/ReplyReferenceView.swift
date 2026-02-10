@@ -57,6 +57,7 @@ struct ReplyReferenceView: View {
 
             if let key = attachmentKey {
                 ReplyReferencePhotoPreview(attachmentKey: key)
+                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 HStack(alignment: .bottom, spacing: 0.0) {
                     if isOutgoing {
