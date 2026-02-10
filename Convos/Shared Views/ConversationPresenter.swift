@@ -17,7 +17,7 @@ struct ConversationPresenter<Content: View>: View {
 
             VStack {
                 if let viewModel = viewModel, viewModel.showsInfoView {
-                    ConversationIndicatorViewWrapper(
+                    ConversationIndicatorWrapper(
                         viewModel: viewModel,
                         focusState: $focusState,
                         focusCoordinator: focusCoordinator
@@ -64,13 +64,13 @@ struct ConversationPresenter<Content: View>: View {
     }
 }
 
-private struct ConversationIndicatorViewWrapper: View {
+private struct ConversationIndicatorWrapper: View {
     @Bindable var viewModel: ConversationViewModel
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
 
     var body: some View {
-        ConversationIndicatorView(
+        ConversationIndicator(
             conversation: viewModel.conversation,
             placeholderName: viewModel.conversationNamePlaceholder,
             untitledConversationPlaceholder: viewModel.untitledConversationPlaceholder,
@@ -78,12 +78,13 @@ private struct ConversationIndicatorViewWrapper: View {
             conversationName: $viewModel.editingConversationName,
             conversationImage: $viewModel.conversationImage,
             presentingConversationSettings: $viewModel.presentingConversationSettings,
+            activeToast: $viewModel.activeToast,
+            autoRevealPhotos: $viewModel.autoRevealPhotos,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
             explodeState: viewModel.explodeState,
             onConversationInfoTapped: { viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator) },
-            onConversationInfoLongPressed: { viewModel.onConversationInfoLongPress(focusCoordinator: focusCoordinator) },
             onConversationNameEndedEditing: {
                 viewModel.onConversationNameEndedEditing(
                     focusCoordinator: focusCoordinator,

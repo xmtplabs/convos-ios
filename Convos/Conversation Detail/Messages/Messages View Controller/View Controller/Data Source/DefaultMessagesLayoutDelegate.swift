@@ -25,21 +25,80 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         switch kind {
         case .cell:
             let item = sections[indexPath.section].cells[indexPath.item]
+            let width = messagesLayout.layoutFrame.width
             switch item {
             case .invite:
-                return .estimated(
-                    CGSize(
-                        width: messagesLayout.layoutFrame.width,
-                        height: 316.0
-                    )
-                )
+                return .estimated(CGSize(width: width, height: 316.0))
             case .conversationInfo:
-                return .estimated(CGSize(width: messagesLayout.layoutFrame.width, height: 300.0))
-            default:
-                return .auto
+                return .estimated(CGSize(width: width, height: 300.0))
+            case .date:
+                return .estimated(CGSize(width: width, height: 48.0))
+            case .update:
+                return .estimated(CGSize(width: width, height: 48.0))
+            case .messages(let group):
+                return .estimated(CGSize(width: width, height: estimatedHeight(for: group, width: width)))
             }
         case .footer, .header:
             return .exact(.zero)
+        }
+    }
+
+    private func estimatedHeight(for group: MessagesGroup, width: CGFloat) -> CGFloat {
+        var height: CGFloat = 8.0
+        var childCount: Int = 0
+
+        for (index, message) in group.messages.enumerated() {
+            let isAttachment = message.base.content.isAttachment
+
+            if index == 0 && !group.sender.isCurrentUser && !isAttachment {
+                height += 17.0
+                childCount += 1
+            }
+
+            height += messageHeight(for: message, width: width)
+            childCount += 1
+
+            if !message.base.reactions.isEmpty {
+                height += 34.0
+                childCount += 1
+            }
+
+            let isLast = index == group.messages.count - 1
+            if isLast && group.isLastGroupSentByCurrentUser && message.base.status == .published {
+                height += 24.0
+                childCount += 1
+            }
+        }
+
+        if childCount > 1 {
+            height += CGFloat(childCount - 1) * 4.0
+        }
+
+        return height
+    }
+
+    private func attachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
+        guard let w = attachment.width, let h = attachment.height, h > 0 else {
+            return width * 0.75
+        }
+        return width * CGFloat(h) / CGFloat(w)
+    }
+
+    private func messageHeight(for message: AnyMessage, width: CGFloat) -> CGFloat {
+        switch message.base.content {
+        case .attachment(let attachment):
+            return attachmentHeight(for: attachment, width: width)
+        case .attachments(let attachments):
+            guard let first = attachments.first else { return 50.0 }
+            return attachmentHeight(for: first, width: width)
+        case .emoji:
+            return 80.0
+        case .text:
+            return 40.0
+        case .invite:
+            return 80.0
+        case .update:
+            return 30.0
         }
     }
 

@@ -268,7 +268,6 @@
 				"Shared Views/LinkDetectingTextView.swift",
 				"Shared Views/MaxedOutInfoView.swift",
 				"Shared Views/MonogramView.swift",
-				"Shared Views/PrimarySecondaryContainerView.swift",
 				"Shared Views/PulsingCircleView.swift",
 				"Shared Views/QRCodeView.swift",
 				"Shared Views/QuickEditView.swift",

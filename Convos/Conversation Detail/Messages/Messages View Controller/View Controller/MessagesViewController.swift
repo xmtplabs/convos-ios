@@ -2,6 +2,7 @@ import Combine
 import ConvosCore
 import DifferenceKit
 import Foundation
+import Observation
 import SwiftUI
 import UIKit
 
@@ -63,6 +64,18 @@ final class MessagesViewController: UIViewController {
     }
 
     private var isFirstStateUpdate: Bool = true
+    private var previousLastMessageId: String?
+    private var previousFocusState: MessagesViewInputFocus?
+
+    /// Whether the user is near the bottom of the scroll view (within one screen height)
+    private var isNearBottom: Bool {
+        let contentHeight = collectionView.contentSize.height
+        let scrollViewHeight = collectionView.frame.height
+        let currentOffset = collectionView.contentOffset.y
+        let bottomInset = collectionView.adjustedContentInset.bottom
+        let distanceFromBottom = contentHeight - (currentOffset + scrollViewHeight - bottomInset)
+        return distanceFromBottom <= scrollViewHeight
+    }
 
     // MARK: - Public
 
@@ -86,17 +99,25 @@ final class MessagesViewController: UIViewController {
                 invite: state.invite,
                 hasLoadedAllMessages: state.hasLoadedAllMessages,
                 animated: animated,
-                requiresIsolatedProcess: true) { [currentControllerActions, isFirstStateUpdate] in
-                    if isFirstStateUpdate {
+                requiresIsolatedProcess: true) { [currentControllerActions] in
+                    let currentLastMessageId = state.messages.lastMessageId
+                    let isNewMessage = currentLastMessageId != self.previousLastMessageId
+                    self.previousLastMessageId = currentLastMessageId
+
+                    let isInitialLoad = currentControllerActions.options.contains(.loadingInitialMessages)
+                    let nearBottom = self.isNearBottom
+                    let userScrolling = self.isUserInitiatedScrolling
+                    if isInitialLoad {
                         currentControllerActions.options.remove(.loadingInitialMessages)
-                        UIView.performWithoutAnimation {
+                        self.collectionView.layoutIfNeeded()
+                        self.scrollToBottom(animated: false)
+                        self.startObservingFocus()
+                    } else if isNewMessage {
+                        if let lastGroup = state.messages.last, lastGroup.isMessagesGroupSentByCurrentUser {
+                            self.scrollToBottom()
+                        } else if nearBottom && !userScrolling {
                             self.scrollToBottom()
                         }
-                    } else if let lastMessageGroup = state.messages.last,
-                              lastMessageGroup.isMessagesGroupSentByCurrentUser,
-                              let oldLastMessage = oldValue?.messages.last?.lastMessageInGroup,
-                              lastMessageGroup.lastMessageInGroup?.id != oldLastMessage.id {
-                        self.scrollToBottom()
                     }
                 }
             isFirstStateUpdate = false
@@ -118,6 +139,20 @@ final class MessagesViewController: UIViewController {
     private var lastKeyboardFrameChange: KeyboardInfo?
 
     var onUserInteraction: (() -> Void)?
+
+    var focusCoordinator: FocusCoordinator? {
+        didSet {
+            guard focusCoordinator != nil, oldValue == nil else { return }
+            if !isFirstStateUpdate {
+                startObservingFocus()
+            }
+        }
+    }
+
+    /// Call this when user taps send to immediately scroll to bottom before message appears
+    func scrollToBottomForSend() {
+        scrollToBottom()
+    }
 
     // MARK: - Initialization
 
@@ -141,6 +176,20 @@ final class MessagesViewController: UIViewController {
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
+    var onDoubleTap: ((AnyMessage) -> Void)?
+    var onPhotoRevealed: ((String) -> Void)?
+    var onPhotoHidden: ((String) -> Void)?
+    var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
+    var shouldBlurPhotos: Bool = true {
+        didSet {
+            guard oldValue != shouldBlurPhotos else { return }
+            dataSource.shouldBlurPhotos = shouldBlurPhotos
+            collectionView.reloadData()
+        }
+    }
+
+    private var currentReactionMessageId: String?
+    private var reactionCancellable: AnyCancellable?
 
     deinit {
         KeyboardListener.shared.remove(delegate: self)
@@ -183,6 +232,32 @@ final class MessagesViewController: UIViewController {
         KeyboardListener.shared.add(delegate: self)
     }
 
+    private func startObservingFocus() {
+        guard let coordinator = focusCoordinator else { return }
+
+        withObservationTracking {
+            _ = coordinator.currentFocus
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.handleFocusChange()
+            }
+        }
+    }
+
+    private func handleFocusChange() {
+        guard let coordinator = focusCoordinator else { return }
+
+        let oldFocus = previousFocusState
+        let newFocus = coordinator.currentFocus
+        previousFocusState = newFocus
+
+        if oldFocus == nil && newFocus == .message {
+            scrollToBottom()
+        }
+
+        startObservingFocus()
+    }
+
     private func setupCollectionView() {
         collectionView.frame = view.bounds
         configureMessagesLayout()
@@ -196,9 +271,9 @@ final class MessagesViewController: UIViewController {
         messagesLayout.settings.interSectionSpacing = 0.0
         messagesLayout.settings.additionalInsets = UIEdgeInsets(
             top: 0.0,
-            left: DesignConstants.Spacing.step4x,
+            left: 0.0,
             bottom: 0.0,
-            right: DesignConstants.Spacing.step4x
+            right: 0.0
         )
         messagesLayout.keepContentOffsetAtBottomOnBatchUpdates = true
         messagesLayout.processOnlyVisibleItemsOnAnimatedBatchUpdates = true
@@ -250,6 +325,15 @@ final class MessagesViewController: UIViewController {
         dataSource.onReply = { [weak self] message in
             guard let self = self else { return }
             self.onReply?(message)
+        }
+        dataSource.onPhotoRevealed = { [weak self] attachmentKey in
+            self?.onPhotoRevealed?(attachmentKey)
+        }
+        dataSource.onPhotoHidden = { [weak self] attachmentKey in
+            self?.onPhotoHidden?(attachmentKey)
+        }
+        dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
+            self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
         }
 
         setupImmediateTouchGesture()
@@ -303,7 +387,9 @@ final class MessagesViewController: UIViewController {
         onLoadPreviousMessages()
     }
 
-    func scrollToBottom(completion: (() -> Void)? = nil) {
+    func scrollToBottom(animated: Bool = true, completion: (() -> Void)? = nil) {
+        collectionView.setContentOffset(collectionView.contentOffset, animated: false)
+
         let contentOffsetAtBottom = CGPoint(
             x: collectionView.contentOffset.x,
             y: (messagesLayout.collectionViewContentSize.height -
@@ -311,7 +397,14 @@ final class MessagesViewController: UIViewController {
                 collectionView.adjustedContentInset.bottom)
         )
 
-        guard contentOffsetAtBottom.y > collectionView.contentOffset.y else {
+        guard contentOffsetAtBottom.y > 0,
+              abs(contentOffsetAtBottom.y - collectionView.contentOffset.y) > 0.5 else {
+            completion?()
+            return
+        }
+
+        if !animated {
+            collectionView.contentOffset = contentOffsetAtBottom
             completion?()
             return
         }
@@ -343,10 +436,6 @@ final class MessagesViewController: UIViewController {
 
             if percentage == 1.0 {
                 animator = nil
-                let positionSnapshot = MessagesLayoutPositionSnapshot(indexPath: IndexPath(item: 0, section: 0),
-                                                                      kind: .footer,
-                                                                      edge: .bottom)
-                messagesLayout.restoreContentOffset(with: positionSnapshot)
                 currentInterfaceActions.options.remove(.scrollingToBottom)
                 completion?()
             }
@@ -374,8 +463,6 @@ extension MessagesViewController {
                                 animated: Bool = true,
                                 requiresIsolatedProcess: Bool,
                                 completion: (() -> Void)? = nil) {
-        Log.info("Processing updates with \(messages.count) messages")
-
         if currentControllerActions.options.contains(.loadingPreviousMessages),
            messages.contains(where: { $0.origin == .paginated }) {
             currentControllerActions.options.remove(.loadingPreviousMessages)
@@ -402,7 +489,6 @@ extension MessagesViewController {
         }
 
         guard currentInterfaceActions.options.isEmpty else {
-            Log.info("Interface actions exist, scheduling delayed update...")
             scheduleDelayedUpdate(for: conversation,
                                   with: messages,
                                   invite: invite,
@@ -427,6 +513,7 @@ extension MessagesViewController {
                                        animated: Bool,
                                        requiresIsolatedProcess: Bool,
                                        completion: (() -> Void)?) {
+        currentInterfaceActions.removeAllReactions(.delayedUpdate)
         let reaction = SetActor<Set<InterfaceActions>, ReactionTypes>.Reaction(
             type: .delayedUpdate,
             action: .onEmpty,
@@ -557,12 +644,8 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
     }
 
     private func updateBottomInsetForBottomBarHeight() {
-        guard isViewLoaded else {
-            Log.info("View not loading, skipping bottom inset update...")
-            return
-        }
+        guard isViewLoaded else { return }
 
-        // allows the drag gesture to start above the bottom bar
         self.view.keyboardLayoutGuide.keyboardDismissPadding = bottomBarHeight
 
         if let lastKeyboardFrameChange {
@@ -578,9 +661,9 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
 extension MessagesViewController: KeyboardListenerDelegate {
     func keyboardWillChangeFrame(info: KeyboardInfo) {
-        guard shouldHandleKeyboardFrameChange(info: info) else { return }
-
         self.lastKeyboardFrameChange = info
+
+        guard shouldHandleKeyboardFrameChange(info: info) else { return }
 
         currentInterfaceActions.options.insert(.changingKeyboardFrame)
         let newBottomInset = calculateNewBottomInset(for: info)
@@ -596,8 +679,9 @@ extension MessagesViewController: KeyboardListenerDelegate {
     }
 
     func keyboardDidChangeFrame(info: KeyboardInfo) {
-        guard currentInterfaceActions.options.contains(.changingKeyboardFrame) else { return }
-        currentInterfaceActions.options.remove(.changingKeyboardFrame)
+        if currentInterfaceActions.options.contains(.changingKeyboardFrame) {
+            currentInterfaceActions.options.remove(.changingKeyboardFrame)
+        }
     }
 
     private func shouldHandleKeyboardFrameChange(info: KeyboardInfo) -> Bool {

@@ -28,6 +28,9 @@ final class AppSettingsViewModel {
         deletionProgress = nil
 
         QuicknameSettingsViewModel.shared.delete()
+        ConversationViewModel.resetUserDefaults()
+        ConversationsViewModel.resetUserDefaults()
+        ConversationOnboardingCoordinator.resetUserDefaults()
 
         Task {
             do {

@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xcpretty:*)",
+      "Bash(gt submit:*)",
+      "Bash(timeout 60 swift test:*)",
+      "Bash(git add:*)",
+      "mcp__graphite__run_gt_cmd",
+      "Bash(git merge:*)",
+      "Bash(gt add:*)",
+      "Bash(gt continue:*)",
+      "Bash(gt log:*)"
+    ]
+  },
+  "enableAllProjectMcpServers": true,
+  "enabledMcpjsonServers": [
+    "XcodeBuildMCP",
+    "ios-simulator",
+    "xmtp-docs",
+    "graphite",
+    "notion",
+    "linear"
+  ]
+}

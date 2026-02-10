@@ -250,6 +250,13 @@ class MessagesRepository: MessagesRepositoryProtocol {
             return ValueObservation
                 .tracking { db in
                     do {
+                        // Force tracking of AttachmentLocalState table so changes
+                        // to reveal/hide state trigger re-emission of messages
+                        let localStateCount = try AttachmentLocalState.fetchCount(db)
+                        let allLocalStates = try AttachmentLocalState.fetchAll(db)
+                        let revealedKeys = allLocalStates.filter { $0.isRevealed }.map { $0.attachmentKey }
+                        Log.info("[MessagesRepo] Observation triggered. LocalState count: \(localStateCount), revealed: \(revealedKeys)")
+
                         // Get current state safely
                         let currentState = stateQueue.sync { () -> LoadingState in
                             LoadingState(
@@ -318,11 +325,66 @@ extension Array where Element == DBMessage {
 
             switch dbMessage.messageType {
             case .original:
-                return Self.composeOriginalMessage(
-                    dbMessage: dbMessage, in: conversation,
-                    memberProfileCache: memberProfileCache,
-                    sender: sender, source: source, reactions: reactions, origin: origin
+                let messageContent: MessageContent
+                switch dbMessage.contentType {
+                case .text:
+                    messageContent = .text(dbMessage.text ?? "")
+                case .invite:
+                    guard let invite = dbMessage.invite else {
+                        Log.error("Invite message type is missing invite object")
+                        return nil
+                    }
+                    messageContent = .invite(invite)
+                case .attachments:
+                    let hydratedAttachments = dbMessage.attachmentUrls.map { key in
+                        HydratedAttachment(key: key)
+                    }
+                    messageContent = .attachments(hydratedAttachments)
+                case .emoji:
+                    messageContent = .emoji(dbMessage.emoji ?? "")
+                case .update:
+                    guard let update = dbMessage.update,
+                          let initiatedByMember = memberProfileCache.member(for: update.initiatedByInboxId) else {
+                        Log.error("Update message type is missing update object")
+                        return nil
+                    }
+                    let addedMembers = update.addedInboxIds.compactMap { memberProfileCache.member(for: $0) }
+                    let removedMembers = update.removedInboxIds.map { inboxId in
+                        memberProfileCache.member(for: inboxId)
+                            ?? ConversationMember(
+                                profile: .empty(inboxId: inboxId),
+                                role: .member,
+                                isCurrentUser: inboxId == conversation.inboxId
+                            )
+                    }
+                    messageContent = .update(
+                        .init(
+                            creator: initiatedByMember,
+                            addedMembers: addedMembers,
+                            removedMembers: removedMembers,
+                            metadataChanges: update.metadataChanges
+                                .map {
+                                    .init(
+                                        field: .init(rawValue: $0.field) ?? .unknown,
+                                        oldValue: $0.oldValue,
+                                        newValue: $0.newValue
+                                    )
+                                }
+                        )
+                    )
+                }
+
+                let message = Message(
+                    id: dbMessage.clientMessageId,
+                    conversation: conversation,
+                    sender: sender,
+                    source: source,
+                    status: dbMessage.status,
+                    content: messageContent,
+                    date: dbMessage.date,
+                    reactions: reactions
                 )
+                return .message(message, origin)
             case .reply:
                 let sourceMessage = dbMessage.sourceMessageId.flatMap { sourceMessagesById[$0] }
                 return Self.composeReplyMessage(
@@ -336,70 +398,6 @@ extension Array where Element == DBMessage {
         }
 
         return (messages, updatedSeenIds)
-    }
-
-    // swiftlint:disable:next function_parameter_count
-    private static func composeOriginalMessage(
-        dbMessage: DBMessage,
-        in conversation: Conversation,
-        memberProfileCache: MemberProfileCache,
-        sender: ConversationMember,
-        source: MessageSource,
-        reactions: [MessageReaction],
-        origin: AnyMessage.Origin
-    ) -> AnyMessage? {
-        let messageContent: MessageContent
-        switch dbMessage.contentType {
-        case .text:
-            messageContent = .text(dbMessage.text ?? "")
-        case .invite:
-            guard let invite = dbMessage.invite else {
-                Log.error("Invite message type is missing invite object")
-                return nil
-            }
-            messageContent = .invite(invite)
-        case .attachments:
-            messageContent = .attachments(dbMessage.attachmentUrls.compactMap { URL(string: $0) })
-        case .emoji:
-            messageContent = .emoji(dbMessage.emoji ?? "")
-        case .update:
-            guard let update = dbMessage.update,
-                  let initiatedByMember = memberProfileCache.member(for: update.initiatedByInboxId) else {
-                Log.error("Update message type is missing update object")
-                return nil
-            }
-            let addedMembers = update.addedInboxIds.compactMap { memberProfileCache.member(for: $0) }
-            let removedMembers = update.removedInboxIds.map { inboxId in
-                memberProfileCache.member(for: inboxId)
-                    ?? ConversationMember(
-                        profile: .empty(inboxId: inboxId),
-                        role: .member,
-                        isCurrentUser: inboxId == conversation.inboxId
-                    )
-            }
-            messageContent = .update(
-                .init(
-                    creator: initiatedByMember,
-                    addedMembers: addedMembers,
-                    removedMembers: removedMembers,
-                    metadataChanges: update.metadataChanges
-                        .map {
-                            .init(
-                                field: .init(rawValue: $0.field) ?? .unknown,
-                                oldValue: $0.oldValue,
-                                newValue: $0.newValue
-                            )
-                        }
-                )
-            )
-        }
-
-        let message = Message(
-            id: dbMessage.clientMessageId, conversation: conversation,
-            sender: sender, source: source, status: dbMessage.status,
-            content: messageContent, date: dbMessage.date, reactions: reactions
-        )
-        return .message(message, origin)
     }
 
     // swiftlint:disable:next function_parameter_count
@@ -651,7 +649,7 @@ fileprivate extension Database {
         var query = DBMessage
             .filter(DBMessage.Columns.conversationId == conversationId)
             .filter(DBMessage.Columns.messageType != DBMessageType.reaction.rawValue)
-            .order(\.dateNs.desc)
+            .order(DBMessage.Columns.sortId.desc)
 
         if let limit {
             query = query.limit(limit)

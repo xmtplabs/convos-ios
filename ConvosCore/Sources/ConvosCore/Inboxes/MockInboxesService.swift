@@ -89,6 +89,18 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockMessagesRepository(conversationId: conversationId)
     }
 
+    public func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol {
+        MockPhotoPreferencesRepository()
+    }
+
+    public func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol {
+        MockPhotoPreferencesWriter()
+    }
+
+    public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
+        MockAttachmentLocalStateWriter()
+    }
+
     // MARK: - Lifecycle Management
 
     public func setActiveClientId(_ clientId: String?) async {}

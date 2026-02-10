@@ -1,5 +1,6 @@
 import Combine
 import ConvosCore
+import ConvosCoreiOS
 import Observation
 import UIKit
 
@@ -12,6 +13,29 @@ class ConversationViewModel {
     private let messagingService: any MessagingServiceProtocol
     private let conversationStateManager: any ConversationStateManagerProtocol
     private let outgoingMessageWriter: any OutgoingMessageWriterProtocol
+    private let backgroundUploadManager: any BackgroundUploadManagerProtocol
+
+    @ObservationIgnored
+    private var _cachedMessageWriter: (any OutgoingMessageWriterProtocol)?
+    @ObservationIgnored
+    private var _cachedMessageWriterConversationId: String?
+
+    private var cachedMessageWriter: any OutgoingMessageWriterProtocol {
+        if _cachedMessageWriterConversationId != conversation.id {
+            Log.info("[EagerUpload] Creating new message writer for conversation: \(conversation.id)")
+            _cachedMessageWriter = messagingService.messageWriter(
+                for: conversation.id,
+                backgroundUploadManager: backgroundUploadManager
+            )
+            _cachedMessageWriterConversationId = conversation.id
+        } else {
+            Log.info("[EagerUpload] Reusing cached message writer for conversation: \(conversation.id)")
+        }
+        return _cachedMessageWriter ?? messagingService.messageWriter(
+            for: conversation.id,
+            backgroundUploadManager: backgroundUploadManager
+        )
+    }
     private let consentWriter: any ConversationConsentWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
@@ -19,9 +43,16 @@ class ConversationViewModel {
     private let replyWriter: any ReplyMessageWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private let messagesListRepository: any MessagesListRepositoryProtocol
+    private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
+    private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
+    private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored
+    private var photoPreferencesCancellable: AnyCancellable?
+    @ObservationIgnored
+    private var observedPhotoPreferencesConversationId: String?
 
     // MARK: - Public
 
@@ -56,9 +87,7 @@ class ConversationViewModel {
         conversation.invite ?? .empty
     }
 
-    var profile: Profile {
-        myProfileViewModel.profile
-    }
+    var profile: Profile { myProfileViewModel.profile }
     var profileImage: UIImage? {
         get {
             myProfileViewModel.profileImage
@@ -112,6 +141,8 @@ class ConversationViewModel {
     }
     var isConversationImageDirty: Bool = false
     var messageText: String = ""
+    var selectedAttachmentImage: UIImage?
+    private(set) var currentEagerUploadKey: String?
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
     }
@@ -152,8 +183,9 @@ class ConversationViewModel {
         isCurrentUserSuperAdmin
     }
     var sendButtonEnabled: Bool {
-        !messageText.isEmpty
+        !messageText.isEmpty || selectedAttachmentImage != nil
     }
+    private(set) var isSendingPhoto: Bool = false
     var explodeState: ExplodeState = .ready
 
     var presentingConversationSettings: Bool = false
@@ -163,6 +195,29 @@ class ConversationViewModel {
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var replyingToMessage: AnyMessage?
+    var presentingRevealMediaInfoSheet: Bool = false
+    var activeToast: IndicatorToastStyle?
+
+    var autoRevealPhotos: Bool = false {
+        didSet {
+            guard oldValue != autoRevealPhotos else { return }
+            persistAutoReveal(autoRevealPhotos)
+        }
+    }
+
+    private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
+    private var hasShownRevealInfoSheet: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasShownRevealInfoSheetKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownRevealInfoSheetKey) }
+    }
+
+    static func resetUserDefaults() {
+        UserDefaults.standard.removeObject(forKey: hasShownRevealInfoSheetKey)
+    }
+
+    var shouldBlurPhotos: Bool {
+        !autoRevealPhotos
+    }
 
     // MARK: - Onboarding
 
@@ -183,7 +238,8 @@ class ConversationViewModel {
 
     static func create(
         conversation: Conversation,
-        session: any SessionManagerProtocol
+        session: any SessionManagerProtocol,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
     ) async throws -> ConversationViewModel {
         let messagingService = try await session.messagingService(
             for: conversation.clientId,
@@ -192,7 +248,8 @@ class ConversationViewModel {
         return ConversationViewModel(
             conversation: conversation,
             session: session,
-            messagingService: messagingService
+            messagingService: messagingService,
+            backgroundUploadManager: backgroundUploadManager
         )
     }
 
@@ -214,11 +271,13 @@ class ConversationViewModel {
     init(
         conversation: Conversation,
         session: any SessionManagerProtocol,
-        messagingService: any MessagingServiceProtocol
+        messagingService: any MessagingServiceProtocol,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
     ) {
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
+        self.backgroundUploadManager = backgroundUploadManager
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -239,6 +298,10 @@ class ConversationViewModel {
             myProfileRepository: myProfileRepository
         )
 
+        self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
+        self.photoPreferencesWriter = session.photoPreferencesWriter()
+        self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
+
         do {
             self.messages = try messagesListRepository.fetchInitial()
         } catch {
@@ -254,6 +317,7 @@ class ConversationViewModel {
         Log.info("Created for conversation: \(conversation.id)")
 
         observe()
+        loadPhotoPreferences()
 
         startOnboarding()
     }
@@ -263,11 +327,13 @@ class ConversationViewModel {
         conversation: Conversation,
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
-        conversationStateManager: any ConversationStateManagerProtocol
+        conversationStateManager: any ConversationStateManagerProtocol,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
     ) {
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
+        self.backgroundUploadManager = backgroundUploadManager
 
         // Extract dependencies from conversation state manager
         self.conversationStateManager = conversationStateManager
@@ -289,6 +355,10 @@ class ConversationViewModel {
             myProfileRepository: myProfileRepository
         )
 
+        self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
+        self.photoPreferencesWriter = session.photoPreferencesWriter()
+        self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
+
         do {
             self.messages = try messagesListRepository.fetchInitial()
         } catch {
@@ -299,12 +369,26 @@ class ConversationViewModel {
         Log.info("Created for draft conversation: \(conversation.id)")
 
         observe()
+        loadPhotoPreferences()
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
     }
 
     // MARK: - Private
+
+    private func loadPhotoPreferences() {
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                if let prefs = try await photoPreferencesRepository.preferences(for: conversation.id) {
+                    self.autoRevealPhotos = prefs.autoReveal
+                }
+            } catch {
+                Log.error("Error loading photo preferences: \(error)")
+            }
+        }
+    }
 
     private func observe() {
         messagesListRepository.startObserving()
@@ -320,11 +404,15 @@ class ConversationViewModel {
             .compactMap { $0 }
             .sink { [weak self] conversation in
                 guard let self else { return }
+                let previousId = self.conversation.id
                 self.conversation = conversation
                 self.loadConversationImage(for: conversation)
+                if conversation.id != previousId {
+                    self.observePhotoPreferences(for: conversation.id)
+                    self.loadPhotoPreferences()
+                }
             }
             .store(in: &cancellables)
-
         ImageCache.shared.cacheUpdates
             .filter { [weak self] identifier in
                 identifier == self?.conversation.imageCacheIdentifier
@@ -338,6 +426,21 @@ class ConversationViewModel {
                 }
             }
             .store(in: &cancellables)
+        observePhotoPreferences(for: conversation.id)
+    }
+
+    private func observePhotoPreferences(for conversationId: String) {
+        guard conversationId != observedPhotoPreferencesConversationId else { return }
+        observedPhotoPreferencesConversationId = conversationId
+
+        photoPreferencesCancellable?.cancel()
+        photoPreferencesCancellable = photoPreferencesRepository.preferencesPublisher(for: conversationId)
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] prefs in
+                guard let self else { return }
+                self.autoRevealPhotos = prefs?.autoReveal ?? false
+            }
     }
 
     private func loadConversationImage(for conversation: Conversation) {
@@ -438,7 +541,11 @@ class ConversationViewModel {
         // Delegate focus transition to coordinator
         focusCoordinator.endEditing(for: .conversationName, context: context)
     }
+}
 
+// MARK: - Conversation Settings Actions
+
+extension ConversationViewModel {
     func onConversationSettings(focusCoordinator: FocusCoordinator) {
         presentingConversationSettings = true
         focusCoordinator.moveFocus(to: nil)
@@ -469,14 +576,27 @@ class ConversationViewModel {
     }
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
-        guard !messageText.isEmpty else { return }
+        let hasText = !messageText.isEmpty
+        let hasAttachment = selectedAttachmentImage != nil
+
+        guard hasText || hasAttachment else { return }
+
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
+        let prevAttachmentImage = selectedAttachmentImage
+        let eagerUploadKey = currentEagerUploadKey
+
         messageText = ""
         replyingToMessage = nil
+        selectedAttachmentImage = nil
+        currentEagerUploadKey = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
+
+        let messageWriter = cachedMessageWriter
+
         Task { [weak self] in
             guard let self else { return }
+
             do {
                 if let replyTarget {
                     try await replyWriter.sendReply(
@@ -485,11 +605,33 @@ class ConversationViewModel {
                         in: conversation.id
                     )
                 } else {
-                    try await outgoingMessageWriter.send(text: prevMessageText)
+                    let photoTrackingKey: String?
+
+                    if prevAttachmentImage != nil {
+                        isSendingPhoto = true
+                        if let trackingKey = eagerUploadKey {
+                            photoTrackingKey = trackingKey
+                            try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
+                        } else if let attachmentImage = prevAttachmentImage {
+                            let key = try await messageWriter.startEagerUpload(image: attachmentImage)
+                            photoTrackingKey = key
+                            try await messageWriter.sendEagerPhoto(trackingKey: key)
+                        } else {
+                            photoTrackingKey = nil
+                        }
+                    } else {
+                        photoTrackingKey = nil
+                    }
+
+                    if hasText {
+                        try await messageWriter.send(text: prevMessageText, afterPhoto: photoTrackingKey)
+                    }
                 }
             } catch {
                 Log.error("Error sending message: \(error)")
             }
+
+            isSendingPhoto = false
         }
     }
 
@@ -501,56 +643,27 @@ class ConversationViewModel {
         replyingToMessage = nil
     }
 
-    func onReaction(emoji: String, messageId: String) {
+    func onPhotoSelected(_ image: UIImage) {
+        let messageWriter = cachedMessageWriter
+        if let existingKey = currentEagerUploadKey {
+            currentEagerUploadKey = nil
+            Task { await messageWriter.cancelEagerUpload(trackingKey: existingKey) }
+        }
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await reactionWriter.addReaction(
-                    emoji: emoji,
-                    to: messageId,
-                    in: conversation.id
-                )
+                let trackingKey = try await messageWriter.startEagerUpload(image: image)
+                await MainActor.run { self.currentEagerUploadKey = trackingKey }
             } catch {
-                Log.error("Error sending reaction: \(error)")
+                Log.error("Error starting eager upload: \(error)")
             }
         }
     }
 
-    func onToggleReaction(emoji: String, messageId: String) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await reactionWriter.toggleReaction(
-                    emoji: emoji,
-                    to: messageId,
-                    in: conversation.id
-                )
-            } catch {
-                Log.error("Error toggling reaction: \(error)")
-            }
-        }
-    }
-
-    func onTapReactions(_ message: AnyMessage) {
-        presentingReactionsForMessage = message
-    }
-
-    func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await reactionWriter.removeReaction(
-                    emoji: reaction.emoji,
-                    from: message.base.id,
-                    in: conversation.id
-                )
-                await MainActor.run {
-                    self.presentingReactionsForMessage = nil
-                }
-            } catch {
-                Log.error("Error removing reaction: \(error)")
-            }
-        }
+    func onPhotoRemoved() {
+        guard let trackingKey = currentEagerUploadKey else { return }
+        currentEagerUploadKey = nil
+        Task { await cachedMessageWriter.cancelEagerUpload(trackingKey: trackingKey) }
     }
 
     func onUseQuickname(_ profile: Profile, _ profileImage: UIImage?) {
@@ -659,6 +772,197 @@ class ConversationViewModel {
         }
     }
 
+    @MainActor
+    func exportDebugLogs() async throws -> URL {
+        // Get the XMTP client for this conversation
+        let messagingService = try await session.messagingService(
+            for: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+
+        // Wait for inbox to be ready and get the client
+        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+        let client = inboxResult.client
+
+        guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
+            throw NSError(
+                domain: "ConversationViewModel",
+                code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Conversation not found"]
+            )
+        }
+
+        return try await xmtpConversation.exportDebugLogs()
+    }
+}
+
+extension ConversationViewModel {
+    static var mock: ConversationViewModel {
+        return .init(
+            conversation: .mock(),
+            session: MockInboxesService(),
+            messagingService: MockMessagingService()
+        )
+    }
+}
+
+// MARK: - Pagination Support
+
+extension ConversationViewModel {
+    func loadPreviousMessages() {
+        guard hasMoreMessages else { return }
+
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            do {
+                try messagesListRepository.fetchPrevious()
+                Log.info("Fetching previous messages")
+            } catch {
+                Log.error("Error loading previous messages: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    var hasMoreMessages: Bool { messagesListRepository.hasMoreMessages }
+
+    var hasLoadedAllMessages: Bool { !messagesListRepository.hasMoreMessages }
+}
+
+// MARK: - Reactions
+
+extension ConversationViewModel {
+    func onReaction(emoji: String, messageId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.toggleReaction(
+                    emoji: emoji,
+                    to: messageId,
+                    in: conversation.id
+                )
+            } catch {
+                Log.error("Error toggling reaction: \(error)")
+            }
+        }
+    }
+
+    func onTapReactions(_ message: AnyMessage) {
+        presentingReactionsForMessage = message
+    }
+
+    func onDoubleTap(_ message: AnyMessage) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.toggleReaction(
+                    emoji: "❤️",
+                    to: message.base.id,
+                    in: conversation.id
+                )
+            } catch {
+                Log.error("Error toggling reaction: \(error)")
+            }
+        }
+    }
+
+    func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.removeReaction(
+                    emoji: reaction.emoji,
+                    from: message.base.id,
+                    in: conversation.id
+                )
+                await MainActor.run {
+                    self.presentingReactionsForMessage = nil
+                }
+            } catch {
+                Log.error("Error removing reaction: \(error)")
+            }
+        }
+    }
+}
+
+// MARK: - Photo Preferences
+
+extension ConversationViewModel {
+    func onPhotoRevealed(_ attachmentKey: String) {
+        Log.info("[ConversationVM] onPhotoRevealed called with key: \(attachmentKey)")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await attachmentLocalStateWriter.markRevealed(
+                    attachmentKey: attachmentKey,
+                    conversationId: conversation.id
+                )
+                Log.info("[ConversationVM] markRevealed completed for key: \(attachmentKey)")
+            } catch {
+                Log.error("Error marking photo revealed: \(error)")
+            }
+        }
+
+        if !hasShownRevealInfoSheet {
+            hasShownRevealInfoSheet = true
+            presentingRevealMediaInfoSheet = true
+        }
+    }
+
+    func onPhotoHidden(_ attachmentKey: String) {
+        Log.info("[ConversationVM] onPhotoHidden called with key: \(attachmentKey)")
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await attachmentLocalStateWriter.markHidden(
+                    attachmentKey: attachmentKey,
+                    conversationId: conversation.id
+                )
+                Log.info("[ConversationVM] markHidden completed for key: \(attachmentKey)")
+            } catch {
+                Log.error("Error marking photo hidden: \(error)")
+            }
+        }
+    }
+
+    func onPhotoDimensionsLoaded(_ attachmentKey: String, width: Int, height: Int) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await attachmentLocalStateWriter.saveWithDimensions(
+                    attachmentKey: attachmentKey,
+                    conversationId: conversation.id,
+                    width: width,
+                    height: height
+                )
+            } catch {
+                Log.error("Error saving photo dimensions: \(error)")
+            }
+        }
+    }
+
+    func setAutoReveal(_ autoReveal: Bool) {
+        autoRevealPhotos = autoReveal
+    }
+
+    private func persistAutoReveal(_ autoReveal: Bool) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await photoPreferencesWriter.setAutoReveal(autoReveal, for: conversation.id)
+            } catch {
+                Log.error("Error setting autoReveal: \(error)")
+            }
+        }
+    }
+
+    func showRevealSettingsToast() {
+        activeToast = .revealSettings(isAutoReveal: autoRevealPhotos)
+    }
+}
+
+// MARK: - Lock & Explode
+
+extension ConversationViewModel {
     func toggleLock() {
         guard canToggleLock else { return }
 
@@ -745,62 +1049,5 @@ class ConversationViewModel {
                 }
             }
         }
-    }
-}
-
-// MARK: - Pagination Support
-
-extension ConversationViewModel {
-    func loadPreviousMessages() {
-        guard hasMoreMessages else { return }
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                try messagesListRepository.fetchPrevious()
-                Log.info("Fetching previous messages")
-            } catch {
-                Log.error("Error loading previous messages: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    var hasMoreMessages: Bool {
-        messagesListRepository.hasMoreMessages
-    }
-
-    var hasLoadedAllMessages: Bool {
-        !messagesListRepository.hasMoreMessages
-    }
-
-    @MainActor
-    func exportDebugLogs() async throws -> URL {
-        let messagingService = try await session.messagingService(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
-
-        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-        let client = inboxResult.client
-
-        guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
-            throw NSError(
-                domain: "ConversationViewModel",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Conversation not found"]
-            )
-        }
-
-        return try await xmtpConversation.exportDebugLogs()
-    }
-}
-
-extension ConversationViewModel {
-    static var mock: ConversationViewModel {
-        return .init(
-            conversation: .mock(),
-            session: MockInboxesService(),
-            messagingService: MockMessagingService()
-        )
     }
 }

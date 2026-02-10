@@ -110,6 +110,26 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
         // Mock implementation - no-op
     }
 
+    public func send(text: String, afterPhoto trackingKey: String?) async throws {
+        // Mock implementation - no-op
+    }
+
+    public func send(image: ImageType) async throws {
+        // Mock implementation - no-op
+    }
+
+    public func startEagerUpload(image: ImageType) async throws -> String {
+        UUID().uuidString
+    }
+
+    public func sendEagerPhoto(trackingKey: String) async throws {
+        // Mock implementation - no-op
+    }
+
+    public func cancelEagerUpload(trackingKey: String) async {
+        // Mock implementation - no-op
+    }
+
     public func delete() async {
         currentState = .deleting
         notifyObservers(currentState)

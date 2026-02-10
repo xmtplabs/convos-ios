@@ -94,7 +94,8 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
-        conversationId: String? = nil
+        conversationId: String? = nil,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
     ) {
         self.inboxStateManager = inboxStateManager
         self.identityStore = identityStore
@@ -141,7 +142,8 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
-            clientConversationId: initialConversationId
+            clientConversationId: initialConversationId,
+            backgroundUploadManager: backgroundUploadManager
         )
 
         setupStateObservation()
@@ -260,6 +262,29 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         await MainActor.run {
             sentMessageSubject.send(text)
         }
+    }
+
+    public func send(text: String, afterPhoto trackingKey: String?) async throws {
+        await stateMachine.sendMessage(text: text, afterPhoto: trackingKey)
+        await MainActor.run {
+            sentMessageSubject.send(text)
+        }
+    }
+
+    public func send(image: ImageType) async throws {
+        try await stateMachine.sendPhoto(image: image)
+    }
+
+    public func startEagerUpload(image: ImageType) async throws -> String {
+        try await stateMachine.startEagerUpload(image: image)
+    }
+
+    public func sendEagerPhoto(trackingKey: String) async throws {
+        try await stateMachine.sendEagerPhoto(trackingKey: trackingKey)
+    }
+
+    public func cancelEagerUpload(trackingKey: String) async {
+        await stateMachine.cancelEagerUpload(trackingKey: trackingKey)
     }
 
     public func delete() async throws {

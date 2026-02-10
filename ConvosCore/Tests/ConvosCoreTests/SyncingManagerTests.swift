@@ -268,6 +268,10 @@ class TestableMockMessageSender: MessageSender {
         ""
     }
 
+    func prepare(remoteAttachment: RemoteAttachment) async throws -> String {
+        ""
+    }
+
     func publish() async throws {
     }
 
@@ -312,6 +316,10 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
     }
 
     func unregisterInstallation(clientId: String) async throws {
+    }
+
+    func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
+        ("https://mock-api.example.com/upload/\(filename)", "https://mock-api.example.com/assets/\(filename)")
     }
 }
 

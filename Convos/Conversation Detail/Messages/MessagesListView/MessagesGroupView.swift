@@ -1,12 +1,18 @@
 import ConvosCore
+import ConvosLogging
 import SwiftUI
 
 struct MessagesGroupView: View {
     let group: MessagesGroup
+    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
+    let onDoubleTap: (AnyMessage) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
+    let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
@@ -32,7 +38,9 @@ struct MessagesGroupView: View {
             let allMessages = group.allMessages
             ForEach(Array(allMessages.enumerated()), id: \.element.base.id) { index, message in
                 let isReply = if case .reply = message { true } else { false }
-                if index == 0 && !group.sender.isCurrentUser && !isReply {
+                let isAttachment = message.base.content.isAttachment
+
+                if index == 0 && !group.sender.isCurrentUser && !isReply && !isAttachment {
                     Text(group.sender.profile.displayName)
                         .scaleEffect(isAppearing ? 0.9 : 1.0)
                         .opacity(isAppearing ? 0.0 : 1.0)
@@ -41,19 +49,23 @@ struct MessagesGroupView: View {
                             y: isAppearing ? 100 : 0
                         )
                         .blur(radius: isAppearing ? 10.0 : 0.0)
-                        .font(.caption)
-                        .foregroundColor(.colorTextSecondary)
-                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step3x)
+                        .font(.footnote)
+                        .foregroundColor(.secondary)
+                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x)
+                        .padding(.bottom, DesignConstants.Spacing.stepHalf)
                 }
 
-                let lastMessage = group.unpublished.last ?? group.messages.last
+                let lastMessage = group.messages.last
                 let isLast = message == lastMessage
                 let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
-                let isLastPublished = message == group.messages.last
-                let showsSentStatus = isLastPublished && group.isLastGroupSentByCurrentUser
+                let isLastInGroup = message == group.messages.last
+                // Show "Sent" status for the last message in the last group sent by current user,
+                // but only if it's published (not still sending)
+                let showsSentStatus = isLastInGroup && group.isLastGroupSentByCurrentUser && message.base.status == .published
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
-                    if !group.sender.isCurrentUser {
+                    // Show avatar spacer for incoming non-attachment messages only
+                    if !group.sender.isCurrentUser && !isAttachment {
                         Color.clear
                             .frame(width: avatarSize, height: avatarSize)
                     }
@@ -61,9 +73,14 @@ struct MessagesGroupView: View {
                     MessagesGroupItemView(
                         message: message,
                         bubbleType: bubbleType,
+                        shouldBlurPhotos: shouldBlurPhotos,
                         onTapAvatar: onTapAvatar,
                         onTapInvite: onTapInvite,
-                        onReply: onReply
+                        onReply: onReply,
+                        onDoubleTap: onDoubleTap,
+                        onPhotoRevealed: onPhotoRevealed,
+                        onPhotoHidden: onPhotoHidden,
+                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
                     )
                     .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
@@ -92,6 +109,7 @@ struct MessagesGroupView: View {
                         }
                     }
                 }
+                .padding(.leading, !group.sender.isCurrentUser && !isAttachment ? DesignConstants.Spacing.step2x : 0)
 
                 if !message.base.reactions.isEmpty {
                     ReactionIndicatorView(
@@ -99,7 +117,8 @@ struct MessagesGroupView: View {
                         isOutgoing: message.base.sender.isCurrentUser,
                         onTap: { onTapReactions(message) }
                     )
-                    .padding(.leading, message.base.sender.isCurrentUser ? 0 : avatarWidth)
+                    .padding(.leading, message.base.sender.isCurrentUser ? 0 : avatarWidth + DesignConstants.Spacing.step2x)
+                    .padding(.trailing, message.base.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
                     .padding(.bottom, DesignConstants.Spacing.stepX)
                     .transition(.identity)
                     .zIndex(50)
@@ -114,6 +133,8 @@ struct MessagesGroupView: View {
                     }
                     .transition(.blurReplace)
                     .padding(.vertical, DesignConstants.Spacing.stepX)
+                    .padding(.leading, DesignConstants.Spacing.step2x)
+                    .padding(.trailing, DesignConstants.Spacing.step4x)
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
                     .zIndex(-1)
@@ -153,10 +174,15 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockIncoming,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onReply: { _ in }
+            onReply: { _ in },
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in },
+            onPhotoDimensionsLoaded: { _, _, _ in }
         )
         .padding()
     }
@@ -167,10 +193,15 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockOutgoing,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onReply: { _ in }
+            onReply: { _ in },
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in },
+            onPhotoDimensionsLoaded: { _, _, _ in }
         )
         .padding()
     }
@@ -181,10 +212,15 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockMixed,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onReply: { _ in }
+            onReply: { _ in },
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in },
+            onPhotoDimensionsLoaded: { _, _, _ in }
         )
         .padding()
     }
@@ -195,10 +231,15 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockIncomingWithReactions,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onReply: { _ in }
+            onReply: { _ in },
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in },
+            onPhotoDimensionsLoaded: { _, _, _ in }
         )
         .padding()
     }
@@ -209,10 +250,15 @@ struct MessagesGroupView: View {
     ScrollView {
         MessagesGroupView(
             group: .mockOutgoingWithReactions,
+            shouldBlurPhotos: false,
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onReply: { _ in }
+            onReply: { _ in },
+            onDoubleTap: { _ in },
+            onPhotoRevealed: { _ in },
+            onPhotoHidden: { _ in },
+            onPhotoDimensionsLoaded: { _, _, _ in }
         )
         .padding()
     }
@@ -230,7 +276,6 @@ struct MessagesGroupView: View {
                 .message(Message.mock(text: "Hey! Are you coming to the party tonight?", sender: alice, status: .published), .existing),
                 .message(Message.mock(text: "It starts at 8", sender: alice, status: .published), .existing),
             ],
-            unpublished: [],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false
         ),
@@ -241,7 +286,6 @@ struct MessagesGroupView: View {
                 .message(Message.mock(text: "Yeah I'll be there!", sender: me, status: .published), .existing),
                 .message(Message.mock(text: "Should I bring anything?", sender: me, status: .published), .existing),
             ],
-            unpublished: [],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false
         ),
@@ -251,7 +295,6 @@ struct MessagesGroupView: View {
             messages: [
                 .message(Message.mock(text: "Just yourself 😊", sender: alice, status: .published), .existing),
             ],
-            unpublished: [],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false
         ),
@@ -261,7 +304,6 @@ struct MessagesGroupView: View {
             messages: [
                 .message(Message.mock(text: "Sounds good, see you then!", sender: me, status: .published), .existing),
             ],
-            unpublished: [],
             isLastGroup: true,
             isLastGroupSentByCurrentUser: true
         ),
@@ -272,10 +314,15 @@ struct MessagesGroupView: View {
             ForEach(groups) { group in
                 MessagesGroupView(
                     group: group,
+                    shouldBlurPhotos: false,
                     onTapAvatar: { _ in },
                     onTapInvite: { _ in },
                     onTapReactions: { _ in },
-                    onReply: { _ in }
+                    onReply: { _ in },
+                    onDoubleTap: { _ in },
+                    onPhotoRevealed: { _ in },
+                    onPhotoHidden: { _ in },
+                    onPhotoDimensionsLoaded: { _, _, _ in }
                 )
             }
         }
