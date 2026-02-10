@@ -10,6 +10,7 @@ struct MessagesListView: View {
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onDoubleTap: (AnyMessage) -> Void
+    let onReply: (AnyMessage) -> Void
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -46,7 +47,8 @@ struct MessagesListView: View {
                                     onTapAvatar: onTapAvatar,
                                     onTapInvite: onTapInvite,
                                     onTapReactions: onTapReactions,
-                                    onDoubleTap: onDoubleTap
+                                    onDoubleTap: onDoubleTap,
+                                    onReply: onReply
                                 )
 
                             case .invite(let invite):

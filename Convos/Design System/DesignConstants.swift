@@ -47,5 +47,6 @@ enum DesignConstants {
         static let medium: Font = .system(size: 16.0)
         static let small: Font = .system(size: 12.0)
         static let buttonText: Font = .system(size: 14.0)
+        static let caption3: Font = .system(size: 8.0)
     }
 }

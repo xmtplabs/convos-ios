@@ -13,6 +13,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onDoubleTap: (AnyMessage) -> Void
+    let onReply: (AnyMessage) -> Void
     let bottomBarHeight: CGFloat
 
     func makeUIViewController(context: Context) -> MessagesViewController {
@@ -28,6 +29,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onReaction = onReaction
         messagesViewController.onTapReactions = onTapReactions
         messagesViewController.onDoubleTap = onDoubleTap
+        messagesViewController.onReply = onReply
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,
@@ -54,6 +56,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onReaction: { _, _ in },
         onTapReactions: { _ in },
         onDoubleTap: { _ in },
+        onReply: { _ in },
         bottomBarHeight: bottomBarHeight
     )
     .ignoresSafeArea()

@@ -51,11 +51,11 @@ private struct ReactionPillView: View {
         HStack(spacing: DesignConstants.Spacing.stepHalf) {
             ForEach(emojis, id: \.self) { emoji in
                 Text(emoji)
-                    .font(.system(size: 16))
+                    .font(.callout)
             }
             if count > 1 {
                 Text("\(count)")
-                    .font(.system(size: 14))
+                    .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
             }
         }

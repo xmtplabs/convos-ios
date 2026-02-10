@@ -8,7 +8,6 @@ struct MessageBubble: View {
     let profile: Profile
 
     private var textColor: Color {
-        // Match the text color based on message type (same as MessageContainer)
         if isOutgoing {
             return Color.colorTextPrimaryInverted
         } else {
@@ -22,7 +21,7 @@ struct MessageBubble: View {
                 .foregroundStyle(textColor)
                 .font(.callout)
                 .padding(.horizontal, DesignConstants.Spacing.step3x)
-                .padding(.vertical, DesignConstants.Spacing.step2x)
+                .padding(.vertical, 10.0)
                 .fixedSize(horizontal: false, vertical: true)
         }
     }

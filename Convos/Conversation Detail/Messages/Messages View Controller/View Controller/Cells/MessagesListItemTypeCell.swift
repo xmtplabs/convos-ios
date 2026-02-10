@@ -38,7 +38,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onTapAvatar: actions.onTapAvatar,
                         onTapInvite: actions.onTapInvite,
                         onTapReactions: actions.onTapReactions,
-                        onDoubleTap: actions.onDoubleTap
+                        onDoubleTap: actions.onDoubleTap,
+                        onReply: actions.onReply
                     )
 
                 case .invite(let invite):

@@ -7,6 +7,7 @@ struct MessagesGroupView: View {
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onDoubleTap: (AnyMessage) -> Void
+    let onReply: (AnyMessage) -> Void
 
     @State private var isAppearing: Bool = true
 
@@ -30,7 +31,8 @@ struct MessagesGroupView: View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             let allMessages = group.allMessages
             ForEach(Array(allMessages.enumerated()), id: \.element.base.id) { index, message in
-                if index == 0 && !group.sender.isCurrentUser {
+                let isReply = if case .reply = message { true } else { false }
+                if index == 0 && !group.sender.isCurrentUser && !isReply {
                     Text(group.sender.profile.displayName)
                         .scaleEffect(isAppearing ? 0.9 : 1.0)
                         .opacity(isAppearing ? 0.0 : 1.0)
@@ -39,10 +41,9 @@ struct MessagesGroupView: View {
                             y: isAppearing ? 100 : 0
                         )
                         .blur(radius: isAppearing ? 10.0 : 0.0)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step2x)
-                        .padding(.bottom, DesignConstants.Spacing.stepHalf)
+                        .font(.caption)
+                        .foregroundColor(.colorTextSecondary)
+                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step3x)
                 }
 
                 let lastMessage = group.unpublished.last ?? group.messages.last
@@ -62,7 +63,8 @@ struct MessagesGroupView: View {
                         bubbleType: bubbleType,
                         onTapAvatar: onTapAvatar,
                         onTapInvite: onTapInvite,
-                        onDoubleTap: onDoubleTap
+                        onDoubleTap: onDoubleTap,
+                        onReply: onReply
                     )
                     .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
@@ -124,7 +126,7 @@ struct MessagesGroupView: View {
                 removal: .opacity
             )
         )
-        .padding(.vertical, DesignConstants.Spacing.stepX)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: group)
         .onAppear {
             guard isAppearing else { return }
@@ -150,7 +152,8 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onReply: { _ in }
         )
         .padding()
     }
@@ -164,7 +167,8 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onReply: { _ in }
         )
         .padding()
     }
@@ -178,7 +182,8 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onReply: { _ in }
         )
         .padding()
     }
@@ -192,7 +197,8 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onReply: { _ in }
         )
         .padding()
     }
@@ -206,9 +212,75 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in }
+            onDoubleTap: { _ in },
+            onReply: { _ in }
         )
         .padding()
     }
     .background(.colorBackgroundSurfaceless)
+}
+
+#Preview("Full Conversation") {
+    let alice = ConversationMember.mock(isCurrentUser: false, name: "Alice")
+    let me = ConversationMember.mock(isCurrentUser: true)
+    let groups: [MessagesGroup] = [
+        MessagesGroup(
+            id: "conv-1",
+            sender: alice,
+            messages: [
+                .message(Message.mock(text: "Hey! Are you coming to the party tonight?", sender: alice, status: .published), .existing),
+                .message(Message.mock(text: "It starts at 8", sender: alice, status: .published), .existing),
+            ],
+            unpublished: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "conv-2",
+            sender: me,
+            messages: [
+                .message(Message.mock(text: "Yeah I'll be there!", sender: me, status: .published), .existing),
+                .message(Message.mock(text: "Should I bring anything?", sender: me, status: .published), .existing),
+            ],
+            unpublished: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "conv-3",
+            sender: alice,
+            messages: [
+                .message(Message.mock(text: "Just yourself 😊", sender: alice, status: .published), .existing),
+            ],
+            unpublished: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "conv-4",
+            sender: me,
+            messages: [
+                .message(Message.mock(text: "Sounds good, see you then!", sender: me, status: .published), .existing),
+            ],
+            unpublished: [],
+            isLastGroup: true,
+            isLastGroupSentByCurrentUser: true
+        ),
+    ]
+
+    ScrollView {
+        VStack(spacing: 0) {
+            ForEach(groups) { group in
+                MessagesGroupView(
+                    group: group,
+                    onTapAvatar: { _ in },
+                    onTapInvite: { _ in },
+                    onTapReactions: { _ in },
+                    onDoubleTap: { _ in },
+                    onReply: { _ in }
+                )
+            }
+        }
+    }
+    .background(.colorBackgroundPrimary)
 }

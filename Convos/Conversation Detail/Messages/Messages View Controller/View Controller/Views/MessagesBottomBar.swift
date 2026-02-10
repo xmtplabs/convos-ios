@@ -113,6 +113,7 @@ struct MessagesBottomBar: View {
             onReaction: { _, _ in },
             onTapReactions: { _ in },
             onDoubleTap: { _ in },
+            onReply: { _ in },
             bottomBarHeight: bottomBarHeight
         )
         .ignoresSafeArea()

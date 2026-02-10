@@ -292,129 +292,185 @@ extension Array where Element == MessageWithDetails {
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) throws -> ([AnyMessage], Set<String>) {
-        let dbMessagesWithDetails = self
         var updatedSeenIds = seenMessageIds
 
-        let messages = try dbMessagesWithDetails.compactMap { dbMessageWithDetails -> AnyMessage? in
+        let messages = try compactMap { dbMessageWithDetails -> AnyMessage? in
             let dbMessage = dbMessageWithDetails.message
-            let dbReactions = dbMessageWithDetails.messageReactions
             let dbSender = dbMessageWithDetails.messageSender
-
             let sender = dbSender.hydrateConversationMember(currentInboxId: conversation.inboxId)
             let source: MessageSource = sender.isCurrentUser ? .outgoing : .incoming
-            let reactions = try dbReactions.hydrateReactions(from: database, in: conversation)
+            let reactions = try dbMessageWithDetails.messageReactions.hydrateReactions(from: database, in: conversation)
+            let origin = Self.resolveOrigin(
+                for: dbMessage.clientMessageId,
+                seenMessageIds: seenMessageIds,
+                isInitialLoad: isInitialLoad,
+                isPaginating: isPaginating
+            )
+            updatedSeenIds.insert(dbMessage.clientMessageId)
+
             switch dbMessage.messageType {
             case .original:
-                let messageContent: MessageContent
-                switch dbMessage.contentType {
-                case .text:
-                    messageContent = .text(dbMessage.text ?? "")
-                case .invite:
-                    guard let invite = dbMessage.invite else {
-                        Log.error("Invite message type is missing invite object")
-                        return nil
-                    }
-                    messageContent = .invite(invite)
-                case .attachments:
-                    messageContent = .attachments(dbMessage.attachmentUrls.compactMap { urlString in
-                        URL(string: urlString)
-                    })
-                case .emoji:
-                    messageContent = .emoji(dbMessage.emoji ?? "")
-                case .update:
-                    guard let update = dbMessage.update,
-                          let initiatedByMember = try DBConversationMemberProfileWithRole.fetchOne(
-                            database,
-                            conversationId: conversation.id,
-                            inboxId: update.initiatedByInboxId
-                          ) else {
-                        Log.error("Update message type is missing update object")
-                        return nil
-                    }
-                    let addedMembers = try DBConversationMemberProfileWithRole.fetchAll(
-                        database,
-                        conversationId: conversation.id,
-                        inboxIds: update.addedInboxIds
-                    )
-                    let removedMembers = try DBConversationMemberProfileWithRole.fetchAll(
-                        database,
-                        conversationId: conversation.id,
-                        inboxIds: update.removedInboxIds
-                    )
-                    messageContent = .update(
-                        .init(
-                            creator: initiatedByMember.hydrateConversationMember(currentInboxId: conversation.inboxId),
-                            addedMembers: addedMembers.map { $0.hydrateConversationMember(currentInboxId: conversation.inboxId) },
-                            removedMembers: removedMembers.map { $0.hydrateConversationMember(currentInboxId: conversation.inboxId) },
-                            metadataChanges: update.metadataChanges
-                                .map {
-                                    .init(
-                                        field: .init(rawValue: $0.field) ?? .unknown,
-                                        oldValue: $0.oldValue,
-                                        newValue: $0.newValue
-                                    )
-                                }
-                        )
-                    )
-                }
-
-                let message = Message(
-                    id: dbMessage.clientMessageId,
-                    conversation: conversation,
-                    sender: sender,
-                    source: source,
-                    status: dbMessage.status,
-                    content: messageContent,
-                    date: dbMessage.date,
-                    reactions: reactions
+                return try Self.composeOriginalMessage(
+                    dbMessage: dbMessage, from: database, in: conversation,
+                    sender: sender, source: source, reactions: reactions, origin: origin
                 )
-
-                // Determine origin:
-                // - Initial load: all messages are .existing
-                // - Pagination: unseen messages are .paginated, seen are .existing
-                // - New insertions: unseen messages are .inserted, seen are .existing
-                let origin: AnyMessage.Origin
-                if isInitialLoad {
-                    // Initial load - all are existing
-                    origin = .existing
-                } else if isPaginating {
-                    // Pagination - unseen messages are paginated, seen are existing
-                    origin = seenMessageIds.contains(dbMessage.clientMessageId) ? .existing : .paginated
-                } else {
-                    // New insertions - unseen messages are inserted, seen are existing
-                    origin = seenMessageIds.contains(dbMessage.clientMessageId) ? .existing : .inserted
-                }
-
-                // Add to seen messages
-                updatedSeenIds.insert(dbMessage.clientMessageId)
-
-                return .message(message, origin)
             case .reply:
-                switch dbMessage.contentType {
-                case .text, .invite:
-                    break
-                case .attachments:
-                    break
-                case .emoji:
-                    break
-                case .update:
-                    return nil
-                }
-
+                return try Self.composeReplyMessage(
+                    dbMessageWithDetails: dbMessageWithDetails, dbMessage: dbMessage,
+                    from: database, in: conversation,
+                    sender: sender, source: source, reactions: reactions, origin: origin
+                )
             case .reaction:
-                switch dbMessage.contentType {
-                case .text, .attachments, .update, .invite:
-                    // invalid
-                    return nil
-                case .emoji:
-                    break
-                }
+                guard case .emoji = dbMessage.contentType else { return nil }
+                return nil
             }
-
-            return nil
         }
 
         return (messages, updatedSeenIds)
+    }
+
+    // MARK: - Compose Helpers
+
+    // swiftlint:disable:next function_parameter_count
+    private static func composeOriginalMessage(
+        dbMessage: DBMessage,
+        from database: Database,
+        in conversation: Conversation,
+        sender: ConversationMember,
+        source: MessageSource,
+        reactions: [MessageReaction],
+        origin: AnyMessage.Origin
+    ) throws -> AnyMessage? {
+        let messageContent: MessageContent
+        switch dbMessage.contentType {
+        case .text:
+            messageContent = .text(dbMessage.text ?? "")
+        case .invite:
+            guard let invite = dbMessage.invite else {
+                Log.error("Invite message type is missing invite object")
+                return nil
+            }
+            messageContent = .invite(invite)
+        case .attachments:
+            messageContent = .attachments(dbMessage.attachmentUrls.compactMap { URL(string: $0) })
+        case .emoji:
+            messageContent = .emoji(dbMessage.emoji ?? "")
+        case .update:
+            guard let update = dbMessage.update,
+                  let initiatedByMember = try DBConversationMemberProfileWithRole.fetchOne(
+                    database, conversationId: conversation.id, inboxId: update.initiatedByInboxId
+                  ) else {
+                Log.error("Update message type is missing update object")
+                return nil
+            }
+            let addedMembers = try DBConversationMemberProfileWithRole.fetchAll(
+                database, conversationId: conversation.id, inboxIds: update.addedInboxIds
+            )
+            let removedMembers = try DBConversationMemberProfileWithRole.fetchAll(
+                database, conversationId: conversation.id, inboxIds: update.removedInboxIds
+            )
+            messageContent = .update(
+                .init(
+                    creator: initiatedByMember.hydrateConversationMember(currentInboxId: conversation.inboxId),
+                    addedMembers: addedMembers.map { $0.hydrateConversationMember(currentInboxId: conversation.inboxId) },
+                    removedMembers: removedMembers.map { $0.hydrateConversationMember(currentInboxId: conversation.inboxId) },
+                    metadataChanges: update.metadataChanges
+                        .map {
+                            .init(
+                                field: .init(rawValue: $0.field) ?? .unknown,
+                                oldValue: $0.oldValue,
+                                newValue: $0.newValue
+                            )
+                        }
+                )
+            )
+        }
+
+        let message = Message(
+            id: dbMessage.clientMessageId, conversation: conversation,
+            sender: sender, source: source, status: dbMessage.status,
+            content: messageContent, date: dbMessage.date, reactions: reactions
+        )
+        return .message(message, origin)
+    }
+
+    // swiftlint:disable:next function_parameter_count
+    private static func composeReplyMessage(
+        dbMessageWithDetails: MessageWithDetails,
+        dbMessage: DBMessage,
+        from database: Database,
+        in conversation: Conversation,
+        sender: ConversationMember,
+        source: MessageSource,
+        reactions: [MessageReaction],
+        origin: AnyMessage.Origin
+    ) throws -> AnyMessage? {
+        let replyContent: MessageContent
+        switch dbMessage.contentType {
+        case .text:
+            replyContent = .text(dbMessage.text ?? "")
+        case .emoji:
+            replyContent = .emoji(dbMessage.emoji ?? "")
+        case .update, .invite, .attachments:
+            return nil
+        }
+
+        guard let sourceDBMessage = dbMessageWithDetails.sourceMessage,
+              let sourceSenderProfile = try DBConversationMemberProfileWithRole.fetchOne(
+                  database, conversationId: conversation.id, inboxId: sourceDBMessage.senderId
+              ) else {
+            let message = Message(
+                id: dbMessage.clientMessageId, conversation: conversation,
+                sender: sender, source: source, status: dbMessage.status,
+                content: replyContent, date: dbMessage.date, reactions: reactions
+            )
+            return .message(message, origin)
+        }
+
+        let parentSender = sourceSenderProfile.hydrateConversationMember(currentInboxId: conversation.inboxId)
+        let parentSource: MessageSource = parentSender.isCurrentUser ? .outgoing : .incoming
+        let parentContent: MessageContent
+        switch sourceDBMessage.contentType {
+        case .text:
+            parentContent = .text(sourceDBMessage.text ?? "")
+        case .emoji:
+            parentContent = .emoji(sourceDBMessage.emoji ?? "")
+        case .attachments:
+            parentContent = .text("[Attachment]")
+        case .invite:
+            parentContent = .text("[Invite]")
+        case .update:
+            parentContent = .text("[Update]")
+        }
+
+        let parentMessage = Message(
+            id: sourceDBMessage.clientMessageId, conversation: conversation,
+            sender: parentSender, source: parentSource, status: sourceDBMessage.status,
+            content: parentContent, date: sourceDBMessage.date, reactions: []
+        )
+
+        let messageReply = MessageReply(
+            id: dbMessage.clientMessageId, conversation: conversation,
+            sender: sender, source: source, status: dbMessage.status,
+            content: replyContent, date: dbMessage.date,
+            parentMessage: parentMessage, reactions: reactions
+        )
+        return .reply(messageReply, origin)
+    }
+
+    private static func resolveOrigin(
+        for messageId: String,
+        seenMessageIds: Set<String>,
+        isInitialLoad: Bool,
+        isPaginating: Bool
+    ) -> AnyMessage.Origin {
+        if isInitialLoad {
+            return .existing
+        } else if isPaginating {
+            return seenMessageIds.contains(messageId) ? .existing : .paginated
+        } else {
+            return seenMessageIds.contains(messageId) ? .existing : .inserted
+        }
     }
 }
 

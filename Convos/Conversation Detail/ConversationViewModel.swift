@@ -16,6 +16,7 @@ class ConversationViewModel {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
+    private let replyWriter: any ReplyMessageWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private let messagesListRepository: any MessagesListRepositoryProtocol
 
@@ -161,6 +162,7 @@ class ConversationViewModel {
     var presentingNewConversationForInvite: NewConversationViewModel?
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
+    var replyingToMessage: AnyMessage?
 
     // MARK: - Onboarding
 
@@ -215,6 +217,7 @@ class ConversationViewModel {
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.reactionWriter = messagingService.reactionWriter()
+        self.replyWriter = messagingService.replyWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
@@ -265,6 +268,7 @@ class ConversationViewModel {
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.reactionWriter = messagingService.reactionWriter()
+        self.replyWriter = messagingService.replyWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
@@ -451,16 +455,36 @@ class ConversationViewModel {
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         guard !messageText.isEmpty else { return }
         let prevMessageText = messageText
+        let replyTarget = replyingToMessage
         messageText = ""
+        replyingToMessage = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await outgoingMessageWriter.send(text: prevMessageText)
+                if let replyTarget {
+                    try await replyWriter.sendReply(
+                        text: prevMessageText,
+                        to: replyTarget.base.id,
+                        in: conversation.id
+                    )
+                } else {
+                    try await outgoingMessageWriter.send(text: prevMessageText)
+                }
             } catch {
                 Log.error("Error sending message: \(error)")
+                if self.messageText.isEmpty { self.messageText = prevMessageText }
+                if self.replyingToMessage == nil { self.replyingToMessage = replyTarget }
             }
         }
+    }
+
+    func onReply(_ message: AnyMessage) {
+        replyingToMessage = message
+    }
+
+    func cancelReply() {
+        replyingToMessage = nil
     }
 
     func onReaction(emoji: String, messageId: String) {

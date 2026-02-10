@@ -314,9 +314,6 @@ final class MessageReactionPresentationAnimator: NSObject, UIViewControllerAnima
                 }
 
                 previewView.transform = CGAffineTransform(scaleX: overshootScale, y: overshootScale)
-                previewView.layer.shadowOpacity = 0.15
-                previewView.layer.shadowRadius = 10.0
-                previewView.layer.shadowOffset = .zero
             }
 
             UIView.addKeyframe(withRelativeStartTime: 0.9, relativeDuration: 0.4) {
@@ -331,6 +328,7 @@ final class MessageReactionPresentationAnimator: NSObject, UIViewControllerAnima
             MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 toVC.animateReactionToEndPosition()
+                toVC.animateActionButtonsToEndPosition()
                 UIView.animate(withDuration: 0.5,
                                delay: 0.0,
                                usingSpringWithDamping: 0.8,
@@ -401,14 +399,12 @@ final class MessageReactionDismissalAnimator: NSObject, UIViewControllerAnimated
                     return
                 }
 
-                previewView.layer.shadowOpacity = 0.0
-                previewView.layer.shadowRadius = 0.0
-                previewView.layer.shadowOffset = .zero
                 previewView.transform = .identity
                 previewView.frame = fromVC.configuration.sourceRect
             }
             UIView.addKeyframe(withRelativeStartTime: 0.2, relativeDuration: 0.5) {
                 fromVC.animateReactionToStartPosition()
+                fromVC.animateActionButtonsToStartPosition()
             }
             UIView.addKeyframe(withRelativeStartTime: 0.0, relativeDuration: 0.3) {
                 guard !transitionContext.transitionWasCancelled else {

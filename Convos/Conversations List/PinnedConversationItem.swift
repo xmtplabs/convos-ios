@@ -34,7 +34,7 @@ struct PinnedConversationItem: View {
 
                 if conversation.isMuted {
                     Image(systemName: "bell.slash.fill")
-                        .font(.caption2)
+                        .font(.caption)
                         .foregroundColor(.secondary)
                 }
 

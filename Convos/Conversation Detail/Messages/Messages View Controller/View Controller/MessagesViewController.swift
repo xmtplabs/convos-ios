@@ -13,6 +13,10 @@ private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
     }
 }
 
+/// Captures horizontal swipes on the collection view to prevent
+/// NavigationSplitView's back gesture from triggering mid-screen.
+private class HorizontalBlockerPanGestureRecognizer: UIPanGestureRecognizer {}
+
 final class MessagesViewController: UIViewController {
     struct MessagesState {
         let conversation: Conversation
@@ -136,6 +140,7 @@ final class MessagesViewController: UIViewController {
     var onReaction: ((String, String) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onDoubleTap: ((AnyMessage) -> Void)?
+    var onReply: ((AnyMessage) -> Void)?
 
     private var currentReactionMessageId: String?
     private var reactionCancellable: AnyCancellable?
@@ -235,15 +240,8 @@ final class MessagesViewController: UIViewController {
 
         dataSource.prepare(with: collectionView)
 
-        dataSource.onTapAvatar = { [weak self] indexPath in
-            guard let self = self else { return }
-            let item = self.dataSource.sections[indexPath.section].cells[indexPath.item]
-            switch item {
-            case .messages(let group):
-                self.onTapAvatar?(group.sender)
-            default:
-                break
-            }
+        dataSource.onTapAvatar = { [weak self] sender in
+            self?.onTapAvatar?(sender)
         }
         dataSource.onTapInvite = { [weak self] invite in
             guard let self = self else { return }
@@ -257,8 +255,13 @@ final class MessagesViewController: UIViewController {
             guard let self = self else { return }
             self.onDoubleTap?(message)
         }
+        dataSource.onReply = { [weak self] message in
+            guard let self = self else { return }
+            self.onReply?(message)
+        }
 
         setupImmediateTouchGesture()
+        setupHorizontalBlockerGesture()
     }
 
     private func setupImmediateTouchGesture() {
@@ -268,6 +271,12 @@ final class MessagesViewController: UIViewController {
         gesture.delaysTouchesEnded = false
         gesture.delegate = self
         collectionView.addGestureRecognizer(gesture)
+    }
+
+    private func setupHorizontalBlockerGesture() {
+        let blocker = HorizontalBlockerPanGestureRecognizer(target: self, action: nil)
+        blocker.delegate = self
+        collectionView.addGestureRecognizer(blocker)
     }
 
     @objc private func handleImmediateTouch(_ gesture: UIGestureRecognizer) {
@@ -672,6 +681,15 @@ extension MessagesViewController: KeyboardListenerDelegate {
 // MARK: - UIGestureRecognizerDelegate
 
 extension MessagesViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? HorizontalBlockerPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: view)
+        let location = pan.location(in: view)
+        let isHorizontal = abs(velocity.x) > abs(velocity.y)
+        let isAwayFromEdge = location.x > 30
+        return isHorizontal && isAwayFromEdge
+    }
+
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
@@ -696,6 +714,25 @@ extension MessagesViewController: MessageReactionMenuCoordinatorDelegate {
         }
 
         let viewModel = MessageReactionMenuViewModel()
+
+        if case .messages(let group) = item, let lastMessage = group.allMessages.last {
+            switch lastMessage.base.content {
+            case .text(let text):
+                viewModel.canReply = true
+                viewModel.copyableText = text
+            case .emoji(let text):
+                viewModel.canReply = true
+                viewModel.copyableText = text
+            default:
+                viewModel.canReply = false
+                viewModel.copyableText = nil
+            }
+
+            viewModel.onReply = { [weak self] in
+                self?.onReply?(lastMessage)
+            }
+        }
+
         reactionCancellable = viewModel.selectedEmojiPublisher
             .compactMap { $0 }
             .sink { [weak self] emoji in

@@ -197,3 +197,41 @@ public extension Invite {
         )
     }
 }
+
+public extension MessageReply {
+    static func mock(
+        text: String = "This is a reply",
+        sender: ConversationMember? = nil,
+        parentText: String = "Original message that was replied to",
+        parentSender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date()
+    ) -> MessageReply {
+        let mockSender = sender ?? .mock(isCurrentUser: true)
+        let mockParentSender = parentSender ?? .mock(isCurrentUser: false, name: "Jane")
+        let conversation = Conversation.mock()
+
+        let parentMessage = Message(
+            id: "parent-\(UUID().uuidString)",
+            conversation: conversation,
+            sender: mockParentSender,
+            source: mockParentSender.isCurrentUser ? .outgoing : .incoming,
+            status: .published,
+            content: .text(parentText),
+            date: date.addingTimeInterval(-60),
+            reactions: []
+        )
+
+        return MessageReply(
+            id: "reply-\(UUID().uuidString)",
+            conversation: conversation,
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: .text(text),
+            date: date,
+            parentMessage: parentMessage,
+            reactions: []
+        )
+    }
+}

@@ -155,6 +155,11 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                        databaseWriter: databaseWriter)
     }
 
+    func replyWriter() -> any ReplyMessageWriterProtocol {
+        ReplyMessageWriter(inboxStateManager: inboxStateManager,
+                           databaseWriter: databaseWriter)
+    }
+
     // MARK: - Group Management
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol {

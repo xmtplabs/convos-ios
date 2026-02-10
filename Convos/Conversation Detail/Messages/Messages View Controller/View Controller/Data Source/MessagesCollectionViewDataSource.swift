@@ -12,10 +12,11 @@ final class MessagesCollectionViewDataSource: NSObject {
         }
     }
 
-    var onTapAvatar: ((IndexPath) -> Void)?
+    var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onDoubleTap: ((AnyMessage) -> Void)?
+    var onReply: ((AnyMessage) -> Void)?
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -52,14 +53,17 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 Log.info("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
             },
-            onTapAvatar: { [weak self] _ in
-                self?.onTapAvatar?(indexPath)
+            onTapAvatar: { [weak self] message in
+                self?.onTapAvatar?(message.base.sender)
             },
             onTapReactions: { [weak self] message in
                 self?.onTapReactions?(message)
             },
             onDoubleTap: { [weak self] message in
                 self?.onDoubleTap?(message)
+            },
+            onReply: { [weak self] message in
+                self?.onReply?(message)
             }
         )
         return CellFactory.createCell(

@@ -32,6 +32,9 @@ struct MessagesView<BottomBarContent: View>: View {
     let onReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onDoubleTap: (AnyMessage) -> Void
+    let onReply: (AnyMessage) -> Void
+    let replyingToMessage: AnyMessage?
+    let onCancelReply: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
@@ -52,6 +55,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 onReaction: onReaction,
                 onTapReactions: onTapReactions,
                 onDoubleTap: onDoubleTap,
+                onReply: onReply,
                 bottomBarHeight: bottomBarHeight
             )
             .ignoresSafeArea()
@@ -59,6 +63,12 @@ struct MessagesView<BottomBarContent: View>: View {
         .safeAreaBar(edge: .bottom) {
             VStack(spacing: 0.0) {
                 bottomBarContent()
+                if let replyingToMessage {
+                    ReplyComposerBar(
+                        message: replyingToMessage,
+                        onDismiss: onCancelReply
+                    )
+                }
                 MessagesBottomBar(
                     profile: profile,
                     displayName: $displayName,

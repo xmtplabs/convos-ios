@@ -16,11 +16,11 @@ struct ConversationInfoPreview: View {
 
                     VStack(spacing: DesignConstants.Spacing.stepHalf) {
                         Text(conversation.displayName)
-                            .font(.headline.weight(.semibold))
+                            .font(.callout.weight(.medium))
                             .foregroundStyle(.colorTextPrimary)
                         if let description = conversation.description, !description.isEmpty {
                             Text(description)
-                                .font(.subheadline.weight(.regular))
+                                .font(.callout)
                                 .foregroundStyle(.colorTextPrimary)
                         }
                     }

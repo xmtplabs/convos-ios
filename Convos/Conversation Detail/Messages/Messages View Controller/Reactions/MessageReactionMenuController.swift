@@ -111,6 +111,9 @@ class MessageReactionMenuController: UIViewController {
     let shapeContainerView: UIView
 
     fileprivate let reactionsVC: ReactionsViewController
+    private let viewModel: MessageReactionMenuViewModel
+    private let replyButton: UIButton = UIButton(type: .system)
+    private let copyButton: UIButton = UIButton(type: .system)
     private var tapGestureRecognizer: UITapGestureRecognizer?
     private var panGestureRecognizer: UIPanGestureRecognizer?
     private var previewPanHandler: PreviewViewPanHandler?
@@ -130,9 +133,9 @@ class MessageReactionMenuController: UIViewController {
 
         self.shapeContainerView = UIView(frame: .zero)
         self.shapeContainerView.backgroundColor = .clear
-//        self.shapeContainerView.backgroundColor = .red.withAlphaComponent(0.2)
 
         viewModel.alignment = configuration.sourceCellEdge == .leading ? .leading : .trailing
+        self.viewModel = viewModel
         self.reactionsVC = ReactionsViewController(viewModel: viewModel)
 
         super.init(nibName: nil, bundle: nil)
@@ -235,11 +238,117 @@ class MessageReactionMenuController: UIViewController {
         addChild(reactionsVC)
         shapeContainerView.addSubview(reactionsVC.view)
         reactionsVC.didMove(toParent: self)
+
+        setupActionButtons()
+    }
+
+    private func setupActionButtons() {
+        var replyConfig = UIButton.Configuration.filled()
+        replyConfig.title = "Reply"
+        replyConfig.image = UIImage(systemName: "arrowshape.turn.up.left.fill")
+        replyConfig.imagePadding = 6.0
+        replyConfig.cornerStyle = .capsule
+        replyConfig.baseBackgroundColor = .colorBackgroundPrimary
+        replyConfig.baseForegroundColor = .label
+        replyConfig.contentInsets = .init(top: 10.0, leading: 16.0, bottom: 10.0, trailing: 16.0)
+        replyButton.configuration = replyConfig
+        replyButton.addTarget(self, action: #selector(handleReplyTap), for: .touchUpInside)
+        replyButton.alpha = 0.0
+        replyButton.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        view.addSubview(replyButton)
+        replyButton.sizeToFit()
+
+        var copyConfig = UIButton.Configuration.filled()
+        copyConfig.title = "Copy"
+        copyConfig.image = UIImage(systemName: "doc.on.doc.fill")
+        copyConfig.imagePadding = 6.0
+        copyConfig.cornerStyle = .capsule
+        copyConfig.baseBackgroundColor = .colorBackgroundPrimary
+        copyConfig.baseForegroundColor = .label
+        copyConfig.contentInsets = .init(top: 10.0, leading: 16.0, bottom: 10.0, trailing: 16.0)
+        copyButton.configuration = copyConfig
+        copyButton.addTarget(self, action: #selector(handleCopyTap), for: .touchUpInside)
+        copyButton.alpha = 0.0
+        copyButton.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        view.addSubview(copyButton)
+        copyButton.sizeToFit()
+    }
+
+    func animateActionButtonsToEndPosition() {
+        let previewBottom = endPosition.maxY + Configuration.spacing
+        let buttonSpacing: CGFloat = 8.0
+        var xOffset: CGFloat = 0.0
+
+        if viewModel.canReply {
+            let replyX: CGFloat
+            if configuration.sourceCellEdge == .trailing {
+                replyX = endPosition.maxX - replyButton.bounds.width
+            } else {
+                replyX = endPosition.origin.x
+            }
+            replyButton.frame.origin = CGPoint(x: replyX, y: previewBottom)
+            xOffset = replyButton.bounds.width + buttonSpacing
+
+            UIView.animate(
+                withDuration: 0.3,
+                delay: 0.1,
+                usingSpringWithDamping: 0.8,
+                initialSpringVelocity: 0.0
+            ) { [weak self] in
+                guard let self else { return }
+                replyButton.alpha = 1.0
+                replyButton.transform = .identity
+            }
+        }
+
+        if viewModel.copyableText != nil {
+            let copyX: CGFloat
+            if configuration.sourceCellEdge == .trailing {
+                copyX = endPosition.maxX - xOffset - copyButton.bounds.width
+            } else {
+                copyX = endPosition.origin.x + xOffset
+            }
+            copyButton.frame.origin = CGPoint(x: copyX, y: previewBottom)
+
+            UIView.animate(
+                withDuration: 0.3,
+                delay: 0.15,
+                usingSpringWithDamping: 0.8,
+                initialSpringVelocity: 0.0
+            ) { [weak self] in
+                guard let self else { return }
+                copyButton.alpha = 1.0
+                copyButton.transform = .identity
+            }
+        }
+    }
+
+    func animateActionButtonsToStartPosition() {
+        UIView.animate(withDuration: 0.15) { [weak self] in
+            guard let self else { return }
+            replyButton.alpha = 0.0
+            replyButton.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+            copyButton.alpha = 0.0
+            copyButton.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
+        }
     }
 
     // MARK: - Gestures
 
     @objc private func handleTap() {
+        dismiss(animated: true)
+    }
+
+    @objc private func handleReplyTap() {
+        viewModel.onReply?()
+        dismiss(animated: true)
+    }
+
+    @objc private func handleCopyTap() {
+        if let text = viewModel.copyableText {
+            UIPasteboard.general.string = text
+        }
+        viewModel.onCopy?()
         dismiss(animated: true)
     }
 }
