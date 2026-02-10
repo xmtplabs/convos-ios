@@ -30,7 +30,9 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
         let inboxId = client.inboxId
 
         let parentMessage = try await databaseWriter.read { db in
-            try DBMessage.fetchOne(db, key: parentMessageId)
+            try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == parentMessageId)
+                .fetchOne(db)
         }
 
         guard let parentMessage, parentMessage.status == .published else {
@@ -65,7 +67,7 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
                 text: isContentEmoji ? nil : text,
                 emoji: isContentEmoji ? trimmedText : nil,
                 invite: nil,
-                sourceMessageId: parentMessageId,
+                sourceMessageId: parentMessage.id,
                 attachmentUrls: [],
                 update: nil
             )

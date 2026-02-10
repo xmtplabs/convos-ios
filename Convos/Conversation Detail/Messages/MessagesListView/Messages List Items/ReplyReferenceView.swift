@@ -15,8 +15,6 @@ struct ReplyReferenceView: View {
             return String(text.prefix(80))
         case .emoji(let emoji):
             return emoji
-        case .attachment, .attachments:
-            return "Photo"
         default:
             return ""
         }
@@ -31,6 +29,10 @@ struct ReplyReferenceView: View {
         default:
             return nil
         }
+    }
+
+    private var isPhotoReply: Bool {
+        attachmentKey != nil
     }
 
     var body: some View {
@@ -60,11 +62,20 @@ struct ReplyReferenceView: View {
                         .layoutPriority(-1)
                 }
 
-                replyPreviewContent
-                    .background(
-                        RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
-                            .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
-                    )
+                if let key = attachmentKey {
+                    ReplyReferencePhotoPreview(attachmentKey: key)
+                } else {
+                    Text(previewText)
+                        .font(.footnote)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                        .padding(.horizontal, DesignConstants.Spacing.step3x)
+                        .padding(.vertical, DesignConstants.Spacing.step2x)
+                        .background(
+                            RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
+                                .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
+                        )
+                }
 
                 if !isOutgoing {
                     Spacer()
@@ -77,29 +88,6 @@ struct ReplyReferenceView: View {
         .padding(.bottom, DesignConstants.Spacing.stepX)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Reply to \(parentMessage.sender.profile.displayName): \(previewText)")
-    }
-
-    @ViewBuilder
-    private var replyPreviewContent: some View {
-        if let key = attachmentKey {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                ReplyReferenceThumbnail(attachmentKey: key)
-                Text(previewText)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .lineLimit(1)
-            }
-            .padding(.leading, DesignConstants.Spacing.stepX)
-            .padding(.trailing, DesignConstants.Spacing.step3x)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-        } else {
-            Text(previewText)
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .lineLimit(1)
-                .padding(.horizontal, DesignConstants.Spacing.step3x)
-                .padding(.vertical, DesignConstants.Spacing.step2x)
-        }
     }
 }
 
@@ -148,28 +136,28 @@ struct ReplyReferenceView: View {
     .padding()
 }
 
-// MARK: - Thumbnail
+// MARK: - Photo Preview
 
-private struct ReplyReferenceThumbnail: View {
+private struct ReplyReferencePhotoPreview: View {
     let attachmentKey: String
 
     @State private var loadedImage: UIImage?
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
-    private static let thumbnailSize: CGFloat = 32.0
+    private static let maxHeight: CGFloat = 80.0
 
     var body: some View {
         Group {
             if let image = loadedImage {
                 Image(uiImage: image)
                     .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
-                    .clipShape(RoundedRectangle(cornerRadius: 6.0))
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxHeight: Self.maxHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: 12.0))
             } else {
-                RoundedRectangle(cornerRadius: 6.0)
+                RoundedRectangle(cornerRadius: 12.0)
                     .fill(.quaternary)
-                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                    .frame(width: 60.0, height: Self.maxHeight)
             }
         }
         .task {
@@ -183,7 +171,7 @@ private struct ReplyReferenceThumbnail: View {
                     loadedImage = image
                 }
             } catch {
-                Log.error("Failed to load reply reference thumbnail: \(error)")
+                Log.error("Failed to load reply reference photo: \(error)")
             }
         }
     }
