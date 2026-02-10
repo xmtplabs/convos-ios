@@ -39,6 +39,8 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            accessoryContent()
+
             if isMuted {
                 Image(systemName: "bell.slash.fill")
                     .font(.callout)
@@ -50,8 +52,6 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
                     .fill(Color.primary)
                     .frame(width: 16, height: 16)
             }
-
-            accessoryContent()
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step3x)

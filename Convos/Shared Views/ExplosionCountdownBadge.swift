@@ -13,7 +13,7 @@ struct ExplosionCountdownBadge: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(isUrgent ? .colorCaution : .colorTextSecondary)
                     .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .padding(.vertical, DesignConstants.Spacing.stepX)
+                    .padding(.vertical, DesignConstants.Spacing.stepHalf)
                     .background(isUrgent ? .colorCaution.opacity(0.15) : .colorFillMinimal)
                     .clipShape(Capsule())
             }
