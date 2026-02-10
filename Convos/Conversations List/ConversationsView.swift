@@ -14,6 +14,7 @@ struct ConversationsView: View {
     @State private var conversationPendingExplosion: Conversation?
     @State private var scrollOffset: CGFloat = 0
     @State private var pinnedSectionHeight: CGFloat = 0
+    @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
 
     private var pinnedSectionOffset: CGFloat {
         guard pinnedSectionHeight > 0 else { return 0 }
@@ -198,7 +199,7 @@ struct ConversationsView: View {
             insetsTopSafeArea: true,
             sidebarColumnWidth: $sidebarWidth
         ) { focusState, coordinator in
-            NavigationSplitView {
+            NavigationSplitView(preferredCompactColumn: $preferredColumn) {
                 ZStack(alignment: .top) {
                     Group {
                         if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
@@ -349,6 +350,14 @@ struct ConversationsView: View {
                 } else {
                     EmptyView()
                 }
+            }
+            .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
+                preferredColumn = isNil ? .sidebar : .detail
+            }
+            .onChange(of: viewModel.selectedConversationViewModel?.explodeState) { _, newState in
+                guard let newState, case .exploded = newState else { return }
+                viewModel.selectedConversationId = nil
+                preferredColumn = .sidebar
             }
         }
         .focusable(false)

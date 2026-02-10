@@ -345,9 +345,8 @@ final class ConversationsViewModel {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
-                    if selectedConversation?.id == conversationId {
-                        selectedConversation = nil
-                        selectedConversationId = nil
+                    if _selectedConversationId == conversationId {
+                        _selectedConversationId = nil
                         selectedConversationViewModel = nil
                     }
                     if newConversationViewModel?.conversationViewModel.conversation.id == conversationId {
