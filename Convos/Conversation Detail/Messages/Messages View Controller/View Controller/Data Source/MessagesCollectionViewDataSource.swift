@@ -15,8 +15,8 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
-    var onDoubleTap: ((AnyMessage) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
+    var contextMenuState: MessageContextMenuState?
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -59,12 +59,10 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onTapReactions: { [weak self] message in
                 self?.onTapReactions?(message)
             },
-            onDoubleTap: { [weak self] message in
-                self?.onDoubleTap?(message)
-            },
             onReply: { [weak self] message in
                 self?.onReply?(message)
-            }
+            },
+            contextMenuState: contextMenuState ?? .init()
         )
         return CellFactory.createCell(
             in: collectionView,

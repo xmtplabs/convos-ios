@@ -2,12 +2,12 @@ import Foundation
 
 // MARK: - AnyMessage
 
-public enum AnyMessage: Hashable, Codable, Sendable, Identifiable {
+public enum AnyMessage: Hashable, Equatable, Codable, Sendable, Identifiable {
     public var id: String { base.id }
     public enum Origin: Hashable, Codable, Sendable {
-        case existing // message was loaded initially or was previously seen (inserted/paginated)
-        case paginated // message was loaded via pagination for the first time
-        case inserted // new message that arrived after initialization
+        case existing
+        case paginated
+        case inserted
     }
 
     case message(Message, Origin),
@@ -27,6 +27,28 @@ public enum AnyMessage: Hashable, Codable, Sendable, Identifiable {
             return message
         case .reply(let reply, _):
             return reply
+        }
+    }
+
+    public static func == (lhs: AnyMessage, rhs: AnyMessage) -> Bool {
+        switch (lhs, rhs) {
+        case let (.message(lMsg, _), .message(rMsg, _)):
+            return lMsg == rMsg
+        case let (.reply(lReply, _), .reply(rReply, _)):
+            return lReply == rReply
+        default:
+            return false
+        }
+    }
+
+    public func hash(into hasher: inout Hasher) {
+        switch self {
+        case .message(let msg, _):
+            hasher.combine(0)
+            hasher.combine(msg)
+        case .reply(let reply, _):
+            hasher.combine(1)
+            hasher.combine(reply)
         }
     }
 }

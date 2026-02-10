@@ -38,7 +38,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onTapAvatar: actions.onTapAvatar,
                         onTapInvite: actions.onTapInvite,
                         onTapReactions: actions.onTapReactions,
-                        onDoubleTap: actions.onDoubleTap,
                         onReply: actions.onReply
                     )
 
@@ -53,6 +52,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)
             .id("message-cell-\(item.differenceIdentifier)")
+            .environment(\.messageContextMenuState, actions.contextMenuState)
         }
         .margins(.horizontal, 0.0)
         .margins(.vertical, 0.0)

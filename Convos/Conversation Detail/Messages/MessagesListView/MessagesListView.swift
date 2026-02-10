@@ -9,7 +9,6 @@ struct MessagesListView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
     let loadPrevious: () -> Void
 
@@ -47,7 +46,6 @@ struct MessagesListView: View {
                                     onTapAvatar: onTapAvatar,
                                     onTapInvite: onTapInvite,
                                     onTapReactions: onTapReactions,
-                                    onDoubleTap: onDoubleTap,
                                     onReply: onReply
                                 )
 

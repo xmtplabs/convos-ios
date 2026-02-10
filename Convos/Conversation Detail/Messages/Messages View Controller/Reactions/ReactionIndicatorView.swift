@@ -47,11 +47,26 @@ private struct ReactionPillView: View {
     let count: Int
     let isSelected: Bool
 
+    @State private var appearedEmojis: Set<String> = []
+    @State private var pillAppeared: Bool = false
+
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.stepHalf) {
             ForEach(emojis, id: \.self) { emoji in
+                let appeared = appearedEmojis.contains(emoji)
                 Text(emoji)
                     .font(.callout)
+                    .blur(radius: appeared ? 0 : 10)
+                    .scaleEffect(appeared ? 1.0 : 0)
+                    .rotationEffect(.degrees(appeared ? 0 : -15))
+                    .animation(.spring(response: 0.29, dampingFraction: 0.6), value: appeared)
+                    .onAppear {
+                        if !appearedEmojis.contains(emoji) {
+                            withAnimation(.spring(response: 0.29, dampingFraction: 0.6)) {
+                                _ = appearedEmojis.insert(emoji)
+                            }
+                        }
+                    }
             }
             if count > 1 {
                 Text("\(count)")
@@ -67,6 +82,28 @@ private struct ReactionPillView: View {
             Capsule()
                 .stroke(.colorBorderSubtle, lineWidth: isSelected ? 0 : 1)
         )
+        .scaleEffect(pillAppeared ? 1.0 : 0.5)
+        .opacity(pillAppeared ? 1.0 : 0)
+        .onAppear {
+            withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
+                pillAppeared = true
+            }
+        }
+        .onChange(of: emojis) { _, newEmojis in
+            let newSet = Set(newEmojis)
+            let added = newSet.subtracting(appearedEmojis)
+            if !added.isEmpty {
+                for (index, emoji) in added.enumerated() {
+                    let delay = Double(index) * 0.04
+                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                        withAnimation(.spring(response: 0.29, dampingFraction: 0.6)) {
+                            _ = appearedEmojis.insert(emoji)
+                        }
+                    }
+                }
+            }
+            appearedEmojis = appearedEmojis.intersection(newSet)
+        }
     }
 }
 

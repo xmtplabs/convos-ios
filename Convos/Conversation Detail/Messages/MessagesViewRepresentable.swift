@@ -12,12 +12,14 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapInvite: (MessageInvite) -> Void
     let onReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
+    let contextMenuState: MessageContextMenuState
     let bottomBarHeight: CGFloat
 
     func makeUIViewController(context: Context) -> MessagesViewController {
-        return MessagesViewController()
+        let vc = MessagesViewController()
+        vc.contextMenuState = contextMenuState
+        return vc
     }
 
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
@@ -28,7 +30,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onTapInvite = onTapInvite
         messagesViewController.onReaction = onReaction
         messagesViewController.onTapReactions = onTapReactions
-        messagesViewController.onDoubleTap = onDoubleTap
         messagesViewController.onReply = onReply
         messagesViewController.state = .init(
             conversation: conversation,
@@ -55,8 +56,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onTapInvite: { _ in },
         onReaction: { _, _ in },
         onTapReactions: { _ in },
-        onDoubleTap: { _ in },
         onReply: { _ in },
+        contextMenuState: .init(),
         bottomBarHeight: bottomBarHeight
     )
     .ignoresSafeArea()

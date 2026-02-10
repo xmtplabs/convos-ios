@@ -83,7 +83,7 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
                 try await databaseWriter.write { db in
                     guard let localReply = try DBMessage.fetchOne(db, key: clientMessageId) else { return }
                     try localReply.delete(db)
-                    try localReply.with(id: preparedMessageId).with(clientMessageId: preparedMessageId).save(db)
+                    try localReply.with(id: preparedMessageId).save(db)
                 }
                 currentDbId = preparedMessageId
             }

@@ -30,8 +30,8 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReaction: (String, String) -> Void
+    let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
     let replyingToMessage: AnyMessage?
     let onCancelReply: () -> Void
@@ -41,8 +41,10 @@ struct MessagesView<BottomBarContent: View>: View {
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
+    @State private var contextMenuState: MessageContextMenuState = .init()
+
     var body: some View {
-        Group {
+        ZStack {
             MessagesViewRepresentable(
                 conversation: conversation,
                 messages: messages,
@@ -54,11 +56,22 @@ struct MessagesView<BottomBarContent: View>: View {
                 onTapInvite: onTapInvite,
                 onReaction: onReaction,
                 onTapReactions: onTapReactions,
-                onDoubleTap: onDoubleTap,
                 onReply: onReply,
+                contextMenuState: contextMenuState,
                 bottomBarHeight: bottomBarHeight
             )
             .ignoresSafeArea()
+
+            MessageContextMenuOverlay(
+                state: contextMenuState,
+                onReaction: onReaction,
+                onReply: { message in
+                    onReply(message)
+                },
+                onCopy: { text in
+                    UIPasteboard.general.string = text
+                }
+            )
         }
         .safeAreaBar(edge: .bottom) {
             VStack(spacing: 0.0) {
@@ -85,10 +98,16 @@ struct MessagesView<BottomBarContent: View>: View {
                     onProfileSettings: onProfileSettings
                 )
             }
+            .opacity(contextMenuState.isPresented ? 0.0 : 1.0)
+            .animation(.easeOut(duration: 0.2), value: contextMenuState.isPresented)
             .background(HeightReader())
             .onPreferenceChange(HeightPreferenceKey.self) { height in
                 bottomBarHeight = height
             }
+        }
+        .onAppear {
+            contextMenuState.onReaction = onReaction
+            contextMenuState.onToggleReaction = onToggleReaction
         }
     }
 }

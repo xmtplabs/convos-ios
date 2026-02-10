@@ -473,8 +473,6 @@ class ConversationViewModel {
                 }
             } catch {
                 Log.error("Error sending message: \(error)")
-                if self.messageText.isEmpty { self.messageText = prevMessageText }
-                if self.replyingToMessage == nil { self.replyingToMessage = replyTarget }
             }
         }
     }
@@ -502,23 +500,23 @@ class ConversationViewModel {
         }
     }
 
-    func onTapReactions(_ message: AnyMessage) {
-        presentingReactionsForMessage = message
-    }
-
-    func onDoubleTap(_ message: AnyMessage) {
+    func onToggleReaction(emoji: String, messageId: String) {
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await reactionWriter.toggleReaction(
-                    emoji: "❤️",
-                    to: message.base.id,
+                    emoji: emoji,
+                    to: messageId,
                     in: conversation.id
                 )
             } catch {
                 Log.error("Error toggling reaction: \(error)")
             }
         }
+    }
+
+    func onTapReactions(_ message: AnyMessage) {
+        presentingReactionsForMessage = message
     }
 
     func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {

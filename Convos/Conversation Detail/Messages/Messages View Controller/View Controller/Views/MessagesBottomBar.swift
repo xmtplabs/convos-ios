@@ -112,8 +112,8 @@ struct MessagesBottomBar: View {
             onTapInvite: { _ in },
             onReaction: { _, _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in },
             onReply: { _ in },
+            contextMenuState: .init(),
             bottomBarHeight: bottomBarHeight
         )
         .ignoresSafeArea()

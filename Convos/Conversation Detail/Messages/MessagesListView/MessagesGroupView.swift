@@ -6,10 +6,10 @@ struct MessagesGroupView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
 
     @State private var isAppearing: Bool = true
+    @State private var hasAnimated: Bool = false
 
     private var animates: Bool {
         group.messages.first?.origin == .inserted
@@ -63,7 +63,6 @@ struct MessagesGroupView: View {
                         bubbleType: bubbleType,
                         onTapAvatar: onTapAvatar,
                         onTapInvite: onTapInvite,
-                        onDoubleTap: onDoubleTap,
                         onReply: onReply
                     )
                     .zIndex(100)
@@ -100,6 +99,7 @@ struct MessagesGroupView: View {
                     )
                     .padding(.leading, message.base.sender.isCurrentUser ? 0 : avatarWidth)
                     .padding(.bottom, DesignConstants.Spacing.stepX)
+                    .transition(.identity)
                     .zIndex(50)
                     .id("reactions-\(message.differenceIdentifier)")
                 }
@@ -114,7 +114,7 @@ struct MessagesGroupView: View {
                     .padding(.vertical, DesignConstants.Spacing.stepX)
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
-                    .zIndex(60)
+                    .zIndex(-1)
                     .id("sent-status-\(message.differenceIdentifier)")
                 }
             }
@@ -129,7 +129,8 @@ struct MessagesGroupView: View {
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: group)
         .onAppear {
-            guard isAppearing else { return }
+            guard isAppearing, !hasAnimated else { return }
+            hasAnimated = true
 
             if animates {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -152,7 +153,6 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in },
             onReply: { _ in }
         )
         .padding()
@@ -167,7 +167,6 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in },
             onReply: { _ in }
         )
         .padding()
@@ -182,7 +181,6 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in },
             onReply: { _ in }
         )
         .padding()
@@ -197,7 +195,6 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in },
             onReply: { _ in }
         )
         .padding()
@@ -212,7 +209,6 @@ struct MessagesGroupView: View {
             onTapAvatar: { _ in },
             onTapInvite: { _ in },
             onTapReactions: { _ in },
-            onDoubleTap: { _ in },
             onReply: { _ in }
         )
         .padding()
@@ -276,11 +272,10 @@ struct MessagesGroupView: View {
                     onTapAvatar: { _ in },
                     onTapInvite: { _ in },
                     onTapReactions: { _ in },
-                    onDoubleTap: { _ in },
                     onReply: { _ in }
                 )
             }
         }
     }
-    .background(.colorBackgroundPrimary)
+    .background(.colorBackgroundSurfaceless)
 }
