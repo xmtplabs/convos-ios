@@ -7,36 +7,9 @@ func conversationContextMenuContent(
     conversation: Conversation,
     viewModel: ConversationsViewModel,
     onExplode: @escaping () -> Void,
-    onDelete: @escaping () -> Void,
-    useCompactActions: Bool = true
+    onDelete: @escaping () -> Void
 ) -> some View {
-    if useCompactActions {
-        ControlGroup {
-            let togglePinAction = { viewModel.togglePin(conversation: conversation) }
-            Button(action: togglePinAction) {
-                Label(
-                    conversation.isPinned ? "Unfav" : "Fav",
-                    systemImage: conversation.isPinned ? "star.slash.fill" : "star.fill"
-                )
-            }
-
-            let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
-            Button(action: toggleReadAction) {
-                Label(
-                    conversation.isUnread ? "Read" : "Unread",
-                    systemImage: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill"
-                )
-            }
-
-            let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
-            Button(action: toggleMuteAction) {
-                Label(
-                    conversation.isMuted ? "Unmute" : "Mute",
-                    systemImage: conversation.isMuted ? "bell.fill" : "bell.slash.fill"
-                )
-            }
-        }
-    } else {
+    ControlGroup {
         let togglePinAction = { viewModel.togglePin(conversation: conversation) }
         Button(action: togglePinAction) {
             Label(

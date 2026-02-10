@@ -31,8 +31,7 @@ struct PinnedConversationsSection: View {
                     conversation: conversation,
                     viewModel: viewModel,
                     onExplode: { conversationPendingExplosion = conversation },
-                    onDelete: { conversationPendingDeletion = conversation },
-                    useCompactActions: false
+                    onDelete: { conversationPendingDeletion = conversation }
                 )
             }
             .confirmationDialog(
