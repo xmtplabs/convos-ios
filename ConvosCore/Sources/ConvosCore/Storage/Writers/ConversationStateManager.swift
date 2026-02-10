@@ -287,6 +287,18 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         await stateMachine.cancelEagerUpload(trackingKey: trackingKey)
     }
 
+    public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await stateMachine.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
+    }
+
+    public func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await stateMachine.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    public func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await stateMachine.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
     public func delete() async throws {
         try await inboxStateManager.delete()
         await stateMachine.delete()

@@ -40,4 +40,16 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
     }
 
     public func cancelEagerUpload(trackingKey: String) async {}
+
+    public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await send(text: text)
+    }
+
+    public func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await sendEagerPhoto(trackingKey: trackingKey)
+    }
+
+    public func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
+        try await send(text: text, afterPhoto: trackingKey)
+    }
 }

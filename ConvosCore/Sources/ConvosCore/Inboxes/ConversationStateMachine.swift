@@ -267,6 +267,21 @@ public actor ConversationStateMachine {
         await writer.cancelEagerUpload(trackingKey: trackingKey)
     }
 
+    func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
     func delete() {
         // Cancel current task immediately to unblock the action queue
         currentTask?.cancel()

@@ -130,6 +130,18 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
         // Mock implementation - no-op
     }
 
+    public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        // Mock implementation - no-op
+    }
+
+    public func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        // Mock implementation - no-op
+    }
+
+    public func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
+        // Mock implementation - no-op
+    }
+
     public func delete() async {
         currentState = .deleting
         notifyObservers(currentState)

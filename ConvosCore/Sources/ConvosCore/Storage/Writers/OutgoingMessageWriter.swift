@@ -19,18 +19,35 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
 
     /// Cancel an eager upload that was started but not sent.
     func cancelEagerUpload(trackingKey: String) async
+
+    // MARK: - Replies
+
+    /// Send a text reply to an existing message.
+    func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws
+
+    /// Send a photo reply that was already started with `startEagerUpload`.
+    func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws
+
+    /// Send text after a photo reply (both replying to the same parent).
+    func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws
 }
 
 enum OutgoingMessageWriterError: Error {
     case missingClientProvider
     case eagerUploadNotFound
+    case parentMessageNotFound
 }
 
 actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
+    private struct ReplyContext {
+        let parentDbId: String
+    }
+
     private struct QueuedTextMessage {
         let clientMessageId: String
         let text: String
         let dependsOnPhotoKey: String?
+        let replyContext: ReplyContext?
     }
 
     private struct QueuedPhotoMessage {
@@ -49,6 +66,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         var uploadCompleted: Bool = false
         var uploadError: Error?
         var waitingContinuation: CheckedContinuation<Void, Error>?
+        var replyContext: ReplyContext?
     }
 
     private struct QueuedEagerPhoto {
@@ -104,13 +122,18 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     func send(text: String, afterPhoto trackingKey: String?) async throws {
+        try await sendText(text, afterPhoto: trackingKey, replyContext: nil)
+    }
+
+    private func sendText(_ text: String, afterPhoto trackingKey: String?, replyContext: ReplyContext?) async throws {
         let clientMessageId = UUID().uuidString
-        try await saveTextToDatabase(clientMessageId: clientMessageId, text: text)
+        try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: replyContext)
 
         let queued = QueuedTextMessage(
             clientMessageId: clientMessageId,
             text: text,
-            dependsOnPhotoKey: trackingKey
+            dependsOnPhotoKey: trackingKey,
+            replyContext: replyContext
         )
 
         // If this text depends on a photo that hasn't been published yet, defer it
@@ -294,7 +317,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         // Now save to database - this makes the message appear in the UI
         // Dimensions will already be available for the initial render
-        try await savePhotoToDatabase(clientMessageId: state.clientMessageId, localCacheURL: state.localCacheURL)
+        try await savePhotoToDatabase(clientMessageId: state.clientMessageId, localCacheURL: state.localCacheURL, replyContext: state.replyContext)
 
         // Queue for background processing (upload completion + XMTP send)
         // This returns immediately so text messages can also save to DB right away
@@ -343,7 +366,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             queued: queued,
             prepared: state.prepared,
             trackingKey: trackingKey,
-            inboxReady: inboxReady
+            inboxReady: inboxReady,
+            replyContext: state.replyContext
         )
 
         eagerUploads.removeValue(forKey: trackingKey)
@@ -365,6 +389,43 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         PhotoUploadProgressTracker.shared.clear(key: trackingKey)
 
         eagerUploads.removeValue(forKey: trackingKey)
+    }
+
+    // MARK: - Replies
+
+    func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let replyContext = try await resolveReplyContext(parentClientMessageId: parentClientMessageId)
+        try await sendText(text, afterPhoto: nil, replyContext: replyContext)
+    }
+
+    func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
+        let replyContext = try await resolveReplyContext(parentClientMessageId: parentClientMessageId)
+        try await sendText(text, afterPhoto: trackingKey, replyContext: replyContext)
+    }
+
+    func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let replyContext = try await resolveReplyContext(parentClientMessageId: parentClientMessageId)
+
+        guard var state = eagerUploads[trackingKey] else {
+            throw OutgoingMessageWriterError.eagerUploadNotFound
+        }
+        state.replyContext = replyContext
+        eagerUploads[trackingKey] = state
+
+        try await sendEagerPhoto(trackingKey: trackingKey)
+    }
+
+    private func resolveReplyContext(parentClientMessageId: String) async throws -> ReplyContext {
+        let parentDbId = try await databaseWriter.read { db -> String in
+            guard let parent = try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == parentClientMessageId)
+                .fetchOne(db),
+                  parent.status == .published else {
+                throw OutgoingMessageWriterError.parentMessageNotFound
+            }
+            return parent.id
+        }
+        return ReplyContext(parentDbId: parentDbId)
     }
 
     private func startProcessingIfNeeded() {
@@ -397,7 +458,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     // MARK: - Database Save (Optimistic)
 
-    private func saveTextToDatabase(clientMessageId: String, text: String) async throws {
+    private func saveTextToDatabase(clientMessageId: String, text: String, replyContext: ReplyContext? = nil) async throws {
         let senderId: String
         if case .ready(_, let result) = inboxStateManager.currentState {
             senderId = result.client.inboxId
@@ -439,12 +500,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 date: date,
                 sortId: sortId,
                 status: .unpublished,
-                messageType: .original,
+                messageType: replyContext != nil ? .reply : .original,
                 contentType: contentType,
                 text: isContentEmoji ? nil : text,
                 emoji: isContentEmoji ? trimmedText : nil,
                 invite: invite,
-                sourceMessageId: nil,
+                sourceMessageId: replyContext?.parentDbId,
                 attachmentUrls: [],
                 update: nil
             )
@@ -453,7 +514,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
     }
 
-    private func savePhotoToDatabase(clientMessageId: String, localCacheURL: URL) async throws {
+    private func savePhotoToDatabase(clientMessageId: String, localCacheURL: URL, replyContext: ReplyContext? = nil) async throws {
         let senderId: String
         if case .ready(_, let result) = inboxStateManager.currentState {
             senderId = result.client.inboxId
@@ -483,12 +544,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 date: date,
                 sortId: sortId,
                 status: .unpublished,
-                messageType: .original,
+                messageType: replyContext != nil ? .reply : .original,
                 contentType: .attachments,
                 text: nil,
                 emoji: nil,
                 invite: nil,
-                sourceMessageId: nil,
+                sourceMessageId: replyContext?.parentDbId,
                 attachmentUrls: [localCacheURL.absoluteString],
                 update: nil
             )
@@ -508,7 +569,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             throw OutgoingMessageWriterError.missingClientProvider
         }
 
-        let xmtpMessageId: String = try await sender.prepare(text: queued.text)
+        let xmtpMessageId: String
+        if let replyContext = queued.replyContext {
+            let reply = Reply(reference: replyContext.parentDbId, content: queued.text, contentType: ContentTypeText)
+            xmtpMessageId = try await sender.prepare(reply: reply)
+        } else {
+            xmtpMessageId = try await sender.prepare(text: queued.text)
+        }
         Log.info("Text prepare() returned xmtpMessageId=\(xmtpMessageId), clientMessageId=\(queued.clientMessageId), same=\(xmtpMessageId == queued.clientMessageId)")
 
         if xmtpMessageId != queued.clientMessageId {
@@ -618,7 +685,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         queued: QueuedPhotoMessage,
         prepared: PreparedBackgroundUpload,
         trackingKey: String,
-        inboxReady: InboxReadyResult
+        inboxReady: InboxReadyResult,
+        replyContext: ReplyContext? = nil
     ) async throws {
         let tracker = PhotoUploadProgressTracker.shared
 
@@ -645,7 +713,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 filename: prepared.filename
             )
 
-            let xmtpMessageId = try await sender.prepare(remoteAttachment: remoteAttachment)
+            let xmtpMessageId: String
+            if let replyContext {
+                let reply = Reply(reference: replyContext.parentDbId, content: remoteAttachment, contentType: ContentTypeRemoteAttachment)
+                xmtpMessageId = try await sender.prepare(reply: reply)
+            } else {
+                xmtpMessageId = try await sender.prepare(remoteAttachment: remoteAttachment)
+            }
             Log.info("Prepared photo message - XMTP id: \(xmtpMessageId), clientMessageId: \(queued.clientMessageId)")
 
             let storedAttachment = StoredRemoteAttachment(

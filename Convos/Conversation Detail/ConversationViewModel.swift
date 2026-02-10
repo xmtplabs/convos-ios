@@ -40,7 +40,6 @@ class ConversationViewModel {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
-    private let replyWriter: any ReplyMessageWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private let messagesListRepository: any MessagesListRepositoryProtocol
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
@@ -288,7 +287,6 @@ class ConversationViewModel {
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.reactionWriter = messagingService.reactionWriter()
-        self.replyWriter = messagingService.replyWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
@@ -345,7 +343,6 @@ class ConversationViewModel {
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.reactionWriter = messagingService.reactionWriter()
-        self.replyWriter = messagingService.replyWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
@@ -598,32 +595,36 @@ extension ConversationViewModel {
             guard let self else { return }
 
             do {
-                if let replyTarget {
-                    try await replyWriter.sendReply(
-                        text: prevMessageText,
-                        to: replyTarget.base.id,
-                        in: conversation.id
-                    )
-                } else {
-                    let photoTrackingKey: String?
+                let photoTrackingKey: String?
 
-                    if prevAttachmentImage != nil {
-                        isSendingPhoto = true
-                        if let trackingKey = eagerUploadKey {
-                            photoTrackingKey = trackingKey
-                            try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
-                        } else if let attachmentImage = prevAttachmentImage {
-                            let key = try await messageWriter.startEagerUpload(image: attachmentImage)
-                            photoTrackingKey = key
-                            try await messageWriter.sendEagerPhoto(trackingKey: key)
+                if prevAttachmentImage != nil {
+                    isSendingPhoto = true
+                    if let trackingKey = eagerUploadKey {
+                        photoTrackingKey = trackingKey
+                        if let replyTarget {
+                            try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyTarget.base.id)
                         } else {
-                            photoTrackingKey = nil
+                            try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
+                        }
+                    } else if let attachmentImage = prevAttachmentImage {
+                        let key = try await messageWriter.startEagerUpload(image: attachmentImage)
+                        photoTrackingKey = key
+                        if let replyTarget {
+                            try await messageWriter.sendEagerPhotoReply(trackingKey: key, toMessageWithClientId: replyTarget.base.id)
+                        } else {
+                            try await messageWriter.sendEagerPhoto(trackingKey: key)
                         }
                     } else {
                         photoTrackingKey = nil
                     }
+                } else {
+                    photoTrackingKey = nil
+                }
 
-                    if hasText {
+                if hasText {
+                    if let replyTarget {
+                        try await messageWriter.sendReply(text: prevMessageText, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
+                    } else {
                         try await messageWriter.send(text: prevMessageText, afterPhoto: photoTrackingKey)
                     }
                 }
