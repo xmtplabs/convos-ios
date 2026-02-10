@@ -850,6 +850,21 @@ extension ConversationViewModel {
         presentingReactionsForMessage = message
     }
 
+    func onToggleReaction(emoji: String, messageId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await reactionWriter.toggleReaction(
+                    emoji: emoji,
+                    to: messageId,
+                    in: conversation.id
+                )
+            } catch {
+                Log.error("Error toggling reaction: \(error)")
+            }
+        }
+    }
+
     func onDoubleTap(_ message: AnyMessage) {
         Task { [weak self] in
             guard let self else { return }

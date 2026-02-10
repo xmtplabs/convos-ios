@@ -64,6 +64,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onProfileSettings: viewModel.onProfileSettings,
             onLoadPreviousMessages: viewModel.loadPreviousMessages,
             shouldBlurPhotos: viewModel.shouldBlurPhotos,
+            onDoubleTap: viewModel.onDoubleTap(_:),
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),

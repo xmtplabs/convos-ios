@@ -400,6 +400,7 @@ extension Array where Element == DBMessage {
         return (messages, updatedSeenIds)
     }
 
+
     // swiftlint:disable:next function_parameter_count
     private static func composeReplyMessage(
         sourceMessage: DBMessage?,
