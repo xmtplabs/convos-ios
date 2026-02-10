@@ -70,6 +70,7 @@ struct ConversationInfoView: View {
     @State private var presentingEditView: Bool = false
     @State private var showingLockConfirmation: Bool = false
     @State private var showingLockedInfo: Bool = false
+    @State private var showingLockPermissionAlert: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var exportedLogsURL: URL?
 
@@ -175,6 +176,8 @@ struct ConversationInfoView: View {
                     .onTapGesture {
                         if viewModel.isLocked {
                             showingLockedInfo = true
+                        } else {
+                            showingLockPermissionAlert = true
                         }
                     }
             }
@@ -249,9 +252,6 @@ struct ConversationInfoView: View {
                     convoCodeRow
 
                     lockRow
-                } footer: {
-                    Text("No one new can join the convo when it's locked")
-                        .foregroundStyle(.colorTextSecondary)
                 }
 
                 Section {
@@ -293,7 +293,7 @@ struct ConversationInfoView: View {
                     }
                 } header: {
                     Text("Personal preferences")
-                        .font(.footnote.weight(.semibold))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -308,7 +308,7 @@ struct ConversationInfoView: View {
                     }
                 } header: {
                     Text("Convo rules")
-                        .font(.footnote.weight(.semibold))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -380,7 +380,7 @@ struct ConversationInfoView: View {
                         }
                     } header: {
                         Text("Debug info")
-                            .font(.footnote.weight(.semibold))
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(.colorTextSecondary)
                     }
                     .task {
@@ -457,6 +457,11 @@ struct ConversationInfoView: View {
                     showingFullInfo = false
                 })
                 .background(.colorBackgroundRaised)
+            }
+            .alert("Creators Control the Locks", isPresented: $showingLockPermissionAlert) {
+                Button("OK", role: .cancel) { }
+            } message: {
+                Text("Ask the person who created this convo to lock or unlock it")
             }
         }
     }
