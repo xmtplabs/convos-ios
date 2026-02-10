@@ -68,10 +68,9 @@ struct ConversationInfoView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeConfirmation: Bool = false
     @State private var presentingEditView: Bool = false
-    @State private var showingLockConfirmation: Bool = false
     @State private var showingLockedInfo: Bool = false
-    @State private var showingLockPermissionAlert: Bool = false
     @State private var showingFullInfo: Bool = false
+    @State private var presentingShareView: Bool = false
     @State private var exportedLogsURL: URL?
 
     private let maxMembersToShow: Int = 6
@@ -85,29 +84,31 @@ struct ConversationInfoView: View {
 
     @ViewBuilder
     private var convoCodeRow: some View {
-        let isUnavailable = viewModel.isLocked || viewModel.isFull
-        let subtitle = if isUnavailable {
-            "None"
+        if viewModel.isLocked && !viewModel.isCurrentUserSuperAdmin {
+            EmptyView()
         } else {
-            "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
-        }
-
-        if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
-            // Entire row is ShareLink when available
-            ShareLink(item: inviteURL) {
-                convoCodeRowContent(subtitle: subtitle, showShareIcon: true)
+            let isUnavailable = viewModel.isLocked || viewModel.isFull
+            let subtitle = if isUnavailable {
+                "None"
+            } else {
+                "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
             }
-            .buttonStyle(.plain)
-        } else {
-            // Row with tap gesture for "full" alert
-            convoCodeRowContent(subtitle: subtitle, showShareIcon: false)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if viewModel.isFull {
-                        showingFullInfo = true
-                    }
+
+            if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
+                ShareLink(item: inviteURL) {
+                    convoCodeRowContent(subtitle: subtitle, showShareIcon: true)
                 }
-                .opacity(viewModel.isLocked ? 0.5 : 1.0)
+                .buttonStyle(.plain)
+            } else {
+                convoCodeRowContent(subtitle: subtitle, showShareIcon: false)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if viewModel.isFull {
+                            showingFullInfo = true
+                        }
+                    }
+                    .opacity(viewModel.isLocked ? 0.5 : 1.0)
+            }
         }
     }
 
@@ -149,37 +150,22 @@ struct ConversationInfoView: View {
 
     @ViewBuilder
     private var lockRow: some View {
-        FeatureRowItem(
-            imageName: nil,
-            symbolName: "lock.fill",
-            title: "Lock",
-            subtitle: "Nobody new can join",
-            iconBackgroundColor: .colorFillMinimal,
-            iconForegroundColor: .colorTextPrimary
-        ) {
-            if viewModel.isCurrentUserSuperAdmin {
+        if viewModel.isCurrentUserSuperAdmin {
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "lock.fill",
+                title: "Lock",
+                subtitle: "Nobody new can join",
+                iconBackgroundColor: .colorFillMinimal,
+                iconForegroundColor: .colorTextPrimary
+            ) {
                 Toggle("", isOn: Binding(
                     get: { viewModel.isLocked },
-                    set: { newValue in
-                        if newValue {
-                            showingLockConfirmation = true
-                        } else {
-                            showingLockedInfo = true
-                        }
+                    set: { _ in
+                        showingLockedInfo = true
                     }
                 ))
                 .labelsHidden()
-            } else {
-                Toggle("", isOn: .constant(viewModel.isLocked))
-                    .labelsHidden()
-                    .disabled(true)
-                    .onTapGesture {
-                        if viewModel.isLocked {
-                            showingLockedInfo = true
-                        } else {
-                            showingLockPermissionAlert = true
-                        }
-                    }
             }
         }
     }
@@ -426,23 +412,40 @@ struct ConversationInfoView: View {
                         dismiss()
                     }
                 }
-            }
-            .selfSizingSheet(isPresented: $showingLockConfirmation) {
-                LockConvoConfirmationView(
-                    onLock: {
-                        viewModel.toggleLock()
-                        showingLockConfirmation = false
-                    },
-                    onCancel: {
-                        showingLockConfirmation = false
+                ToolbarItem(placement: .topBarTrailing) {
+                    if viewModel.isLocked {
+                        Button {
+                            showingLockedInfo = true
+                        } label: {
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                    } else {
+                        Button {
+                            if viewModel.isFull {
+                                showingFullInfo = true
+                            } else {
+                                presentingShareView = true
+                            }
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
+                        }
+                        .fullScreenCover(isPresented: $presentingShareView) {
+                            ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
+                                .presentationBackground(.clear)
+                        }
+                        .transaction { transaction in
+                            transaction.disablesAnimations = true
+                        }
                     }
-                )
-                .background(.colorBackgroundRaised)
+                }
             }
             .selfSizingSheet(isPresented: $showingLockedInfo) {
                 LockedConvoInfoView(
                     isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                    onUnlock: {
+                    isLocked: viewModel.isLocked,
+                    onLock: {
                         viewModel.toggleLock()
                         showingLockedInfo = false
                     },
@@ -457,11 +460,6 @@ struct ConversationInfoView: View {
                     showingFullInfo = false
                 })
                 .background(.colorBackgroundRaised)
-            }
-            .alert("Creators Control the Locks", isPresented: $showingLockPermissionAlert) {
-                Button("OK", role: .cancel) { }
-            } message: {
-                Text("Ask the person who created this convo to lock or unlock it")
             }
         }
     }

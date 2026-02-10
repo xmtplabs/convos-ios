@@ -174,7 +174,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $showingLockedInfo) {
             LockedConvoInfoView(
                 isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                onUnlock: {
+                isLocked: viewModel.isLocked,
+                onLock: {
                     viewModel.toggleLock()
                     showingLockedInfo = false
                 },
