@@ -166,6 +166,7 @@ struct MessagesGroupItemView: View {
                     onReveal: { onPhotoRevealed(attachment.key) },
                     onHide: { onPhotoHidden(attachment.key) },
                     onDoubleTap: { onDoubleTap(message) },
+                    onReply: { onReply(message) },
                     onDimensionsLoaded: { width, height in
                         onPhotoDimensionsLoaded(attachment.key, width, height)
                     }
@@ -182,6 +183,7 @@ struct MessagesGroupItemView: View {
                         onReveal: { onPhotoRevealed(attachment.key) },
                         onHide: { onPhotoHidden(attachment.key) },
                         onDoubleTap: { onDoubleTap(message) },
+                        onReply: { onReply(message) },
                         onDimensionsLoaded: { width, height in
                             onPhotoDimensionsLoaded(attachment.key, width, height)
                         }
@@ -230,6 +232,7 @@ private struct AttachmentPlaceholder: View {
     let onReveal: () -> Void
     let onHide: () -> Void
     let onDoubleTap: () -> Void
+    let onReply: () -> Void
     let onDimensionsLoaded: (Int, Int) -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -286,6 +289,11 @@ private struct AttachmentPlaceholder: View {
             }
         }
         .contextMenu {
+            let replyAction = { onReply() }
+            Button(action: replyAction) {
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
+            }
+
             if let image = loadedImage {
                 Button {
                     saveToPhotoLibrary(image: image)

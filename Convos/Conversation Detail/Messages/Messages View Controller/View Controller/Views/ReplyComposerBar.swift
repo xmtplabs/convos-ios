@@ -15,13 +15,30 @@ struct ReplyComposerBar: View {
             return String(text.prefix(50))
         case .emoji(let emoji):
             return emoji
+        case .attachment, .attachments:
+            return "Photo"
         default:
             return ""
         }
     }
 
+    private var attachmentKey: String? {
+        switch message.base.content {
+        case .attachment(let attachment):
+            return attachment.key
+        case .attachments(let attachments):
+            return attachments.first?.key
+        default:
+            return nil
+        }
+    }
+
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
+            if let key = attachmentKey {
+                ReplyPhotoThumbnail(attachmentKey: key)
+            }
+
             VStack(alignment: .leading, spacing: 2.0) {
                 HStack(spacing: 4.0) {
                     Image(systemName: "arrowshape.turn.up.left.fill")
@@ -61,6 +78,41 @@ struct ReplyComposerBar: View {
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Replying to \(senderName): \(previewText)")
         .accessibilityIdentifier("reply-composer-bar")
+    }
+}
+
+private struct ReplyPhotoThumbnail: View {
+    let attachmentKey: String
+
+    @State private var loadedImage: UIImage?
+
+    private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
+    private static let thumbnailSize: CGFloat = 40.0
+
+    var body: some View {
+        Group {
+            if let image = loadedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 8.0))
+            } else {
+                RoundedRectangle(cornerRadius: 8.0)
+                    .fill(.quaternary)
+                    .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+            }
+        }
+        .task {
+            do {
+                let data = try await Self.loader.loadImageData(from: attachmentKey)
+                if let image = UIImage(data: data) {
+                    loadedImage = image
+                }
+            } catch {
+                Log.error("Failed to load reply photo thumbnail: \(error)")
+            }
+        }
     }
 }
 

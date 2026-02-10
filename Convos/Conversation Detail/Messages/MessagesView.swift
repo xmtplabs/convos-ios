@@ -114,7 +114,15 @@ struct MessagesView<BottomBarContent: View>: View {
                 onBaseHeightChanged: { height in
                     bottomBarHeight = height
                 },
-                bottomBarContent: bottomBarContent
+                bottomBarContent: {
+                    bottomBarContent()
+                    if let replyingToMessage {
+                        ReplyComposerBar(
+                            message: replyingToMessage,
+                            onDismiss: onCancelReply
+                        )
+                    }
+                }
             )
             .opacity(contextMenuState.isPresented ? 0.0 : 1.0)
             .animation(.easeOut(duration: 0.2), value: contextMenuState.isPresented)
