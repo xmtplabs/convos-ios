@@ -536,7 +536,7 @@ fileprivate extension Database {
                 optional: DBConversation.creator
                     .forKey("conversationCreator")
                     .select([DBConversationMember.Columns.role])
-                    .including(required: DBConversationMember.memberProfile)
+                    .including(optional: DBConversationMember.memberProfile)
             )
             .including(required: DBConversation.localState)
             .including(
@@ -551,9 +551,14 @@ fileprivate extension Database {
     }
 }
 
+private struct LightweightCreatorDetails: Codable, FetchableRecord, Hashable {
+    let memberProfile: DBMemberProfile?
+    let role: MemberRole
+}
+
 private struct LightweightConversationDetails: Codable, FetchableRecord, Hashable {
     let conversation: DBConversation
-    let conversationCreator: DBConversationMemberProfileWithRole?
+    let conversationCreator: LightweightCreatorDetails?
     let conversationMembers: [DBConversationMemberProfileWithRole]
     let conversationLocalState: ConversationLocalState
 }
@@ -563,12 +568,20 @@ private extension LightweightConversationDetails {
         let members = conversationMembers.map {
             $0.hydrateConversationMember(currentInboxId: conversation.inboxId)
         }
-        let creator = conversationCreator?.hydrateConversationMember(currentInboxId: conversation.inboxId)
-            ?? ConversationMember(
+        let creator: ConversationMember
+        if let creatorDetails = conversationCreator, let profile = creatorDetails.memberProfile {
+            creator = ConversationMember(
+                profile: profile.hydrateProfile(),
+                role: creatorDetails.role,
+                isCurrentUser: profile.inboxId == conversation.inboxId
+            )
+        } else {
+            creator = ConversationMember(
                 profile: .empty(inboxId: conversation.creatorId),
                 role: .superAdmin,
                 isCurrentUser: conversation.creatorId == conversation.inboxId
             )
+        }
         let otherMember: ConversationMember?
         if conversation.kind == .dm,
            let other = members.first(where: { !$0.isCurrentUser }) {
