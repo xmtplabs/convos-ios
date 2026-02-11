@@ -40,7 +40,7 @@ struct MessagesGroupView: View {
                 let isReply = if case .reply = message { true } else { false }
                 let isFullWidthAttachment = message.base.content.isAttachment
 
-                if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment {
+                if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
                     Text(group.sender.profile.displayName)
                         .scaleEffect(isAppearing ? 0.9 : 1.0)
                         .opacity(isAppearing ? 0.0 : 1.0)
