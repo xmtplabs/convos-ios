@@ -18,6 +18,8 @@ struct ReplyComposerBar: View {
             return emoji
         case .attachment, .attachments:
             return "Photo"
+        case .invite:
+            return "Invite"
         default:
             return ""
         }

@@ -149,6 +149,28 @@ struct MessagesGroupItemView: View {
                 ) {
                     onTapAvatar(message)
                 }
+                .messageInteractions(
+                    message: message,
+                    bubbleStyle: bubbleType,
+                    onSwipeOffsetChanged: { swipeOffset = $0 },
+                    onSwipeEnded: { triggered in
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            swipeOffset = 0
+                        }
+                        if triggered { onReply(message) }
+                    }
+                )
+                .offset(x: swipeOffset)
+                .background(alignment: .leading) {
+                    if swipeOffset > 0 {
+                        let progress = min(swipeOffset / 60.0, 1.0)
+                        Image(systemName: "arrowshape.turn.up.left.fill")
+                            .foregroundStyle(.tertiary)
+                            .scaleEffect(0.4 + progress * 0.6)
+                            .opacity(Double(progress))
+                            .padding(.leading, DesignConstants.Spacing.step2x)
+                    }
+                }
                 .zIndex(200)
                 .id("message-invite-\(message.base.id)")
                 .scaleEffect(isAppearing ? 0.9 : 1.0)

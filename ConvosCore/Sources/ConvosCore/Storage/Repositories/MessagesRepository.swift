@@ -474,7 +474,11 @@ extension Array where Element == DBMessage {
             }
             parentContent = .attachments(hydratedAttachments)
         case .invite:
-            parentContent = .text("[Invite]")
+            if let invite = sourceDBMessage.invite {
+                parentContent = .invite(invite)
+            } else {
+                parentContent = .text("[Invite]")
+            }
         case .update:
             parentContent = .text("[Update]")
         }

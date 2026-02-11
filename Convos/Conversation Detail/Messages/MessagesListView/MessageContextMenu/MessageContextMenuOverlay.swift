@@ -29,6 +29,8 @@ struct MessageContextMenuOverlay: View {
         switch message.base.content {
         case .text(let text): return text
         case .emoji(let text): return text
+        case .invite(let invite):
+            return "https://\(ConfigManager.shared.associatedDomain)/v2?i=\(invite.inviteSlug)"
         default: return nil
         }
     }
@@ -363,6 +365,16 @@ struct MessageContextMenuOverlay: View {
                 if let attachment = attachments.first {
                     photoPreview(attachment: attachment, message: message)
                 }
+
+            case .invite(let invite):
+                MessageInviteContainerView(
+                    invite: invite,
+                    style: state.bubbleStyle,
+                    isOutgoing: state.isOutgoing,
+                    profile: message.base.sender.profile,
+                    onTapInvite: { _ in },
+                    onTapAvatar: nil
+                )
 
             default:
                 EmptyView()
