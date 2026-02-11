@@ -69,6 +69,7 @@ struct MessagesGroupItemView: View {
                             .foregroundStyle(.tertiary)
                             .scaleEffect(0.4 + progress * 0.6)
                             .opacity(Double(progress))
+                            .padding(.leading, DesignConstants.Spacing.step2x)
                             .accessibilityHidden(true)
                     }
                 }
@@ -115,6 +116,7 @@ struct MessagesGroupItemView: View {
                             .foregroundStyle(.tertiary)
                             .scaleEffect(0.4 + progress * 0.6)
                             .opacity(Double(progress))
+                            .padding(.leading, DesignConstants.Spacing.step2x)
                     }
                 }
                 .zIndex(200)

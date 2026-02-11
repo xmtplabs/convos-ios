@@ -170,139 +170,349 @@ struct MessagesGroupView: View {
     }
 }
 
-#Preview("Incoming Messages") {
-    ScrollView {
-        MessagesGroupView(
-            group: .mockIncoming,
-            shouldBlurPhotos: false,
-            onTapAvatar: { _ in },
-            onTapInvite: { _ in },
-            onTapReactions: { _ in },
-            onReply: { _ in },
-            onDoubleTap: { _ in },
-            onPhotoRevealed: { _ in },
-            onPhotoHidden: { _ in },
-            onPhotoDimensionsLoaded: { _, _, _ in }
-        )
-        .padding()
-    }
-    .background(.colorBackgroundSurfaceless)
-}
-
-#Preview("Outgoing Messages") {
-    ScrollView {
-        MessagesGroupView(
-            group: .mockOutgoing,
-            shouldBlurPhotos: false,
-            onTapAvatar: { _ in },
-            onTapInvite: { _ in },
-            onTapReactions: { _ in },
-            onReply: { _ in },
-            onDoubleTap: { _ in },
-            onPhotoRevealed: { _ in },
-            onPhotoHidden: { _ in },
-            onPhotoDimensionsLoaded: { _, _, _ in }
-        )
-        .padding()
-    }
-    .background(.colorBackgroundSurfaceless)
-}
-
-#Preview("Mixed Published/Unpublished") {
-    ScrollView {
-        MessagesGroupView(
-            group: .mockMixed,
-            shouldBlurPhotos: false,
-            onTapAvatar: { _ in },
-            onTapInvite: { _ in },
-            onTapReactions: { _ in },
-            onReply: { _ in },
-            onDoubleTap: { _ in },
-            onPhotoRevealed: { _ in },
-            onPhotoHidden: { _ in },
-            onPhotoDimensionsLoaded: { _, _, _ in }
-        )
-        .padding()
-    }
-    .background(.colorBackgroundSurfaceless)
-}
-
-#Preview("Incoming With Reactions") {
-    ScrollView {
-        MessagesGroupView(
-            group: .mockIncomingWithReactions,
-            shouldBlurPhotos: false,
-            onTapAvatar: { _ in },
-            onTapInvite: { _ in },
-            onTapReactions: { _ in },
-            onReply: { _ in },
-            onDoubleTap: { _ in },
-            onPhotoRevealed: { _ in },
-            onPhotoHidden: { _ in },
-            onPhotoDimensionsLoaded: { _, _, _ in }
-        )
-        .padding()
-    }
-    .background(.colorBackgroundSurfaceless)
-}
-
-#Preview("Outgoing With Reactions") {
-    ScrollView {
-        MessagesGroupView(
-            group: .mockOutgoingWithReactions,
-            shouldBlurPhotos: false,
-            onTapAvatar: { _ in },
-            onTapInvite: { _ in },
-            onTapReactions: { _ in },
-            onReply: { _ in },
-            onDoubleTap: { _ in },
-            onPhotoRevealed: { _ in },
-            onPhotoHidden: { _ in },
-            onPhotoDimensionsLoaded: { _, _, _ in }
-        )
-        .padding()
-    }
-    .background(.colorBackgroundSurfaceless)
-}
-
-#Preview("Full Conversation") {
+#Preview("All Message Permutations") {
     let alice = ConversationMember.mock(isCurrentUser: false, name: "Alice")
     let me = ConversationMember.mock(isCurrentUser: true)
+    let reactions: [MessageReaction] = [
+        .mock(emoji: "❤️", sender: .mock(isCurrentUser: true)),
+        .mock(emoji: "😂", sender: .mock(isCurrentUser: false, name: "Bob")),
+    ]
+    let photoURL = "https://picsum.photos/400/300"
+    let photoAttachment = HydratedAttachment(key: photoURL, width: 400, height: 300)
+    let hiddenPhoto = HydratedAttachment(key: photoURL, isHiddenByOwner: true, width: 400, height: 300)
+
     let groups: [MessagesGroup] = [
+        // -- Text messages --
         MessagesGroup(
-            id: "conv-1",
+            id: "text-incoming",
             sender: alice,
             messages: [
-                .message(Message.mock(text: "Hey! Are you coming to the party tonight?", sender: alice, status: .published), .existing),
-                .message(Message.mock(text: "It starts at 8", sender: alice, status: .published), .existing),
+                .message(Message.mock(text: "Standard text message", sender: alice), .existing),
+                .message(Message.mock(text: "With reactions", sender: alice, reactions: reactions), .existing),
             ],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false
         ),
         MessagesGroup(
-            id: "conv-2",
+            id: "text-outgoing",
             sender: me,
             messages: [
-                .message(Message.mock(text: "Yeah I'll be there!", sender: me, status: .published), .existing),
-                .message(Message.mock(text: "Should I bring anything?", sender: me, status: .published), .existing),
+                .message(Message.mock(text: "Standard text message", sender: me), .existing),
+                .message(Message.mock(text: "With reactions", sender: me, reactions: reactions), .existing),
             ],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false
         ),
+
+        // -- Emoji messages --
         MessagesGroup(
-            id: "conv-3",
+            id: "emoji-incoming",
             sender: alice,
             messages: [
-                .message(Message.mock(text: "Just yourself 😊", sender: alice, status: .published), .existing),
+                .message(Message.mock(text: "🔥", sender: alice), .existing),
+                .message(Message.mock(text: "🎉", sender: alice, reactions: reactions), .existing),
             ],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false
         ),
         MessagesGroup(
-            id: "conv-4",
+            id: "emoji-outgoing",
             sender: me,
             messages: [
-                .message(Message.mock(text: "Sounds good, see you then!", sender: me, status: .published), .existing),
+                .message(Message.mock(text: "❤️", sender: me), .existing),
+                .message(Message.mock(text: "🙌", sender: me, reactions: reactions), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Photo messages --
+        MessagesGroup(
+            id: "photo-incoming",
+            sender: alice,
+            messages: [
+                .message(Message.mock(content: .attachment(photoAttachment), sender: alice), .existing),
+                .message(Message.mock(content: .attachment(photoAttachment), sender: alice, reactions: reactions), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "photo-outgoing",
+            sender: me,
+            messages: [
+                .message(Message.mock(content: .attachment(photoAttachment), sender: me), .existing),
+                .message(Message.mock(content: .attachment(photoAttachment), sender: me, reactions: reactions), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Hidden/blurred photos --
+        MessagesGroup(
+            id: "photo-hidden",
+            sender: alice,
+            messages: [
+                .message(Message.mock(content: .attachment(hiddenPhoto), sender: alice), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Link messages --
+        MessagesGroup(
+            id: "link-incoming",
+            sender: alice,
+            messages: [
+                .message(Message.mock(text: "Check out https://convos.org", sender: alice), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "link-outgoing",
+            sender: me,
+            messages: [
+                .message(Message.mock(text: "Look at this https://github.com/xmtplabs/convos-ios", sender: me), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Invite messages --
+        MessagesGroup(
+            id: "invite-incoming",
+            sender: alice,
+            messages: [
+                .message(Message.mock(content: .invite(.mock), sender: alice), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "invite-outgoing",
+            sender: me,
+            messages: [
+                .message(Message.mock(content: .invite(.mock), sender: me), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Text reply to text --
+        MessagesGroup(
+            id: "reply-text-to-text",
+            sender: alice,
+            messages: [
+                .reply(MessageReply.mock(
+                    text: "Totally agree!",
+                    sender: alice,
+                    parentText: "What do you think about the new design?",
+                    parentSender: me
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "reply-text-to-text-out",
+            sender: me,
+            messages: [
+                .reply(MessageReply.mock(
+                    text: "Sounds good to me",
+                    sender: me,
+                    parentText: "Let's meet at 3pm tomorrow",
+                    parentSender: alice
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Text reply to photo --
+        MessagesGroup(
+            id: "reply-text-to-photo",
+            sender: alice,
+            messages: [
+                .reply(MessageReply.mock(
+                    text: "Great photo!",
+                    sender: alice,
+                    parentContent: .attachment(photoAttachment),
+                    parentSender: me
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "reply-text-to-photo-out",
+            sender: me,
+            messages: [
+                .reply(MessageReply.mock(
+                    text: "Love this shot",
+                    sender: me,
+                    parentContent: .attachment(photoAttachment),
+                    parentSender: alice
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Text reply to emoji --
+        MessagesGroup(
+            id: "reply-text-to-emoji",
+            sender: alice,
+            messages: [
+                .reply(MessageReply.mock(
+                    text: "Haha same!",
+                    sender: alice,
+                    parentContent: .emoji("🔥"),
+                    parentSender: me
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "reply-text-to-emoji-out",
+            sender: me,
+            messages: [
+                .reply(MessageReply.mock(
+                    text: "Right back at you",
+                    sender: me,
+                    parentContent: .emoji("❤️"),
+                    parentSender: alice
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Text reply to invite --
+        MessagesGroup(
+            id: "reply-text-to-invite",
+            sender: alice,
+            messages: [
+                .reply(MessageReply.mock(
+                    text: "I'll join!",
+                    sender: alice,
+                    parentContent: .invite(.mock),
+                    parentSender: me
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Photo reply to text --
+        MessagesGroup(
+            id: "reply-photo-to-text",
+            sender: alice,
+            messages: [
+                .reply(MessageReply.mock(
+                    sender: alice,
+                    replyContent: .attachment(photoAttachment),
+                    parentText: "Show me what you mean",
+                    parentSender: me
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+        MessagesGroup(
+            id: "reply-photo-to-text-out",
+            sender: me,
+            messages: [
+                .reply(MessageReply.mock(
+                    sender: me,
+                    replyContent: .attachment(photoAttachment),
+                    parentText: "Can you send a pic?",
+                    parentSender: alice
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Photo reply to photo --
+        MessagesGroup(
+            id: "reply-photo-to-photo",
+            sender: alice,
+            messages: [
+                .reply(MessageReply.mock(
+                    sender: alice,
+                    replyContent: .attachment(photoAttachment),
+                    parentContent: .attachment(photoAttachment),
+                    parentSender: me
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Photo reply to emoji --
+        MessagesGroup(
+            id: "reply-photo-to-emoji",
+            sender: me,
+            messages: [
+                .reply(MessageReply.mock(
+                    sender: me,
+                    replyContent: .attachment(photoAttachment),
+                    parentContent: .emoji("🙌"),
+                    parentSender: alice
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Photo reply to invite --
+        MessagesGroup(
+            id: "reply-photo-to-invite",
+            sender: me,
+            messages: [
+                .reply(MessageReply.mock(
+                    sender: me,
+                    replyContent: .attachment(photoAttachment),
+                    parentContent: .invite(.mock),
+                    parentSender: alice
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Reactions on replies --
+        MessagesGroup(
+            id: "reply-with-reactions",
+            sender: alice,
+            messages: [
+                .reply(MessageReply.mock(
+                    text: "Love it!",
+                    sender: alice,
+                    parentText: "Check out this idea",
+                    parentSender: me,
+                    reactions: reactions
+                ), .existing),
+                .reply(MessageReply.mock(
+                    sender: alice,
+                    replyContent: .attachment(photoAttachment),
+                    parentText: "Send me a photo",
+                    parentSender: me,
+                    reactions: reactions
+                ), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
+        ),
+
+        // -- Sent status --
+        MessagesGroup(
+            id: "sent-status",
+            sender: me,
+            messages: [
+                .message(Message.mock(text: "Last message with sent status", sender: me), .existing),
             ],
             isLastGroup: true,
             isLastGroupSentByCurrentUser: true
@@ -314,7 +524,7 @@ struct MessagesGroupView: View {
             ForEach(groups) { group in
                 MessagesGroupView(
                     group: group,
-                    shouldBlurPhotos: false,
+                    shouldBlurPhotos: true,
                     onTapAvatar: { _ in },
                     onTapInvite: { _ in },
                     onTapReactions: { _ in },

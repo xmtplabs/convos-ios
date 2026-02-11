@@ -34,6 +34,13 @@ struct ReplyReferenceView: View {
         }
     }
 
+    private var parentInvite: MessageInvite? {
+        if case .invite(let invite) = parentMessage.content {
+            return invite
+        }
+        return nil
+    }
+
     private var shouldBlurAttachment: Bool {
         guard let parentAttachment else { return false }
         if parentAttachment.isHiddenByOwner { return true }
@@ -70,6 +77,10 @@ struct ReplyReferenceView: View {
                 )
                 .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                 .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
+            } else if let invite = parentInvite {
+                ReplyReferenceInvitePreview(invite: invite)
+                    .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
+                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 Text(previewText)
                     .font(.footnote)
@@ -210,6 +221,72 @@ private struct ReplyReferencePhotoPreview: View {
             } catch {
                 Log.error("Failed to load reply reference photo: \(error)")
             }
+        }
+    }
+}
+
+// MARK: - Invite Preview
+
+private struct ReplyReferenceInvitePreview: View {
+    let invite: MessageInvite
+    @State private var cachedImage: UIImage?
+
+    private var title: String {
+        if let name = invite.conversationName, !name.isEmpty {
+            return "Pop into my convo \"\(name)\""
+        }
+        return "Pop into my convo before it explodes"
+    }
+
+    private var description: String {
+        if let description = invite.conversationDescription, !description.isEmpty {
+            return description
+        }
+        return "convos.org"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let image = cachedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image("convosIconLarge")
+                        .resizable()
+                        .tint(.colorTextPrimaryInverted)
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .aspectRatio(contentMode: .fit)
+                        .frame(height: 56.0)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 128.0)
+            .clipped()
+            .background(.colorBackgroundInverted)
+
+            VStack(alignment: .leading, spacing: 1.0) {
+                Text(title)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.black)
+                    .font(.caption.weight(.bold))
+                    .truncationMode(.tail)
+                Text(description)
+                    .font(.caption2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 210.0, alignment: .leading)
+        .background(.colorLinkBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 10.0))
+        .cachedImage(for: invite) { image in
+            cachedImage = image
         }
     }
 }

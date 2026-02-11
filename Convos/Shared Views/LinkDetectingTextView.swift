@@ -30,10 +30,8 @@ struct LinkDetectingTextView: View {
     }
 
     private static func makeAttributedString(from text: String) -> AttributedString {
-        // Create a mutable attributed string
         var result = AttributedString()
 
-        // Use cached NSDataDetector to find URLs
         guard let detector = linkDetector else {
             return AttributedString(text)
         }
@@ -46,14 +44,12 @@ struct LinkDetectingTextView: View {
         for match in matches {
             guard let url = match.url else { continue }
 
-            // Add any text before this URL as plain text
             if match.range.location > lastRangeEnd {
                 let plainRange = NSRange(location: lastRangeEnd, length: match.range.location - lastRangeEnd)
                 let plainText = nsString.substring(with: plainRange)
                 result.append(AttributedString(plainText))
             }
 
-            // Add the URL with link and underline attributes
             let urlText = nsString.substring(with: match.range)
             var linkString = AttributedString(urlText)
             linkString.link = url
@@ -63,14 +59,12 @@ struct LinkDetectingTextView: View {
             lastRangeEnd = match.range.location + match.range.length
         }
 
-        // Add any remaining text after the last URL
         if lastRangeEnd < nsString.length {
             let remainingRange = NSRange(location: lastRangeEnd, length: nsString.length - lastRangeEnd)
             let remainingText = nsString.substring(with: remainingRange)
             result.append(AttributedString(remainingText))
         }
 
-        // If no URLs were found, return plain text
         if matches.isEmpty {
             return AttributedString(text)
         }

@@ -60,7 +60,7 @@ extension View {
     }
 }
 
-// MARK: - Swipe + Long Press Overlay
+// MARK: - Gesture Overlay
 
 private struct SwipeGestureOverlay: UIViewRepresentable {
     let isDisabled: Bool
@@ -74,8 +74,9 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> GestureOverlayView {
-        let view = GestureOverlayView()
+    func makeUIView(context: Context) -> UIView {
+        let view = UIView()
+        view.backgroundColor = .clear
         let coordinator = context.coordinator
         coordinator.overlayView = view
 
@@ -115,32 +116,24 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         singleTap.delegate = coordinator
         singleTap.require(toFail: doubleTap)
         view.addGestureRecognizer(singleTap)
+        coordinator.singleTapRecognizer = singleTap
 
         return view
     }
 
-    func updateUIView(_ uiView: GestureOverlayView, context: Context) {
+    func updateUIView(_ uiView: UIView, context: Context) {
         context.coordinator.isDisabled = isDisabled
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onSwipeOffsetChanged = onSwipeOffsetChanged
         context.coordinator.onSwipeEnded = onSwipeEnded
         context.coordinator.onLongPress = onLongPress
-    }
-
-    final class GestureOverlayView: UIView {
-        override init(frame: CGRect) {
-            super.init(frame: frame)
-            backgroundColor = .clear
-        }
-
-        required init?(coder: NSCoder) {
-            fatalError("init(coder:) has not been implemented")
-        }
+        context.coordinator.singleTapRecognizer?.isEnabled = onSingleTap != nil
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        weak var overlayView: GestureOverlayView?
+        weak var overlayView: UIView?
+        weak var singleTapRecognizer: UITapGestureRecognizer?
         var isDisabled: Bool = false
         var onSingleTap: (() -> Void)?
         var onDoubleTap: (() -> Void)?
