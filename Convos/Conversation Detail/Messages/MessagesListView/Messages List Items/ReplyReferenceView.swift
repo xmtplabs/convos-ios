@@ -59,8 +59,8 @@ struct ReplyReferenceView: View {
                     .font(DesignConstants.Fonts.caption3)
                     .foregroundStyle(.tertiary)
             }
-            .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
-            .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step3x : 0.0)
+            .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step5x)
+            .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step5x : 0.0)
 
             if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
