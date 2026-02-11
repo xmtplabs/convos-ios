@@ -66,7 +66,6 @@ struct ReplyReferenceView: View {
                 ReplyReferencePhotoPreview(
                     attachmentKey: attachment.key,
                     shouldBlur: shouldBlurAttachment,
-                    isOutgoing: isOutgoing,
                     onReveal: { onPhotoRevealed?(attachment.key) },
                     onHide: { onPhotoHidden?(attachment.key) }
                 )
@@ -147,7 +146,6 @@ struct ReplyReferenceView: View {
 private struct ReplyReferencePhotoPreview: View {
     let attachmentKey: String
     let shouldBlur: Bool
-    let isOutgoing: Bool
     let onReveal: () -> Void
     let onHide: () -> Void
 
@@ -156,10 +154,9 @@ private struct ReplyReferencePhotoPreview: View {
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
     private static let maxHeight: CGFloat = 80.0
 
-    init(attachmentKey: String, shouldBlur: Bool, isOutgoing: Bool, onReveal: @escaping () -> Void, onHide: @escaping () -> Void) {
+    init(attachmentKey: String, shouldBlur: Bool, onReveal: @escaping () -> Void, onHide: @escaping () -> Void) {
         self.attachmentKey = attachmentKey
         self.shouldBlur = shouldBlur
-        self.isOutgoing = isOutgoing
         self.onReveal = onReveal
         self.onHide = onHide
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
@@ -187,7 +184,7 @@ private struct ReplyReferencePhotoPreview: View {
                             Button(action: revealAction) {
                                 Label("Reveal", systemImage: "eye")
                             }
-                        } else if isOutgoing {
+                        } else {
                             let hideAction = { onHide() }
                             Button(action: hideAction) {
                                 Label("Hide", systemImage: "eye.slash")
