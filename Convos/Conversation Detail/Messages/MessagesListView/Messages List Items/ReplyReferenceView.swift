@@ -168,42 +168,32 @@ private struct ReplyReferencePhotoPreview: View {
     var body: some View {
         Group {
             if let image = loadedImage {
-                ZStack(alignment: .topTrailing) {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxHeight: Self.maxHeight)
-                        .blur(radius: shouldBlur ? 10 : 0)
-                        .opacity(shouldBlur ? 0.4 : 1.0)
-
-                    if shouldBlur {
-                        Image(systemName: "eye.circle.fill")
-                            .font(.system(size: 18))
-                            .foregroundStyle(.white)
-                            .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
-                            .padding(DesignConstants.Spacing.step2x)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 12.0))
-                .contentShape(RoundedRectangle(cornerRadius: 12.0))
-                .onTapGesture {
-                    if shouldBlur {
-                        onReveal()
-                    }
-                }
-                .contextMenu {
-                    if shouldBlur {
-                        let revealAction = { onReveal() }
-                        Button(action: revealAction) {
-                            Label("Reveal", systemImage: "eye")
-                        }
-                    } else if isOutgoing {
-                        let hideAction = { onHide() }
-                        Button(action: hideAction) {
-                            Label("Hide", systemImage: "eye.slash")
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxHeight: Self.maxHeight)
+                    .blur(radius: shouldBlur ? 10 : 0)
+                    .opacity(shouldBlur ? 0.4 : 1.0)
+                    .clipShape(RoundedRectangle(cornerRadius: 12.0))
+                    .contentShape(RoundedRectangle(cornerRadius: 12.0))
+                    .onTapGesture {
+                        if shouldBlur {
+                            onReveal()
                         }
                     }
-                }
+                    .contextMenu {
+                        if shouldBlur {
+                            let revealAction = { onReveal() }
+                            Button(action: revealAction) {
+                                Label("Reveal", systemImage: "eye")
+                            }
+                        } else if isOutgoing {
+                            let hideAction = { onHide() }
+                            Button(action: hideAction) {
+                                Label("Hide", systemImage: "eye.slash")
+                            }
+                        }
+                    }
             } else {
                 RoundedRectangle(cornerRadius: 12.0)
                     .fill(.quaternary)
