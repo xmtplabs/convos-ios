@@ -304,31 +304,24 @@ struct MessageContextMenuOverlay: View {
         let topInset: CGFloat = safeTop + C.topInset
         let minY: CGFloat = topInset + C.drawerHeight + C.sectionSpacing
         let photoInset: CGFloat = isPhoto ? C.photoHorizontalInset : 0
-        let endWidth: CGFloat = source.width - (photoInset * 2)
+        var endWidth: CGFloat = source.width - (photoInset * 2)
         var endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
 
-        let bottomPadding: CGFloat
-        if isPhoto {
-            let menuHeight: CGFloat = C.photoMenuEstimatedHeight
-            bottomPadding = C.sectionSpacing + menuHeight + C.sectionSpacing
-            let maxPhotoHeight: CGFloat = screenSize.height - minY - bottomPadding
-            endHeight = min(endHeight, maxPhotoHeight)
-        } else {
-            bottomPadding = 0
+        let menuHeight: CGFloat = isPhoto ? C.photoMenuEstimatedHeight : C.textMenuEstimatedHeight
+        let bottomPadding: CGFloat = C.sectionSpacing + menuHeight + C.verticalBreathingRoom
+        let maxContentHeight: CGFloat = screenSize.height - minY - bottomPadding - C.verticalBreathingRoom
+
+        if endHeight > maxContentHeight {
+            let scale: CGFloat = maxContentHeight / endHeight
+            endWidth *= scale
+            endHeight = maxContentHeight
         }
 
-        let desiredY: CGFloat
-        let finalX: CGFloat
-        if isPhoto {
-            let availableHeight: CGFloat = screenSize.height - minY - bottomPadding
-            let centeredY: CGFloat = minY + (availableHeight - endHeight) / 2
-            desiredY = max(centeredY, minY)
-            finalX = (screenSize.width - endWidth) / 2
-        } else {
-            let maxY: CGFloat = screenSize.height / 2 - min(C.maxPreviewHeight, endHeight)
-            desiredY = min(max(source.origin.y, minY), maxY < 0 ? minY : maxY)
-            finalX = (screenSize.width - endWidth) / 2
-        }
+        let availableHeight: CGFloat = screenSize.height - minY - bottomPadding
+        let centeredY: CGFloat = minY + (availableHeight - endHeight) / 2
+        let desiredY: CGFloat = max(centeredY, minY)
+        let finalX: CGFloat = (screenSize.width - endWidth) / 2
+
         return CGRect(x: finalX, y: desiredY, width: endWidth, height: endHeight)
     }
 
@@ -341,6 +334,8 @@ struct MessageContextMenuOverlay: View {
         endBubble: CGRect
     ) -> some View {
         let rect = appeared ? endBubble : sourceBubble
+        let endScale: CGFloat = min(endBubble.width / max(sourceBubble.width, 1), 1.0)
+        let scale: CGFloat = appeared ? endScale : 1.0
         Group {
             switch message.base.content {
             case .text(let text):
@@ -381,7 +376,11 @@ struct MessageContextMenuOverlay: View {
             }
         }
         .contentShape(Rectangle())
-        .frame(width: rect.width, height: rect.height)
+        .frame(width: sourceBubble.width)
+        .fixedSize(horizontal: false, vertical: true)
+        .scaleEffect(scale, anchor: .center)
+        .frame(width: rect.width, height: rect.height, alignment: .center)
+        .clipped()
         .offset(x: rect.minX, y: rect.minY)
         .shadow(
             color: .black.opacity(appeared ? 0.18 : 0.0),
@@ -580,7 +579,9 @@ struct MessageContextMenuOverlay: View {
         static let maxPreviewHeight: CGFloat = 75
         static let photoHorizontalInset: CGFloat = 16
         static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
+        static let textMenuEstimatedHeight: CGFloat = 100
         static let photoMenuEstimatedHeight: CGFloat = 220
+        static let verticalBreathingRoom: CGFloat = 80
 
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }

@@ -107,8 +107,10 @@ struct ReplyReferenceView: View {
                     .font(.footnote)
                     .foregroundStyle(.colorTextSecondary)
                     .lineLimit(1)
+                    .truncationMode(.tail)
                     .padding(.horizontal, DesignConstants.Spacing.step3x)
                     .padding(.vertical, DesignConstants.Spacing.step2x)
+                    .frame(maxWidth: C.maxReplyPreviewWidth, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
                             .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
@@ -121,6 +123,10 @@ struct ReplyReferenceView: View {
         .padding(.bottom, DesignConstants.Spacing.stepX)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Reply to \(parentMessage.sender.profile.displayName): \(previewText)")
+    }
+
+    private enum C {
+        static let maxReplyPreviewWidth: CGFloat = 250
     }
 }
 

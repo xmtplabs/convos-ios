@@ -8,6 +8,19 @@ struct AvatarView: View {
     let placeholderImageName: String?
     @State private var cachedImage: UIImage?
 
+    init(
+        fallbackName: String,
+        cacheableObject: any ImageCacheable,
+        placeholderImage: UIImage?,
+        placeholderImageName: String?
+    ) {
+        self.fallbackName = fallbackName
+        self.cacheableObject = cacheableObject
+        self.placeholderImage = placeholderImage
+        self.placeholderImageName = placeholderImageName
+        _cachedImage = State(initialValue: ImageCache.shared.image(for: cacheableObject))
+    }
+
     var body: some View {
         Group {
             if let image = placeholderImage ?? cachedImage {
