@@ -585,10 +585,6 @@ private struct ContextMenuPhotoPreview: View {
                         .blur(radius: shouldBlur ? 20 : 0)
                         .opacity(shouldBlur ? 0.3 : 1.0)
 
-                    if shouldBlur {
-                        PhotoBlurOverlayContent()
-                    }
-
                     PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
                 }
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius))

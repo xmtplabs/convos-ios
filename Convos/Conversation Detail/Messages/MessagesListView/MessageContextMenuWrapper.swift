@@ -5,6 +5,7 @@ import UIKit
 struct MessageInteractionModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
+    let onSingleTap: (() -> Void)?
     let onSwipeOffsetChanged: ((CGFloat) -> Void)?
     let onSwipeEnded: ((Bool) -> Void)?
 
@@ -20,6 +21,7 @@ struct MessageInteractionModifier: ViewModifier {
             .overlay {
                 GeometryReader { geometry in
                     SwipeGestureOverlay(
+                        onSingleTap: onSingleTap,
                         onDoubleTap: {
                             contextMenuState.onToggleReaction?("❤️", message.base.id)
                         },
@@ -43,12 +45,14 @@ extension View {
     func messageInteractions(
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
+        onSingleTap: (() -> Void)? = nil,
         onSwipeOffsetChanged: ((CGFloat) -> Void)? = nil,
         onSwipeEnded: ((Bool) -> Void)? = nil
     ) -> some View {
         modifier(MessageInteractionModifier(
             message: message,
             bubbleStyle: bubbleStyle,
+            onSingleTap: onSingleTap,
             onSwipeOffsetChanged: onSwipeOffsetChanged,
             onSwipeEnded: onSwipeEnded
         ))
@@ -58,6 +62,7 @@ extension View {
 // MARK: - Swipe + Long Press Overlay
 
 private struct SwipeGestureOverlay: UIViewRepresentable {
+    let onSingleTap: (() -> Void)?
     let onDoubleTap: (() -> Void)?
     let onSwipeOffsetChanged: ((CGFloat) -> Void)?
     let onSwipeEnded: ((Bool) -> Void)?
@@ -100,10 +105,20 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         doubleTap.delegate = coordinator
         view.addGestureRecognizer(doubleTap)
 
+        let singleTap = UITapGestureRecognizer(
+            target: coordinator,
+            action: #selector(Coordinator.handleSingleTap)
+        )
+        singleTap.numberOfTapsRequired = 1
+        singleTap.delegate = coordinator
+        singleTap.require(toFail: doubleTap)
+        view.addGestureRecognizer(singleTap)
+
         return view
     }
 
     func updateUIView(_ uiView: GestureOverlayView, context: Context) {
+        context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onSwipeOffsetChanged = onSwipeOffsetChanged
         context.coordinator.onSwipeEnded = onSwipeEnded
@@ -123,6 +138,7 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         weak var overlayView: GestureOverlayView?
+        var onSingleTap: (() -> Void)?
         var onDoubleTap: (() -> Void)?
         var onSwipeOffsetChanged: ((CGFloat) -> Void)?
         var onSwipeEnded: ((Bool) -> Void)?
@@ -169,6 +185,11 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
             guard gesture.state == .began else { return }
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             onLongPress?()
+        }
+
+        @objc func handleSingleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended else { return }
+            onSingleTap?()
         }
 
         @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {

@@ -36,9 +36,8 @@ struct ReplyReferenceView: View {
 
     private var shouldBlurAttachment: Bool {
         guard let parentAttachment else { return false }
-        if parentMessage.sender.isCurrentUser {
-            return parentAttachment.isHiddenByOwner
-        }
+        if parentAttachment.isHiddenByOwner { return true }
+        if parentMessage.sender.isCurrentUser { return false }
         return shouldBlurPhotos && !parentAttachment.isRevealed
     }
 

@@ -222,6 +222,12 @@ struct MessagesGroupItemView: View {
         .messageInteractions(
             message: message,
             bubbleStyle: .normal,
+            onSingleTap: {
+                let isBlurred = attachment.isHiddenByOwner || (!message.base.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
+                if isBlurred {
+                    onPhotoRevealed(attachment.key)
+                }
+            },
             onSwipeOffsetChanged: { photoSwipeOffset = $0 },
             onSwipeEnded: { triggered in
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
@@ -338,11 +344,6 @@ private struct AttachmentPlaceholder: View {
             PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
         }
         .contentShape(Rectangle())
-        .onTapGesture {
-            if showBlurOverlay {
-                onReveal()
-            }
-        }
         .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
         .animation(.easeOut(duration: 0.15), value: isPressed)
     }
