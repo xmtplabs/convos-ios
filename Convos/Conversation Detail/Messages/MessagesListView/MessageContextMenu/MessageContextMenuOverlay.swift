@@ -404,52 +404,26 @@ struct MessageContextMenuOverlay: View {
                         onReply(msg)
                     }
                 }
-                Button(action: replyAction) {
-                    Label("Reply", systemImage: "arrowshape.turn.up.left")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, C.actionPaddingH)
-                        .padding(.vertical, C.actionPaddingV)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Reply to message")
-                .accessibilityIdentifier("context-menu-reply")
+                menuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
 
                 if let text = copyableText {
-                    Divider()
-                        .padding(.horizontal, C.actionPaddingH)
+                    menuDivider
                     let copyAction = {
                         dismissMenu()
                         onCopy(text)
                     }
-                    Button(action: copyAction) {
-                        Label("Copy", systemImage: "doc.on.doc")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, C.actionPaddingH)
-                            .padding(.vertical, C.actionPaddingV)
-                            .contentShape(Rectangle())
-                    }
-                    .accessibilityLabel("Copy message text")
-                    .accessibilityIdentifier("context-menu-copy")
+                    menuRow(icon: "doc.on.doc", title: "Copy", action: copyAction)
                 }
 
                 if let attachment = photoAttachment {
-                    Divider()
-                        .padding(.horizontal, C.actionPaddingH)
+                    menuDivider
                     let saveAction = {
                         savePhoto(attachmentKey: attachment.key)
                         dismissMenu()
                     }
-                    Button(action: saveAction) {
-                        Label("Save", systemImage: "square.and.arrow.down")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, C.actionPaddingH)
-                            .padding(.vertical, C.actionPaddingV)
-                            .contentShape(Rectangle())
-                    }
+                    menuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
 
-                    Divider()
-                        .padding(.horizontal, C.actionPaddingH)
-
+                    menuDivider
                     let isBlurred = shouldBlurPhoto
                     let key = attachment.key
                     let revealCallback = onPhotoRevealed
@@ -462,19 +436,13 @@ struct MessageContextMenuOverlay: View {
                         }
                         dismissMenu()
                     }
-                    Button(action: toggleAction) {
-                        Label(
-                            isBlurred ? "Reveal Photo" : "Hide Photo",
-                            systemImage: isBlurred ? "eye" : "eye.slash"
-                        )
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, C.actionPaddingH)
-                        .padding(.vertical, C.actionPaddingV)
-                        .contentShape(Rectangle())
-                    }
+                    menuRow(
+                        icon: isBlurred ? "eye" : "eye.slash",
+                        title: isBlurred ? "Reveal" : "Hide",
+                        action: toggleAction
+                    )
                 }
             }
-            .font(.body)
             .foregroundStyle(.primary)
             .opacity(appeared ? 1.0 : 0.0)
             .animation(
@@ -508,6 +476,26 @@ struct MessageContextMenuOverlay: View {
                 PHAssetChangeRequest.creationRequestForAsset(from: image)
             }
         }
+    }
+
+    private func menuRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: C.menuIconSpacing) {
+                Image(systemName: icon)
+                    .frame(width: C.menuIconWidth)
+                Text(title)
+                Spacer()
+            }
+            .font(.body)
+            .padding(.horizontal, C.actionPaddingH)
+            .padding(.vertical, C.actionPaddingV)
+            .contentShape(Rectangle())
+        }
+    }
+
+    private var menuDivider: some View {
+        Divider()
+            .padding(.horizontal, C.actionPaddingH)
     }
 
     private func dismissMenu() {
@@ -547,6 +535,8 @@ struct MessageContextMenuOverlay: View {
         static let menuCornerRadius: CGFloat = 14
         static let actionPaddingH: CGFloat = 16
         static let actionPaddingV: CGFloat = 12
+        static let menuIconWidth: CGFloat = 24
+        static let menuIconSpacing: CGFloat = 12
         static let topInset: CGFloat = 56
         static let maxPreviewHeight: CGFloat = 75
         static let photoHorizontalInset: CGFloat = 16
