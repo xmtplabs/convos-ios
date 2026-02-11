@@ -135,7 +135,15 @@ convos conversations list --sync
 
 ### Invite System
 
-Convos uses a serverless invite system. The creator generates a cryptographic invite slug; the joiner sends a DM join request; the creator processes it and adds them to the group.
+Convos uses a serverless invite system. The creator generates a cryptographic invite URL; the person joining must open the URL in the Convos app (or scan the QR code); then the creator processes the join request to add them to the group.
+
+**Important: Adding someone to a conversation is a multi-step process:**
+
+1. **Generate an invite** (creator side) — produces a URL and QR code
+2. **Person opens the invite URL in Convos or scans the QR code** — this sends a join request to the creator via DM
+3. **Creator processes the join request** — this validates the request and adds the person to the group
+
+The creator must process join requests *after* the person has opened/scanned the invite. If you don't know when that will happen, use `--watch` with a timeout to stream and process requests as they arrive.
 
 #### Create an Invite
 
@@ -156,7 +164,12 @@ convos conversation invite <conversation-id> --json
 INVITE_URL=$(convos conversation invite <conversation-id> --json | jq -r '.url')
 ```
 
-#### Join via Invite
+#### Person Joins via Invite
+
+The person being invited must open the invite URL in the Convos app or scan the QR code with Convos. This can be done:
+
+- **On iOS**: Open the URL in Safari (redirects to Convos app) or scan the QR code from within the app
+- **Via CLI**: Use `convos conversations join`
 
 ```bash
 # join using a raw invite slug
@@ -177,17 +190,21 @@ convos conversations join <slug> --timeout 120
 
 #### Process Join Requests (Creator Side)
 
-The creator must be running to process incoming join requests:
+After the person has opened/scanned the invite, the creator must process the join request:
 
 ```bash
-# process all pending join requests
+# process all pending join requests (use when you know the invite has already been opened)
 convos conversations process-join-requests
-
-# continuously watch for join requests
-convos conversations process-join-requests --watch
 
 # process for a specific conversation only
 convos conversations process-join-requests --conversation <id>
+
+# watch for join requests with a timeout (use when you don't know when the invite will be opened)
+convos conversations process-join-requests --watch --conversation <id>
+# note: use ctrl-c or a timeout to stop watching
+
+# continuously watch for all join requests (keep running in background)
+convos conversations process-join-requests --watch
 ```
 
 ### Per-Conversation Profiles
@@ -300,11 +317,12 @@ Identities are stored in `~/.convos/identities/<id>.json`. Databases are stored 
 
 ### Invite Flow
 
-1. **Creator** generates an invite slug (contains encrypted conversation token + creator's inbox ID)
-2. Invite is encoded as a URL: `dev.convos.org/v2?i=<slug>` (or `convos.org/v2?i=<slug>` for production)
-3. **Joiner** creates a new per-conversation identity and sends a DM join request to the creator
-4. **Creator's client** processes the join request and adds the joiner to the group
-5. Joiner is now a member with their own isolated identity
+1. **Creator** generates an invite URL/QR code (contains encrypted conversation token + creator's inbox ID)
+2. **Person opens the invite URL in Convos app** (or scans the QR code) — this creates a per-conversation identity and sends a DM join request to the creator
+3. **Creator processes the join request** — validates the invite signature, decrypts the conversation token, and adds the person to the group
+4. Person is now a member with their own isolated identity
+
+**Key point:** Step 3 must happen *after* step 2. The creator must either run `process-join-requests` after the invite has been opened, or use `--watch` to stream and process requests as they arrive.
 
 ### Consent States
 
@@ -358,11 +376,15 @@ CONV_ID=$(echo "$CONV" | jq -r '.conversationId')
 # 3. generate an invite for others to join
 convos conversation invite "$CONV_ID"
 
-# 4. send a message
-convos conversation send-text "$CONV_ID" "Welcome to the team!"
+# 4. wait for the person to open the invite URL or scan the QR code,
+#    then process their join request
+convos conversations process-join-requests --conversation "$CONV_ID"
 
-# 5. start processing join requests (keep running)
-convos conversations process-join-requests --watch &
+# OR: if you don't know when they'll open it, watch for requests
+# convos conversations process-join-requests --watch --conversation "$CONV_ID"
+
+# 5. send a message
+convos conversation send-text "$CONV_ID" "Welcome to the team!"
 
 # 6. stream messages
 convos conversation stream "$CONV_ID" --timeout 300
@@ -373,7 +395,7 @@ convos conversation stream "$CONV_ID" --timeout 300
 1. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
 2. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
 3. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
-4. **Keep join processor running**: The creator must have `process-join-requests --watch` running for invites to work
+4. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
 5. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
 6. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
 7. **Check command help**: Run `convos <command> --help` for full flag documentation
