@@ -8,6 +8,8 @@ protocol MessagesListRepositoryProtocol {
     var messagesListPublisher: AnyPublisher<[MessagesListItemType], Never> { get }
     var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> { get }
 
+    func startObserving()
+
     /// Fetches the initial page of messages (most recent messages)
     func fetchInitial() throws -> [MessagesListItemType]
 
@@ -47,10 +49,15 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     // MARK: - Initialization
 
+    private var hasStartedObserving: Bool = false
+
     init(messagesRepository: any MessagesRepositoryProtocol) {
         self.messagesRepository = messagesRepository
+    }
 
-        // Subscribe to messages and transform them once when they change
+    func startObserving() {
+        guard !hasStartedObserving else { return }
+        hasStartedObserving = true
         messagesRepository.messagesPublisher
             .map { [weak self] messages in
                 self?.processMessages(messages) ?? []
@@ -64,8 +71,18 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     // MARK: - Public Methods
 
     func fetchInitial() throws -> [MessagesListItemType] {
+        let start = CFAbsoluteTimeGetCurrent()
         let messages = try messagesRepository.fetchInitial()
-        return processMessages(messages)
+        let fetchMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+
+        let processStart = CFAbsoluteTimeGetCurrent()
+        let result = processMessages(messages)
+        let processMs = (CFAbsoluteTimeGetCurrent() - processStart) * 1000
+
+        let totalMs = (CFAbsoluteTimeGetCurrent() - start) * 1000
+        // swiftlint:disable:next line_length
+        Log.info("[perf] MessagesListRepository.fetchInitial: total=\(String(format: "%.1f", totalMs))ms fetch=\(String(format: "%.1f", fetchMs))ms process=\(String(format: "%.1f", processMs))ms items=\(result.count)")
+        return result
     }
 
     func fetchPrevious() throws {

@@ -53,25 +53,14 @@ final class ConversationsViewModel {
         let previousViewModelId = selectedConversationViewModel?.conversation.id
 
         if let conversation = conversation {
-            // Update view model if needed
             if selectedConversationViewModel?.conversation.id != conversation.id {
-                // Cancel any pending update task
                 updateSelectionTask?.cancel()
-                updateSelectionTask = Task { [weak self] in
-                    guard let self else { return }
-                    do {
-                        let viewModel = try await ConversationViewModel.create(
-                            conversation: conversation,
-                            session: session
-                        )
-                        guard !Task.isCancelled else { return }
-                        guard self._selectedConversationId == conversation.id else { return }
-                        self.selectedConversationViewModel = viewModel
-                        self.markConversationAsRead(conversation)
-                    } catch {
-                        Log.error("Failed to create conversation view model: \(error)")
-                    }
-                }
+                let viewModel = ConversationViewModel.createSync(
+                    conversation: conversation,
+                    session: session
+                )
+                selectedConversationViewModel = viewModel
+                markConversationAsRead(conversation)
             }
         } else {
             updateSelectionTask?.cancel()

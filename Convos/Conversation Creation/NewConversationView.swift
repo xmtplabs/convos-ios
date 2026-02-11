@@ -49,19 +49,21 @@ struct NewConversationView: View {
                     }
                 }
                 .toolbar {
-                    ToolbarItem(placement: .topBarLeading) {
-                        Button(role: .close) {
-                            if viewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true {
-                                presentingJoiningStateInfo = true
-                            } else {
-                                dismiss()
+                    if !viewModel.showingFullScreenScanner {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(role: .close) {
+                                if viewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true {
+                                    presentingJoiningStateInfo = true
+                                } else {
+                                    dismiss()
+                                }
                             }
-                        }
-                        .confirmationDialog("This convo will appear on your home screen after someone approves you",
-                                            isPresented: $presentingJoiningStateInfo,
-                                            titleVisibility: .visible) {
-                            Button("Continue") {
-                                dismiss()
+                            .confirmationDialog("This convo will appear on your home screen after someone approves you",
+                                                isPresented: $presentingJoiningStateInfo,
+                                                titleVisibility: .visible) {
+                                Button("Continue") {
+                                    dismiss()
+                                }
                             }
                         }
                     }

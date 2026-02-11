@@ -196,6 +196,21 @@ class ConversationViewModel {
         )
     }
 
+    static func createSync(
+        conversation: Conversation,
+        session: any SessionManagerProtocol
+    ) -> ConversationViewModel {
+        let messagingService = session.messagingServiceSync(
+            for: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+        return ConversationViewModel(
+            conversation: conversation,
+            session: session,
+            messagingService: messagingService
+        )
+    }
+
     init(
         conversation: Conversation,
         session: any SessionManagerProtocol,
@@ -226,7 +241,6 @@ class ConversationViewModel {
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
-            self.conversation = try conversationRepository.fetchConversation() ?? conversation
         } catch {
             Log.error("Error fetching messages or conversation: \(error.localizedDescription)")
             self.messages = []
@@ -277,7 +291,6 @@ class ConversationViewModel {
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
-            self.conversation = try conversationRepository.fetchConversation() ?? conversation
         } catch {
             Log.error("Error fetching messages or conversation: \(error.localizedDescription)")
             self.messages = []
@@ -294,6 +307,7 @@ class ConversationViewModel {
     // MARK: - Private
 
     private func observe() {
+        messagesListRepository.startObserving()
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
