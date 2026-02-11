@@ -402,7 +402,9 @@ class NewConversationViewModel: Identifiable {
             Log.info("Waiting for invite acceptance...")
 
         case .ready(let result):
-            conversationViewModel?.startOnboarding()
+            if result.origin != .existing {
+                conversationViewModel?.startOnboarding()
+            }
 
             if result.origin == .joined {
                 conversationViewModel?.inviteWasAccepted()
