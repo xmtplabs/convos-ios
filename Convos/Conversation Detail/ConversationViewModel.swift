@@ -210,8 +210,21 @@ class ConversationViewModel {
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownRevealInfoSheetKey) }
     }
 
+    private static let revealToastKeyPrefix: String = "hasShownRevealToast_"
+    private var hasShownRevealToastKey: String {
+        "\(Self.revealToastKeyPrefix)\(conversation.id)"
+    }
+    private var hasShownRevealToast: Bool {
+        get { UserDefaults.standard.bool(forKey: hasShownRevealToastKey) }
+        set { UserDefaults.standard.set(newValue, forKey: hasShownRevealToastKey) }
+    }
+
     static func resetUserDefaults() {
-        UserDefaults.standard.removeObject(forKey: hasShownRevealInfoSheetKey)
+        let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
     }
 
     var shouldBlurPhotos: Bool {
@@ -920,7 +933,11 @@ extension ConversationViewModel {
 
         if !hasShownRevealInfoSheet {
             hasShownRevealInfoSheet = true
+            hasShownRevealToast = true
             presentingRevealMediaInfoSheet = true
+        } else if !hasShownRevealToast {
+            hasShownRevealToast = true
+            showRevealSettingsToast()
         }
     }
 
