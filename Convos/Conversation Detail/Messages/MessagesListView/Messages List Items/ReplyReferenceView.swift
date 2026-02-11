@@ -70,6 +70,7 @@ struct ReplyReferenceView: View {
                     onReveal: { onPhotoRevealed?(attachment.key) },
                     onHide: { onPhotoHidden?(attachment.key) }
                 )
+                .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step4x)
                 .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 Text(previewText)

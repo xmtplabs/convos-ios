@@ -117,7 +117,7 @@ struct MessagesGroupView: View {
                         isOutgoing: message.base.sender.isCurrentUser,
                         onTap: { onTapReactions(message) }
                     )
-                    .padding(.leading, message.base.sender.isCurrentUser ? 0 : avatarWidth + DesignConstants.Spacing.step2x)
+                    .padding(.leading, message.base.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step2x : avatarWidth + DesignConstants.Spacing.step2x))
                     .padding(.trailing, message.base.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
                     .padding(.bottom, DesignConstants.Spacing.stepX)
                     .transition(.identity)
