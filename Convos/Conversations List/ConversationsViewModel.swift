@@ -308,7 +308,7 @@ final class ConversationsViewModel {
                         selectedConversationId = nil
                         selectedConversationViewModel = nil
                     }
-                    if newConversationViewModel?.conversationViewModel.conversation.id == conversationId {
+                    if newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
                         newConversationViewModel = nil
                     }
                 }
@@ -366,7 +366,7 @@ final class ConversationsViewModel {
                 guard let self else { return }
                 if let conversation = self.selectedConversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
-                } else if let conversation = self.newConversationViewModel?.conversationViewModel.conversation {
+                } else if let conversation = self.newConversationViewModel?.conversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
                 }
             }

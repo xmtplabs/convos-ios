@@ -43,33 +43,27 @@ struct NewConversationView: View {
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled
                         ) {
                         }
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                let closeAction = {
-                                    if conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance {
-                                        presentingJoiningStateInfo = true
-                                    } else {
-                                        dismiss()
-                                    }
-                                }
-                                Button(role: .close, action: closeAction) {}
-                                    .confirmationDialog("This convo will appear on your home screen after someone approves you",
-                                                        isPresented: $presentingJoiningStateInfo,
-                                                        titleVisibility: .visible) {
-                                        Button("Continue") {
-                                            dismiss()
-                                        }
-                                    }
+                    } else {
+                        ProgressView()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button(role: .close) {
+                            if viewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true {
+                                presentingJoiningStateInfo = true
+                            } else {
+                                dismiss()
                             }
                         }
-                    } else {
-                        Color.clear
-                            .toolbar {
-                                ToolbarItem(placement: .topBarLeading) {
-                                    let closeAction = { dismiss() }
-                                    Button(role: .close, action: closeAction) {}
-                                }
+                        .confirmationDialog("This convo will appear on your home screen after someone approves you",
+                                            isPresented: $presentingJoiningStateInfo,
+                                            titleVisibility: .visible) {
+                            Button("Continue") {
+                                dismiss()
                             }
+                        }
                     }
                 }
                 .background(.colorBackgroundSurfaceless)
