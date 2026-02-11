@@ -13,7 +13,7 @@ struct WhatIsQuicknameView: View {
             Text("You're a new you in every convo")
                 .font(.system(.largeTitle))
                 .fontWeight(.bold)
-            Text("Choose to add a name or pic, or not. You always start anonymous.")
+            Text("Choose to add a name or pic, or not. You control how you show up.")
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
 
