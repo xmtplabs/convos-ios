@@ -12,7 +12,7 @@ struct ReplyComposerBar: View {
     private var previewText: String {
         switch message.base.content {
         case .text(let text):
-            return String(text.prefix(50))
+            return String(text.strippingMarkdown.prefix(50))
         case .emoji(let emoji):
             return emoji
         default:

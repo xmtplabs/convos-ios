@@ -403,7 +403,8 @@ extension MessagingService {
             guard let textContent = content as? String else {
                 return nil
             }
-            return shouldShowSenderName ? "\(senderName): \(textContent)" : textContent
+            let stripped = textContent.strippingMarkdown
+            return shouldShowSenderName ? "\(senderName): \(stripped)" : stripped
 
         case ContentTypeReaction, ContentTypeReactionV2:
             let content = try decodedMessage.content() as Any
@@ -424,7 +425,8 @@ extension MessagingService {
                 return nil
             }
             if let textContent = reply.content as? String {
-                return shouldShowSenderName ? "\(senderName): \(textContent)" : textContent
+                let stripped = textContent.strippingMarkdown
+                return shouldShowSenderName ? "\(senderName): \(stripped)" : stripped
             }
             return nil
 

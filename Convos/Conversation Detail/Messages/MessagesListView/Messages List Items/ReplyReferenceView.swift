@@ -10,7 +10,7 @@ struct ReplyReferenceView: View {
     private var previewText: String {
         switch parentMessage.content {
         case .text(let text):
-            return String(text.prefix(80))
+            return String(text.strippingMarkdown.prefix(80))
         case .emoji(let emoji):
             return emoji
         default:

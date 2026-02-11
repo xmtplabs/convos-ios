@@ -26,10 +26,11 @@ extension DBLastMessageWithSource {
                     text = "sent \(attachmentsString)"
                 }
             case .text:
+                let messageText = (self.text ?? "").strippingMarkdown
                 if shouldShowSenderName {
-                    text = "\(senderName): \(self.text ?? "")"
+                    text = "\(senderName): \(messageText)"
                 } else {
-                    text = self.text ?? ""
+                    text = messageText
                 }
             case .emoji:
                 if shouldShowSenderName {
@@ -60,7 +61,7 @@ extension DBLastMessageWithSource {
                     text = "replied with \(attachmentsString)"
                 }
             case .text, .emoji:
-                let replyText = self.text ?? self.emoji ?? ""
+                let replyText = (self.text ?? self.emoji ?? "").strippingMarkdown
                 if shouldShowSenderName {
                     text = "\(senderName): \(replyText)"
                 } else {

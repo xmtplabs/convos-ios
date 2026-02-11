@@ -15,6 +15,16 @@ public extension String {
     var orUntitled: String {
         (isEmpty ? nil : self).orUntitled
     }
+
+    var strippingMarkdown: String {
+        let options = AttributedString.MarkdownParsingOptions(
+            interpretedSyntax: .inlineOnlyPreservingWhitespace
+        )
+        guard let attributed = try? AttributedString(markdown: self, options: options) else {
+            return self
+        }
+        return String(attributed.characters)
+    }
 }
 
 public extension Optional where Wrapped == String {
@@ -24,9 +34,10 @@ public extension Optional where Wrapped == String {
         guard let text = self, !text.isEmpty else {
             return "a message"
         }
-        let truncated = text.count > maxLength
-            ? String(text.prefix(maxLength)) + "…"
-            : text
+        let stripped = text.strippingMarkdown
+        let truncated = stripped.count > maxLength
+            ? String(stripped.prefix(maxLength)) + "…"
+            : stripped
         return "'\(truncated)'"
     }
 }
