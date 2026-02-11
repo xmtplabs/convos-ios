@@ -99,6 +99,12 @@ private struct ReplyPhotoThumbnail: View {
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
     private static let thumbnailSize: CGFloat = 40.0
 
+    init(attachmentKey: String, shouldBlur: Bool) {
+        self.attachmentKey = attachmentKey
+        self.shouldBlur = shouldBlur
+        _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+    }
+
     var body: some View {
         Group {
             if let image = loadedImage {
@@ -116,6 +122,7 @@ private struct ReplyPhotoThumbnail: View {
             }
         }
         .task {
+            guard loadedImage == nil else { return }
             if let cachedImage = await ImageCache.shared.imageAsync(for: attachmentKey) {
                 loadedImage = cachedImage
                 return

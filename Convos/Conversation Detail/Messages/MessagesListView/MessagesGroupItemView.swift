@@ -215,7 +215,8 @@ struct MessagesGroupItemView: View {
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
         )
-        .padding(.horizontal, isReply ? DesignConstants.Spacing.step4x : 0)
+        .padding(.leading, isReply && message.base.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+        .padding(.trailing, isReply ? DesignConstants.Spacing.step4x : 0)
         .id(message.base.id)
     }
 }
