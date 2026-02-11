@@ -21,6 +21,7 @@ struct MessageInteractionModifier: ViewModifier {
             .overlay {
                 GeometryReader { geometry in
                     SwipeGestureOverlay(
+                        isDisabled: contextMenuState.isPresented,
                         onSingleTap: onSingleTap,
                         onDoubleTap: {
                             contextMenuState.onToggleReaction?("❤️", message.base.id)
@@ -62,6 +63,7 @@ extension View {
 // MARK: - Swipe + Long Press Overlay
 
 private struct SwipeGestureOverlay: UIViewRepresentable {
+    let isDisabled: Bool
     let onSingleTap: (() -> Void)?
     let onDoubleTap: (() -> Void)?
     let onSwipeOffsetChanged: ((CGFloat) -> Void)?
@@ -118,6 +120,7 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: GestureOverlayView, context: Context) {
+        context.coordinator.isDisabled = isDisabled
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onSwipeOffsetChanged = onSwipeOffsetChanged
@@ -138,6 +141,7 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         weak var overlayView: GestureOverlayView?
+        var isDisabled: Bool = false
         var onSingleTap: (() -> Void)?
         var onDoubleTap: (() -> Void)?
         var onSwipeOffsetChanged: ((CGFloat) -> Void)?
@@ -149,6 +153,7 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         private static let swipeThreshold: CGFloat = 60.0
 
         @objc func handlePan(_ pan: UIPanGestureRecognizer) {
+            guard !isDisabled else { return }
             let threshold = Self.swipeThreshold
 
             switch pan.state {
@@ -182,18 +187,18 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         }
 
         @objc func handleLongPress(_ gesture: UILongPressGestureRecognizer) {
-            guard gesture.state == .began else { return }
+            guard !isDisabled, gesture.state == .began else { return }
             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
             onLongPress?()
         }
 
         @objc func handleSingleTap(_ gesture: UITapGestureRecognizer) {
-            guard gesture.state == .ended else { return }
+            guard !isDisabled, gesture.state == .ended else { return }
             onSingleTap?()
         }
 
         @objc func handleDoubleTap(_ gesture: UITapGestureRecognizer) {
-            guard gesture.state == .ended else { return }
+            guard !isDisabled, gesture.state == .ended else { return }
             UIImpactFeedbackGenerator(style: .light).impactOccurred()
             onDoubleTap?()
         }

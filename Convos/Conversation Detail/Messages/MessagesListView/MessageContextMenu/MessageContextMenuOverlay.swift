@@ -20,6 +20,7 @@ struct MessageContextMenuOverlay: View {
     @State private var customEmoji: String?
     @State private var selectedEmoji: String?
     @State private var popScale: CGFloat = 1.0
+    @State private var blurOverride: Bool?
 
     private var message: AnyMessage? { state.presentedMessage }
 
@@ -42,6 +43,7 @@ struct MessageContextMenuOverlay: View {
     }
 
     private var shouldBlurPhoto: Bool {
+        if let blurOverride { return blurOverride }
         guard let photoAttachment, let message else { return false }
         if photoAttachment.isHiddenByOwner { return true }
         if message.base.sender.isCurrentUser { return false }
@@ -398,6 +400,7 @@ struct MessageContextMenuOverlay: View {
         return GlassEffectContainer {
             VStack(spacing: 0) {
                 let replyAction = {
+                    Log.info("[ContextMenu] Reply action fired")
                     let msg = message
                     dismissMenu()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
@@ -418,6 +421,7 @@ struct MessageContextMenuOverlay: View {
                 if let attachment = photoAttachment {
                     menuDivider
                     let saveAction = {
+                        Log.info("[ContextMenu] Save action fired")
                         savePhoto(attachmentKey: attachment.key)
                         dismissMenu()
                     }
@@ -429,12 +433,17 @@ struct MessageContextMenuOverlay: View {
                     let revealCallback = onPhotoRevealed
                     let hideCallback = onPhotoHidden
                     let toggleAction = {
+                        Log.info("[ContextMenu] Toggle action fired, isBlurred=\(isBlurred), key=\(key.prefix(30))...")
                         if isBlurred {
+                            Log.info("[ContextMenu] Calling reveal")
+                            blurOverride = false
                             revealCallback(key)
                         } else {
+                            Log.info("[ContextMenu] Calling hide")
+                            blurOverride = true
                             hideCallback(key)
                         }
-                        dismissMenu()
+                        dismissMenuAfterStateChange()
                     }
                     menuRow(
                         icon: isBlurred ? "eye" : "eye.slash",
@@ -511,6 +520,24 @@ struct MessageContextMenuOverlay: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             state.dismiss()
+            blurOverride = nil
+        }
+    }
+
+    private func dismissMenuAfterStateChange() {
+        showingEmojiPicker = false
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+            appeared = false
+            emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
+            showMoreAppeared = false
+            selectedEmoji = nil
+            customEmoji = nil
+            popScale = 1.0
+            drawerExpanded = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            state.dismiss()
+            blurOverride = nil
         }
     }
 
@@ -541,7 +568,7 @@ struct MessageContextMenuOverlay: View {
         static let maxPreviewHeight: CGFloat = 75
         static let photoHorizontalInset: CGFloat = 16
         static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
-        static let photoMenuEstimatedHeight: CGFloat = 150
+        static let photoMenuEstimatedHeight: CGFloat = 220
 
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
