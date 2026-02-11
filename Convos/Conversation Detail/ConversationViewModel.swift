@@ -366,6 +366,11 @@ class ConversationViewModel {
         }
     }
 
+    func onConversationInfoLongPress(focusCoordinator: FocusCoordinator) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        focusCoordinator.moveFocus(to: .conversationName)
+    }
+
     func onConversationNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
         let trimmedConversationName = editingConversationName.trimmingCharacters(in: .whitespacesAndNewlines)
         editingConversationName = trimmedConversationName

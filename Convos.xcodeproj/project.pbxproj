@@ -189,7 +189,7 @@
 				"Conversation Detail/ConversationView.swift",
 				"Conversation Detail/ConversationViewModel.swift",
 				"Conversation Detail/ExplodeButton.swift",
-				"Conversation Detail/Messages/ConversationInfoButton.swift",
+				"Conversation Detail/Messages/ConversationIndicatorView.swift",
 				"Conversation Detail/Messages/Messages Collection Layout/Extensions/CGRect+Extension.swift",
 				"Conversation Detail/Messages/Messages Collection Layout/Extensions/RandomAccessCollection+Extension.swift",
 				"Conversation Detail/Messages/Messages Collection Layout/MessagesCollectionLayout.swift",
