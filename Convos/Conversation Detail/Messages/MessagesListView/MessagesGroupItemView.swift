@@ -339,6 +339,11 @@ private struct AttachmentPlaceholder: View {
             PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
         }
         .contentShape(Rectangle())
+        .onTapGesture {
+            if showBlurOverlay {
+                onReveal()
+            }
+        }
         .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
         .animation(.easeOut(duration: 0.15), value: isPressed)
     }
