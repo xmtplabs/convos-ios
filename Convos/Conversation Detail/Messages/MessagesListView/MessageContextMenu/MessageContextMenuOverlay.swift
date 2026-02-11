@@ -533,7 +533,7 @@ struct MessageContextMenuOverlay: View {
         static let emojiAppearanceDelayStep: TimeInterval = 0.036
         static let menuWidth: CGFloat = 200
         static let menuCornerRadius: CGFloat = 14
-        static let actionPaddingH: CGFloat = 16
+        static let actionPaddingH: CGFloat = 24
         static let actionPaddingV: CGFloat = 16
         static let menuIconWidth: CGFloat = 24
         static let menuIconSpacing: CGFloat = 12

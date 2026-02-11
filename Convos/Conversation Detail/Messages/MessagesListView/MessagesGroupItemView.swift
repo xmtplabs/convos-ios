@@ -669,5 +669,3 @@ struct PhotoSenderLabel: View {
     .padding()
 }
 // swiftlint:enable force_unwrapping
-
-

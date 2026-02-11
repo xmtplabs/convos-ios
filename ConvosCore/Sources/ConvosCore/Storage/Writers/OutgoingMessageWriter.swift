@@ -38,6 +38,7 @@ enum OutgoingMessageWriterError: Error {
     case parentMessageNotFound
 }
 
+// swiftlint:disable:next type_body_length
 actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private struct ReplyContext {
         let parentDbId: String
