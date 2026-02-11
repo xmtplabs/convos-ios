@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosLogging
 import Photos
 import SwiftUI
 
@@ -448,38 +449,28 @@ struct MessageContextMenuOverlay: View {
 
                     Divider()
                         .padding(.horizontal, C.actionPaddingH)
-                    if shouldBlurPhoto {
-                        let key = attachment.key
-                        let revealAction = {
-                            dismissMenu()
-                            let callback = onPhotoRevealed
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                callback(key)
-                            }
+
+                    let isBlurred = shouldBlurPhoto
+                    let key = attachment.key
+                    let revealCallback = onPhotoRevealed
+                    let hideCallback = onPhotoHidden
+                    let toggleAction = {
+                        if isBlurred {
+                            revealCallback(key)
+                        } else {
+                            hideCallback(key)
                         }
-                        Button(action: revealAction) {
-                            Label("Reveal Photo", systemImage: "eye")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, C.actionPaddingH)
-                                .padding(.vertical, C.actionPaddingV)
-                                .contentShape(Rectangle())
-                        }
-                    } else {
-                        let key = attachment.key
-                        let hideAction = {
-                            dismissMenu()
-                            let callback = onPhotoHidden
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                callback(key)
-                            }
-                        }
-                        Button(action: hideAction) {
-                            Label("Hide Photo", systemImage: "eye.slash")
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(.horizontal, C.actionPaddingH)
-                                .padding(.vertical, C.actionPaddingV)
-                                .contentShape(Rectangle())
-                        }
+                        dismissMenu()
+                    }
+                    Button(action: toggleAction) {
+                        Label(
+                            isBlurred ? "Reveal Photo" : "Hide Photo",
+                            systemImage: isBlurred ? "eye" : "eye.slash"
+                        )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, C.actionPaddingH)
+                        .padding(.vertical, C.actionPaddingV)
+                        .contentShape(Rectangle())
                     }
                 }
             }
