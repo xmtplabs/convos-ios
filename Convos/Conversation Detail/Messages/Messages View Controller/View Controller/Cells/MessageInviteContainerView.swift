@@ -9,7 +9,7 @@ struct MessageInviteContainerView: View {
     let onTapInvite: ((MessageInvite) -> Void)
     let onTapAvatar: (() -> Void)?
 
-    @Environment(\.messagePressed) private var isPressed
+    @Environment(\.messagePressed) private var isPressed: Bool
 
     var body: some View {
         MessageContainer(style: style, isOutgoing: isOutgoing) {

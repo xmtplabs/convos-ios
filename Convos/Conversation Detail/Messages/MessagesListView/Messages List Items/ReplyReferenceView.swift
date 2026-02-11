@@ -17,8 +17,6 @@ struct ReplyReferenceView: View {
         switch parentMessage.content {
         case .text(let text):
             return String(text.prefix(80))
-        case .emoji(let emoji):
-            return emoji
         default:
             return ""
         }
@@ -33,6 +31,13 @@ struct ReplyReferenceView: View {
         default:
             return nil
         }
+    }
+
+    private var parentEmoji: String? {
+        if case .emoji(let emoji) = parentMessage.content {
+            return emoji
+        }
+        return nil
     }
 
     private var parentInvite: MessageInvite? {
@@ -78,6 +83,11 @@ struct ReplyReferenceView: View {
                 )
                 .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                 .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
+            } else if let emoji = parentEmoji {
+                Text(emoji)
+                    .font(.largeTitle)
+                    .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
+                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let invite = parentInvite {
                 if let onTapInvite {
                     let tapAction = { onTapInvite(invite) }
