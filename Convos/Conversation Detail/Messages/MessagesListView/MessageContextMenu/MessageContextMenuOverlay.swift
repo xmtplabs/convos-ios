@@ -300,7 +300,15 @@ struct MessageContextMenuOverlay: View {
         let minY: CGFloat = topInset + C.drawerHeight + C.sectionSpacing
         let photoInset: CGFloat = isPhoto ? C.photoHorizontalInset : 0
         let endWidth: CGFloat = source.width - (photoInset * 2)
-        let endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
+        var endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
+
+        if isPhoto {
+            let menuHeight: CGFloat = C.photoMenuEstimatedHeight
+            let bottomPadding: CGFloat = C.sectionSpacing + menuHeight + C.sectionSpacing
+            let maxPhotoHeight: CGFloat = screenSize.height - minY - bottomPadding
+            endHeight = min(endHeight, maxPhotoHeight)
+        }
+
         let maxY: CGFloat = screenSize.height / 2 - min(C.maxPreviewHeight, endHeight)
         let desiredY: CGFloat = min(max(source.origin.y, minY), maxY < 0 ? minY : maxY)
         let finalX: CGFloat = (screenSize.width - endWidth) / 2
@@ -534,6 +542,7 @@ struct MessageContextMenuOverlay: View {
         static let maxPreviewHeight: CGFloat = 75
         static let photoHorizontalInset: CGFloat = 16
         static let photoCornerRadius: CGFloat = 20
+        static let photoMenuEstimatedHeight: CGFloat = 150
 
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
