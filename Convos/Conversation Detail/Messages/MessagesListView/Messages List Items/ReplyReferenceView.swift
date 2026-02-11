@@ -7,6 +7,7 @@ struct ReplyReferenceView: View {
     let replySender: ConversationMember
     let parentMessage: Message
     let isOutgoing: Bool
+    let shouldBlurPhotos: Bool
     var onTapAvatar: (() -> Void)?
 
     private var previewText: String {
@@ -20,19 +21,23 @@ struct ReplyReferenceView: View {
         }
     }
 
-    private var attachmentKey: String? {
+    private var parentAttachment: HydratedAttachment? {
         switch parentMessage.content {
         case .attachment(let attachment):
-            return attachment.key
+            return attachment
         case .attachments(let attachments):
-            return attachments.first?.key
+            return attachments.first
         default:
             return nil
         }
     }
 
-    private var isPhotoReply: Bool {
-        attachmentKey != nil
+    private var shouldBlurAttachment: Bool {
+        guard let parentAttachment else { return false }
+        if parentMessage.sender.isCurrentUser {
+            return parentAttachment.isHiddenByOwner
+        }
+        return shouldBlurPhotos && !parentAttachment.isRevealed
     }
 
     var body: some View {
@@ -55,8 +60,8 @@ struct ReplyReferenceView: View {
             .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
             .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step3x : 0.0)
 
-            if let key = attachmentKey {
-                ReplyReferencePhotoPreview(attachmentKey: key)
+            if let attachment = parentAttachment {
+                ReplyReferencePhotoPreview(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment)
                     .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 Text(previewText)
@@ -89,7 +94,8 @@ struct ReplyReferenceView: View {
     ReplyReferenceView(
         replySender: reply.sender,
         parentMessage: reply.parentMessage,
-        isOutgoing: true
+        isOutgoing: true,
+        shouldBlurPhotos: false
     )
     .padding()
 }
@@ -104,7 +110,8 @@ struct ReplyReferenceView: View {
     ReplyReferenceView(
         replySender: reply.sender,
         parentMessage: reply.parentMessage,
-        isOutgoing: false
+        isOutgoing: false,
+        shouldBlurPhotos: false
     )
     .padding()
 }
@@ -119,7 +126,8 @@ struct ReplyReferenceView: View {
     ReplyReferenceView(
         replySender: reply.sender,
         parentMessage: reply.parentMessage,
-        isOutgoing: true
+        isOutgoing: true,
+        shouldBlurPhotos: false
     )
     .padding()
 }
@@ -128,6 +136,7 @@ struct ReplyReferenceView: View {
 
 private struct ReplyReferencePhotoPreview: View {
     let attachmentKey: String
+    let shouldBlur: Bool
 
     @State private var loadedImage: UIImage?
 
@@ -141,6 +150,8 @@ private struct ReplyReferencePhotoPreview: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxHeight: Self.maxHeight)
+                    .blur(radius: shouldBlur ? 10 : 0)
+                    .opacity(shouldBlur ? 0.4 : 1.0)
                     .clipShape(RoundedRectangle(cornerRadius: 12.0))
             } else {
                 RoundedRectangle(cornerRadius: 12.0)

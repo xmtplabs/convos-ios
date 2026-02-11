@@ -119,6 +119,7 @@ struct MessagesView<BottomBarContent: View>: View {
                     if let replyingToMessage {
                         ReplyComposerBar(
                             message: replyingToMessage,
+                            shouldBlurPhotos: shouldBlurPhotos,
                             onDismiss: onCancelReply
                         )
                     }

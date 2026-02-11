@@ -36,6 +36,7 @@ struct MessagesGroupItemView: View {
                     replySender: reply.sender,
                     parentMessage: reply.parentMessage,
                     isOutgoing: message.base.sender.isCurrentUser,
+                    shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) }
                 )
             }
@@ -200,39 +201,22 @@ struct MessagesGroupItemView: View {
 
     @ViewBuilder
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
-        if isReply {
-            AttachmentPlaceholder(
-                attachment: attachment,
-                isOutgoing: message.base.sender.isCurrentUser,
-                profile: message.base.sender.profile,
-                shouldBlurPhotos: shouldBlurPhotos,
-                onReveal: { onPhotoRevealed(attachment.key) },
-                onHide: { onPhotoHidden(attachment.key) },
-                onDoubleTap: { onDoubleTap(message) },
-                onReply: { onReply(message) },
-                onDimensionsLoaded: { width, height in
-                    onPhotoDimensionsLoaded(attachment.key, width, height)
-                }
-            )
-            .clipShape(RoundedRectangle(cornerRadius: 20.0))
-            .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .id(message.base.id)
-        } else {
-            AttachmentPlaceholder(
-                attachment: attachment,
-                isOutgoing: message.base.sender.isCurrentUser,
-                profile: message.base.sender.profile,
-                shouldBlurPhotos: shouldBlurPhotos,
-                onReveal: { onPhotoRevealed(attachment.key) },
-                onHide: { onPhotoHidden(attachment.key) },
-                onDoubleTap: { onDoubleTap(message) },
-                onReply: { onReply(message) },
-                onDimensionsLoaded: { width, height in
-                    onPhotoDimensionsLoaded(attachment.key, width, height)
-                }
-            )
-            .id(message.base.id)
-        }
+        AttachmentPlaceholder(
+            attachment: attachment,
+            isOutgoing: message.base.sender.isCurrentUser,
+            profile: message.base.sender.profile,
+            shouldBlurPhotos: shouldBlurPhotos,
+            cornerRadius: isReply ? 20.0 : 0,
+            onReveal: { onPhotoRevealed(attachment.key) },
+            onHide: { onPhotoHidden(attachment.key) },
+            onDoubleTap: { onDoubleTap(message) },
+            onReply: { onReply(message) },
+            onDimensionsLoaded: { width, height in
+                onPhotoDimensionsLoaded(attachment.key, width, height)
+            }
+        )
+        .padding(.horizontal, isReply ? DesignConstants.Spacing.step4x : 0)
+        .id(message.base.id)
     }
 }
 
@@ -245,6 +229,7 @@ private struct AttachmentPlaceholder: View {
     let isOutgoing: Bool
     let profile: Profile
     let shouldBlurPhotos: Bool
+    var cornerRadius: CGFloat = 0
     let onReveal: () -> Void
     let onHide: () -> Void
     let onDoubleTap: () -> Void
@@ -304,6 +289,7 @@ private struct AttachmentPlaceholder: View {
                 errorPlaceholder
             }
         }
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
         .contextMenu {
             let replyAction = { onReply() }
             Button(action: replyAction) {

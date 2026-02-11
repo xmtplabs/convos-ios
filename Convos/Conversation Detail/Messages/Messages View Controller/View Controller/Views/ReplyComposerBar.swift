@@ -3,6 +3,7 @@ import SwiftUI
 
 struct ReplyComposerBar: View {
     let message: AnyMessage
+    let shouldBlurPhotos: Bool
     let onDismiss: () -> Void
 
     private var senderName: String {
@@ -22,21 +23,29 @@ struct ReplyComposerBar: View {
         }
     }
 
-    private var attachmentKey: String? {
+    private var attachment: HydratedAttachment? {
         switch message.base.content {
         case .attachment(let attachment):
-            return attachment.key
+            return attachment
         case .attachments(let attachments):
-            return attachments.first?.key
+            return attachments.first
         default:
             return nil
         }
     }
 
+    private var shouldBlurAttachment: Bool {
+        guard let attachment else { return false }
+        if message.base.sender.isCurrentUser {
+            return attachment.isHiddenByOwner
+        }
+        return shouldBlurPhotos && !attachment.isRevealed
+    }
+
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            if let key = attachmentKey {
-                ReplyPhotoThumbnail(attachmentKey: key)
+            if let attachment {
+                ReplyPhotoThumbnail(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment)
             }
 
             VStack(alignment: .leading, spacing: 2.0) {
@@ -83,6 +92,7 @@ struct ReplyComposerBar: View {
 
 private struct ReplyPhotoThumbnail: View {
     let attachmentKey: String
+    let shouldBlur: Bool
 
     @State private var loadedImage: UIImage?
 
@@ -96,6 +106,8 @@ private struct ReplyPhotoThumbnail: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
                     .frame(width: Self.thumbnailSize, height: Self.thumbnailSize)
+                    .blur(radius: shouldBlur ? 8 : 0)
+                    .opacity(shouldBlur ? 0.5 : 1.0)
                     .clipShape(RoundedRectangle(cornerRadius: 8.0))
             } else {
                 RoundedRectangle(cornerRadius: 8.0)
@@ -129,6 +141,7 @@ private struct ReplyPhotoThumbnail: View {
                 sender: .mock(isCurrentUser: false, name: "Louis"),
                 status: .published
             ), .existing),
+            shouldBlurPhotos: false,
             onDismiss: {}
         )
     }
@@ -143,6 +156,7 @@ private struct ReplyPhotoThumbnail: View {
                 sender: .mock(isCurrentUser: false, name: "Shane"),
                 status: .published
             ), .existing),
+            shouldBlurPhotos: false,
             onDismiss: {}
         )
     }
