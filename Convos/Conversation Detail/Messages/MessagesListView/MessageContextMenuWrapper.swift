@@ -71,6 +71,9 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         let view = GestureOverlayView()
         let coordinator = context.coordinator
         coordinator.overlayView = view
+        view.onInstallGestures = { [weak coordinator] container in
+            coordinator?.installGestures(on: container)
+        }
 
         let pan = UIPanGestureRecognizer(
             target: coordinator,
@@ -80,7 +83,6 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         pan.cancelsTouchesInView = false
         pan.delaysTouchesBegan = false
         pan.delaysTouchesEnded = false
-        view.addGestureRecognizer(pan)
 
         let longPress = UILongPressGestureRecognizer(
             target: coordinator,
@@ -90,7 +92,6 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         longPress.delegate = coordinator
         longPress.cancelsTouchesInView = false
         longPress.delaysTouchesBegan = false
-        view.addGestureRecognizer(longPress)
 
         let doubleTap = UITapGestureRecognizer(
             target: coordinator,
@@ -98,7 +99,8 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         )
         doubleTap.numberOfTapsRequired = 2
         doubleTap.delegate = coordinator
-        view.addGestureRecognizer(doubleTap)
+
+        coordinator.managedRecognizers = [pan, longPress, doubleTap]
 
         return view
     }
@@ -111,6 +113,9 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
     }
 
     final class GestureOverlayView: UIView {
+        var onInstallGestures: ((UIView) -> Void)?
+        private var hasInstalledGestures: Bool = false
+
         override init(frame: CGRect) {
             super.init(frame: frame)
             backgroundColor = .clear
@@ -119,10 +124,49 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         required init?(coder: NSCoder) {
             fatalError("init(coder:) has not been implemented")
         }
+
+        override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+            return nil
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard !hasInstalledGestures, bounds.size != .zero,
+                  let container = findOverlayContainer() else { return }
+            hasInstalledGestures = true
+            onInstallGestures?(container)
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            if window == nil {
+                hasInstalledGestures = false
+            }
+        }
+
+        private func findOverlayContainer() -> UIView? {
+            var child: UIView = self
+            var current: UIView? = superview
+            var depth: Int = 0
+            while let view = current, depth < 15 {
+                let hasOtherChildren = view.subviews.contains { subview in
+                    subview !== child && !subview.isHidden && subview.frame.size != .zero
+                }
+                if hasOtherChildren {
+                    return view
+                }
+                child = view
+                current = view.superview
+                depth += 1
+            }
+            return nil
+        }
     }
 
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         weak var overlayView: GestureOverlayView?
+        weak var gestureHost: UIView?
+        var managedRecognizers: [UIGestureRecognizer] = []
         var onDoubleTap: (() -> Void)?
         var onSwipeOffsetChanged: ((CGFloat) -> Void)?
         var onSwipeEnded: ((Bool) -> Void)?
@@ -131,6 +175,23 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         private var swipeTriggered: Bool = false
         private weak var cachedScrollView: UIScrollView?
         private static let swipeThreshold: CGFloat = 60.0
+
+        func installGestures(on container: UIView) {
+            guard container !== gestureHost else { return }
+            removeGesturesFromHost()
+            gestureHost = container
+            for gr in managedRecognizers {
+                container.addGestureRecognizer(gr)
+            }
+        }
+
+        private func removeGesturesFromHost() {
+            guard let host = gestureHost else { return }
+            for gr in managedRecognizers {
+                host.removeGestureRecognizer(gr)
+            }
+            gestureHost = nil
+        }
 
         @objc func handlePan(_ pan: UIPanGestureRecognizer) {
             let threshold = Self.swipeThreshold
@@ -191,6 +252,10 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         func gestureRecognizerShouldBegin(
             _ gestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            guard let overlayView = overlayView else { return false }
+            let point = gestureRecognizer.location(in: overlayView)
+            guard overlayView.bounds.contains(point) else { return false }
+
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
             let velocity = pan.velocity(in: pan.view)
             return abs(velocity.x) > abs(velocity.y) * 2.0 && velocity.x > 0
