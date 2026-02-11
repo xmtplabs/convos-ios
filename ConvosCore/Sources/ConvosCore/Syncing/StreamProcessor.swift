@@ -132,8 +132,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                 Log.warning("Failed to generate image encryption key: \(error). Will retry on first image upload.")
             }
             let permissions = try conversation.permissionPolicySet()
-            if permissions.addMemberPolicy != .allow {
-                // by default allow all members to invite others
+            if permissions.addMemberPolicy != .allow && permissions.addMemberPolicy != .deny {
                 try await conversation.updateAddMemberPermission(newPermissionOption: .allow)
             }
         }
