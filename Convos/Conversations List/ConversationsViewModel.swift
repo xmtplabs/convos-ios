@@ -186,9 +186,6 @@ final class ConversationsViewModel {
     private let session: any SessionManagerProtocol
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
-    private var localStateWriters: [String: any ConversationLocalStateWriterProtocol] = [:]
-    @ObservationIgnored
-    private var pendingWriterCreations: [String: Task<any ConversationLocalStateWriterProtocol, Error>] = [:]
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
@@ -300,11 +297,7 @@ final class ConversationsViewModel {
 
     func deleteAllData() {
         selectedConversation = nil
-        appSettingsViewModel.deleteAllData { [weak self] in
-            self?.localStateWriters.removeAll()
-            self?.pendingWriterCreations.values.forEach { $0.cancel() }
-            self?.pendingWriterCreations.removeAll()
-        }
+        appSettingsViewModel.deleteAllData {}
     }
 
     func leave(conversation: Conversation) {
@@ -320,10 +313,6 @@ final class ConversationsViewModel {
             guard let self else { return }
             do {
                 try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
-
-                localStateWriters.removeValue(forKey: conversation.inboxId)
-                pendingWriterCreations[conversation.inboxId]?.cancel()
-                pendingWriterCreations.removeValue(forKey: conversation.inboxId)
             } catch {
                 Log.error("Error leaving convo: \(error.localizedDescription)")
             }
@@ -497,47 +486,22 @@ final class ConversationsViewModel {
     }
 
     private func markConversationAsRead(_ conversation: Conversation) {
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+
         Task { [weak self] in
             guard let self else { return }
             do {
-                let writer = try await getOrCreateWriter(for: conversation)
-                try await writer.setUnread(false, for: conversation.id)
+                let messagingService = try await session.messagingService(
+                    for: clientId,
+                    inboxId: inboxId
+                )
+                let writer = messagingService.conversationLocalStateWriter()
+                try await writer.setUnread(false, for: conversationId)
             } catch {
                 Log.warning("Failed marking conversation as read: \(error.localizedDescription)")
             }
-        }
-    }
-
-    private func getOrCreateWriter(for conversation: Conversation) async throws -> any ConversationLocalStateWriterProtocol {
-        let inboxId = conversation.inboxId
-        let clientId = conversation.clientId
-
-        if let existingWriter = localStateWriters[inboxId] {
-            return existingWriter
-        }
-
-        if let pendingTask = pendingWriterCreations[inboxId] {
-            return try await pendingTask.value
-        }
-
-        let creationTask = Task<any ConversationLocalStateWriterProtocol, Error> {
-            let messagingService = try await self.session.messagingService(
-                for: clientId,
-                inboxId: inboxId
-            )
-            return messagingService.conversationLocalStateWriter()
-        }
-
-        pendingWriterCreations[inboxId] = creationTask
-
-        do {
-            let newWriter = try await creationTask.value
-            localStateWriters[inboxId] = newWriter
-            pendingWriterCreations.removeValue(forKey: inboxId)
-            return newWriter
-        } catch {
-            pendingWriterCreations.removeValue(forKey: inboxId)
-            throw error
         }
     }
 }
