@@ -82,13 +82,16 @@ struct MessagesView<BottomBarContent: View>: View {
 
             MessageContextMenuOverlay(
                 state: contextMenuState,
+                shouldBlurPhotos: shouldBlurPhotos,
                 onReaction: onReaction,
                 onReply: { message in
                     onReply(message)
                 },
                 onCopy: { text in
                     UIPasteboard.general.string = text
-                }
+                },
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoHidden: onPhotoHidden
             )
         }
         .safeAreaBar(edge: .bottom) {

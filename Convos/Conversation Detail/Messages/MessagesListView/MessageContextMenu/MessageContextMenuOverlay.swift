@@ -1,11 +1,15 @@
 import ConvosCore
+import Photos
 import SwiftUI
 
 struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
+    let shouldBlurPhotos: Bool
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
 
     @State private var appeared: Bool = false
     @State private var emojiAppeared: [Bool] = []
@@ -25,6 +29,23 @@ struct MessageContextMenuOverlay: View {
         case .emoji(let text): return text
         default: return nil
         }
+    }
+
+    private var photoAttachment: HydratedAttachment? {
+        guard let message else { return nil }
+        switch message.base.content {
+        case .attachment(let attachment): return attachment
+        case .attachments(let attachments): return attachments.first
+        default: return nil
+        }
+    }
+
+    private var shouldBlurPhoto: Bool {
+        guard let photoAttachment, let message else { return false }
+        if message.base.sender.isCurrentUser {
+            return photoAttachment.isHiddenByOwner
+        }
+        return shouldBlurPhotos && !photoAttachment.isRevealed
     }
 
     var body: some View {
@@ -306,6 +327,14 @@ struct MessageContextMenuOverlay: View {
                     profile: message.base.sender.profile
                 )
 
+            case .attachment(let attachment):
+                photoPreview(attachment: attachment, message: message)
+
+            case .attachments(let attachments):
+                if let attachment = attachments.first {
+                    photoPreview(attachment: attachment, message: message)
+                }
+
             default:
                 EmptyView()
             }
@@ -320,6 +349,16 @@ struct MessageContextMenuOverlay: View {
             y: appeared ? 8 : 0
         )
         .animation(.spring(response: 0.36, dampingFraction: 0.8), value: appeared)
+    }
+
+    @ViewBuilder
+    private func photoPreview(attachment: HydratedAttachment, message: AnyMessage) -> some View {
+        ContextMenuPhotoPreview(
+            attachmentKey: attachment.key,
+            isOutgoing: state.isOutgoing,
+            profile: message.base.sender.profile,
+            shouldBlur: shouldBlurPhoto
+        )
     }
 
     // MARK: - Action Menu
@@ -364,6 +403,52 @@ struct MessageContextMenuOverlay: View {
                     .accessibilityLabel("Copy message text")
                     .accessibilityIdentifier("context-menu-copy")
                 }
+
+                if let attachment = photoAttachment {
+                    Divider()
+                        .padding(.horizontal, C.actionPaddingH)
+                    let saveAction = {
+                        savePhoto(attachmentKey: attachment.key)
+                        dismissMenu()
+                    }
+                    Button(action: saveAction) {
+                        Label("Save", systemImage: "square.and.arrow.down")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, C.actionPaddingH)
+                            .padding(.vertical, C.actionPaddingV)
+                            .contentShape(Rectangle())
+                    }
+
+                    if state.isOutgoing || shouldBlurPhotos {
+                        Divider()
+                            .padding(.horizontal, C.actionPaddingH)
+                        if shouldBlurPhoto {
+                            let revealAction = {
+                                onPhotoRevealed(attachment.key)
+                                dismissMenu()
+                            }
+                            Button(action: revealAction) {
+                                Label("Reveal Photo", systemImage: "eye")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, C.actionPaddingH)
+                                    .padding(.vertical, C.actionPaddingV)
+                                    .contentShape(Rectangle())
+                            }
+                        } else {
+                            let hideAction = {
+                                onPhotoHidden(attachment.key)
+                                dismissMenu()
+                            }
+                            Button(action: hideAction) {
+                                Label("Hide Photo", systemImage: "eye.slash")
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, C.actionPaddingH)
+                                    .padding(.vertical, C.actionPaddingV)
+                                    .contentShape(Rectangle())
+                            }
+                        }
+                    }
+                }
             }
             .font(.body)
             .foregroundStyle(.primary)
@@ -390,6 +475,16 @@ struct MessageContextMenuOverlay: View {
     }
 
     // MARK: - Helpers
+
+    private func savePhoto(attachmentKey: String) {
+        guard let image = ImageCache.shared.image(for: attachmentKey) else { return }
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else { return }
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            }
+        }
+    }
 
     private func dismissMenu() {
         showingEmojiPicker = false
@@ -434,4 +529,53 @@ struct MessageContextMenuOverlay: View {
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
     // swiftlint:enable type_name
+}
+
+// MARK: - Context Menu Photo Preview
+
+private struct ContextMenuPhotoPreview: View {
+    let attachmentKey: String
+    let isOutgoing: Bool
+    let profile: Profile
+    let shouldBlur: Bool
+
+    @State private var loadedImage: UIImage?
+
+    init(attachmentKey: String, isOutgoing: Bool, profile: Profile, shouldBlur: Bool) {
+        self.attachmentKey = attachmentKey
+        self.isOutgoing = isOutgoing
+        self.profile = profile
+        self.shouldBlur = shouldBlur
+        _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+    }
+
+    var body: some View {
+        Group {
+            if let image = loadedImage {
+                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .blur(radius: shouldBlur ? 20 : 0)
+                        .opacity(shouldBlur ? 0.3 : 1.0)
+
+                    if shouldBlur {
+                        PhotoBlurOverlayContent()
+                    }
+
+                    PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 20))
+            } else {
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(.quaternary)
+            }
+        }
+        .task {
+            guard loadedImage == nil else { return }
+            if let cachedImage = await ImageCache.shared.imageAsync(for: attachmentKey) {
+                loadedImage = cachedImage
+            }
+        }
+    }
 }

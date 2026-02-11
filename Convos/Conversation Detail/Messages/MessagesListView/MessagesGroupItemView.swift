@@ -201,6 +201,8 @@ struct MessagesGroupItemView: View {
         }
     }
 
+    @State private var photoSwipeOffset: CGFloat = 0
+
     @ViewBuilder
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
         AttachmentPlaceholder(
@@ -217,6 +219,28 @@ struct MessagesGroupItemView: View {
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
         )
+        .messageInteractions(
+            message: message,
+            bubbleStyle: .normal,
+            onSwipeOffsetChanged: { photoSwipeOffset = $0 },
+            onSwipeEnded: { triggered in
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                    photoSwipeOffset = 0
+                }
+                if triggered { onReply(message) }
+            }
+        )
+        .offset(x: photoSwipeOffset)
+        .background(alignment: .leading) {
+            if photoSwipeOffset > 0 {
+                let progress = min(photoSwipeOffset / 60.0, 1.0)
+                Image(systemName: "arrowshape.turn.up.left.fill")
+                    .foregroundStyle(.tertiary)
+                    .scaleEffect(0.4 + progress * 0.6)
+                    .opacity(Double(progress))
+                    .padding(.leading, !isReply ? DesignConstants.Spacing.step2x : 0)
+            }
+        }
         .padding(.leading, isReply && message.base.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
         .padding(.trailing, isReply ? DesignConstants.Spacing.step4x : 0)
         .id(message.base.id)
@@ -293,36 +317,6 @@ private struct AttachmentPlaceholder: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .contextMenu {
-            let replyAction = { onReply() }
-            Button(action: replyAction) {
-                Label("Reply", systemImage: "arrowshape.turn.up.left")
-            }
-
-            if let image = loadedImage {
-                Button {
-                    saveToPhotoLibrary(image: image)
-                } label: {
-                    Label("Save to Photo Library", systemImage: "square.and.arrow.down")
-                }
-
-                if isOutgoing || shouldBlurPhotos {
-                    Divider()
-
-                    if shouldBlur {
-                        let revealAction = { onReveal() }
-                        Button(action: revealAction) {
-                            Label("Reveal Photo", systemImage: "eye")
-                        }
-                    } else {
-                        let hideAction = { onHide() }
-                        Button(action: hideAction) {
-                            Label("Hide Photo", systemImage: "eye.slash")
-                        }
-                    }
-                }
-            }
-        }
         .sensoryFeedback(.success, trigger: showingSaveSuccess)
         .sensoryFeedback(.error, trigger: showingSaveError)
         .task {
@@ -347,20 +341,6 @@ private struct AttachmentPlaceholder: View {
             PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
         }
         .contentShape(Rectangle())
-        .onTapGesture(count: 2) {
-            onDoubleTap()
-        }
-        .onTapGesture(count: 1) {
-            if showBlurOverlay {
-                Log.info("[AttachmentPlaceholder] Main blur button tapped - calling onReveal()")
-                onReveal()
-            }
-        }
-        .onLongPressGesture(minimumDuration: 0, pressing: { pressing in
-            if showBlurOverlay {
-                isPressed = pressing
-            }
-        }, perform: {})
         .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
         .animation(.easeOut(duration: 0.15), value: isPressed)
     }
@@ -474,7 +454,7 @@ private struct AttachmentPlaceholder: View {
 
 // MARK: - Sender Label Overlay
 
-private struct PhotoSenderLabel: View {
+struct PhotoSenderLabel: View {
     let profile: Profile
     let isOutgoing: Bool
 
@@ -686,3 +666,5 @@ private struct PhotoSenderLabel: View {
     .padding()
 }
 // swiftlint:enable force_unwrapping
+
+
