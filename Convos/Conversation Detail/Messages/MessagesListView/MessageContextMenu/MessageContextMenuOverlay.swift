@@ -443,33 +443,31 @@ struct MessageContextMenuOverlay: View {
                             .contentShape(Rectangle())
                     }
 
-                    if state.isOutgoing || shouldBlurPhotos {
-                        Divider()
-                            .padding(.horizontal, C.actionPaddingH)
-                        if shouldBlurPhoto {
-                            let revealAction = {
-                                onPhotoRevealed(attachment.key)
-                                dismissMenu()
-                            }
-                            Button(action: revealAction) {
-                                Label("Reveal Photo", systemImage: "eye")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, C.actionPaddingH)
-                                    .padding(.vertical, C.actionPaddingV)
-                                    .contentShape(Rectangle())
-                            }
-                        } else {
-                            let hideAction = {
-                                onPhotoHidden(attachment.key)
-                                dismissMenu()
-                            }
-                            Button(action: hideAction) {
-                                Label("Hide Photo", systemImage: "eye.slash")
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, C.actionPaddingH)
-                                    .padding(.vertical, C.actionPaddingV)
-                                    .contentShape(Rectangle())
-                            }
+                    Divider()
+                        .padding(.horizontal, C.actionPaddingH)
+                    if shouldBlurPhoto {
+                        let revealAction = {
+                            onPhotoRevealed(attachment.key)
+                            dismissMenu()
+                        }
+                        Button(action: revealAction) {
+                            Label("Reveal Photo", systemImage: "eye")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, C.actionPaddingH)
+                                .padding(.vertical, C.actionPaddingV)
+                                .contentShape(Rectangle())
+                        }
+                    } else {
+                        let hideAction = {
+                            onPhotoHidden(attachment.key)
+                            dismissMenu()
+                        }
+                        Button(action: hideAction) {
+                            Label("Hide Photo", systemImage: "eye.slash")
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, C.actionPaddingH)
+                                .padding(.vertical, C.actionPaddingV)
+                                .contentShape(Rectangle())
                         }
                     }
                 }
