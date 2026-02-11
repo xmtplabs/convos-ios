@@ -38,6 +38,7 @@ struct MessagesGroupItemView: View {
                     isOutgoing: message.base.sender.isCurrentUser,
                     shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
+                    onTapInvite: onTapInvite,
                     onPhotoRevealed: onPhotoRevealed,
                     onPhotoHidden: onPhotoHidden
                 )
@@ -146,12 +147,12 @@ struct MessagesGroupItemView: View {
                     isOutgoing: message.base.source == .outgoing,
                     profile: message.base.sender.profile,
                     onTapInvite: onTapInvite,
-                ) {
-                    onTapAvatar(message)
-                }
+                    onTapAvatar: { onTapAvatar(message) }
+                )
                 .messageInteractions(
                     message: message,
                     bubbleStyle: bubbleType,
+                    onSingleTap: { onTapInvite(invite) },
                     onSwipeOffsetChanged: { swipeOffset = $0 },
                     onSwipeEnded: { triggered in
                         withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {

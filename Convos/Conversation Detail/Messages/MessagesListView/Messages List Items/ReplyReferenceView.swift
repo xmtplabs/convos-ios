@@ -9,6 +9,7 @@ struct ReplyReferenceView: View {
     let isOutgoing: Bool
     let shouldBlurPhotos: Bool
     var onTapAvatar: (() -> Void)?
+    var onTapInvite: ((MessageInvite) -> Void)?
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
 
@@ -78,9 +79,19 @@ struct ReplyReferenceView: View {
                 .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                 .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let invite = parentInvite {
-                ReplyReferenceInvitePreview(invite: invite)
+                if let onTapInvite {
+                    let tapAction = { onTapInvite(invite) }
+                    Button(action: tapAction) {
+                        ReplyReferenceInvitePreview(invite: invite)
+                    }
+                    .buttonStyle(.plain)
                     .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                     .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
+                } else {
+                    ReplyReferenceInvitePreview(invite: invite)
+                        .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
+                        .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
+                }
             } else {
                 Text(previewText)
                     .font(.footnote)

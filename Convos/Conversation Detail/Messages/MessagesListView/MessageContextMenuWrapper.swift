@@ -2,6 +2,21 @@ import ConvosCore
 import SwiftUI
 import UIKit
 
+// MARK: - Press State Environment
+
+private struct MessagePressedKey: EnvironmentKey {
+    static let defaultValue: Bool = false
+}
+
+extension EnvironmentValues {
+    var messagePressed: Bool {
+        get { self[MessagePressedKey.self] }
+        set { self[MessagePressedKey.self] = newValue }
+    }
+}
+
+// MARK: - Interaction Modifier
+
 struct MessageInteractionModifier: ViewModifier {
     let message: AnyMessage
     let bubbleStyle: MessageBubbleType
@@ -9,6 +24,7 @@ struct MessageInteractionModifier: ViewModifier {
     let onSwipeOffsetChanged: ((CGFloat) -> Void)?
     let onSwipeEnded: ((Bool) -> Void)?
 
+    @State private var isPressed: Bool = false
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
 
     private var isSourceBubble: Bool {
@@ -17,6 +33,7 @@ struct MessageInteractionModifier: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+            .environment(\.messagePressed, isPressed)
             .opacity(isSourceBubble ? 0 : 1)
             .overlay {
                 GeometryReader { geometry in
@@ -35,7 +52,8 @@ struct MessageInteractionModifier: ViewModifier {
                                 bubbleFrame: frame,
                                 bubbleStyle: bubbleStyle
                             )
-                        }
+                        },
+                        onPressChanged: { isPressed = $0 }
                     )
                 }
             }
@@ -69,14 +87,16 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
     let onSwipeOffsetChanged: ((CGFloat) -> Void)?
     let onSwipeEnded: ((Bool) -> Void)?
     let onLongPress: (() -> Void)?
+    let onPressChanged: ((Bool) -> Void)?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    func makeUIView(context: Context) -> UIView {
-        let view = UIView()
+    func makeUIView(context: Context) -> PressTrackingView {
+        let view = PressTrackingView()
         view.backgroundColor = .clear
+        view.coordinator = context.coordinator
         let coordinator = context.coordinator
         coordinator.overlayView = view
 
@@ -121,18 +141,38 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         return view
     }
 
-    func updateUIView(_ uiView: UIView, context: Context) {
+    func updateUIView(_ uiView: PressTrackingView, context: Context) {
         context.coordinator.isDisabled = isDisabled
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onSwipeOffsetChanged = onSwipeOffsetChanged
         context.coordinator.onSwipeEnded = onSwipeEnded
         context.coordinator.onLongPress = onLongPress
+        context.coordinator.onPressChanged = onPressChanged
         context.coordinator.singleTapRecognizer?.isEnabled = onSingleTap != nil
     }
 
+    final class PressTrackingView: UIView {
+        weak var coordinator: Coordinator?
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesBegan(touches, with: event)
+            coordinator?.onPressChanged?(true)
+        }
+
+        override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesEnded(touches, with: event)
+            coordinator?.onPressChanged?(false)
+        }
+
+        override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+            super.touchesCancelled(touches, with: event)
+            coordinator?.onPressChanged?(false)
+        }
+    }
+
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
-        weak var overlayView: UIView?
+        weak var overlayView: PressTrackingView?
         weak var singleTapRecognizer: UITapGestureRecognizer?
         var isDisabled: Bool = false
         var onSingleTap: (() -> Void)?
@@ -140,6 +180,7 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         var onSwipeOffsetChanged: ((CGFloat) -> Void)?
         var onSwipeEnded: ((Bool) -> Void)?
         var onLongPress: (() -> Void)?
+        var onPressChanged: ((Bool) -> Void)?
 
         private var swipeTriggered: Bool = false
         private weak var cachedScrollView: UIScrollView?
