@@ -151,6 +151,7 @@ class NewConversationViewModel: Identifiable {
     // MARK: - Inbox Acquisition
 
     private func acquireInbox(mode: NewConversationMode) {
+        inboxAcquisitionTask?.cancel()
         inboxAcquisitionTask = Task { [weak self] in
             guard let self else { return }
 
@@ -202,6 +203,11 @@ class NewConversationViewModel: Identifiable {
         self.conversationViewModel = convoVM
         setupObservations()
         setupStateObservation()
+
+        if let pendingCode = pendingInviteCode {
+            pendingInviteCode = nil
+            joinConversation(inviteCode: pendingCode)
+        }
 
         if autoCreateConversation && existingConversationId == nil {
             newConversationTask = Task { [weak self, stateManager] in
@@ -280,6 +286,7 @@ class NewConversationViewModel: Identifiable {
         currentError = nil
         isCreatingConversation = false
         conversationViewModel?.isWaitingForInviteAcceptance = false
+        inboxAcquisitionTask?.cancel()
         deleteConversation()
         dismissAction?()
     }

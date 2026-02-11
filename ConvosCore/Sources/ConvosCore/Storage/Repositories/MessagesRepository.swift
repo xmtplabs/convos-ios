@@ -372,7 +372,14 @@ extension Array where Element == DBMessage {
                 return nil
             }
             let addedMembers = update.addedInboxIds.compactMap { memberProfileCache.member(for: $0) }
-            let removedMembers = update.removedInboxIds.compactMap { memberProfileCache.member(for: $0) }
+            let removedMembers = update.removedInboxIds.map { inboxId in
+                memberProfileCache.member(for: inboxId)
+                    ?? ConversationMember(
+                        profile: .empty(inboxId: inboxId),
+                        role: .member,
+                        isCurrentUser: inboxId == conversation.inboxId
+                    )
+            }
             messageContent = .update(
                 .init(
                     creator: initiatedByMember,
@@ -526,7 +533,7 @@ fileprivate extension Database {
         try DBConversation
             .filter(DBConversation.Columns.id == conversationId)
             .including(
-                required: DBConversation.creator
+                optional: DBConversation.creator
                     .forKey("conversationCreator")
                     .select([DBConversationMember.Columns.role])
                     .including(required: DBConversationMember.memberProfile)
@@ -546,7 +553,7 @@ fileprivate extension Database {
 
 private struct LightweightConversationDetails: Codable, FetchableRecord, Hashable {
     let conversation: DBConversation
-    let conversationCreator: DBConversationMemberProfileWithRole
+    let conversationCreator: DBConversationMemberProfileWithRole?
     let conversationMembers: [DBConversationMemberProfileWithRole]
     let conversationLocalState: ConversationLocalState
 }
@@ -556,7 +563,12 @@ private extension LightweightConversationDetails {
         let members = conversationMembers.map {
             $0.hydrateConversationMember(currentInboxId: conversation.inboxId)
         }
-        let creator = conversationCreator.hydrateConversationMember(currentInboxId: conversation.inboxId)
+        let creator = conversationCreator?.hydrateConversationMember(currentInboxId: conversation.inboxId)
+            ?? ConversationMember(
+                profile: .empty(inboxId: conversation.creatorId),
+                role: .superAdmin,
+                isCurrentUser: conversation.creatorId == conversation.inboxId
+            )
         let otherMember: ConversationMember?
         if conversation.kind == .dm,
            let other = members.first(where: { !$0.isCurrentUser }) {
