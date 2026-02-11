@@ -19,6 +19,7 @@ struct MessagesInputView: View {
     let onSendMessage: () -> Void
 
     private let attachmentPreviewSize: CGFloat = 80.0
+    @State private var isPoofing: Bool = false
 
     static var defaultHeight: CGFloat {
         32.0
@@ -121,10 +122,11 @@ struct MessagesInputView: View {
                     attachmentPreview(image: image)
                 }
             }
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.top, DesignConstants.Spacing.step2x)
-            .padding(.bottom, DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step2x * 2)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
         }
+        .scrollClipDisabled()
+        .padding(.horizontal, -DesignConstants.Spacing.step2x)
     }
 
     @ViewBuilder
@@ -135,10 +137,17 @@ struct MessagesInputView: View {
                 .aspectRatio(contentMode: .fill)
                 .frame(width: attachmentPreviewSize, height: attachmentPreviewSize)
                 .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step3x))
+                .scaleEffect(isPoofing ? 1.3 : 1.0)
+                .blur(radius: isPoofing ? 12.0 : 0.0)
+                .opacity(isPoofing ? 0.0 : 1.0)
 
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    isPoofing = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
                     selectedAttachmentImage = nil
+                    isPoofing = false
                 }
             } label: {
                 Image(systemName: "xmark.circle.fill")
@@ -146,6 +155,7 @@ struct MessagesInputView: View {
                     .symbolRenderingMode(.palette)
                     .foregroundStyle(.white, .black.opacity(0.6))
             }
+            .opacity(isPoofing ? 0.0 : 1.0)
             .offset(x: 6.0, y: -6.0)
         }
     }
