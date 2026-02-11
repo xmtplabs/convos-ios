@@ -54,7 +54,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onReaction: viewModel.onReaction(emoji:messageId:),
             onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
-            onReply: viewModel.onReply(_:),
+            onReply: { message in
+                viewModel.onReply(message)
+                focusCoordinator.moveFocus(to: .message)
+            },
             onDoubleTap: viewModel.onDoubleTap(_:),
             replyingToMessage: viewModel.replyingToMessage,
             onCancelReply: viewModel.cancelReply,
