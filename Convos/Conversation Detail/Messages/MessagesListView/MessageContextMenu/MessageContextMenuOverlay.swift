@@ -303,15 +303,23 @@ struct MessageContextMenuOverlay: View {
         let endWidth: CGFloat = source.width - (photoInset * 2)
         var endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
 
+        let bottomPadding: CGFloat
         if isPhoto {
             let menuHeight: CGFloat = C.photoMenuEstimatedHeight
-            let bottomPadding: CGFloat = C.sectionSpacing + menuHeight + C.sectionSpacing
+            bottomPadding = C.sectionSpacing + menuHeight + C.sectionSpacing
             let maxPhotoHeight: CGFloat = screenSize.height - minY - bottomPadding
             endHeight = min(endHeight, maxPhotoHeight)
+        } else {
+            bottomPadding = 0
         }
 
-        let maxY: CGFloat = screenSize.height / 2 - min(C.maxPreviewHeight, endHeight)
-        let desiredY: CGFloat = min(max(source.origin.y, minY), maxY < 0 ? minY : maxY)
+        let maxY: CGFloat
+        if isPhoto {
+            maxY = screenSize.height - endHeight - bottomPadding
+        } else {
+            maxY = screenSize.height / 2 - min(C.maxPreviewHeight, endHeight)
+        }
+        let desiredY: CGFloat = min(max(source.origin.y, minY), max(maxY, minY))
         let finalX: CGFloat = (screenSize.width - endWidth) / 2
         return CGRect(x: finalX, y: desiredY, width: endWidth, height: endHeight)
     }
