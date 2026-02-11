@@ -210,7 +210,7 @@ struct MessagesGroupItemView: View {
             isOutgoing: message.base.sender.isCurrentUser,
             profile: message.base.sender.profile,
             shouldBlurPhotos: shouldBlurPhotos,
-            cornerRadius: 0,
+            cornerRadius: DesignConstants.CornerRadius.photo,
             onReveal: { onPhotoRevealed(attachment.key) },
             onHide: { onPhotoHidden(attachment.key) },
             onDoubleTap: { onDoubleTap(message) },

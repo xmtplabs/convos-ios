@@ -380,7 +380,7 @@ struct MessageContextMenuOverlay: View {
             isOutgoing: state.isOutgoing,
             profile: message.base.sender.profile,
             shouldBlur: shouldBlurPhoto,
-            cornerRadius: appeared ? C.photoCornerRadius : 0
+            cornerRadius: C.photoCornerRadius
         )
     }
 
@@ -547,7 +547,7 @@ struct MessageContextMenuOverlay: View {
         static let topInset: CGFloat = 56
         static let maxPreviewHeight: CGFloat = 75
         static let photoHorizontalInset: CGFloat = 16
-        static let photoCornerRadius: CGFloat = 20
+        static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
         static let photoMenuEstimatedHeight: CGFloat = 150
 
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
@@ -566,7 +566,7 @@ private struct ContextMenuPhotoPreview: View {
 
     @State private var loadedImage: UIImage?
 
-    init(attachmentKey: String, isOutgoing: Bool, profile: Profile, shouldBlur: Bool, cornerRadius: CGFloat = 20) {
+    init(attachmentKey: String, isOutgoing: Bool, profile: Profile, shouldBlur: Bool, cornerRadius: CGFloat = DesignConstants.CornerRadius.photo) {
         self.attachmentKey = attachmentKey
         self.isOutgoing = isOutgoing
         self.profile = profile
