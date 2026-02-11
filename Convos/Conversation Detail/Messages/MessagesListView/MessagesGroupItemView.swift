@@ -273,9 +273,8 @@ private struct AttachmentPlaceholder: View {
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
 
     private var shouldBlur: Bool {
-        if isOutgoing {
-            return attachment.isHiddenByOwner
-        }
+        if attachment.isHiddenByOwner { return true }
+        if isOutgoing { return false }
         return shouldBlurPhotos && !attachment.isRevealed
     }
 

@@ -42,9 +42,8 @@ struct MessageContextMenuOverlay: View {
 
     private var shouldBlurPhoto: Bool {
         guard let photoAttachment, let message else { return false }
-        if message.base.sender.isCurrentUser {
-            return photoAttachment.isHiddenByOwner
-        }
+        if photoAttachment.isHiddenByOwner { return true }
+        if message.base.sender.isCurrentUser { return false }
         return shouldBlurPhotos && !photoAttachment.isRevealed
     }
 
