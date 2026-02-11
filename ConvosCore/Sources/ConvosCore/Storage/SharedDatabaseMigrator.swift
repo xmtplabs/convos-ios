@@ -224,6 +224,12 @@ extension SharedDatabaseMigrator {
                 """)
         }
 
+        migrator.registerMigration("addIsUnusedToConversation") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "isUnused", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

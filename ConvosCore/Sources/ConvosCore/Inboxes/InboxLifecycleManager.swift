@@ -35,7 +35,13 @@ public protocol InboxLifecycleManagerProtocol: Actor {
 
     /// Creates a new inbox using the unused inbox cache, registering it with the lifecycle manager.
     /// All inbox creation goes through this method. The new inbox is automatically set as active.
-    func createNewInbox() async -> any MessagingServiceProtocol
+    /// Returns the messaging service and optionally a pre-created conversation ID if one was consumed.
+    func createNewInbox() async -> (service: any MessagingServiceProtocol, conversationId: String?)
+
+    /// Creates a new inbox without consuming the pre-created conversation.
+    /// Used for join flows where we need a fast inbox but will use a different conversation.
+    /// The new inbox is automatically set as active.
+    func createNewInboxOnly() async -> any MessagingServiceProtocol
 
     /// Wakes an inbox, evicting LRU inbox if at capacity.
     /// This is the primary method for waking inboxes from user-initiated operations
@@ -58,8 +64,8 @@ public protocol InboxLifecycleManagerProtocol: Actor {
     func rebalance() async
     func initializeOnAppLaunch() async
     func stopAll() async
-    func prepareUnusedInboxIfNeeded() async
-    func clearUnusedInbox() async
+    func prepareUnusedConversationIfNeeded() async
+    func clearUnusedConversation() async
 }
 
 public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
@@ -77,7 +83,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     private let platformProviders: PlatformProviders
     private let activityRepository: any InboxActivityRepositoryProtocol
     private let pendingInviteRepository: any PendingInviteRepositoryProtocol
-    private let unusedInboxCache: any UnusedInboxCacheProtocol
+    private let unusedConversationCache: any UnusedConversationCacheProtocol
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let apiClient: (any ConvosAPIClientProtocol)?
 
@@ -110,7 +116,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         platformProviders: PlatformProviders,
         activityRepository: (any InboxActivityRepositoryProtocol)? = nil,
         pendingInviteRepository: (any PendingInviteRepositoryProtocol)? = nil,
-        unusedInboxCache: (any UnusedInboxCacheProtocol)? = nil,
+        unusedConversationCache: (any UnusedConversationCacheProtocol)? = nil,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
         apiClient: (any ConvosAPIClientProtocol)? = nil
     ) {
@@ -122,7 +128,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         self.platformProviders = platformProviders
         self.activityRepository = activityRepository ?? InboxActivityRepository(databaseReader: databaseReader)
         self.pendingInviteRepository = pendingInviteRepository ?? PendingInviteRepository(databaseReader: databaseReader)
-        self.unusedInboxCache = unusedInboxCache ?? UnusedInboxCache(
+        self.unusedConversationCache = unusedConversationCache ?? UnusedConversationCache(
             identityStore: identityStore,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
@@ -137,7 +143,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         Log.info("Active client ID set to: \(clientId ?? "nil")")
     }
 
-    public func createNewInbox() async -> any MessagingServiceProtocol {
+    public func createNewInbox() async -> (service: any MessagingServiceProtocol, conversationId: String?) {
         // If at capacity, free a slot first
         if awakeInboxes.count >= maxAwakeInboxes {
             Log.info("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for new inbox")
@@ -147,7 +153,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             }
         }
 
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, conversationId) = await unusedConversationCache.consumeOrCreateMessagingService(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             environment: environment
@@ -158,7 +164,37 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         awakeInboxes[clientId] = messagingService
         _sleepingClientIds.remove(clientId)
         _activeClientId = clientId
-        Log.info("New inbox created, registered, and set as active: \(clientId), total awake: \(awakeInboxes.count)")
+
+        if let conversationId {
+            Log.info("New inbox created with pre-created conversation: \(conversationId), clientId: \(clientId), total awake: \(awakeInboxes.count)")
+        } else {
+            Log.info("New inbox created (no pre-created conversation), clientId: \(clientId), total awake: \(awakeInboxes.count)")
+        }
+
+        return (service: messagingService, conversationId: conversationId)
+    }
+
+    public func createNewInboxOnly() async -> any MessagingServiceProtocol {
+        if awakeInboxes.count >= maxAwakeInboxes {
+            Log.info("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for new inbox-only")
+            let freed = await sleepLeastRecentlyUsed(excluding: [])
+            if !freed {
+                Log.warning("Could not free capacity for new inbox-only - will exceed maxAwakeInboxes")
+            }
+        }
+
+        let messagingService = await unusedConversationCache.consumeInboxOnly(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment
+        )
+
+        let clientId = messagingService.clientId
+        awakeInboxes[clientId] = messagingService
+        _sleepingClientIds.remove(clientId)
+        _activeClientId = clientId
+
+        Log.info("New inbox-only created, clientId: \(clientId), total awake: \(awakeInboxes.count)")
 
         return messagingService
     }
@@ -296,10 +332,10 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
             // Filter out unused inboxes - they're reserved for createNewInbox() and should not be
             // woken by rebalance. This prevents dual-tracking where the same inbox exists in both
-            // awakeInboxes and unusedInboxCache.
+            // awakeInboxes and unusedConversationCache.
             var eligibleActivities: [InboxActivity] = []
             for activity in allActivities {
-                let isUnused = await unusedInboxCache.isUnusedInbox(activity.inboxId)
+                let isUnused = await unusedConversationCache.isUnusedInbox(activity.inboxId)
                 if !isUnused {
                     eligibleActivities.append(activity)
                 } else {
@@ -428,16 +464,16 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         Log.info("All inboxes stopped")
     }
 
-    public func prepareUnusedInboxIfNeeded() async {
-        await unusedInboxCache.prepareUnusedInboxIfNeeded(
+    public func prepareUnusedConversationIfNeeded() async {
+        await unusedConversationCache.prepareUnusedConversationIfNeeded(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             environment: environment
         )
     }
 
-    public func clearUnusedInbox() async {
-        await unusedInboxCache.clearUnusedInboxFromKeychain()
+    public func clearUnusedConversation() async {
+        await unusedConversationCache.clearUnusedFromKeychain()
     }
 
     /// Attempts to sleep the least recently used inbox to free capacity.

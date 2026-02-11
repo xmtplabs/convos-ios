@@ -556,9 +556,10 @@ class ConversationViewModel {
         joinFromInviteTask = Task { [weak self] in
             guard let self else { return }
             let viewModel = await NewConversationViewModel.create(
-                session: session
+                session: session,
+                inboxOnly: true
             )
-            guard !Task.isCancelled else { return }  // Check for cancellation after async operation
+            guard !Task.isCancelled else { return }
             viewModel.joinConversation(inviteCode: invite.inviteSlug)
             await MainActor.run {
                 self.presentingNewConversationForInvite = viewModel

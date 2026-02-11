@@ -641,11 +641,15 @@ actor TestableInboxLifecycleManager: InboxLifecycleManagerProtocol {
         _sleepTimes.removeAll()
     }
 
-    func createNewInbox() async -> any MessagingServiceProtocol {
+    func createNewInbox() async -> (service: any MessagingServiceProtocol, conversationId: String?) {
         fatalError("Not implemented for tests")
     }
 
-    func prepareUnusedInboxIfNeeded() async {}
+    func createNewInboxOnly() async -> any MessagingServiceProtocol {
+        fatalError("Not implemented for tests")
+    }
 
-    func clearUnusedInbox() async {}
+    func prepareUnusedConversationIfNeeded() async {}
+
+    func clearUnusedConversation() async {}
 }

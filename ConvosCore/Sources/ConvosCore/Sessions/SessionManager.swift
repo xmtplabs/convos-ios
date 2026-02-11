@@ -105,7 +105,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
             self.unusedInboxPrepTask = Task(priority: .background) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                await self.lifecycleManager.prepareUnusedInboxIfNeeded()
+                await self.lifecycleManager.prepareUnusedConversationIfNeeded()
             }
         }
     }
@@ -157,8 +157,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Inbox Management
 
-    public func addInbox() async -> AnyMessagingService {
+    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
         await lifecycleManager.createNewInbox()
+    }
+
+    public func addInboxOnly() async -> AnyMessagingService {
+        await lifecycleManager.createNewInboxOnly()
     }
 
     public func deleteInbox(clientId: String, inboxId: String) async throws {
@@ -225,7 +229,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
                     // Stop all tracking in lifecycle manager
                     await self.lifecycleManager.stopAll()
-                    await self.lifecycleManager.clearUnusedInbox()
+                    await self.lifecycleManager.clearUnusedConversation()
 
                     // Delete all from database
                     continuation.yield(.deletingFromDatabase)

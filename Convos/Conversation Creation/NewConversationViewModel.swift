@@ -81,11 +81,24 @@ class NewConversationViewModel: Identifiable {
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
+        inboxOnly: Bool = false,
     ) async -> NewConversationViewModel {
-        let messagingService = await session.addInbox()
+        if showingFullScreenScanner || inboxOnly {
+            let messagingService = await session.addInboxOnly()
+            return NewConversationViewModel(
+                session: session,
+                messagingService: messagingService,
+                existingConversationId: nil,
+                autoCreateConversation: false,
+                showingFullScreenScanner: showingFullScreenScanner,
+                allowsDismissingScanner: allowsDismissingScanner,
+            )
+        }
+        let (messagingService, existingConversationId) = await session.addInbox()
         return NewConversationViewModel(
             session: session,
             messagingService: messagingService,
+            existingConversationId: existingConversationId,
             autoCreateConversation: autoCreateConversation,
             showingFullScreenScanner: showingFullScreenScanner,
             allowsDismissingScanner: allowsDismissingScanner,
@@ -96,6 +109,7 @@ class NewConversationViewModel: Identifiable {
     internal init(
         session: any SessionManagerProtocol,
         messagingService: AnyMessagingService,
+        existingConversationId: String? = nil,
         autoCreateConversation: Bool = false,
         showingFullScreenScanner: Bool = false,
         allowsDismissingScanner: Bool = true,
@@ -107,7 +121,12 @@ class NewConversationViewModel: Identifiable {
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
 
-        let conversationStateManager = messagingService.conversationStateManager()
+        let conversationStateManager: any ConversationStateManagerProtocol
+        if let existingConversationId {
+            conversationStateManager = messagingService.conversationStateManager(for: existingConversationId)
+        } else {
+            conversationStateManager = messagingService.conversationStateManager()
+        }
         self.conversationStateManager = conversationStateManager
         let draftConversation: Conversation = .empty(
             id: conversationStateManager.draftConversationRepository.conversationId,
@@ -124,7 +143,7 @@ class NewConversationViewModel: Identifiable {
         if showingFullScreenScanner {
             self.conversationViewModel.showsInfoView = false
         }
-        if autoCreateConversation {
+        if autoCreateConversation && existingConversationId == nil {
             newConversationTask = Task { [weak self, conversationStateManager] in
                 guard self != nil else { return }
                 guard !Task.isCancelled else { return }
@@ -337,7 +356,9 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItemEnabled = true
             messagesTextFieldEnabled = true
             isCreatingConversation = false
-            showingFullScreenScanner = false
+            if result.origin != .existing || !startedWithFullscreenScanner {
+                showingFullScreenScanner = false
+            }
             currentError = nil
 
             Log.info("Conversation ready!")

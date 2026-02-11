@@ -72,12 +72,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -134,12 +134,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -213,12 +213,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -282,12 +282,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -361,12 +361,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -433,12 +433,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -517,12 +517,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -599,12 +599,12 @@ struct ConversationStateMachineTests {
         let joinerFixtures = TestFixtures()
 
         // Setup inviter messaging service and state machine
-        let inviterUnusedInboxCache = UnusedInboxCache(
+        let inviterUnusedConversationCache = UnusedConversationCache(
             keychainService: inviterFixtures.keychainService,
             identityStore: inviterFixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let inviterMessagingService = await inviterUnusedInboxCache.consumeOrCreateMessagingService(
+        let (inviterMessagingService, _) = await inviterUnusedConversationCache.consumeOrCreateMessagingService(
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -669,12 +669,12 @@ struct ConversationStateMachineTests {
         }
 
         // Setup joiner messaging service and state machine
-        let joinerUnusedInboxCache = UnusedInboxCache(
+        let joinerUnusedConversationCache = UnusedConversationCache(
             keychainService: joinerFixtures.keychainService,
             identityStore: joinerFixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let joinerMessagingService = await joinerUnusedInboxCache.consumeOrCreateMessagingService(
+        let (joinerMessagingService, _) = await joinerUnusedConversationCache.consumeOrCreateMessagingService(
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -730,12 +730,12 @@ struct ConversationStateMachineTests {
         let joinerFixtures = TestFixtures()
 
         // Setup inviter messaging service and state machine
-        let inviterUnusedInboxCache = UnusedInboxCache(
+        let inviterUnusedConversationCache = UnusedConversationCache(
             keychainService: inviterFixtures.keychainService,
             identityStore: inviterFixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let inviterMessagingService = await inviterUnusedInboxCache.consumeOrCreateMessagingService(
+        let (inviterMessagingService, _) = await inviterUnusedConversationCache.consumeOrCreateMessagingService(
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -804,12 +804,12 @@ struct ConversationStateMachineTests {
         Log.info("Inviter went offline")
 
         // Setup joiner messaging service and state machine
-        let joinerUnusedInboxCache = UnusedInboxCache(
+        let joinerUnusedConversationCache = UnusedConversationCache(
             keychainService: joinerFixtures.keychainService,
             identityStore: joinerFixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let joinerMessagingService = await joinerUnusedInboxCache.consumeOrCreateMessagingService(
+        let (joinerMessagingService, _) = await joinerUnusedConversationCache.consumeOrCreateMessagingService(
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -898,12 +898,12 @@ struct ConversationStateMachineTests {
     func testStopDuringOperationsDoesntHang() async throws {
         let fixtures = TestFixtures()
 
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -972,12 +972,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -1040,12 +1040,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -1099,12 +1099,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -1188,12 +1188,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -1275,12 +1275,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -1381,12 +1381,12 @@ struct ConversationStateMachineTests {
         let fixtures = TestFixtures()
 
         // Get a real messaging service from the cache
-        let unusedInboxCache = UnusedInboxCache(
+        let unusedInboxCache = UnusedConversationCache(
             keychainService: fixtures.keychainService,
             identityStore: fixtures.identityStore,
             platformProviders: testPlatformProviders
         )
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment

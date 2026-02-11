@@ -39,7 +39,11 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     // MARK: - Inbox Management
 
-    public func addInbox() async -> AnyMessagingService {
+    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
+        (service: mockMessagingService, conversationId: nil)
+    }
+
+    public func addInboxOnly() async -> AnyMessagingService {
         mockMessagingService
     }
 

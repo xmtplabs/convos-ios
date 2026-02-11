@@ -19,6 +19,7 @@ public actor MockInboxLifecycleManager: InboxLifecycleManagerProtocol {
     }
 
     public var mockNewInboxService: (any MessagingServiceProtocol)?
+    public var mockNewInboxConversationId: String?
 
     public init() {}
 
@@ -26,12 +27,20 @@ public actor MockInboxLifecycleManager: InboxLifecycleManagerProtocol {
         _activeClientId = clientId
     }
 
-    public func createNewInbox() async -> any MessagingServiceProtocol {
+    public func createNewInbox() async -> (service: any MessagingServiceProtocol, conversationId: String?) {
+        if let service = mockNewInboxService {
+            _awakeClientIds.insert(service.clientId)
+            return (service: service, conversationId: mockNewInboxConversationId)
+        }
+        fatalError("MockInboxLifecycleManager.createNewInbox called without setting mockNewInboxService")
+    }
+
+    public func createNewInboxOnly() async -> any MessagingServiceProtocol {
         if let service = mockNewInboxService {
             _awakeClientIds.insert(service.clientId)
             return service
         }
-        fatalError("MockInboxLifecycleManager.createNewInbox called without setting mockNewInboxService")
+        fatalError("MockInboxLifecycleManager.createNewInboxOnly called without setting mockNewInboxService")
     }
 
     public func wake(clientId: String, inboxId: String, reason: WakeReason) async throws -> any MessagingServiceProtocol {
@@ -86,7 +95,7 @@ public actor MockInboxLifecycleManager: InboxLifecycleManagerProtocol {
         _sleepingClientIds.removeAll()
     }
 
-    public func prepareUnusedInboxIfNeeded() async {}
+    public func prepareUnusedConversationIfNeeded() async {}
 
-    public func clearUnusedInbox() async {}
+    public func clearUnusedConversation() async {}
 }

@@ -288,7 +288,8 @@ final class ConversationsViewModel {
         newConversationViewModelTask = Task { [weak self] in
             guard let self else { return }
             let viewModel = await NewConversationViewModel.create(
-                session: session
+                session: session,
+                inboxOnly: true
             )
             viewModel.joinConversation(inviteCode: inviteCode)
             await MainActor.run {

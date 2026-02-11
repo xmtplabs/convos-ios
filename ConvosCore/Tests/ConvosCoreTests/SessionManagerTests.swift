@@ -45,7 +45,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             ).insert(db)
         }
 
@@ -116,7 +117,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             ).insert(db)
         }
 
@@ -155,7 +157,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             ).insert(db)
         }
 
@@ -202,7 +205,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -227,7 +231,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             ).insert(db)
         }
 
@@ -278,7 +283,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -303,7 +309,8 @@ struct SessionManagerTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             ).insert(db)
         }
 
@@ -361,7 +368,7 @@ struct SessionManagerTests {
         let fixtures = try await makeIntegrationTestFixtures()
 
         // Step 1: Create the first inbox
-        let service1 = await fixtures.sessionManager.addInbox()
+        let (service1, _) = await fixtures.sessionManager.addInbox()
         let result1 = try await service1.inboxStateManager.waitForInboxReadyResult()
         let inboxId1 = result1.client.inboxId
         let clientId1 = service1.clientId
@@ -386,7 +393,7 @@ struct SessionManagerTests {
         try await Task.sleep(for: .seconds(6))
 
         // Step 4: Create a second inbox
-        let service2 = await fixtures.sessionManager.addInbox()
+        let (service2, _) = await fixtures.sessionManager.addInbox()
         let result2 = try await service2.inboxStateManager.waitForInboxReadyResult()
         let inboxId2 = result2.client.inboxId
         let clientId2 = service2.clientId
@@ -412,7 +419,7 @@ struct SessionManagerTests {
 
         for cycle in 1...3 {
             // Create inbox
-            let service = await fixtures.sessionManager.addInbox()
+            let (service, _) = await fixtures.sessionManager.addInbox()
             let result = try await service.inboxStateManager.waitForInboxReadyResult()
             let inboxId = result.client.inboxId
             let clientId = service.clientId
@@ -450,7 +457,7 @@ struct SessionManagerTests {
         let fixtures = try await makeIntegrationTestFixtures(maxAwakeInboxes: 1)
 
         // Step 1: Create first inbox, wait for ready
-        let service1 = await fixtures.sessionManager.addInbox()
+        let (service1, _) = await fixtures.sessionManager.addInbox()
         let result1 = try await service1.inboxStateManager.waitForInboxReadyResult()
         let inboxId1 = result1.client.inboxId
         let clientId1 = service1.clientId
@@ -460,7 +467,7 @@ struct SessionManagerTests {
         #expect(isAwake1, "First inbox should be awake")
 
         // Step 2: Create second inbox (this should trigger eviction logic since maxAwake=1)
-        let service2 = await fixtures.sessionManager.addInbox()
+        let (service2, _) = await fixtures.sessionManager.addInbox()
         let result2 = try await service2.inboxStateManager.waitForInboxReadyResult()
         let inboxId2 = result2.client.inboxId
         let clientId2 = service2.clientId
@@ -485,7 +492,7 @@ struct SessionManagerTests {
         try await Task.sleep(for: .seconds(6))
 
         // Step 5: Create a third inbox
-        let service3 = await fixtures.sessionManager.addInbox()
+        let (service3, _) = await fixtures.sessionManager.addInbox()
         let result3 = try await service3.inboxStateManager.waitForInboxReadyResult()
         let inboxId3 = result3.client.inboxId
         let clientId3 = service3.clientId

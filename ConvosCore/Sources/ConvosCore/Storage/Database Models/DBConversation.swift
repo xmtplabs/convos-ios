@@ -47,6 +47,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageSalt: Column = Column(CodingKeys.imageSalt)
         static let imageNonce: Column = Column(CodingKeys.imageNonce)
         static let imageEncryptionKey: Column = Column(CodingKeys.imageEncryptionKey)
+        static let isUnused: Column = Column(CodingKeys.isUnused)
     }
 
     let id: String
@@ -69,6 +70,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageSalt: Data?
     let imageNonce: Data?
     let imageEncryptionKey: Data?
+    let isUnused: Bool
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
         [Columns.creatorId, Columns.id],
@@ -224,7 +226,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -249,7 +252,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -274,7 +278,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -299,7 +304,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -324,7 +330,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -351,7 +358,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -376,7 +384,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -401,7 +410,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -426,7 +436,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -451,7 +462,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -476,7 +488,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -501,7 +514,34 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
+        )
+    }
+
+    func with(isUnused: Bool) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
@@ -526,7 +566,8 @@ extension DBConversation {
             isLocked: isLocked,
             imageSalt: imageSalt,
             imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey
+            imageEncryptionKey: imageEncryptionKey,
+            isUnused: isUnused
         )
     }
 
