@@ -83,6 +83,7 @@ struct ReplyReferenceView: View {
                         RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
                             .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
                     )
+                    .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                     .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             }
         }
