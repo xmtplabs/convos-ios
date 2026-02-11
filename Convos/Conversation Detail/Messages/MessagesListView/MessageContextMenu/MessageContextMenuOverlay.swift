@@ -96,6 +96,7 @@ struct MessageContextMenuOverlay: View {
             }
             .ignoresSafeArea()
             .onAppear {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                 emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
                 withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
                     appeared = true
