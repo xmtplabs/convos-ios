@@ -312,14 +312,18 @@ struct MessageContextMenuOverlay: View {
             bottomPadding = 0
         }
 
-        let maxY: CGFloat
+        let desiredY: CGFloat
+        let finalX: CGFloat
         if isPhoto {
-            maxY = screenSize.height - endHeight - bottomPadding
+            let availableHeight: CGFloat = screenSize.height - minY - bottomPadding
+            let centeredY: CGFloat = minY + (availableHeight - endHeight) / 2
+            desiredY = max(centeredY, minY)
+            finalX = (screenSize.width - endWidth) / 2
         } else {
-            maxY = screenSize.height / 2 - min(C.maxPreviewHeight, endHeight)
+            let maxY: CGFloat = screenSize.height / 2 - min(C.maxPreviewHeight, endHeight)
+            desiredY = min(max(source.origin.y, minY), maxY < 0 ? minY : maxY)
+            finalX = (screenSize.width - endWidth) / 2
         }
-        let desiredY: CGFloat = min(max(source.origin.y, minY), max(maxY, minY))
-        let finalX: CGFloat = (screenSize.width - endWidth) / 2
         return CGRect(x: finalX, y: desiredY, width: endWidth, height: endHeight)
     }
 
@@ -445,9 +449,13 @@ struct MessageContextMenuOverlay: View {
                     Divider()
                         .padding(.horizontal, C.actionPaddingH)
                     if shouldBlurPhoto {
+                        let key = attachment.key
                         let revealAction = {
-                            onPhotoRevealed(attachment.key)
                             dismissMenu()
+                            let callback = onPhotoRevealed
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                callback(key)
+                            }
                         }
                         Button(action: revealAction) {
                             Label("Reveal Photo", systemImage: "eye")
@@ -457,9 +465,13 @@ struct MessageContextMenuOverlay: View {
                                 .contentShape(Rectangle())
                         }
                     } else {
+                        let key = attachment.key
                         let hideAction = {
-                            onPhotoHidden(attachment.key)
                             dismissMenu()
+                            let callback = onPhotoHidden
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                callback(key)
+                            }
                         }
                         Button(action: hideAction) {
                             Label("Hide Photo", systemImage: "eye.slash")
