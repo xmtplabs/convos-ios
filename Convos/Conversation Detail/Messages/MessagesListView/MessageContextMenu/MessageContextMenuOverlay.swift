@@ -60,10 +60,12 @@ struct MessageContextMenuOverlay: View {
                     width: state.bubbleFrame.width,
                     height: state.bubbleFrame.height
                 )
+                let isPhoto = photoAttachment != nil
                 let endBubble = endBubbleRect(
                     source: localBubble,
                     screenSize: screenSize,
-                    safeTop: safeTop
+                    safeTop: safeTop,
+                    isPhoto: isPhoto
                 )
                 let activeBubble = appeared ? endBubble : localBubble
 
@@ -291,14 +293,18 @@ struct MessageContextMenuOverlay: View {
     private func endBubbleRect(
         source: CGRect,
         screenSize: CGSize,
-        safeTop: CGFloat
+        safeTop: CGFloat,
+        isPhoto: Bool = false
     ) -> CGRect {
         let topInset: CGFloat = safeTop + C.topInset
         let minY: CGFloat = topInset + C.drawerHeight + C.sectionSpacing
-        let maxY: CGFloat = screenSize.height / 2 - min(C.maxPreviewHeight, source.height)
+        let photoInset: CGFloat = isPhoto ? C.photoHorizontalInset : 0
+        let endWidth: CGFloat = source.width - (photoInset * 2)
+        let endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
+        let maxY: CGFloat = screenSize.height / 2 - min(C.maxPreviewHeight, endHeight)
         let desiredY: CGFloat = min(max(source.origin.y, minY), maxY < 0 ? minY : maxY)
-        let finalX: CGFloat = (screenSize.width - source.width) / 2
-        return CGRect(x: finalX, y: desiredY, width: source.width, height: source.height)
+        let finalX: CGFloat = (screenSize.width - endWidth) / 2
+        return CGRect(x: finalX, y: desiredY, width: endWidth, height: endHeight)
     }
 
     // MARK: - Bubble Preview
@@ -357,7 +363,8 @@ struct MessageContextMenuOverlay: View {
             attachmentKey: attachment.key,
             isOutgoing: state.isOutgoing,
             profile: message.base.sender.profile,
-            shouldBlur: shouldBlurPhoto
+            shouldBlur: shouldBlurPhoto,
+            cornerRadius: appeared ? C.photoCornerRadius : 0
         )
     }
 
@@ -525,6 +532,8 @@ struct MessageContextMenuOverlay: View {
         static let actionPaddingV: CGFloat = 12
         static let topInset: CGFloat = 56
         static let maxPreviewHeight: CGFloat = 75
+        static let photoHorizontalInset: CGFloat = 16
+        static let photoCornerRadius: CGFloat = 20
 
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
@@ -538,14 +547,16 @@ private struct ContextMenuPhotoPreview: View {
     let isOutgoing: Bool
     let profile: Profile
     let shouldBlur: Bool
+    let cornerRadius: CGFloat
 
     @State private var loadedImage: UIImage?
 
-    init(attachmentKey: String, isOutgoing: Bool, profile: Profile, shouldBlur: Bool) {
+    init(attachmentKey: String, isOutgoing: Bool, profile: Profile, shouldBlur: Bool, cornerRadius: CGFloat = 20) {
         self.attachmentKey = attachmentKey
         self.isOutgoing = isOutgoing
         self.profile = profile
         self.shouldBlur = shouldBlur
+        self.cornerRadius = cornerRadius
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
     }
 
@@ -555,7 +566,7 @@ private struct ContextMenuPhotoPreview: View {
                 ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
                     Image(uiImage: image)
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
+                        .aspectRatio(contentMode: .fill)
                         .blur(radius: shouldBlur ? 20 : 0)
                         .opacity(shouldBlur ? 0.3 : 1.0)
 
@@ -565,9 +576,9 @@ private struct ContextMenuPhotoPreview: View {
 
                     PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 20))
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             } else {
-                RoundedRectangle(cornerRadius: 20)
+                RoundedRectangle(cornerRadius: cornerRadius)
                     .fill(.quaternary)
             }
         }

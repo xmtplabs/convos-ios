@@ -210,7 +210,7 @@ struct MessagesGroupItemView: View {
             isOutgoing: message.base.sender.isCurrentUser,
             profile: message.base.sender.profile,
             shouldBlurPhotos: shouldBlurPhotos,
-            cornerRadius: isReply ? 20.0 : 0,
+            cornerRadius: 0,
             onReveal: { onPhotoRevealed(attachment.key) },
             onHide: { onPhotoHidden(attachment.key) },
             onDoubleTap: { onDoubleTap(message) },
@@ -238,11 +238,9 @@ struct MessagesGroupItemView: View {
                     .foregroundStyle(.tertiary)
                     .scaleEffect(0.4 + progress * 0.6)
                     .opacity(Double(progress))
-                    .padding(.leading, !isReply ? DesignConstants.Spacing.step2x : 0)
+                    .padding(.leading, DesignConstants.Spacing.step2x)
             }
         }
-        .padding(.leading, isReply && message.base.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
-        .padding(.trailing, isReply ? DesignConstants.Spacing.step4x : 0)
         .id(message.base.id)
     }
 }

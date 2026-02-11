@@ -38,9 +38,9 @@ struct MessagesGroupView: View {
             let allMessages = group.allMessages
             ForEach(Array(allMessages.enumerated()), id: \.element.base.id) { index, message in
                 let isReply = if case .reply = message { true } else { false }
-                let isFullWidthAttachment = message.base.content.isAttachment && !isReply
+                let isFullWidthAttachment = message.base.content.isAttachment
 
-                if index == 0 && !group.sender.isCurrentUser && !isReply && !isFullWidthAttachment {
+                if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment {
                     Text(group.sender.profile.displayName)
                         .scaleEffect(isAppearing ? 0.9 : 1.0)
                         .opacity(isAppearing ? 0.0 : 1.0)
