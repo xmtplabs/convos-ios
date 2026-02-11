@@ -37,7 +37,9 @@ struct MessagesGroupItemView: View {
                     parentMessage: reply.parentMessage,
                     isOutgoing: message.base.sender.isCurrentUser,
                     shouldBlurPhotos: shouldBlurPhotos,
-                    onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) }
+                    onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
+                    onPhotoRevealed: onPhotoRevealed,
+                    onPhotoHidden: onPhotoHidden
                 )
             }
             switch message.base.content {

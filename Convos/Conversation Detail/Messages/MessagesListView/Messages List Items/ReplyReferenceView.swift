@@ -9,6 +9,8 @@ struct ReplyReferenceView: View {
     let isOutgoing: Bool
     let shouldBlurPhotos: Bool
     var onTapAvatar: (() -> Void)?
+    var onPhotoRevealed: ((String) -> Void)?
+    var onPhotoHidden: ((String) -> Void)?
 
     private var previewText: String {
         switch parentMessage.content {
@@ -61,8 +63,14 @@ struct ReplyReferenceView: View {
             .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step3x : 0.0)
 
             if let attachment = parentAttachment {
-                ReplyReferencePhotoPreview(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment)
-                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
+                ReplyReferencePhotoPreview(
+                    attachmentKey: attachment.key,
+                    shouldBlur: shouldBlurAttachment,
+                    isOutgoing: isOutgoing,
+                    onReveal: { onPhotoRevealed?(attachment.key) },
+                    onHide: { onPhotoHidden?(attachment.key) }
+                )
+                .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 Text(previewText)
                     .font(.footnote)
@@ -137,28 +145,63 @@ struct ReplyReferenceView: View {
 private struct ReplyReferencePhotoPreview: View {
     let attachmentKey: String
     let shouldBlur: Bool
+    let isOutgoing: Bool
+    let onReveal: () -> Void
+    let onHide: () -> Void
 
     @State private var loadedImage: UIImage?
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
     private static let maxHeight: CGFloat = 80.0
 
-    init(attachmentKey: String, shouldBlur: Bool) {
+    init(attachmentKey: String, shouldBlur: Bool, isOutgoing: Bool, onReveal: @escaping () -> Void, onHide: @escaping () -> Void) {
         self.attachmentKey = attachmentKey
         self.shouldBlur = shouldBlur
+        self.isOutgoing = isOutgoing
+        self.onReveal = onReveal
+        self.onHide = onHide
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
     }
 
     var body: some View {
         Group {
             if let image = loadedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxHeight: Self.maxHeight)
-                    .blur(radius: shouldBlur ? 10 : 0)
-                    .opacity(shouldBlur ? 0.4 : 1.0)
-                    .clipShape(RoundedRectangle(cornerRadius: 12.0))
+                ZStack(alignment: .topTrailing) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxHeight: Self.maxHeight)
+                        .blur(radius: shouldBlur ? 10 : 0)
+                        .opacity(shouldBlur ? 0.4 : 1.0)
+
+                    if shouldBlur {
+                        Image(systemName: "eye.circle.fill")
+                            .font(.system(size: 18))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+                            .padding(DesignConstants.Spacing.step2x)
+                    }
+                }
+                .clipShape(RoundedRectangle(cornerRadius: 12.0))
+                .contentShape(RoundedRectangle(cornerRadius: 12.0))
+                .onTapGesture {
+                    if shouldBlur {
+                        onReveal()
+                    }
+                }
+                .contextMenu {
+                    if shouldBlur {
+                        let revealAction = { onReveal() }
+                        Button(action: revealAction) {
+                            Label("Reveal", systemImage: "eye")
+                        }
+                    } else if isOutgoing {
+                        let hideAction = { onHide() }
+                        Button(action: hideAction) {
+                            Label("Hide", systemImage: "eye.slash")
+                        }
+                    }
+                }
             } else {
                 RoundedRectangle(cornerRadius: 12.0)
                     .fill(.quaternary)
