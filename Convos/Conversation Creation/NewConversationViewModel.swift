@@ -23,13 +23,19 @@ struct IdentifiableError: Identifiable {
     }
 }
 
+enum NewConversationMode {
+    case newConversation
+    case scanner
+    case joinInvite(code: String)
+}
+
 @MainActor
 @Observable
 class NewConversationViewModel: Identifiable {
     // MARK: - Public
 
     let session: any SessionManagerProtocol
-    let conversationViewModel: ConversationViewModel
+    private(set) var conversationViewModel: ConversationViewModel?
     let qrScannerViewModel: QRScannerViewModel
     private(set) var messagesTopBarTrailingItem: MessagesViewTopBarTrailingItem = .share
     private(set) var messagesTopBarTrailingItemEnabled: Bool = false
@@ -45,6 +51,7 @@ class NewConversationViewModel: Identifiable {
             if oldValue != nil && displayError == nil {
                 qrScannerViewModel.resetScanTimer()
                 qrScannerViewModel.resetScanning()
+                guard let conversationStateManager else { return }
                 resetTask?.cancel()
                 resetTask = Task { [conversationStateManager] in
                     await conversationStateManager.resetFromError()
@@ -60,7 +67,9 @@ class NewConversationViewModel: Identifiable {
 
     // MARK: - Private
 
-    private let conversationStateManager: any ConversationStateManagerProtocol
+    private var conversationStateManager: (any ConversationStateManagerProtocol)?
+    @ObservationIgnored
+    private var inboxAcquisitionTask: Task<Void, Never>?
     @ObservationIgnored
     private var newConversationTask: Task<Void, Error>?
     @ObservationIgnored
@@ -73,39 +82,42 @@ class NewConversationViewModel: Identifiable {
     private var stateObserverHandle: ConversationStateObserverHandle?
     @ObservationIgnored
     private var dismissAction: DismissAction?
+    private var pendingInviteCode: String?
 
     // MARK: - Init
 
-    static func create(
+    init(
         session: any SessionManagerProtocol,
-        autoCreateConversation: Bool = false,
-        showingFullScreenScanner: Bool = false,
-        allowsDismissingScanner: Bool = true,
-        inboxOnly: Bool = false,
-    ) async -> NewConversationViewModel {
-        if showingFullScreenScanner || inboxOnly {
-            let messagingService = await session.addInboxOnly()
-            return NewConversationViewModel(
-                session: session,
-                messagingService: messagingService,
-                existingConversationId: nil,
-                autoCreateConversation: false,
-                showingFullScreenScanner: showingFullScreenScanner,
-                allowsDismissingScanner: allowsDismissingScanner,
-            )
+        mode: NewConversationMode
+    ) {
+        self.session = session
+        self.qrScannerViewModel = QRScannerViewModel()
+
+        switch mode {
+        case .newConversation:
+            self.autoCreateConversation = true
+            self.startedWithFullscreenScanner = false
+            self.showingFullScreenScanner = false
+            self.allowsDismissingScanner = true
+
+        case .scanner:
+            self.autoCreateConversation = false
+            self.startedWithFullscreenScanner = true
+            self.showingFullScreenScanner = true
+            self.allowsDismissingScanner = true
+
+        case .joinInvite(let code):
+            self.autoCreateConversation = false
+            self.startedWithFullscreenScanner = false
+            self.showingFullScreenScanner = false
+            self.allowsDismissingScanner = true
+            self.pendingInviteCode = code
         }
-        let (messagingService, existingConversationId) = await session.addInbox()
-        return NewConversationViewModel(
-            session: session,
-            messagingService: messagingService,
-            existingConversationId: existingConversationId,
-            autoCreateConversation: autoCreateConversation,
-            showingFullScreenScanner: showingFullScreenScanner,
-            allowsDismissingScanner: allowsDismissingScanner,
-        )
+
+        self.isCreatingConversation = mode.isNewConversation
+        acquireInbox(mode: mode)
     }
 
-    /// Internal initializer for previews and tests
     internal init(
         session: any SessionManagerProtocol,
         messagingService: AnyMessagingService,
@@ -121,34 +133,82 @@ class NewConversationViewModel: Identifiable {
         self.showingFullScreenScanner = showingFullScreenScanner
         self.allowsDismissingScanner = allowsDismissingScanner
 
-        let conversationStateManager: any ConversationStateManagerProtocol
-        if let existingConversationId {
-            conversationStateManager = messagingService.conversationStateManager(for: existingConversationId)
-        } else {
-            conversationStateManager = messagingService.conversationStateManager()
+        configureWithMessagingService(
+            messagingService,
+            existingConversationId: existingConversationId
+        )
+    }
+
+    deinit {
+        Log.info("deinit")
+        inboxAcquisitionTask?.cancel()
+        newConversationTask?.cancel()
+        joinConversationTask?.cancel()
+        resetTask?.cancel()
+        stateObserverHandle?.cancel()
+    }
+
+    // MARK: - Inbox Acquisition
+
+    private func acquireInbox(mode: NewConversationMode) {
+        inboxAcquisitionTask = Task { [weak self] in
+            guard let self else { return }
+
+            switch mode {
+            case .newConversation:
+                let (messagingService, existingConversationId) = await session.addInbox()
+                guard !Task.isCancelled else { return }
+                configureWithMessagingService(
+                    messagingService,
+                    existingConversationId: existingConversationId
+                )
+
+            case .scanner, .joinInvite:
+                let messagingService = await session.addInboxOnly()
+                guard !Task.isCancelled else { return }
+                configureWithMessagingService(messagingService, existingConversationId: nil)
+            }
+
+            if case .joinInvite(let code) = mode {
+                joinConversation(inviteCode: code)
+            }
         }
-        self.conversationStateManager = conversationStateManager
+    }
+
+    private func configureWithMessagingService(
+        _ messagingService: AnyMessagingService,
+        existingConversationId: String?
+    ) {
+        let stateManager: any ConversationStateManagerProtocol
+        if let existingConversationId {
+            stateManager = messagingService.conversationStateManager(for: existingConversationId)
+        } else {
+            stateManager = messagingService.conversationStateManager()
+        }
+        self.conversationStateManager = stateManager
         let draftConversation: Conversation = .empty(
-            id: conversationStateManager.draftConversationRepository.conversationId,
+            id: stateManager.draftConversationRepository.conversationId,
             clientId: messagingService.clientId
         )
-        self.conversationViewModel = .init(
+        let convoVM = ConversationViewModel(
             conversation: draftConversation,
             session: session,
             messagingService: messagingService,
-            conversationStateManager: conversationStateManager
+            conversationStateManager: stateManager
         )
+        if startedWithFullscreenScanner {
+            convoVM.showsInfoView = false
+        }
+        self.conversationViewModel = convoVM
         setupObservations()
         setupStateObservation()
-        if showingFullScreenScanner {
-            self.conversationViewModel.showsInfoView = false
-        }
+
         if autoCreateConversation && existingConversationId == nil {
-            newConversationTask = Task { [weak self, conversationStateManager] in
+            newConversationTask = Task { [weak self, stateManager] in
                 guard self != nil else { return }
                 guard !Task.isCancelled else { return }
                 do {
-                    try await conversationStateManager.createConversation()
+                    try await stateManager.createConversation()
                 } catch {
                     Log.error("Error auto-creating conversation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -160,15 +220,6 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
-    deinit {
-        Log.info("deinit")
-        // Note: AnyCancellable auto-cancels on dealloc, no need to clear manually
-        newConversationTask?.cancel()
-        joinConversationTask?.cancel()
-        resetTask?.cancel()
-        stateObserverHandle?.cancel()
-    }
-
     // MARK: - Actions
 
     func onScanInviteCode() {
@@ -177,6 +228,12 @@ class NewConversationViewModel: Identifiable {
 
     func joinConversation(inviteCode: String) {
         cachedInviteCode = inviteCode
+
+        guard let conversationStateManager else {
+            pendingInviteCode = inviteCode
+            return
+        }
+
         joinConversationTask?.cancel()
         joinConversationTask = Task { [weak self, conversationStateManager] in
             guard self != nil else { return }
@@ -202,6 +259,7 @@ class NewConversationViewModel: Identifiable {
         Log.info("Deleting conversation")
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
+        guard let conversationViewModel else { return }
         let clientId = conversationViewModel.conversation.clientId
         let inboxId = conversationViewModel.conversation.inboxId
         Task { [session] in
@@ -221,7 +279,7 @@ class NewConversationViewModel: Identifiable {
         displayError = nil
         currentError = nil
         isCreatingConversation = false
-        conversationViewModel.isWaitingForInviteAcceptance = false
+        conversationViewModel?.isWaitingForInviteAcceptance = false
         deleteConversation()
         dismissAction?()
     }
@@ -230,6 +288,7 @@ class NewConversationViewModel: Identifiable {
         displayError = nil
         switch action {
         case .createConversation:
+            guard let conversationStateManager else { return }
             newConversationTask?.cancel()
             newConversationTask = Task { [weak self, conversationStateManager] in
                 guard self != nil else { return }
@@ -282,20 +341,22 @@ class NewConversationViewModel: Identifiable {
         messagesTopBarTrailingItem = .share
         messagesTopBarTrailingItemEnabled = false
         messagesTextFieldEnabled = false
-        conversationViewModel.isWaitingForInviteAcceptance = false
+        conversationViewModel?.isWaitingForInviteAcceptance = false
         isCreatingConversation = false
         currentError = nil
         qrScannerViewModel.resetScanning()
 
         if startedWithFullscreenScanner {
-            conversationViewModel.showsInfoView = false
+            conversationViewModel?.showsInfoView = false
         } else {
-            conversationViewModel.showsInfoView = true
+            conversationViewModel?.showsInfoView = true
         }
     }
 
     @MainActor
     private func setupStateObservation() {
+        guard let conversationStateManager else { return }
+        stateObserverHandle?.cancel()
         stateObserverHandle = conversationStateManager.observeState { [weak self] state in
             self?.handleStateChange(state)
         }
@@ -311,46 +372,47 @@ class NewConversationViewModel: Identifiable {
 
         case .creating:
             isCreatingConversation = true
-            conversationViewModel.isWaitingForInviteAcceptance = false
+            conversationViewModel?.isWaitingForInviteAcceptance = false
             currentError = nil
 
         case .validating(let inviteCode):
             cachedInviteCode = inviteCode
-            conversationViewModel.isWaitingForInviteAcceptance = false
+            conversationViewModel?.isWaitingForInviteAcceptance = false
             isCreatingConversation = false
             currentError = nil
 
         case .validated(let invite, _, _, _):
             cachedInviteCode = try? invite.toURLSafeSlug()
-            conversationViewModel.isWaitingForInviteAcceptance = false
+            conversationViewModel?.isWaitingForInviteAcceptance = false
             isCreatingConversation = false
             currentError = nil
             showingFullScreenScanner = false
 
         case .joining(let invite, _):
             cachedInviteCode = try? invite.toURLSafeSlug()
-            // This is the waiting state - user is waiting for inviter to accept
-            conversationViewModel.isWaitingForInviteAcceptance = true
-            conversationViewModel.showsInfoView = true
+            conversationViewModel?.isWaitingForInviteAcceptance = true
+            conversationViewModel?.showsInfoView = true
             messagesTopBarTrailingItemEnabled = false
             messagesTopBarTrailingItem = .share
             messagesTextFieldEnabled = false
             isCreatingConversation = false
             currentError = nil
 
-            conversationViewModel.startOnboarding()
+            conversationViewModel?.startOnboarding()
             Log.info("Waiting for invite acceptance...")
 
         case .ready(let result):
-            conversationViewModel.startOnboarding()
-
-            if result.origin == .joined {
-                conversationViewModel.inviteWasAccepted()
-            } else {
-                conversationViewModel.isWaitingForInviteAcceptance = false
+            if result.origin != .existing {
+                conversationViewModel?.startOnboarding()
             }
 
-            conversationViewModel.showsInfoView = true
+            if result.origin == .joined {
+                conversationViewModel?.inviteWasAccepted()
+            } else {
+                conversationViewModel?.isWaitingForInviteAcceptance = false
+            }
+
+            conversationViewModel?.showsInfoView = true
             messagesTopBarTrailingItemEnabled = true
             messagesTextFieldEnabled = true
             isCreatingConversation = false
@@ -362,7 +424,7 @@ class NewConversationViewModel: Identifiable {
             Log.info("Conversation ready!")
 
         case .deleting:
-            conversationViewModel.isWaitingForInviteAcceptance = false
+            conversationViewModel?.isWaitingForInviteAcceptance = false
             isCreatingConversation = false
             currentError = nil
 
@@ -422,11 +484,11 @@ class NewConversationViewModel: Identifiable {
     @MainActor
     private func cleanUpUIForError() {
         qrScannerViewModel.resetScanning()
-        conversationViewModel.isWaitingForInviteAcceptance = false
+        conversationViewModel?.isWaitingForInviteAcceptance = false
         isCreatingConversation = false
 
         if startedWithFullscreenScanner {
-            conversationViewModel.showsInfoView = false
+            conversationViewModel?.showsInfoView = false
         }
     }
 
@@ -477,6 +539,8 @@ class NewConversationViewModel: Identifiable {
     private func setupObservations() {
         cancellables.removeAll()
 
+        guard let conversationStateManager else { return }
+
         conversationStateManager.conversationIdPublisher
             .receive(on: DispatchQueue.main)
             .sink { conversationId in
@@ -504,5 +568,12 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItem = .share
         }
         .store(in: &cancellables)
+    }
+}
+
+private extension NewConversationMode {
+    var isNewConversation: Bool {
+        if case .newConversation = self { return true }
+        return false
     }
 }

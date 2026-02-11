@@ -190,8 +190,6 @@ final class ConversationsViewModel {
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
     private var leftConversationObserver: Any?
-    @ObservationIgnored
-    private var newConversationViewModelTask: Task<Void, Never>?
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -237,7 +235,6 @@ final class ConversationsViewModel {
     }
 
     deinit {
-        newConversationViewModelTask?.cancel()
         updateSelectionTask?.cancel()
     }
 
@@ -253,46 +250,24 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                autoCreateConversation: true
-            )
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation
+        )
     }
 
     func onJoinConvo() {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                showingFullScreenScanner: true
-            )
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .scanner
+        )
     }
 
     private func join(from inviteCode: String) {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                inboxOnly: true
-            )
-            viewModel.joinConversation(inviteCode: inviteCode)
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: inviteCode)
+        )
     }
 
     func deleteAllData() {

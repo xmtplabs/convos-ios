@@ -30,8 +30,7 @@ struct NewConversationView: View {
                                 viewModel.joinConversation(inviteCode: inviteCode)
                             }
                         )
-                    } else {
-                        let conversationViewModel = viewModel.conversationViewModel
+                    } else if let conversationViewModel = viewModel.conversationViewModel {
                         ConversationView(
                             viewModel: conversationViewModel,
                             quicknameViewModel: quicknameViewModel,
@@ -46,22 +45,31 @@ struct NewConversationView: View {
                         }
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
-                                Button(role: .close) {
-                                    if viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance {
+                                let closeAction = {
+                                    if conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance {
                                         presentingJoiningStateInfo = true
                                     } else {
                                         dismiss()
                                     }
                                 }
-                                .confirmationDialog("This convo will appear on your home screen after someone approves you",
-                                                    isPresented: $presentingJoiningStateInfo,
-                                                    titleVisibility: .visible) {
-                                    Button("Continue") {
-                                        dismiss()
+                                Button(role: .close, action: closeAction) {}
+                                    .confirmationDialog("This convo will appear on your home screen after someone approves you",
+                                                        isPresented: $presentingJoiningStateInfo,
+                                                        titleVisibility: .visible) {
+                                        Button("Continue") {
+                                            dismiss()
+                                        }
                                     }
-                                }
                             }
                         }
+                    } else {
+                        Color.clear
+                            .toolbar {
+                                ToolbarItem(placement: .topBarLeading) {
+                                    let closeAction = { dismiss() }
+                                    Button(role: .close, action: closeAction) {}
+                                }
+                            }
                     }
                 }
                 .background(.colorBackgroundSurfaceless)

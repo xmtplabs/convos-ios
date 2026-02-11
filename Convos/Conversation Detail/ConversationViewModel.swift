@@ -177,9 +177,6 @@ class ConversationViewModel {
     }
 
     @ObservationIgnored
-    private var joinFromInviteTask: Task<Void, Never>?
-
-    @ObservationIgnored
     private var loadConversationImageTask: Task<Void, Never>?
 
     // MARK: - Init
@@ -552,19 +549,10 @@ class ConversationViewModel {
     }
 
     func onTapInvite(_ invite: MessageInvite) {
-        joinFromInviteTask?.cancel()
-        joinFromInviteTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                inboxOnly: true
-            )
-            guard !Task.isCancelled else { return }
-            viewModel.joinConversation(inviteCode: invite.inviteSlug)
-            await MainActor.run {
-                self.presentingNewConversationForInvite = viewModel
-            }
-        }
+        presentingNewConversationForInvite = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: invite.inviteSlug)
+        )
     }
 
     func onDisplayNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
