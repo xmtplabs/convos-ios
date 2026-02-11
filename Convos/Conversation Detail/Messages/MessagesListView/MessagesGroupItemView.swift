@@ -215,7 +215,7 @@ struct MessagesGroupItemView: View {
                 }
             )
             .clipShape(RoundedRectangle(cornerRadius: 20.0))
-            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
             .id(message.base.id)
         } else {
             AttachmentPlaceholder(
