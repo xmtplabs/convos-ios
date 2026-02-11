@@ -161,7 +161,7 @@ public extension ConversationUpdate {
         } else if !addedMembers.isEmpty {
             if addedMembers.count == 1, let member = addedMembers.first,
                member.isCurrentUser {
-                let asString = member.profile.name != nil ? "as \(member.profile.displayName)" : "anonymously as \(member.profile.displayName)"
+                let asString = "as \(member.profile.displayName)"
                 return "You joined \(asString)"
             }
             return "\(addedMembers.formattedNamesString) joined by invitation"
