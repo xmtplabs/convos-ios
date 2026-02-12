@@ -531,6 +531,11 @@ final class ConversationsViewModel {
                     Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
                 }
 
+                NotificationCenter.default.post(
+                    name: .conversationExpired,
+                    object: nil,
+                    userInfo: ["conversationId": conversationId]
+                )
                 conversation.postLeftConversationNotification()
                 Log.info("Exploded conversation from list: \(conversationId)")
             } catch {

@@ -761,6 +761,11 @@ extension ConversationViewModel {
                     Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
                 }
 
+                NotificationCenter.default.post(
+                    name: .conversationExpired,
+                    object: nil,
+                    userInfo: ["conversationId": self.conversation.id]
+                )
                 self.presentingConversationSettings = false
                 self.conversation.postLeftConversationNotification()
                 Log.info("Explode complete, inbox deletion triggered")
