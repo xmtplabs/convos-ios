@@ -7,6 +7,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
     var coordinator: ConversationOnboardingCoordinator!
     var mockNotificationCenter: MockNotificationCenter!
     let testConversationId = "test-conversation-id"
+    let testAutodismissDuration: CGFloat = 0.05
 
     func cleanUpUserDefaults(target userDefaults: UserDefaults = .standard) {
         // Clean up user defaults after each test
@@ -19,7 +20,10 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
     override func setUp() async throws {
         try await super.setUp()
         mockNotificationCenter = MockNotificationCenter()
-        coordinator = ConversationOnboardingCoordinator(notificationCenter: mockNotificationCenter)
+        coordinator = ConversationOnboardingCoordinator(
+            notificationCenter: mockNotificationCenter,
+            autodismissDurationOverride: testAutodismissDuration
+        )
 
         // Clear user defaults before each test
         cleanUpUserDefaults()
@@ -321,7 +325,6 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
         await waitForState(.setupQuickname)
     }
 
-
     private func waitForState(
         _ expected: ConversationOnboardingState,
         timeout: TimeInterval = 0.3,
@@ -345,7 +348,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
     }
 
     private func waitForAutodismiss() async {
-        let duration = TimeInterval(ConversationOnboardingState.unitTestAutodismissDuration)
+        let duration = TimeInterval(testAutodismissDuration)
         let extraMargin = 0.05
         try? await Task.sleep(for: .seconds(duration + extraMargin))
     }

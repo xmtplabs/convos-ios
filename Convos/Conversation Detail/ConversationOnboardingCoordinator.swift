@@ -81,25 +81,11 @@ enum ConversationOnboardingState: Equatable {
     static let addQuicknameViewDuration: CGFloat = 8.0
     static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
-
-	/// Short delay to use, instead of long delays, to make unit test run fast.
-	///
-	/// Using a smaller value than might result in failing
-	/// tests, at least if the tests assert on intermediarey state,
-	/// we might "miss" the state, due to `ConversationOnboardingCoordinator`'s
-	/// `state` not being a stream, only a single value.
-    static let unitTestAutodismissDuration: CGFloat = 0.05
-
-	// how long we wait before showing the description string
+    // how long we wait before showing the description string
     static let waitingForInviteAcceptanceDelay: CGFloat = 3.0
 
     /// Returns the autodismiss duration for this state, or nil if autodismiss is not enabled
     var autodismissDuration: CGFloat? {
-        let isRunningUnitTests = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
-        if isRunningUnitTests {
-            return Self.unitTestAutodismissDuration
-        }
-
         switch self {
         case .addQuickname:
             return Self.addQuicknameViewDuration
@@ -198,13 +184,18 @@ final class ConversationOnboardingCoordinator {
     // MARK: - Dependencies
 
     private let notificationCenter: NotificationCenterProtocol
+    private let autodismissDurationOverride: CGFloat?
     @ObservationIgnored
     private var appLifecycleTask: Task<Void, Never>?
     @ObservationIgnored
     private var autodismissTask: Task<Void, Never>?
 
-    init(notificationCenter: NotificationCenterProtocol = SystemNotificationCenter()) {
+    init(
+        notificationCenter: NotificationCenterProtocol = SystemNotificationCenter(),
+        autodismissDurationOverride: CGFloat? = nil
+    ) {
         self.notificationCenter = notificationCenter
+        self.autodismissDurationOverride = autodismissDurationOverride
         observeAppLifecycle()
     }
 
@@ -235,10 +226,10 @@ final class ConversationOnboardingCoordinator {
     }
 
     private func startAutodismissIfNeeded() {
-        // Get autodismiss duration from state
-        guard let duration = state.autodismissDuration else {
+        guard let stateDuration = state.autodismissDuration else {
             return
         }
+        let duration = autodismissDurationOverride ?? stateDuration
 
         // Capture the current state to verify we're still in it after sleep
         let expectedState = state
