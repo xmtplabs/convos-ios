@@ -374,6 +374,9 @@ private struct AttachmentPlaceholder: View {
     }
 
     private func saveToPhotoLibrary(image: UIImage) {
+        showingSaveSuccess = false
+        showingSaveError = false
+
         PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
             guard status == .authorized || status == .limited else {
                 Task { @MainActor in
@@ -417,7 +420,9 @@ private struct AttachmentPlaceholder: View {
         do {
             let imageData: Data
 
-            if attachment.key.hasPrefix("file://"), let url = URL(string: attachment.key) {
+            if attachment.key.hasPrefix("file://") {
+                let path = String(attachment.key.dropFirst("file://".count))
+                let url = URL(fileURLWithPath: path)
                 imageData = try Data(contentsOf: url)
             } else if attachment.key.hasPrefix("{") {
                 imageData = try await Self.loader.loadImageData(from: attachment.key)

@@ -78,7 +78,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     }
 
     private func attachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
-        guard let w = attachment.width, let h = attachment.height, h > 0 else {
+        guard let w = attachment.width, let h = attachment.height, w > 0, h > 0 else {
             return width * 0.75
         }
         return width * CGFloat(h) / CGFloat(w)

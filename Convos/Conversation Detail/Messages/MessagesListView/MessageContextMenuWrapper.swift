@@ -187,15 +187,16 @@ private struct SwipeGestureOverlay: UIViewRepresentable {
         private static let swipeThreshold: CGFloat = 60.0
 
         @objc func handlePan(_ pan: UIPanGestureRecognizer) {
-            guard !isDisabled else { return }
             let threshold = Self.swipeThreshold
 
             switch pan.state {
             case .began:
+                guard !isDisabled else { return }
                 cachedScrollView = findScrollView()
                 cachedScrollView?.panGestureRecognizer.isEnabled = false
 
             case .changed:
+                guard !isDisabled else { return }
                 let translation = pan.translation(in: pan.view)
                 let horizontal = max(translation.x, 0)
                 let damped = horizontal > threshold

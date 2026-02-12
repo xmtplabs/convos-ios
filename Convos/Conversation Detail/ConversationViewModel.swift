@@ -391,9 +391,8 @@ class ConversationViewModel {
         Task { @MainActor [weak self] in
             guard let self else { return }
             do {
-                if let prefs = try await photoPreferencesRepository.preferences(for: conversation.id) {
-                    self.autoRevealPhotos = prefs.autoReveal
-                }
+                let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
+                self.autoRevealPhotos = prefs?.autoReveal ?? false
             } catch {
                 Log.error("Error loading photo preferences: \(error)")
             }
