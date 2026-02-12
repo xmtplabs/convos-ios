@@ -253,6 +253,28 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await lifecycleManager.getOrWake(clientId: clientId, inboxId: inboxId)
     }
 
+    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
+        if let tracked = lifecycleManager.getAwakeService(clientId: clientId) {
+            return tracked
+        }
+        let service = MessagingService.authorizedMessagingService(
+            for: inboxId,
+            clientId: clientId,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment,
+            identityStore: identityStore,
+            startsStreamingServices: true,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
+        )
+        Task { [lifecycleManager] in
+            await lifecycleManager.registerExternalService(service, clientId: clientId)
+        }
+        return service
+    }
+
     // MARK: - Factory methods for repositories
 
     public func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol {

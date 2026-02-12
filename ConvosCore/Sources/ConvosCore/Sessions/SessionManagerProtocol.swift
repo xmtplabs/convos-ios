@@ -21,6 +21,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Messaging Services
 
     func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService
+    func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService
 
     // MARK: Factory methods for repositories
 

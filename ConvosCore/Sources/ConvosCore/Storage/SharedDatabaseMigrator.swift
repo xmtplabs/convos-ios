@@ -230,6 +230,44 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addPerformanceIndexes") { db in
+            try db.create(
+                index: "message_on_conversationId_dateNs",
+                on: "message",
+                columns: ["conversationId", "dateNs"]
+            )
+
+            try db.create(
+                index: "message_on_sourceMessageId_messageType",
+                on: "message",
+                columns: ["sourceMessageId", "messageType"]
+            )
+
+            try db.create(
+                index: "message_on_conversationId_contentType_dateNs",
+                on: "message",
+                columns: ["conversationId", "contentType", "dateNs"]
+            )
+
+            try db.create(
+                index: "message_on_sourceMessageId_senderId_emoji_messageType",
+                on: "message",
+                columns: ["sourceMessageId", "senderId", "emoji", "messageType"]
+            )
+
+            try db.create(
+                index: "conversation_members_on_inboxId_conversationId",
+                on: "conversation_members",
+                columns: ["inboxId", "conversationId"]
+            )
+
+            try db.create(
+                index: "memberProfile_on_conversationId_inboxId",
+                on: "memberProfile",
+                columns: ["conversationId", "inboxId"]
+            )
+        }
+
         return migrator
     }
 }

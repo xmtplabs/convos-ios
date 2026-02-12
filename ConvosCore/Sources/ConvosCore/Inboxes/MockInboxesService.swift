@@ -59,6 +59,10 @@ public final class MockInboxesService: SessionManagerProtocol {
         mockMessagingService
     }
 
+    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
+        mockMessagingService
+    }
+
     // MARK: - Factory methods for repositories
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {

@@ -96,7 +96,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
         set { stateQueue.sync(flags: .barrier) { self._isLoadingPrevious = newValue } }
     }
 
-    init(dbReader: any DatabaseReader, conversationId: String, pageSize: Int = 150) {
+    init(dbReader: any DatabaseReader, conversationId: String, pageSize: Int = 50) {
         self.dbReader = dbReader
         self.conversationIdSubject = .init(conversationId)
         self.pageSize = pageSize
@@ -111,20 +111,20 @@ class MessagesRepository: MessagesRepositoryProtocol {
         self.conversationIdSubject = .init(conversationId)
         self.pageSize = pageSize
         self.currentLimitSubject = .init(pageSize)
-        conversationIdCancellable = conversationIdPublisher.sink { [weak self] conversationId in
-            guard let self else { return }
-            Log.info("Sending updated conversation id: \(conversationId), resetting pagination")
+        conversationIdCancellable = conversationIdPublisher
+            .dropFirst()
+            .sink { [weak self] conversationId in
+                guard let self else { return }
+                Log.info("Sending updated conversation id: \(conversationId), resetting pagination")
 
-            // Emit the new conversationId first
-            self.conversationIdSubject.send(conversationId)
+                self.conversationIdSubject.send(conversationId)
 
-            // Now perform the initial read, which will reset state properly
-            do {
-                _ = try self.fetchInitial()
-            } catch {
-                Log.error("Failed fetching initial messages after conversation change: \(error.localizedDescription)")
+                do {
+                    _ = try self.fetchInitial()
+                } catch {
+                    Log.error("Failed fetching initial messages after conversation change: \(error.localizedDescription)")
+                }
             }
-        }
     }
 
     deinit {
@@ -142,8 +142,8 @@ class MessagesRepository: MessagesRepositoryProtocol {
         // Reset to initial page size synchronously
         currentLimit = pageSize
 
-        return try dbReader.read { [weak self] db in
-            guard let self else { return [] }
+        let result = try dbReader.read { [weak self] db in
+            guard let self else { return [AnyMessage]() }
 
             // Get current state safely (should be empty after reset)
             let currentSeenIds = self.stateQueue.sync { self._seenMessageIds }
@@ -169,6 +169,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
 
             return messages
         }
+        return result
     }
 
     func fetchPrevious() throws {
@@ -208,6 +209,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
 
             let totalCount = try DBMessage
                 .filter(DBMessage.Columns.conversationId == capturedConversationId)
+                .filter(DBMessage.Columns.messageType != DBMessageType.reaction.rawValue)
                 .fetchCount(db)
 
             self.stateQueue.sync(flags: .barrier) {
@@ -286,20 +288,26 @@ class MessagesRepository: MessagesRepositoryProtocol {
     }()
 }
 
-extension Array where Element == MessageWithDetails {
-    func composeMessages(from database: Database,
-                         in conversation: Conversation,
+extension Array where Element == DBMessage {
+    func composeMessages(in conversation: Conversation,
+                         memberProfileCache: MemberProfileCache,
+                         reactionsBySourceId: [String: [DBMessage]],
+                         sourceMessagesById: [String: DBMessage],
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
-                         isPaginating: Bool = false) throws -> ([AnyMessage], Set<String>) {
+                         isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
         var updatedSeenIds = seenMessageIds
 
-        let messages = try compactMap { dbMessageWithDetails -> AnyMessage? in
-            let dbMessage = dbMessageWithDetails.message
-            let dbSender = dbMessageWithDetails.messageSender
-            let sender = dbSender.hydrateConversationMember(currentInboxId: conversation.inboxId)
+        let messages = compactMap { dbMessage -> AnyMessage? in
+            guard let sender = memberProfileCache.member(for: dbMessage.senderId) else {
+                Log.warning("Message dropped: missing sender profile for inboxId \(dbMessage.senderId)")
+                return nil
+            }
             let source: MessageSource = sender.isCurrentUser ? .outgoing : .incoming
-            let reactions = try dbMessageWithDetails.messageReactions.hydrateReactions(from: database, in: conversation)
+            let reactions = (reactionsBySourceId[dbMessage.id] ?? []).hydrateReactions(
+                cache: memberProfileCache,
+                conversation: conversation
+            )
             let origin = Self.resolveOrigin(
                 for: dbMessage.clientMessageId,
                 seenMessageIds: seenMessageIds,
@@ -310,18 +318,19 @@ extension Array where Element == MessageWithDetails {
 
             switch dbMessage.messageType {
             case .original:
-                return try Self.composeOriginalMessage(
-                    dbMessage: dbMessage, from: database, in: conversation,
+                return Self.composeOriginalMessage(
+                    dbMessage: dbMessage, in: conversation,
+                    memberProfileCache: memberProfileCache,
                     sender: sender, source: source, reactions: reactions, origin: origin
                 )
             case .reply:
-                return try Self.composeReplyMessage(
-                    dbMessageWithDetails: dbMessageWithDetails, dbMessage: dbMessage,
-                    from: database, in: conversation,
+                let sourceMessage = dbMessage.sourceMessageId.flatMap { sourceMessagesById[$0] }
+                return Self.composeReplyMessage(
+                    sourceMessage: sourceMessage, dbMessage: dbMessage,
+                    in: conversation, memberProfileCache: memberProfileCache,
                     sender: sender, source: source, reactions: reactions, origin: origin
                 )
             case .reaction:
-                guard case .emoji = dbMessage.contentType else { return nil }
                 return nil
             }
         }
@@ -329,18 +338,16 @@ extension Array where Element == MessageWithDetails {
         return (messages, updatedSeenIds)
     }
 
-    // MARK: - Compose Helpers
-
     // swiftlint:disable:next function_parameter_count
     private static func composeOriginalMessage(
         dbMessage: DBMessage,
-        from database: Database,
         in conversation: Conversation,
+        memberProfileCache: MemberProfileCache,
         sender: ConversationMember,
         source: MessageSource,
         reactions: [MessageReaction],
         origin: AnyMessage.Origin
-    ) throws -> AnyMessage? {
+    ) -> AnyMessage? {
         let messageContent: MessageContent
         switch dbMessage.contentType {
         case .text:
@@ -357,23 +364,24 @@ extension Array where Element == MessageWithDetails {
             messageContent = .emoji(dbMessage.emoji ?? "")
         case .update:
             guard let update = dbMessage.update,
-                  let initiatedByMember = try DBConversationMemberProfileWithRole.fetchOne(
-                    database, conversationId: conversation.id, inboxId: update.initiatedByInboxId
-                  ) else {
+                  let initiatedByMember = memberProfileCache.member(for: update.initiatedByInboxId) else {
                 Log.error("Update message type is missing update object")
                 return nil
             }
-            let addedMembers = try DBConversationMemberProfileWithRole.fetchAll(
-                database, conversationId: conversation.id, inboxIds: update.addedInboxIds
-            )
-            let removedMembers = try DBConversationMemberProfileWithRole.fetchAll(
-                database, conversationId: conversation.id, inboxIds: update.removedInboxIds
-            )
+            let addedMembers = update.addedInboxIds.compactMap { memberProfileCache.member(for: $0) }
+            let removedMembers = update.removedInboxIds.map { inboxId in
+                memberProfileCache.member(for: inboxId)
+                    ?? ConversationMember(
+                        profile: .empty(inboxId: inboxId),
+                        role: .member,
+                        isCurrentUser: inboxId == conversation.inboxId
+                    )
+            }
             messageContent = .update(
                 .init(
-                    creator: initiatedByMember.hydrateConversationMember(currentInboxId: conversation.inboxId),
-                    addedMembers: addedMembers.map { $0.hydrateConversationMember(currentInboxId: conversation.inboxId) },
-                    removedMembers: removedMembers.map { $0.hydrateConversationMember(currentInboxId: conversation.inboxId) },
+                    creator: initiatedByMember,
+                    addedMembers: addedMembers,
+                    removedMembers: removedMembers,
                     metadataChanges: update.metadataChanges
                         .map {
                             .init(
@@ -396,15 +404,15 @@ extension Array where Element == MessageWithDetails {
 
     // swiftlint:disable:next function_parameter_count
     private static func composeReplyMessage(
-        dbMessageWithDetails: MessageWithDetails,
+        sourceMessage: DBMessage?,
         dbMessage: DBMessage,
-        from database: Database,
         in conversation: Conversation,
+        memberProfileCache: MemberProfileCache,
         sender: ConversationMember,
         source: MessageSource,
         reactions: [MessageReaction],
         origin: AnyMessage.Origin
-    ) throws -> AnyMessage? {
+    ) -> AnyMessage? {
         let replyContent: MessageContent
         switch dbMessage.contentType {
         case .text:
@@ -415,10 +423,8 @@ extension Array where Element == MessageWithDetails {
             return nil
         }
 
-        guard let sourceDBMessage = dbMessageWithDetails.sourceMessage,
-              let sourceSenderProfile = try DBConversationMemberProfileWithRole.fetchOne(
-                  database, conversationId: conversation.id, inboxId: sourceDBMessage.senderId
-              ) else {
+        guard let sourceDBMessage = sourceMessage,
+              let parentSender = memberProfileCache.member(for: sourceDBMessage.senderId) else {
             let message = Message(
                 id: dbMessage.clientMessageId, conversation: conversation,
                 sender: sender, source: source, status: dbMessage.status,
@@ -427,7 +433,6 @@ extension Array where Element == MessageWithDetails {
             return .message(message, origin)
         }
 
-        let parentSender = sourceSenderProfile.hydrateConversationMember(currentInboxId: conversation.inboxId)
         let parentSource: MessageSource = parentSender.isCurrentUser ? .outgoing : .incoming
         let parentContent: MessageContent
         switch sourceDBMessage.contentType {
@@ -474,18 +479,35 @@ extension Array where Element == MessageWithDetails {
     }
 }
 
+// MARK: - MemberProfileCache
+
+struct MemberProfileCache {
+    private let profilesByInboxId: [String: ConversationMember]
+
+    init(profiles: [DBConversationMemberProfileWithRole], currentInboxId: String) {
+        var map: [String: ConversationMember] = [:]
+        map.reserveCapacity(profiles.count)
+        for profile in profiles {
+            map[profile.memberProfile.inboxId] = profile.hydrateConversationMember(currentInboxId: currentInboxId)
+        }
+        self.profilesByInboxId = map
+    }
+
+    func member(for inboxId: String) -> ConversationMember? {
+        profilesByInboxId[inboxId]
+    }
+}
+
 private extension Array where Element == DBMessage {
-    func hydrateReactions(from database: Database, in conversation: Conversation) throws -> [MessageReaction] {
-        try compactMap { dbReaction -> MessageReaction? in
-            guard let reactionSenderProfile = try DBConversationMemberProfileWithRole.fetchOne(
-                database,
-                conversationId: conversation.id,
-                inboxId: dbReaction.senderId
-            ) else {
+    func hydrateReactions(
+        cache: MemberProfileCache,
+        conversation: Conversation
+    ) -> [MessageReaction] {
+        compactMap { dbReaction -> MessageReaction? in
+            guard let reactionSender = cache.member(for: dbReaction.senderId) else {
                 Log.warning("Reaction dropped: missing sender profile for inboxId \(dbReaction.senderId)")
                 return nil
             }
-            let reactionSender = reactionSenderProfile.hydrateConversationMember(currentInboxId: conversation.inboxId)
             let reactionSource: MessageSource = reactionSender.isCurrentUser ? .outgoing : .incoming
             return MessageReaction(
                 id: dbReaction.clientMessageId,
@@ -501,6 +523,108 @@ private extension Array where Element == DBMessage {
     }
 }
 
+// MARK: - Lightweight Conversation Query for Message Composition
+
+fileprivate extension Database {
+    func fetchLightweightConversation(for conversationId: String) throws -> Conversation? {
+        try DBConversation
+            .filter(DBConversation.Columns.id == conversationId)
+            .including(
+                optional: DBConversation.creator
+                    .forKey("conversationCreator")
+                    .select([DBConversationMember.Columns.role])
+                    .including(optional: DBConversationMember.memberProfile)
+            )
+            .including(required: DBConversation.localState)
+            .including(
+                all: DBConversation._members
+                    .forKey("conversationMembers")
+                    .select([DBConversationMember.Columns.role])
+                    .including(required: DBConversationMember.memberProfile)
+            )
+            .asRequest(of: LightweightConversationDetails.self)
+            .fetchOne(self)?
+            .hydrateConversation()
+    }
+}
+
+private struct LightweightCreatorDetails: Codable, FetchableRecord, Hashable {
+    let memberProfile: DBMemberProfile?
+    let role: MemberRole
+}
+
+private struct LightweightConversationDetails: Codable, FetchableRecord, Hashable {
+    let conversation: DBConversation
+    let conversationCreator: LightweightCreatorDetails?
+    let conversationMembers: [DBConversationMemberProfileWithRole]
+    let conversationLocalState: ConversationLocalState
+}
+
+private extension LightweightConversationDetails {
+    func hydrateConversation() -> Conversation {
+        let members = conversationMembers.map {
+            $0.hydrateConversationMember(currentInboxId: conversation.inboxId)
+        }
+        let creator: ConversationMember
+        if let creatorDetails = conversationCreator, let profile = creatorDetails.memberProfile {
+            creator = ConversationMember(
+                profile: profile.hydrateProfile(),
+                role: creatorDetails.role,
+                isCurrentUser: profile.inboxId == conversation.inboxId
+            )
+        } else {
+            creator = ConversationMember(
+                profile: .empty(inboxId: conversation.creatorId),
+                role: .superAdmin,
+                isCurrentUser: conversation.creatorId == conversation.inboxId
+            )
+        }
+        let otherMember: ConversationMember?
+        if conversation.kind == .dm,
+           let other = members.first(where: { !$0.isCurrentUser }) {
+            otherMember = other
+        } else {
+            otherMember = nil
+        }
+        let imageURL: URL?
+        if let imageURLString = conversation.imageURLString {
+            imageURL = URL(string: imageURLString)
+        } else {
+            imageURL = nil
+        }
+        return Conversation(
+            id: conversation.id,
+            clientConversationId: conversation.clientConversationId,
+            inboxId: conversation.inboxId,
+            clientId: conversation.clientId,
+            creator: creator,
+            createdAt: conversation.createdAt,
+            consent: conversation.consent,
+            kind: conversation.kind,
+            name: conversation.name,
+            description: conversation.description,
+            members: members,
+            otherMember: otherMember,
+            messages: [],
+            isPinned: conversationLocalState.isPinned,
+            isUnread: conversationLocalState.isUnread,
+            isMuted: conversationLocalState.isMuted,
+            pinnedOrder: conversationLocalState.pinnedOrder,
+            lastMessage: nil,
+            imageURL: imageURL,
+            imageSalt: conversation.imageSalt,
+            imageNonce: conversation.imageNonce,
+            imageEncryptionKey: conversation.imageEncryptionKey,
+            includeInfoInPublicPreview: conversation.includeInfoInPublicPreview,
+            isDraft: conversation.isDraft,
+            invite: nil,
+            expiresAt: conversation.expiresAt,
+            debugInfo: conversation.debugInfo,
+            isLocked: conversation.isLocked
+        )
+    }
+}
+
 fileprivate extension Database {
     func composeMessages(
         for conversationId: String,
@@ -509,47 +633,68 @@ fileprivate extension Database {
         isInitialLoad: Bool = false,
         isPaginating: Bool = false
     ) throws -> ([AnyMessage], Set<String>) {
-        guard let dbConversationDetails = try DBConversation
-            .filter(DBConversation.Columns.id == conversationId)
-            .detailedConversationQuery()
-            .fetchOne(self) else {
+        guard let conversation = try fetchLightweightConversation(for: conversationId) else {
             return ([], .init())
         }
 
-        let conversation = dbConversationDetails.hydrateConversation()
+        let allMemberProfiles = try DBConversationMember
+            .filter(DBConversationMember.Columns.conversationId == conversationId)
+            .select([DBConversationMember.Columns.role])
+            .including(required: DBConversationMember.memberProfile)
+            .asRequest(of: DBConversationMemberProfileWithRole.self)
+            .fetchAll(self)
+        let memberProfileCache = MemberProfileCache(
+            profiles: allMemberProfiles,
+            currentInboxId: conversation.inboxId
+        )
 
-        // Build the query
         var query = DBMessage
             .filter(DBMessage.Columns.conversationId == conversationId)
-            .order(\.dateNs.desc) // Order by DESC to get the latest messages first
+            .filter(DBMessage.Columns.messageType != DBMessageType.reaction.rawValue)
+            .order(\.dateNs.desc)
 
-        // Apply limit if provided (gets the N most recent messages)
-        if let limit = limit {
+        if let limit {
             query = query.limit(limit)
         }
 
-        let dbMessages = try query
-            .including(
-                required: DBMessage.sender
-                    .forKey("messageSender")
-                    .select([DBConversationMember.Columns.role])
-                    .including(required: DBConversationMember.memberProfile)
-            )
-            .including(all: DBMessage.reactions)
-            // .including(all: DBMessage.replies)
-            .including(optional: DBMessage.sourceMessage)
-            .asRequest(of: MessageWithDetails.self)
-            .fetchAll(self)
+        let rawMessages = try query.fetchAll(self)
 
-        // Reverse the messages back to chronological order after fetching
-        // since we fetched them in reverse order to get the latest N messages
-        let chronologicalMessages = dbMessages.reversed()
-        return try Array(chronologicalMessages).composeMessages(
-            from: self,
+        let messageIds = rawMessages.map { $0.id }
+        let replySourceIds = rawMessages.compactMap { $0.messageType == .reply ? $0.sourceMessageId : nil }
+
+        var reactionsBySourceId: [String: [DBMessage]] = [:]
+        if !messageIds.isEmpty {
+            let allReactions = try DBMessage
+                .filter(messageIds.contains(DBMessage.Columns.sourceMessageId))
+                .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
+                .fetchAll(self)
+            for reaction in allReactions {
+                guard let sourceId = reaction.sourceMessageId else { continue }
+                reactionsBySourceId[sourceId, default: []].append(reaction)
+            }
+        }
+
+        var sourceMessagesById: [String: DBMessage] = [:]
+        if !replySourceIds.isEmpty {
+            let uniqueSourceIds = Array(Set(replySourceIds))
+            let sourceMessages = try DBMessage
+                .filter(uniqueSourceIds.contains(DBMessage.Columns.id))
+                .fetchAll(self)
+            for msg in sourceMessages {
+                sourceMessagesById[msg.id] = msg
+            }
+        }
+
+        let chronologicalMessages = rawMessages.reversed()
+        let result = Array(chronologicalMessages).composeMessages(
             in: conversation,
+            memberProfileCache: memberProfileCache,
+            reactionsBySourceId: reactionsBySourceId,
+            sourceMessagesById: sourceMessagesById,
             seenMessageIds: seenMessageIds,
             isInitialLoad: isInitialLoad,
             isPaginating: isPaginating
         )
+        return result
     }
 }

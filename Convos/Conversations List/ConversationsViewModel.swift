@@ -53,25 +53,14 @@ final class ConversationsViewModel {
         let previousViewModelId = selectedConversationViewModel?.conversation.id
 
         if let conversation = conversation {
-            // Update view model if needed
             if selectedConversationViewModel?.conversation.id != conversation.id {
-                // Cancel any pending update task
                 updateSelectionTask?.cancel()
-                updateSelectionTask = Task { [weak self] in
-                    guard let self else { return }
-                    do {
-                        let viewModel = try await ConversationViewModel.create(
-                            conversation: conversation,
-                            session: session
-                        )
-                        guard !Task.isCancelled else { return }
-                        guard self._selectedConversationId == conversation.id else { return }
-                        self.selectedConversationViewModel = viewModel
-                        self.markConversationAsRead(conversation)
-                    } catch {
-                        Log.error("Failed to create conversation view model: \(error)")
-                    }
-                }
+                let viewModel = ConversationViewModel.createSync(
+                    conversation: conversation,
+                    session: session
+                )
+                selectedConversationViewModel = viewModel
+                markConversationAsRead(conversation)
             }
         } else {
             updateSelectionTask?.cancel()
@@ -190,8 +179,6 @@ final class ConversationsViewModel {
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
     private var leftConversationObserver: Any?
-    @ObservationIgnored
-    private var newConversationViewModelTask: Task<Void, Never>?
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -237,7 +224,6 @@ final class ConversationsViewModel {
     }
 
     deinit {
-        newConversationViewModelTask?.cancel()
         updateSelectionTask?.cancel()
     }
 
@@ -253,46 +239,24 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                autoCreateConversation: true
-            )
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation
+        )
     }
 
     func onJoinConvo() {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                showingFullScreenScanner: true
-            )
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .scanner
+        )
     }
 
     private func join(from inviteCode: String) {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                inboxOnly: true
-            )
-            viewModel.joinConversation(inviteCode: inviteCode)
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: inviteCode)
+        )
     }
 
     func deleteAllData() {
@@ -333,7 +297,7 @@ final class ConversationsViewModel {
                         selectedConversationId = nil
                         selectedConversationViewModel = nil
                     }
-                    if newConversationViewModel?.conversationViewModel.conversation.id == conversationId {
+                    if newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
                         newConversationViewModel = nil
                     }
                 }
@@ -391,7 +355,7 @@ final class ConversationsViewModel {
                 guard let self else { return }
                 if let conversation = self.selectedConversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
-                } else if let conversation = self.newConversationViewModel?.conversationViewModel.conversation {
+                } else if let conversation = self.newConversationViewModel?.conversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
                 }
             }

@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import os
 
 public enum WakeReason: String, Sendable {
     case userInteraction
@@ -59,6 +60,7 @@ public protocol InboxLifecycleManagerProtocol: Actor {
     func getOrCreateService(clientId: String, inboxId: String) -> any MessagingServiceProtocol
 
     func getOrWake(clientId: String, inboxId: String) async throws -> any MessagingServiceProtocol
+    func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async
     func isAwake(clientId: String) -> Bool
     func isSleeping(clientId: String) -> Bool
     func rebalance() async
@@ -66,15 +68,30 @@ public protocol InboxLifecycleManagerProtocol: Actor {
     func stopAll() async
     func prepareUnusedConversationIfNeeded() async
     func clearUnusedConversation() async
+
+    nonisolated func getAwakeService(clientId: String) -> (any MessagingServiceProtocol)?
 }
 
 public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     public let maxAwakeInboxes: Int
 
-    private var awakeInboxes: [String: any MessagingServiceProtocol] = [:]
+    private var awakeInboxes: [String: any MessagingServiceProtocol] = [:] {
+        didSet { syncAwakeServiceCache() }
+    }
     private var _sleepingClientIds: Set<String> = []
     private var _sleepTimes: [String: Date] = [:]
     private var _activeClientId: String?
+
+    private nonisolated let _awakeServiceCache: OSAllocatedUnfairLock<[String: any MessagingServiceProtocol]> = .init(initialState: [:])
+
+    private func syncAwakeServiceCache() {
+        let snapshot = awakeInboxes
+        _awakeServiceCache.withLock { $0 = snapshot }
+    }
+
+    public nonisolated func getAwakeService(clientId: String) -> (any MessagingServiceProtocol)? {
+        _awakeServiceCache.withLock { $0[clientId] }
+    }
 
     private let databaseReader: any DatabaseReader
     private let databaseWriter: any DatabaseWriter
@@ -315,6 +332,27 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             return existing
         }
         return try await wake(clientId: clientId, inboxId: inboxId, reason: .userInteraction)
+    }
+
+    public func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async {
+        guard awakeInboxes[clientId] == nil else {
+            Log.info("Inbox already tracked, skipping external registration: \(clientId)")
+            return
+        }
+        if awakeInboxes.count >= maxAwakeInboxes {
+            let freed = await sleepLeastRecentlyUsed(excluding: [clientId])
+            if !freed {
+                Log.warning("Could not free capacity for external service registration: \(clientId)")
+            }
+        }
+        guard awakeInboxes[clientId] == nil else {
+            Log.info("Inbox registered by another task during eviction, skipping: \(clientId)")
+            return
+        }
+        awakeInboxes[clientId] = service
+        _sleepingClientIds.remove(clientId)
+        _sleepTimes.removeValue(forKey: clientId)
+        Log.info("Registered external service: \(clientId), total awake: \(awakeInboxes.count)")
     }
 
     public func isAwake(clientId: String) -> Bool {

@@ -65,14 +65,16 @@ struct ConversationToolbarButton: View {
     }
 
     var body: some View {
-        if longPressAction != nil {
-            content
-                .contentShape(.rect)
-                .onTapGesture(perform: action)
-                .onLongPressGesture(perform: longPressAction ?? {})
-        } else {
-            Button(action: action) {
+        Group {
+            if longPressAction != nil {
                 content
+                    .contentShape(.rect)
+                    .onTapGesture(perform: action)
+                    .onLongPressGesture(perform: longPressAction ?? {})
+            } else {
+                Button(action: action) {
+                    content
+                }
             }
         }
         .accessibilityElement(children: .combine)

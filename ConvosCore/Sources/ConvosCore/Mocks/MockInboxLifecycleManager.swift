@@ -95,7 +95,17 @@ public actor MockInboxLifecycleManager: InboxLifecycleManagerProtocol {
         _sleepingClientIds.removeAll()
     }
 
+    public func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async {
+        mockServices[clientId] = service
+        _awakeClientIds.insert(clientId)
+        _sleepingClientIds.remove(clientId)
+    }
+
     public func prepareUnusedConversationIfNeeded() async {}
 
     public func clearUnusedConversation() async {}
+
+    public nonisolated func getAwakeService(clientId: String) -> (any MessagingServiceProtocol)? {
+        nil
+    }
 }

@@ -353,7 +353,7 @@ struct ConversationsView: View {
                 quicknameViewModel: quicknameViewModel
             )
             .background(.colorBackgroundSurfaceless)
-            .interactiveDismissDisabled(newConvoViewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance)
+            .interactiveDismissDisabled(newConvoViewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true)
             .navigationTransition(
                 .zoom(
                     sourceID: "composer-transition-source",

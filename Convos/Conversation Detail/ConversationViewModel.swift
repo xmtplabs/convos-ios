@@ -177,9 +177,6 @@ class ConversationViewModel {
     }
 
     @ObservationIgnored
-    private var joinFromInviteTask: Task<Void, Never>?
-
-    @ObservationIgnored
     private var loadConversationImageTask: Task<Void, Never>?
 
     // MARK: - Init
@@ -189,6 +186,21 @@ class ConversationViewModel {
         session: any SessionManagerProtocol
     ) async throws -> ConversationViewModel {
         let messagingService = try await session.messagingService(
+            for: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+        return ConversationViewModel(
+            conversation: conversation,
+            session: session,
+            messagingService: messagingService
+        )
+    }
+
+    static func createSync(
+        conversation: Conversation,
+        session: any SessionManagerProtocol
+    ) -> ConversationViewModel {
+        let messagingService = session.messagingServiceSync(
             for: conversation.clientId,
             inboxId: conversation.inboxId
         )
@@ -229,9 +241,8 @@ class ConversationViewModel {
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
-            self.conversation = try conversationRepository.fetchConversation() ?? conversation
         } catch {
-            Log.error("Error fetching messages or conversation: \(error.localizedDescription)")
+            Log.error("Error fetching messages: \(error.localizedDescription)")
             self.messages = []
         }
 
@@ -280,9 +291,8 @@ class ConversationViewModel {
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
-            self.conversation = try conversationRepository.fetchConversation() ?? conversation
         } catch {
-            Log.error("Error fetching messages or conversation: \(error.localizedDescription)")
+            Log.error("Error fetching messages: \(error.localizedDescription)")
             self.messages = []
         }
 
@@ -297,6 +307,7 @@ class ConversationViewModel {
     // MARK: - Private
 
     private func observe() {
+        messagesListRepository.startObserving()
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -557,19 +568,10 @@ class ConversationViewModel {
     }
 
     func onTapInvite(_ invite: MessageInvite) {
-        joinFromInviteTask?.cancel()
-        joinFromInviteTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                inboxOnly: true
-            )
-            guard !Task.isCancelled else { return }
-            viewModel.joinConversation(inviteCode: invite.inviteSlug)
-            await MainActor.run {
-                self.presentingNewConversationForInvite = viewModel
-            }
-        }
+        presentingNewConversationForInvite = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: invite.inviteSlug)
+        )
     }
 
     func onDisplayNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
