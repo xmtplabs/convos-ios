@@ -505,10 +505,12 @@ struct PhotoSenderLabel: View {
             )
             .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
 
-            Text(profile.displayName)
-                .font(.caption)
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+            if !isOutgoing {
+                Text(profile.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+                    .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+            }
         }
         .padding(DesignConstants.Spacing.step4x)
     }
