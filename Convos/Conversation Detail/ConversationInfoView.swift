@@ -524,7 +524,6 @@ struct ConversationInfoView: View {
     }
 }
 
-
 struct DebugLogsTextView: View {
     @State var logs: String
     var body: some View {

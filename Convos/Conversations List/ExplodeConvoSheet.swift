@@ -232,7 +232,8 @@ struct ExplodeConvoSheet: View {
                 Button(role: .cancel) {}
             }
             ToolbarItem(placement: .confirmationAction) {
-                Button(action: {}) {
+                let doneAction = {}
+                Button(action: doneAction) {
                     Label("Done", systemImage: "checkmark")
                         .labelStyle(.iconOnly)
                 }
