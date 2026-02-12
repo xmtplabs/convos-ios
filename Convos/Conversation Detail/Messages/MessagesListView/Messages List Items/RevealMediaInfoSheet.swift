@@ -44,6 +44,5 @@ struct RevealMediaInfoSheet: View {
     }
     .selfSizingSheet(isPresented: $isPresented) {
         RevealMediaInfoSheet()
-            .background(.colorBackgroundSurfaceless)
     }
 }

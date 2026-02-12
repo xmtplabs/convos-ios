@@ -89,7 +89,6 @@ struct LockedConvoInfoView: View {
             onLock: {},
             onDismiss: {}
         )
-        .background(.colorBackgroundSurfaceless)
     }
 }
 
@@ -109,7 +108,6 @@ struct LockedConvoInfoView: View {
             onLock: {},
             onDismiss: {}
         )
-        .background(.colorBackgroundSurfaceless)
     }
 }
 
@@ -129,6 +127,5 @@ struct LockedConvoInfoView: View {
             onLock: {},
             onDismiss: {}
         )
-        .background(.colorBackgroundSurfaceless)
     }
 }

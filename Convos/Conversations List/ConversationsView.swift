@@ -363,11 +363,9 @@ struct ConversationsView: View {
         }
         .selfSizingSheet(isPresented: $viewModel.presentingExplodeInfo) {
             ExplodeInfoView()
-                .background(.colorBackgroundSurfaceless)
         }
         .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
             PinLimitInfoView()
-                .background(.colorBackgroundSurfaceless)
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
