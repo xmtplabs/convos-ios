@@ -6,9 +6,11 @@ struct MessagesGroupItemView: View {
     let bubbleType: MessageBubbleType
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
+    let onReply: (AnyMessage) -> Void
 
     @State private var isAppearing: Bool = true
+    @State private var hasAnimated: Bool = false
+    @State private var swipeOffset: CGFloat = 0
 
     private var animates: Bool {
         message.origin == .inserted
@@ -16,19 +18,46 @@ struct MessagesGroupItemView: View {
 
     var body: some View {
         VStack(alignment: message.base.sender.isCurrentUser ? .trailing : .leading, spacing: 0.0) {
+            if case .reply(let reply, _) = message {
+                ReplyReferenceView(
+                    replySender: reply.sender,
+                    parentMessage: reply.parentMessage,
+                    isOutgoing: message.base.sender.isCurrentUser,
+                    onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) }
+                )
+            }
             switch message.base.content {
             case .text(let text):
                 MessageBubble(
                     style: message.base.content.isEmoji ? .none : bubbleType,
                     message: text,
                     isOutgoing: message.base.sender.isCurrentUser,
-                    profile: message.base.sender.profile,
+                    profile: message.base.sender.profile
                 )
+                .messageInteractions(
+                    message: message,
+                    bubbleStyle: message.base.content.isEmoji ? .none : bubbleType,
+                    onSwipeOffsetChanged: { swipeOffset = $0 },
+                    onSwipeEnded: { triggered in
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            swipeOffset = 0
+                        }
+                        if triggered { onReply(message) }
+                    }
+                )
+                .offset(x: swipeOffset)
+                .background(alignment: .leading) {
+                    if swipeOffset > 0 {
+                        let progress = min(swipeOffset / 60.0, 1.0)
+                        Image(systemName: "arrowshape.turn.up.left.fill")
+                            .foregroundStyle(.tertiary)
+                            .scaleEffect(0.4 + progress * 0.6)
+                            .opacity(Double(progress))
+                            .accessibilityHidden(true)
+                    }
+                }
                 .zIndex(200)
                 .id("bubble-\(message.base.id)")
-                .onTapGesture(count: 2) {
-                    onDoubleTap(message)
-                }
                 .scaleEffect(isAppearing ? 0.9 : 1.0)
                 .rotationEffect(
                     .radians(
@@ -50,11 +79,29 @@ struct MessagesGroupItemView: View {
                     isOutgoing: message.base.sender.isCurrentUser,
                     profile: message.base.sender.profile
                 )
+                .messageInteractions(
+                    message: message,
+                    bubbleStyle: .none,
+                    onSwipeOffsetChanged: { swipeOffset = $0 },
+                    onSwipeEnded: { triggered in
+                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                            swipeOffset = 0
+                        }
+                        if triggered { onReply(message) }
+                    }
+                )
+                .offset(x: swipeOffset)
+                .background(alignment: .leading) {
+                    if swipeOffset > 0 {
+                        let progress = min(swipeOffset / 60.0, 1.0)
+                        Image(systemName: "arrowshape.turn.up.left.fill")
+                            .foregroundStyle(.tertiary)
+                            .scaleEffect(0.4 + progress * 0.6)
+                            .opacity(Double(progress))
+                    }
+                }
                 .zIndex(200)
                 .id("emoji-bubble-\(message.base.id)")
-                .onTapGesture(count: 2) {
-                    onDoubleTap(message)
-                }
                 .opacity(isAppearing ? 0.0 : 1.0)
                 .blur(radius: isAppearing ? 10.0 : 0.0)
                 .scaleEffect(isAppearing ? 0.0 : 1.0)
@@ -102,16 +149,10 @@ struct MessagesGroupItemView: View {
             case .attachment(let url):
                 AttachmentPlaceholder(url: url, isOutgoing: message.base.sender.isCurrentUser)
                     .id(message.base.id)
-                    .onTapGesture(count: 2) {
-                        onDoubleTap(message)
-                    }
 
             case .attachments(let urls):
                 MultipleAttachmentsPlaceholder(urls: urls, isOutgoing: message.base.sender.isCurrentUser)
                     .id(message.base.id)
-                    .onTapGesture(count: 2) {
-                        onDoubleTap(message)
-                    }
 
             case .update:
                 // Updates are handled at the item level, not here
@@ -126,7 +167,8 @@ struct MessagesGroupItemView: View {
             )
         )
         .onAppear {
-            guard isAppearing else { return }
+            guard isAppearing, !hasAnimated else { return }
+            hasAnimated = true
 
             if animates {
                 withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -164,6 +206,7 @@ private struct AttachmentPlaceholder: View {
                             .foregroundColor(.gray)
                     }
                 )
+                .accessibilityLabel("Attachment")
 
             if !isOutgoing { Spacer() }
         }
@@ -191,6 +234,7 @@ private struct MultipleAttachmentsPlaceholder: View {
                             .foregroundColor(.gray)
                     }
                 )
+                .accessibilityLabel("\(urls.count) attachments")
 
             if !isOutgoing { Spacer() }
         }
@@ -209,7 +253,7 @@ private struct MultipleAttachmentsPlaceholder: View {
         bubbleType: .normal,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onDoubleTap: { _ in }
+        onReply: { _ in }
     )
     .padding()
 }
@@ -224,7 +268,7 @@ private struct MultipleAttachmentsPlaceholder: View {
         bubbleType: .tailed,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onDoubleTap: { _ in }
+        onReply: { _ in }
     )
     .padding()
 }
@@ -239,7 +283,7 @@ private struct MultipleAttachmentsPlaceholder: View {
         bubbleType: .normal,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onDoubleTap: { _ in }
+        onReply: { _ in }
     )
     .padding()
 }
@@ -247,14 +291,46 @@ private struct MultipleAttachmentsPlaceholder: View {
 #Preview("Emoji Message") {
     MessagesGroupItemView(
         message: .message(Message.mock(
-            text: "😊👍🎉",
+            text: "🎉",
             sender: .mock(isCurrentUser: false),
             status: .published
         ), .existing),
         bubbleType: .tailed,
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
-        onDoubleTap: { _ in }
+        onReply: { _ in }
+    )
+    .padding()
+}
+
+#Preview("Reply - Outgoing") {
+    MessagesGroupItemView(
+        message: .reply(MessageReply.mock(
+            text: "I agree with that!",
+            sender: .mock(isCurrentUser: true),
+            parentText: "What do you think about the new design?",
+            parentSender: .mock(isCurrentUser: false, name: "Jane")
+        ), .existing),
+        bubbleType: .tailed,
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in },
+        onReply: { _ in }
+    )
+    .padding()
+}
+
+#Preview("Reply - Incoming") {
+    MessagesGroupItemView(
+        message: .reply(MessageReply.mock(
+            text: "Sounds good to me",
+            sender: .mock(isCurrentUser: false, name: "Alex"),
+            parentText: "Let's meet at 3pm tomorrow",
+            parentSender: .mock(isCurrentUser: true)
+        ), .existing),
+        bubbleType: .tailed,
+        onTapAvatar: { _ in },
+        onTapInvite: { _ in },
+        onReply: { _ in }
     )
     .padding()
 }

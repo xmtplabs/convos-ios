@@ -12,13 +12,14 @@ struct UserTitleView: View {
                 }
                 Text(name)
                     .lineLimit(1)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(Color.gray)
                     .truncationMode(.tail)
                 if source == .incoming {
                     Spacer()
                 }
             }
+            .accessibilityLabel("From \(name)")
         } else {
             EmptyView()
         }

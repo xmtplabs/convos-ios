@@ -3,6 +3,7 @@
 # post-checkout
 #
 # https://git-scm.com/docs/githooks#_post_checkout
+# Also runs after `git worktree add` (with $1 = null-ref, $3 = 1)
 
 git_root="$(git rev-parse --show-toplevel)"
 
@@ -11,6 +12,13 @@ if [ "${3}" == "0" ]; then exit; fi
 
 # if same commit before and after checkout then do nothing
 if [ "${1}" == "${2}" ]; then exit; fi
+
+# Symlink .env from main repo to worktree if it doesn't exist yet
+main_repo="$(git rev-parse --git-common-dir | sed 's|/\.git$||')"
+if [ "$main_repo" != "$git_root" ] && [ -f "$main_repo/.env" ] && [ ! -e "$git_root/.env" ]; then
+    ln -s "$main_repo/.env" "$git_root/.env"
+    echo "🔗 Symlinked .env from main repo to worktree"
+fi
 
 # Git
 cd "${git_root}" && git submodule update --init --recursive

@@ -153,7 +153,8 @@ struct InboxActivityRepositoryTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
-            imageLastRenewed: nil
+            imageLastRenewed: nil,
+            isUnused: false
         )
     }
 

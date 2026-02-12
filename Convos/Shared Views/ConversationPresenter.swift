@@ -17,7 +17,7 @@ struct ConversationPresenter<Content: View>: View {
 
             VStack {
                 if let viewModel = viewModel, viewModel.showsInfoView {
-                    ConversationInfoButtonWrapper(
+                    ConversationIndicatorViewWrapper(
                         viewModel: viewModel,
                         focusState: $focusState,
                         focusCoordinator: focusCoordinator
@@ -64,13 +64,13 @@ struct ConversationPresenter<Content: View>: View {
     }
 }
 
-private struct ConversationInfoButtonWrapper: View {
+private struct ConversationIndicatorViewWrapper: View {
     @Bindable var viewModel: ConversationViewModel
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
 
     var body: some View {
-        ConversationInfoButton(
+        ConversationIndicatorView(
             conversation: viewModel.conversation,
             placeholderName: viewModel.conversationNamePlaceholder,
             untitledConversationPlaceholder: viewModel.untitledConversationPlaceholder,
@@ -83,6 +83,7 @@ private struct ConversationInfoButtonWrapper: View {
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
             explodeState: viewModel.explodeState,
             onConversationInfoTapped: { viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator) },
+            onConversationInfoLongPressed: { viewModel.onConversationInfoLongPress(focusCoordinator: focusCoordinator) },
             onConversationNameEndedEditing: {
                 viewModel.onConversationNameEndedEditing(
                     focusCoordinator: focusCoordinator,

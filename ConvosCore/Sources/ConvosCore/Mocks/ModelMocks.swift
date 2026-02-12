@@ -161,7 +161,7 @@ public extension ConversationUpdate {
         } else if !addedMembers.isEmpty {
             if addedMembers.count == 1, let member = addedMembers.first,
                member.isCurrentUser {
-                let asString = member.profile.name != nil ? "as \(member.profile.displayName)" : "anonymously as \(member.profile.displayName)"
+                let asString = "as \(member.profile.displayName)"
                 return "You joined \(asString)"
             }
             return "\(addedMembers.formattedNamesString) joined by invitation"
@@ -194,6 +194,44 @@ public extension Invite {
             urlSlug: "mock-invite-slug",
             expiresAt: nil,
             expiresAfterUse: false
+        )
+    }
+}
+
+public extension MessageReply {
+    static func mock(
+        text: String = "This is a reply",
+        sender: ConversationMember? = nil,
+        parentText: String = "Original message that was replied to",
+        parentSender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date()
+    ) -> MessageReply {
+        let mockSender = sender ?? .mock(isCurrentUser: true)
+        let mockParentSender = parentSender ?? .mock(isCurrentUser: false, name: "Jane")
+        let conversation = Conversation.mock()
+
+        let parentMessage = Message(
+            id: "parent-\(UUID().uuidString)",
+            conversation: conversation,
+            sender: mockParentSender,
+            source: mockParentSender.isCurrentUser ? .outgoing : .incoming,
+            status: .published,
+            content: .text(parentText),
+            date: date.addingTimeInterval(-60),
+            reactions: []
+        )
+
+        return MessageReply(
+            id: "reply-\(UUID().uuidString)",
+            conversation: conversation,
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: .text(text),
+            date: date,
+            parentMessage: parentMessage,
+            reactions: []
         )
     }
 }

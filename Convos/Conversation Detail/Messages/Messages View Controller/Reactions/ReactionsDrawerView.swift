@@ -58,14 +58,14 @@ private struct ReactionRowView: View {
             VStack(alignment: .leading, spacing: 2) {
                 if reaction.sender.isCurrentUser {
                     Text("You")
-                        .font(.body)
+                        .font(.callout)
                         .foregroundStyle(.colorTextPrimary)
                     Text("Tap to remove")
                         .font(.caption)
                         .foregroundStyle(.colorTextSecondary)
                 } else {
                     Text(reaction.sender.profile.displayName.capitalized)
-                        .font(.body)
+                        .font(.callout)
                         .foregroundStyle(.colorTextPrimary)
                 }
             }
@@ -79,6 +79,14 @@ private struct ReactionRowView: View {
         .onTapGesture {
             onRemove?()
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(reactionRowAccessibilityLabel)
+        .accessibilityHint(onRemove != nil ? "Tap to remove your reaction" : "")
+    }
+
+    private var reactionRowAccessibilityLabel: String {
+        let name = reaction.sender.isCurrentUser ? "You" : reaction.sender.profile.displayName
+        return "\(name) reacted with \(reaction.emoji)"
     }
 }
 

@@ -31,6 +31,7 @@ struct AvatarView: View {
         .aspectRatio(1.0, contentMode: .fit)
         .clipShape(Circle())
         .cachedImage(for: cacheableObject, into: $cachedImage)
+        .accessibilityHidden(true)
     }
 }
 

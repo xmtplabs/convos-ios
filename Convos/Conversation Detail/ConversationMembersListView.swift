@@ -13,14 +13,30 @@ struct ConversationMembersListView: View {
                     HStack {
                         ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
                             .frame(width: DesignConstants.ImageSizes.mediumAvatar, height: DesignConstants.ImageSizes.mediumAvatar)
+                            .accessibilityHidden(true)
 
-                        Text(member.profile.displayName)
-                            .font(.body)
+                        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                            Text(member.profile.displayName)
+                                .font(.body)
+                            if member.isCurrentUser {
+                                Text("You")
+                                    .font(.footnote)
+                                    .foregroundStyle(.colorTextSecondary)
+                            } else if member.role == .superAdmin {
+                                Text("Owner")
+                                    .font(.footnote)
+                                    .foregroundStyle(.colorTextSecondary)
+                            }
+                        }
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("member-\(member.id)")
                 }
             }
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(.colorBackgroundRaisedSecondary)
         .navigationTitle(viewModel.conversation.membersCountString)
     }
 }

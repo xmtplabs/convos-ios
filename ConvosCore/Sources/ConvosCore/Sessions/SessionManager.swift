@@ -42,6 +42,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let platformProviders: PlatformProviders
     private let lifecycleManager: any InboxLifecycleManagerProtocol
     private let sleepingInboxChecker: SleepingInboxMessageChecker
+    private let apiClient: any ConvosAPIClientProtocol
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
@@ -59,12 +60,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             environment: environment,
             platformProviders: platformProviders
         )
+        self.apiClient = ConvosAPIClientFactory.client(environment: environment)
         let resolvedLifecycleManager = lifecycleManager ?? InboxLifecycleManager(
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             identityStore: identityStore,
             environment: environment,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: self.deviceRegistrationManager,
+            apiClient: self.apiClient
         )
         self.lifecycleManager = resolvedLifecycleManager
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
@@ -102,7 +106,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
             self.unusedInboxPrepTask = Task(priority: .background) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                await self.lifecycleManager.prepareUnusedInboxIfNeeded()
+                await self.lifecycleManager.prepareUnusedConversationIfNeeded()
             }
 
             guard !Task.isCancelled else { return }
@@ -167,8 +171,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Inbox Management
 
-    public func addInbox() async -> AnyMessagingService {
+    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
         await lifecycleManager.createNewInbox()
+    }
+
+    public func addInboxOnly() async -> AnyMessagingService {
+        await lifecycleManager.createNewInboxOnly()
     }
 
     public func deleteInbox(clientId: String, inboxId: String) async throws {
@@ -235,7 +243,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
                     // Stop all tracking in lifecycle manager
                     await self.lifecycleManager.stopAll()
-                    await self.lifecycleManager.clearUnusedInbox()
+                    await self.lifecycleManager.clearUnusedConversation()
 
                     // Delete all from database
                     continuation.yield(.deletingFromDatabase)
@@ -257,6 +265,28 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
         try await lifecycleManager.getOrWake(clientId: clientId, inboxId: inboxId)
+    }
+
+    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
+        if let tracked = lifecycleManager.getAwakeService(clientId: clientId) {
+            return tracked
+        }
+        let service = MessagingService.authorizedMessagingService(
+            for: inboxId,
+            clientId: clientId,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment,
+            identityStore: identityStore,
+            startsStreamingServices: true,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
+        )
+        Task { [lifecycleManager] in
+            await lifecycleManager.registerExternalService(service, clientId: clientId)
+        }
+        return service
     }
 
     // MARK: - Factory methods for repositories

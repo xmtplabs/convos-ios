@@ -30,8 +30,7 @@ struct NewConversationView: View {
                                 viewModel.joinConversation(inviteCode: inviteCode)
                             }
                         )
-                    } else {
-                        let conversationViewModel = viewModel.conversationViewModel
+                    } else if let conversationViewModel = viewModel.conversationViewModel {
                         ConversationView(
                             viewModel: conversationViewModel,
                             quicknameViewModel: quicknameViewModel,
@@ -44,15 +43,21 @@ struct NewConversationView: View {
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled
                         ) {
                         }
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                Button(role: .close) {
-                                    if viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance {
-                                        presentingJoiningStateInfo = true
-                                    } else {
-                                        dismiss()
-                                    }
+                    } else {
+                        EmptyView()
+                    }
+                }
+                .toolbar {
+                    if !viewModel.showingFullScreenScanner {
+                        ToolbarItem(placement: .topBarLeading) {
+                            let closeAction = {
+                                if viewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true {
+                                    presentingJoiningStateInfo = true
+                                } else {
+                                    dismiss()
                                 }
+                            }
+                            Button(role: .close, action: closeAction)
                                 .confirmationDialog("This convo will appear on your home screen after someone approves you",
                                                     isPresented: $presentingJoiningStateInfo,
                                                     titleVisibility: .visible) {
@@ -60,11 +65,10 @@ struct NewConversationView: View {
                                         dismiss()
                                     }
                                 }
-                            }
                         }
                     }
                 }
-                .background(.colorBackgroundPrimary)
+                .background(.colorBackgroundSurfaceless)
                 .sheet(isPresented: $viewModel.presentingJoinConversationSheet) {
                     JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { inviteCode in
                         viewModel.joinConversation(inviteCode: inviteCode)
@@ -122,6 +126,7 @@ private struct ErrorSheetWithRetry: View {
                     Text("Try again")
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
+                .accessibilityIdentifier("error-retry-button")
 
                 Button {
                     onCancel()
@@ -129,6 +134,7 @@ private struct ErrorSheetWithRetry: View {
                     Text("Cancel")
                 }
                 .convosButtonStyle(.text)
+                .accessibilityIdentifier("error-cancel-button")
             }
             .padding(.vertical, DesignConstants.Spacing.step4x)
         }

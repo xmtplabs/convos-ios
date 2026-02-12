@@ -57,7 +57,7 @@ if [ ! "${CI}" = true ]; then
   defaults write com.apple.dt.Xcode ShowBuildOperationDuration -bool true
 fi
 
-  # Skip fingerprint validation for plugins and macros in Xcode (like SwiftLintBuildToolPlugin)
+  # Skip fingerprint validation for SPM plugins and macros in Xcode
   defaults write com.apple.dt.Xcode IDESkipPackagePluginFingerprintValidatation -bool YES
   defaults write com.apple.dt.Xcode IDESkipMacroFingerprintValidation -bool YES
 

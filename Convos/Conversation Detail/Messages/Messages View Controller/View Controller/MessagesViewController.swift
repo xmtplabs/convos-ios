@@ -13,6 +13,10 @@ private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
     }
 }
 
+/// Captures horizontal swipes on the collection view to prevent
+/// NavigationSplitView's back gesture from triggering mid-screen.
+private class HorizontalBlockerPanGestureRecognizer: UIPanGestureRecognizer {}
+
 final class MessagesViewController: UIViewController {
     struct MessagesState {
         let conversation: Conversation
@@ -33,7 +37,6 @@ final class MessagesViewController: UIViewController {
         case scrollingToTop
         case scrollingToBottom
         case updatingCollectionInIsolation
-        case showingReactionsMenu
         case determiningBottomBarHeight
     }
 
@@ -59,7 +62,6 @@ final class MessagesViewController: UIViewController {
         collectionView.isDragging || collectionView.isDecelerating
     }
 
-    private var reactionMenuCoordinator: MessageReactionMenuCoordinator?
     private var isFirstStateUpdate: Bool = true
 
     // MARK: - Public
@@ -93,7 +95,7 @@ final class MessagesViewController: UIViewController {
                     } else if let lastMessageGroup = state.messages.last,
                               lastMessageGroup.isMessagesGroupSentByCurrentUser,
                               let oldLastMessage = oldValue?.messages.last?.lastMessageInGroup,
-                              lastMessageGroup.lastMessageInGroup != oldLastMessage {
+                              lastMessageGroup.lastMessageInGroup?.id != oldLastMessage.id {
                         self.scrollToBottom()
                     }
                 }
@@ -135,10 +137,10 @@ final class MessagesViewController: UIViewController {
     var onLoadPreviousMessages: (() -> Void)?
     var onReaction: ((String, String) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
-    var onDoubleTap: ((AnyMessage) -> Void)?
-
-    private var currentReactionMessageId: String?
-    private var reactionCancellable: AnyCancellable?
+    var onReply: ((AnyMessage) -> Void)?
+    var contextMenuState: MessageContextMenuState = .init() {
+        didSet { dataSource.contextMenuState = contextMenuState }
+    }
 
     deinit {
         KeyboardListener.shared.remove(delegate: self)
@@ -167,7 +169,6 @@ final class MessagesViewController: UIViewController {
 
         setupCollectionView()
         setupUI()
-        reactionMenuCoordinator = MessageReactionMenuCoordinator(delegate: self)
     }
 
     override func viewWillTransition(to size: CGSize, with coordinator: UIViewControllerTransitionCoordinator) {
@@ -235,15 +236,8 @@ final class MessagesViewController: UIViewController {
 
         dataSource.prepare(with: collectionView)
 
-        dataSource.onTapAvatar = { [weak self] indexPath in
-            guard let self = self else { return }
-            let item = self.dataSource.sections[indexPath.section].cells[indexPath.item]
-            switch item {
-            case .messages(let group):
-                self.onTapAvatar?(group.sender)
-            default:
-                break
-            }
+        dataSource.onTapAvatar = { [weak self] sender in
+            self?.onTapAvatar?(sender)
         }
         dataSource.onTapInvite = { [weak self] invite in
             guard let self = self else { return }
@@ -253,12 +247,13 @@ final class MessagesViewController: UIViewController {
             guard let self = self else { return }
             self.onTapReactions?(message)
         }
-        dataSource.onDoubleTap = { [weak self] message in
+        dataSource.onReply = { [weak self] message in
             guard let self = self else { return }
-            self.onDoubleTap?(message)
+            self.onReply?(message)
         }
 
         setupImmediateTouchGesture()
+        setupHorizontalBlockerGesture()
     }
 
     private func setupImmediateTouchGesture() {
@@ -268,6 +263,12 @@ final class MessagesViewController: UIViewController {
         gesture.delaysTouchesEnded = false
         gesture.delegate = self
         collectionView.addGestureRecognizer(gesture)
+    }
+
+    private func setupHorizontalBlockerGesture() {
+        let blocker = HorizontalBlockerPanGestureRecognizer(target: self, action: nil)
+        blocker.delegate = self
+        collectionView.addGestureRecognizer(blocker)
     }
 
     @objc private func handleImmediateTouch(_ gesture: UIGestureRecognizer) {
@@ -601,7 +602,6 @@ extension MessagesViewController: KeyboardListenerDelegate {
 
     private func shouldHandleKeyboardFrameChange(info: KeyboardInfo) -> Bool {
         guard !currentInterfaceActions.options.contains(.changingFrameSize),
-              !currentInterfaceActions.options.contains(.showingReactionsMenu),
               collectionView.contentInsetAdjustmentBehavior != .never else {
             return false
         }
@@ -672,66 +672,19 @@ extension MessagesViewController: KeyboardListenerDelegate {
 // MARK: - UIGestureRecognizerDelegate
 
 extension MessagesViewController: UIGestureRecognizerDelegate {
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? HorizontalBlockerPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: view)
+        let location = pan.location(in: view)
+        let isHorizontal = abs(velocity.x) > abs(velocity.y)
+        let isAwayFromEdge = location.x > 30
+        return isHorizontal && isAwayFromEdge
+    }
+
     func gestureRecognizer(
         _ gestureRecognizer: UIGestureRecognizer,
         shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
     ) -> Bool {
         gestureRecognizer is ImmediateTouchGestureRecognizer
-    }
-}
-
-// MARK: - MessageReactionMenuCoordinatorDelegate
-
-extension MessagesViewController: MessageReactionMenuCoordinatorDelegate {
-    func messageReactionMenuViewModel(_ coordinator: MessageReactionMenuCoordinator,
-                                      for indexPath: IndexPath) -> MessageReactionMenuViewModel {
-        guard dataSource.sections.indices.contains(indexPath.section),
-              dataSource.sections[indexPath.section].cells.indices.contains(indexPath.item) else {
-            return MessageReactionMenuViewModel()
-        }
-        let item = dataSource.sections[indexPath.section].cells[indexPath.item]
-        currentReactionMessageId = nil
-        if case .messages(let group) = item, let lastMessage = group.allMessages.last {
-            currentReactionMessageId = lastMessage.base.id
-        }
-
-        let viewModel = MessageReactionMenuViewModel()
-        reactionCancellable = viewModel.selectedEmojiPublisher
-            .compactMap { $0 }
-            .sink { [weak self] emoji in
-                guard let self, let messageId = currentReactionMessageId else { return }
-                onReaction?(emoji, messageId)
-                currentReactionMessageId = nil
-            }
-        return viewModel
-    }
-
-    func messageReactionMenuCoordinatorWasPresented(_ coordinator: MessageReactionMenuCoordinator) {
-        collectionView.isScrollEnabled = false
-        currentInterfaceActions.options.insert(.showingReactionsMenu)
-    }
-
-    func messageReactionMenuCoordinatorWasDismissed(_ coordinator: MessageReactionMenuCoordinator) {
-        collectionView.isScrollEnabled = true
-        currentInterfaceActions.options.remove(.showingReactionsMenu)
-        reactionCancellable?.cancel()
-        reactionCancellable = nil
-        currentReactionMessageId = nil
-    }
-
-    func messageReactionMenuCoordinator(_ coordinator: MessageReactionMenuCoordinator,
-                                        previewableCellAt indexPath: IndexPath) -> PreviewableCollectionViewCell? {
-        guard let cell = collectionView.cellForItem(at: indexPath) as? PreviewableCollectionViewCell else { return nil }
-        return cell
-    }
-
-    func messageReactionMenuCoordinator(_ coordinator: MessageReactionMenuCoordinator,
-                                        shouldPresentMenuFor cell: PreviewableCollectionViewCell) -> Bool {
-        guard let indexPath = collectionView.indexPath(for: cell) else { return false }
-        let item = dataSource.sections[indexPath.section].cells[indexPath.item]
-        if case .messages = item {
-            return true
-        }
-        return false
     }
 }

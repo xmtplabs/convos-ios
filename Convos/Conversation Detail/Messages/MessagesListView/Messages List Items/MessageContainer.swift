@@ -26,13 +26,13 @@ struct MessageContainer<Content: View>: View {
                 return .rect(
                     topLeadingRadius: cornerRadius,
                     bottomLeadingRadius: cornerRadius,
-                    bottomTrailingRadius: 2.0,
+                    bottomTrailingRadius: 4.0,
                     topTrailingRadius: cornerRadius
                 )
             } else {
                 return .rect(
                     topLeadingRadius: cornerRadius,
-                    bottomLeadingRadius: 2.0,
+                    bottomLeadingRadius: 4.0,
                     bottomTrailingRadius: cornerRadius,
                     topTrailingRadius: cornerRadius
                 )

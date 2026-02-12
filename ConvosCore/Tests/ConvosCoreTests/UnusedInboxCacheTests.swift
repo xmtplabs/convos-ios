@@ -8,37 +8,37 @@ import XMTPiOS
 
 private let testEnvironment = AppEnvironment.tests
 
-/// Comprehensive tests for UnusedInboxCache
+/// Comprehensive tests for UnusedConversationCache
 ///
 /// Tests cover:
-/// - Pre-creating unused inboxes
-/// - Consuming unused inboxes without race conditions
+/// - Pre-creating unused conversations (inbox + conversation + invite)
+/// - Consuming unused conversations without race conditions
 /// - Concurrent consumption attempts (race condition prevention)
 /// - Keychain fallback path
-/// - Clearing unused inboxes
-/// - Ensuring same inbox is never consumed twice
-@Suite("UnusedInboxCache Tests")
-struct UnusedInboxCacheTests {
+/// - Clearing unused conversations
+/// - Ensuring same conversation is never consumed twice
+@Suite("UnusedConversationCache Tests")
+struct UnusedConversationCacheTests {
     // MARK: - Test Helpers
 
-    /// Waits for an unused inbox to be ready by polling with a timeout
+    /// Waits for an unused conversation to be ready by polling with a timeout
     ///
-    /// This function polls to check if an unused inbox has been prepared.
+    /// This function polls to check if an unused conversation has been prepared.
     /// This is more efficient and deterministic than fixed sleep durations.
     ///
     /// - Parameters:
-    ///   - cache: The UnusedInboxCache to check
+    ///   - cache: The UnusedConversationCache to check
     ///   - timeout: Maximum time to wait (default: 10 seconds)
     /// - Throws: TestError if timeout is reached
-    private func waitForUnusedInbox(
-        cache: UnusedInboxCache,
+    private func waitForUnusedConversation(
+        cache: UnusedConversationCache,
         timeout: Duration = .seconds(10)
     ) async throws {
         let deadline = ContinuousClock.now + timeout
 
         while ContinuousClock.now < deadline {
-            // Check if an unused inbox is available
-            if await cache.hasUnusedInbox() {
+            // Check if an unused conversation is available
+            if await cache.hasUnusedConversation() {
                 return
             }
 
@@ -46,7 +46,7 @@ struct UnusedInboxCacheTests {
             try await Task.sleep(for: .milliseconds(100))
         }
 
-        throw TestError.timeout("Timed out waiting for unused inbox to be created")
+        throw TestError.timeout("Timed out waiting for unused conversation to be created")
     }
 
     /// Test-specific error type
@@ -56,27 +56,27 @@ struct UnusedInboxCacheTests {
 
     // MARK: - Basic Functionality Tests
 
-    @Test("prepareUnusedInboxIfNeeded creates an unused inbox")
-    func testPrepareUnusedInbox() async throws {
+    @Test("prepareUnusedConversationIfNeeded creates an unused conversation")
+    func testPrepareUnusedConversation() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
-        // Prepare unused inbox
-        await cache.prepareUnusedInboxIfNeeded(
+        // Prepare unused conversation
+        await cache.prepareUnusedConversationIfNeeded(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
         )
 
-        // Wait for inbox to be ready
-        try await waitForUnusedInbox(cache: cache)
+        // Wait for conversation to be ready
+        try await waitForUnusedConversation(cache: cache)
 
-        // Verify an unused inbox was created (check keychain or service)
+        // Verify an unused conversation was created (check keychain or service)
         // We can't directly access private properties, but we can verify by consuming it
-        let messagingService = await cache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -93,12 +93,12 @@ struct UnusedInboxCacheTests {
     @Test("consumeOrCreateMessagingService returns a valid service")
     func testConsumeOrCreateReturnsValidService() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
-        let messagingService = await cache.consumeOrCreateMessagingService(
+        let (messagingService, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -117,26 +117,26 @@ struct UnusedInboxCacheTests {
     @Test("Concurrent consumeOrCreateMessagingService calls never return the same service")
     func testConcurrentConsumptionNoDuplicates() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
-        // Pre-create an unused inbox to increase likelihood of race
-        await cache.prepareUnusedInboxIfNeeded(
+        // Pre-create an unused conversation to increase likelihood of race
+        await cache.prepareUnusedConversationIfNeeded(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
         )
 
-        // Wait for inbox to be ready
-        try await waitForUnusedInbox(cache: cache)
+        // Wait for conversation to be ready
+        try await waitForUnusedConversation(cache: cache)
 
         // Call rapidly multiple times - since cache is an actor, calls are serialized
         // but the code still needs to handle the "already consuming" case
         var services: [any MessagingServiceProtocol] = []
         for _ in 0..<5 {
-            let service = await cache.consumeOrCreateMessagingService(
+            let (service, _) = await cache.consumeOrCreateMessagingService(
                 databaseWriter: fixtures.databaseManager.dbWriter,
                 databaseReader: fixtures.databaseManager.dbReader,
                 environment: testEnvironment
@@ -170,13 +170,13 @@ struct UnusedInboxCacheTests {
     @Test("Sequential consumption always returns different services")
     func testSequentialConsumptionDifferentServices() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
         // Consume first service
-        let service1 = await cache.consumeOrCreateMessagingService(
+        let (service1, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -185,7 +185,7 @@ struct UnusedInboxCacheTests {
         let inboxId1 = result1.client.inboxId
 
         // Consume second service
-        let service2 = await cache.consumeOrCreateMessagingService(
+        let (service2, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -205,15 +205,15 @@ struct UnusedInboxCacheTests {
     @Test("Rapid fire consumption attempts all return unique services")
     func testRapidFireConsumptionUniqueness() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
         // Create 10 services as fast as possible
         var services: [any MessagingServiceProtocol] = []
         for _ in 0..<10 {
-            let service = await cache.consumeOrCreateMessagingService(
+            let (service, _) = await cache.consumeOrCreateMessagingService(
                 databaseWriter: fixtures.databaseManager.dbWriter,
                 databaseReader: fixtures.databaseManager.dbReader,
                 environment: testEnvironment
@@ -249,23 +249,23 @@ struct UnusedInboxCacheTests {
     @Test("Consuming clears both memory and keychain atomically")
     func testAtomicCleanupOnConsumption() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
-        // Prepare an unused inbox (this creates both in-memory service and keychain entry)
-        await cache.prepareUnusedInboxIfNeeded(
+        // Prepare an unused conversation (this creates both in-memory service and keychain entry)
+        await cache.prepareUnusedConversationIfNeeded(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
         )
 
-        // Wait for inbox to be ready
-        try await waitForUnusedInbox(cache: cache)
+        // Wait for conversation to be ready
+        try await waitForUnusedConversation(cache: cache)
 
-        // Consume the unused inbox
-        let service1 = await cache.consumeOrCreateMessagingService(
+        // Consume the unused conversation
+        let (service1, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -283,7 +283,7 @@ struct UnusedInboxCacheTests {
 
         // 2. Verify memory is cleared by attempting another consumption
         // This should return a DIFFERENT inbox, not reuse the consumed one
-        let service2 = await cache.consumeOrCreateMessagingService(
+        let (service2, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -304,26 +304,26 @@ struct UnusedInboxCacheTests {
     @Test("Keychain cleared even when consuming via memory")
     func testKeychainClearedWhenConsumingFromMemory() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
-        // Prepare an unused inbox (creates both in-memory service AND keychain entry)
-        await cache.prepareUnusedInboxIfNeeded(
+        // Prepare an unused conversation (creates both in-memory service AND keychain entry)
+        await cache.prepareUnusedConversationIfNeeded(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
         )
 
-        // Wait for inbox to be ready
-        try await waitForUnusedInbox(cache: cache)
+        // Wait for conversation to be ready
+        try await waitForUnusedConversation(cache: cache)
 
         // Before consuming, the keychain should have the inbox
-        // We can't directly check keychain, but we know it exists because prepareUnusedInboxIfNeeded succeeded
+        // We can't directly check keychain, but we know it exists because prepareUnusedConversationIfNeeded succeeded
 
         // Consume - this uses the in-memory service path
-        let service = await cache.consumeOrCreateMessagingService(
+        let (service, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -344,18 +344,18 @@ struct UnusedInboxCacheTests {
     @Test("Both paths clear atomically - memory and keychain")
     func testBothConsumptionPathsClearAtomically() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
         // Test 1: Consume via memory path
-        await cache.clearUnusedInboxFromKeychain()
-        await cache.prepareUnusedInboxIfNeeded(
+        await cache.clearUnusedFromKeychain()
+        await cache.prepareUnusedConversationIfNeeded(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
         )
-        try await waitForUnusedInbox(cache: cache)
+        try await waitForUnusedConversation(cache: cache)
 
-        let service1 = await cache.consumeOrCreateMessagingService(
+        let (service1, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -369,9 +369,9 @@ struct UnusedInboxCacheTests {
 
         // Test 2: Consume via keychain path
         // (In a real scenario, the memory service might not exist but keychain does)
-        await cache.clearUnusedInboxFromKeychain()
+        await cache.clearUnusedFromKeychain()
 
-        let service2 = await cache.consumeOrCreateMessagingService(
+        let (service2, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -397,23 +397,23 @@ struct UnusedInboxCacheTests {
     @Test("isUnusedInbox correctly identifies unused inbox")
     func testIsUnusedInbox() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
-        // Prepare an unused inbox
-        await cache.prepareUnusedInboxIfNeeded(
+        // Prepare an unused conversation
+        await cache.prepareUnusedConversationIfNeeded(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
         )
 
-        // Wait for inbox to be ready
-        try await waitForUnusedInbox(cache: cache)
+        // Wait for conversation to be ready
+        try await waitForUnusedConversation(cache: cache)
 
         // Consume to get the inbox ID
-        let service = await cache.consumeOrCreateMessagingService(
+        let (service, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -436,18 +436,18 @@ struct UnusedInboxCacheTests {
     @Test("Stress test: 10 rapid sequential consumptions all unique")
     func testStressConcurrentConsumptions() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
         // Create services rapidly in sequence (not concurrent due to Sendable restrictions)
-        // The actor isolation on UnusedInboxCache ensures thread safety
+        // The actor isolation on UnusedConversationCache ensures thread safety
         let serviceCount = 10
         var services: [any MessagingServiceProtocol] = []
 
         for _ in 0..<serviceCount {
-            let service = await cache.consumeOrCreateMessagingService(
+            let (service, _) = await cache.consumeOrCreateMessagingService(
                 databaseWriter: fixtures.databaseManager.dbWriter,
                 databaseReader: fixtures.databaseManager.dbReader,
                 environment: testEnvironment
@@ -488,23 +488,23 @@ struct UnusedInboxCacheTests {
 
     // MARK: - Deletion and Recreation Scenario Tests
 
-    @Test("Unused inbox cache works after deleting first consumed inbox")
-    func testUnusedInboxWorksAfterDeletion() async throws {
+    @Test("Unused conversation cache works after deleting first consumed conversation")
+    func testUnusedConversationWorksAfterDeletion() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
-        // Step 1: Prepare and consume first inbox (inbox A)
-        await cache.prepareUnusedInboxIfNeeded(
+        // Step 1: Prepare and consume first conversation (conversation A)
+        await cache.prepareUnusedConversationIfNeeded(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
         )
-        try await waitForUnusedInbox(cache: cache)
+        try await waitForUnusedConversation(cache: cache)
 
-        let serviceA = await cache.consumeOrCreateMessagingService(
+        let (serviceA, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
@@ -513,9 +513,9 @@ struct UnusedInboxCacheTests {
         let inboxIdA = resultA.client.inboxId
         #expect(!inboxIdA.isEmpty, "Inbox A should have a valid inbox ID")
 
-        // Step 2: Wait for background task to create new unused inbox (inbox B)
-        try await waitForUnusedInbox(cache: cache, timeout: .seconds(15))
-        #expect(await cache.hasUnusedInbox(), "Unused inbox B should be available after consuming A")
+        // Step 2: Wait for background task to create new unused conversation (conversation B)
+        try await waitForUnusedConversation(cache: cache, timeout: .seconds(15))
+        #expect(await cache.hasUnusedConversation(), "Unused conversation B should be available after consuming A")
 
         // Step 3: Delete inbox A (simulating user deleting/exploding a conversation)
         await serviceA.stopAndDelete()
@@ -523,17 +523,17 @@ struct UnusedInboxCacheTests {
         // Step 4: Wait to simulate the SleepingInboxMessageChecker period (5+ seconds)
         try await Task.sleep(for: .seconds(6))
 
-        // Step 5: Verify unused inbox B is still valid
-        #expect(await cache.hasUnusedInbox(), "Unused inbox B should still be available after deleting A")
+        // Step 5: Verify unused conversation B is still valid
+        #expect(await cache.hasUnusedConversation(), "Unused conversation B should still be available after deleting A")
 
-        // Step 6: Consume unused inbox B to create inbox C
-        let serviceC = await cache.consumeOrCreateMessagingService(
+        // Step 6: Consume unused conversation B to create conversation C
+        let (serviceC, _) = await cache.consumeOrCreateMessagingService(
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
             environment: testEnvironment
         )
 
-        // Step 7: Verify inbox C works correctly
+        // Step 7: Verify conversation C works correctly
         let resultC = try await serviceC.inboxStateManager.waitForInboxReadyResult()
         let inboxIdC = resultC.client.inboxId
         #expect(!inboxIdC.isEmpty, "Inbox C should have a valid inbox ID")
@@ -547,10 +547,10 @@ struct UnusedInboxCacheTests {
     @Test("Multiple delete-and-recreate cycles work correctly")
     func testMultipleDeleteAndRecreateCycles() async throws {
         let fixtures = TestFixtures()
-        let cache = UnusedInboxCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
+        let cache = UnusedConversationCache(keychainService: MockKeychainService(), identityStore: fixtures.identityStore, platformProviders: .mock)
 
-        // Clear any existing unused inbox
-        await cache.clearUnusedInboxFromKeychain()
+        // Clear any existing unused conversation
+        await cache.clearUnusedFromKeychain()
 
         var previousInboxIds: Set<String> = []
 
@@ -558,16 +558,16 @@ struct UnusedInboxCacheTests {
         for cycle in 1...3 {
             // Prepare if this is the first cycle
             if cycle == 1 {
-                await cache.prepareUnusedInboxIfNeeded(
+                await cache.prepareUnusedConversationIfNeeded(
                     databaseWriter: fixtures.databaseManager.dbWriter,
                     databaseReader: fixtures.databaseManager.dbReader,
                     environment: testEnvironment
                 )
-                try await waitForUnusedInbox(cache: cache)
+                try await waitForUnusedConversation(cache: cache)
             }
 
-            // Consume inbox
-            let service = await cache.consumeOrCreateMessagingService(
+            // Consume conversation
+            let (service, _) = await cache.consumeOrCreateMessagingService(
                 databaseWriter: fixtures.databaseManager.dbWriter,
                 databaseReader: fixtures.databaseManager.dbReader,
                 environment: testEnvironment
@@ -579,8 +579,8 @@ struct UnusedInboxCacheTests {
             #expect(!previousInboxIds.contains(inboxId), "Cycle \(cycle): Inbox ID should be unique")
             previousInboxIds.insert(inboxId)
 
-            // Wait for background to create next unused inbox
-            try await waitForUnusedInbox(cache: cache, timeout: .seconds(15))
+            // Wait for background to create next unused conversation
+            try await waitForUnusedConversation(cache: cache, timeout: .seconds(15))
 
             // Delete the inbox
             await service.stopAndDelete()
@@ -588,9 +588,9 @@ struct UnusedInboxCacheTests {
             // Wait to simulate time passing (like SleepingInboxMessageChecker period)
             try await Task.sleep(for: .seconds(2))
 
-            // Verify unused inbox is still available for next cycle
+            // Verify unused conversation is still available for next cycle
             if cycle < 3 {
-                #expect(await cache.hasUnusedInbox(), "Cycle \(cycle): Unused inbox should be available for next cycle")
+                #expect(await cache.hasUnusedConversation(), "Cycle \(cycle): Unused conversation should be available for next cycle")
             }
         }
 

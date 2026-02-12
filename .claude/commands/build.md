@@ -34,14 +34,15 @@ Build, launch in simulator, and notify when running:
 
 1. Check if `.claude/.simulator_id` file exists in the project root
    - If yes, read the simulator ID from it (this is the session's dedicated simulator)
-   - If no, check if `.convos-task` file exists:
-     - If yes, read `SIMULATOR_NAME` from it and find its UUID in the simulator list
-     - If the simulator doesn't exist yet, suggest running `/setup` first
-   - If neither file exists, select a new simulator (see below)
+   - If no, try to find or create the session's simulator:
+     a. Check if `.convos-task` file exists → read `SIMULATOR_NAME` from it
+     b. Otherwise derive from branch: run `git branch --show-current`, sanitize (replace `/` and special chars with `-`, lowercase), prefix with `convos-` (e.g., `jarod/push-notifications` → `convos-jarod-push-notifications`)
+     c. Look for that simulator in the list — if it exists, use it
+     d. If it doesn't exist, suggest running `/setup` first
 
 2. Call `mcp__XcodeBuildMCP__list_sims` to get all available simulators
 
-3. Select a simulator that is NOT already booted:
+3. If no dedicated simulator was found or created, select a simulator that is NOT already booted:
    - Look for iOS 26.0 simulators (latest OS)
    - Find simulators that do NOT have `[Booted]` next to them
    - Prefer iPhone models in this order: iPhone 17 Pro, iPhone 17 Pro Max, iPhone Air, iPhone 17

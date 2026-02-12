@@ -8,18 +8,23 @@ struct ConvosToolbarButton: View {
         Button {
             action()
         } label: {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
+            HStack(spacing: DesignConstants.Spacing.stepX) {
                 Image("convosOrangeIcon")
+                    .resizable()
                     .renderingMode(.template)
                     .foregroundStyle(.colorFillPrimary)
+                    .frame(width: 16.0, height: 20.0)
                     .frame(width: 24.0, height: 24.0)
+                    .accessibilityHidden(true)
 
                 Text("Convos")
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.colorTextPrimary)
+                    .font(.body)
+                    .foregroundStyle(.colorFillPrimary)
+                    .padding(.trailing, DesignConstants.Spacing.stepX)
             }
             .padding(padding ? DesignConstants.Spacing.step2x : 0)
         }
+        .accessibilityIdentifier("convos-logo-button")
     }
 }
 
@@ -37,6 +42,25 @@ struct AppSettingsView: View {
         NavigationStack {
             List {
                 Section {
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                        Text("Convos")
+                            .font(.system(size: 40, weight: .bold))
+                            .tracking(-1)
+                            .foregroundStyle(.colorTextPrimary)
+                        Text("Private chat for the AI world")
+                            .font(.subheadline)
+                            .foregroundStyle(.colorTextPrimary)
+                    }
+                    .padding(.horizontal, DesignConstants.Spacing.step2x)
+                    .listRowBackground(Color.clear)
+                }
+                .listRowSeparator(.hidden)
+                .listRowSpacing(0.0)
+                .listRowInsets(.all, DesignConstants.Spacing.step2x)
+                .listSectionMargins(.top, 0.0)
+                .listSectionSeparator(.hidden)
+
+                Section {
                     NavigationLink {
                         MyInfoView(
                             profile: .constant(.empty()),
@@ -51,54 +75,53 @@ struct AppSettingsView: View {
                         }
                     } label: {
                         HStack {
+                            Image(systemName: "lanyardcard.fill")
+                                .foregroundStyle(.colorTextPrimary)
+
                             Text("My info")
                                 .foregroundStyle(.colorTextPrimary)
 
                             Spacer()
 
-                            Text(
-                                quicknameViewModel.editingDisplayName.isEmpty ? "Somebody" : quicknameViewModel.editingDisplayName
-                            )
-                            .foregroundStyle(.colorTextPrimary)
+                            if !quicknameViewModel.quicknameSettings.isDefault {
+                                Text(quicknameViewModel.editingDisplayName)
+                                    .foregroundStyle(.colorTextSecondary)
 
-                            ProfileAvatarView(
-                                profile: quicknameViewModel.profile,
-                                profileImage: quicknameViewModel.profileImage,
-                                useSystemPlaceholder: false
-                            )
-                            .frame(width: 16.0, height: 16.0)
+                                ProfileAvatarView(
+                                    profile: quicknameViewModel.profile,
+                                    profileImage: quicknameViewModel.profileImage,
+                                    useSystemPlaceholder: false
+                                )
+                                .frame(width: 16.0, height: 16.0)
+                            }
                         }
                     }
+                } footer: {
+                    Text("Private unless you choose to share")
                 }
 
                 Section {
-                    NavigationLink {
-                        EmptyView()
-                    } label: {
-                        HStack {
-                            Text("Customize new convos")
-                                .foregroundStyle(.colorTextPrimary)
-                            Spacer()
-                            SoonLabel()
-                        }
-                    }
-                    .disabled(true)
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Text("Customize new convos")
+                            .foregroundStyle(.colorTextTertiary)
 
-                    NavigationLink {
-                        EmptyView()
-                    } label: {
-                        HStack {
-                            Text("Notifications")
-                                .foregroundStyle(.colorTextPrimary)
-                            Spacer()
-                            SoonLabel()
-                        }
+                        Spacer()
+
+                        SoonLabel()
                     }
-                    .disabled(true)
-                } header: {
-                    Text("Preferences")
-                        .foregroundStyle(.colorTextSecondary)
+                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        Text("Notifications")
+                            .foregroundStyle(.colorTextTertiary)
+
+                        Spacer()
+
+                        SoonLabel()
+                    }
+                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
                 }
+                .listRowSeparatorTint(.colorBorderSubtle)
 
                 Section {
                     Button {
@@ -120,15 +143,6 @@ struct AppSettingsView: View {
                     }
                     .foregroundStyle(.colorTextPrimary)
 
-                    if !ConfigManager.shared.currentEnvironment.isProduction {
-                        NavigationLink {
-                            DebugExportView(environment: ConfigManager.shared.currentEnvironment)
-                        } label: {
-                            Text("Debug")
-                        }
-                        .foregroundStyle(.colorTextPrimary)
-                    }
-
                     Button {
                         openURL(URL(string: "https://hq.convos.org/privacy-and-terms")!)
                     } label: {
@@ -142,21 +156,25 @@ struct AppSettingsView: View {
                         Text("Send feedback")
                     }
                     .foregroundStyle(.colorTextPrimary)
-                } header: {
-                    HStack {
-                        Text("About")
-                            .foregroundStyle(.colorTextSecondary)
 
-                        Spacer()
-
-                        Text("Version \(Bundle.appVersion)")
-                            .font(.caption)
-                            .foregroundStyle(.colorTextTertiary)
+                    if !ConfigManager.shared.currentEnvironment.isProduction {
+                        NavigationLink {
+                            DebugExportView(environment: ConfigManager.shared.currentEnvironment)
+                        } label: {
+                            Text("Debug")
+                        }
+                        .foregroundStyle(.colorTextPrimary)
                     }
                 } footer: {
-                    Text("Made in the open by XMTP Labs")
-                        .foregroundStyle(.colorTextSecondary)
+                    HStack {
+                        Text("Made in the open by XMTP Labs")
+                        Spacer()
+                        Text("V\(Bundle.appVersion)")
+                            .foregroundStyle(.colorTextTertiary)
+                    }
+                    .foregroundStyle(.colorTextSecondary)
                 }
+                .listRowSeparatorTint(.colorBorderSubtle)
 
                 Section {
                     Button(role: .destructive) {
@@ -164,6 +182,9 @@ struct AppSettingsView: View {
                     } label: {
                         Text("Delete all app data")
                     }
+                    .accessibilityLabel("Delete all app data")
+                    .accessibilityHint("Permanently deletes all conversations and your quickname")
+                    .accessibilityIdentifier("delete-all-data-button")
                     .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
                         DeleteAllDataView(
                             viewModel: viewModel,
@@ -176,7 +197,10 @@ struct AppSettingsView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundRaisedSecondary)
             .dynamicTypeSize(...DynamicTypeSize.accessibility1)
+            .contentMargins(.top, 0.0)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -187,7 +211,7 @@ struct AppSettingsView: View {
 
                 ToolbarItem(placement: .principal) {
                     ConvosToolbarButton(padding: true) {}
-                        .glassEffect(.regular.tint(.colorBackgroundPrimary).interactive(), in: Capsule())
+                        .glassEffect(.regular.tint(.colorBackgroundSurfaceless).interactive(), in: Capsule())
                         .disabled(true)
                 }
             }

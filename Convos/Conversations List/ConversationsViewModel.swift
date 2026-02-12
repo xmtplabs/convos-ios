@@ -53,25 +53,14 @@ final class ConversationsViewModel {
         let previousViewModelId = selectedConversationViewModel?.conversation.id
 
         if let conversation = conversation {
-            // Update view model if needed
             if selectedConversationViewModel?.conversation.id != conversation.id {
-                // Cancel any pending update task
                 updateSelectionTask?.cancel()
-                updateSelectionTask = Task { [weak self] in
-                    guard let self else { return }
-                    do {
-                        let viewModel = try await ConversationViewModel.create(
-                            conversation: conversation,
-                            session: session
-                        )
-                        guard !Task.isCancelled else { return }
-                        guard self._selectedConversationId == conversation.id else { return }
-                        self.selectedConversationViewModel = viewModel
-                        self.markConversationAsRead(conversation)
-                    } catch {
-                        Log.error("Failed to create conversation view model: \(error)")
-                    }
-                }
+                let viewModel = ConversationViewModel.createSync(
+                    conversation: conversation,
+                    session: session
+                )
+                selectedConversationViewModel = viewModel
+                markConversationAsRead(conversation)
             }
         } else {
             updateSelectionTask?.cancel()
@@ -127,15 +116,31 @@ final class ConversationsViewModel {
     enum ConversationFilter {
         case all
         case unread
+
+        var emptyStateMessage: String {
+            switch self {
+            case .all:
+                return "No convos"
+            case .unread:
+                return "No unread convos"
+            }
+        }
     }
 
     var activeFilter: ConversationFilter = .all
 
     var pinnedConversations: [Conversation] {
-        conversations
+        let baseConversations = conversations
             .filter { $0.isPinned }
             .filter { $0.kind == .group }
             .sorted { ($0.pinnedOrder ?? Int.max) < ($1.pinnedOrder ?? Int.max) }
+
+        switch activeFilter {
+        case .all:
+            return baseConversations
+        case .unread:
+            return baseConversations.filter { $0.isUnread }
+        }
     }
 
     var unpinnedConversations: [Conversation] {
@@ -152,6 +157,10 @@ final class ConversationsViewModel {
         conversations.contains { !$0.isPinned && $0.kind == .group }
     }
 
+    var isFilteredResultEmpty: Bool {
+        activeFilter != .all && unpinnedConversations.isEmpty && hasUnpinnedConversations
+    }
+
     private(set) var hasCreatedMoreThanOneConvo: Bool {
         get {
             UserDefaults.standard.bool(forKey: "hasCreatedMoreThanOneConvo")
@@ -166,15 +175,10 @@ final class ConversationsViewModel {
     private let session: any SessionManagerProtocol
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
-    private var localStateWriters: [String: any ConversationLocalStateWriterProtocol] = [:]
-    @ObservationIgnored
-    private var pendingWriterCreations: [String: Task<any ConversationLocalStateWriterProtocol, Error>] = [:]
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = .init()
     @ObservationIgnored
     private var leftConversationObserver: Any?
-    @ObservationIgnored
-    private var newConversationViewModelTask: Task<Void, Never>?
 
     private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -220,7 +224,6 @@ final class ConversationsViewModel {
     }
 
     deinit {
-        newConversationViewModelTask?.cancel()
         updateSelectionTask?.cancel()
     }
 
@@ -236,54 +239,29 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                autoCreateConversation: true
-            )
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .newConversation
+        )
     }
 
     func onJoinConvo() {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session,
-                showingFullScreenScanner: true
-            )
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .scanner
+        )
     }
 
     private func join(from inviteCode: String) {
-        newConversationViewModelTask?.cancel()
-        newConversationViewModelTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session
-            )
-            viewModel.joinConversation(inviteCode: inviteCode)
-            await MainActor.run {
-                self.newConversationViewModel = viewModel
-            }
-        }
+        newConversationViewModel = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: inviteCode)
+        )
     }
 
     func deleteAllData() {
         selectedConversation = nil
-        appSettingsViewModel.deleteAllData { [weak self] in
-            self?.localStateWriters.removeAll()
-            self?.pendingWriterCreations.values.forEach { $0.cancel() }
-            self?.pendingWriterCreations.removeAll()
-        }
+        appSettingsViewModel.deleteAllData {}
     }
 
     func leave(conversation: Conversation) {
@@ -299,10 +277,6 @@ final class ConversationsViewModel {
             guard let self else { return }
             do {
                 try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
-
-                localStateWriters.removeValue(forKey: conversation.inboxId)
-                pendingWriterCreations[conversation.inboxId]?.cancel()
-                pendingWriterCreations.removeValue(forKey: conversation.inboxId)
             } catch {
                 Log.error("Error leaving convo: \(error.localizedDescription)")
             }
@@ -323,7 +297,7 @@ final class ConversationsViewModel {
                         selectedConversationId = nil
                         selectedConversationViewModel = nil
                     }
-                    if newConversationViewModel?.conversationViewModel.conversation.id == conversationId {
+                    if newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
                         newConversationViewModel = nil
                     }
                 }
@@ -381,7 +355,7 @@ final class ConversationsViewModel {
                 guard let self else { return }
                 if let conversation = self.selectedConversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
-                } else if let conversation = self.newConversationViewModel?.conversationViewModel.conversation {
+                } else if let conversation = self.newConversationViewModel?.conversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
                 }
             }
@@ -476,47 +450,22 @@ final class ConversationsViewModel {
     }
 
     private func markConversationAsRead(_ conversation: Conversation) {
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+
         Task { [weak self] in
             guard let self else { return }
             do {
-                let writer = try await getOrCreateWriter(for: conversation)
-                try await writer.setUnread(false, for: conversation.id)
+                let messagingService = try await session.messagingService(
+                    for: clientId,
+                    inboxId: inboxId
+                )
+                let writer = messagingService.conversationLocalStateWriter()
+                try await writer.setUnread(false, for: conversationId)
             } catch {
                 Log.warning("Failed marking conversation as read: \(error.localizedDescription)")
             }
-        }
-    }
-
-    private func getOrCreateWriter(for conversation: Conversation) async throws -> any ConversationLocalStateWriterProtocol {
-        let inboxId = conversation.inboxId
-        let clientId = conversation.clientId
-
-        if let existingWriter = localStateWriters[inboxId] {
-            return existingWriter
-        }
-
-        if let pendingTask = pendingWriterCreations[inboxId] {
-            return try await pendingTask.value
-        }
-
-        let creationTask = Task<any ConversationLocalStateWriterProtocol, Error> {
-            let messagingService = try await self.session.messagingService(
-                for: clientId,
-                inboxId: inboxId
-            )
-            return messagingService.conversationLocalStateWriter()
-        }
-
-        pendingWriterCreations[inboxId] = creationTask
-
-        do {
-            let newWriter = try await creationTask.value
-            localStateWriters[inboxId] = newWriter
-            pendingWriterCreations.removeValue(forKey: inboxId)
-            return newWriter
-        } catch {
-            pendingWriterCreations.removeValue(forKey: inboxId)
-            throw error
         }
     }
 }

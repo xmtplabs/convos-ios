@@ -27,6 +27,8 @@ struct FullConvoInfoView: View {
             .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("full-convo-info-view")
     }
 }
 

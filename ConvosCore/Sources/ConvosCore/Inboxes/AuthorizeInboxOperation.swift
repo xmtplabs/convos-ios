@@ -43,7 +43,9 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         environment: AppEnvironment,
         startsStreamingServices: Bool,
         overrideJWTToken: String? = nil,
-        platformProviders: PlatformProviders
+        platformProviders: PlatformProviders,
+        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) -> AuthorizeInboxOperation {
         let operation = AuthorizeInboxOperation(
             clientId: clientId,
@@ -54,7 +56,9 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             environment: environment,
             startsStreamingServices: startsStreamingServices,
             overrideJWTToken: overrideJWTToken,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
         )
         operation.authorize(inboxId: inboxId, clientId: clientId)
         return operation
@@ -66,7 +70,9 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         databaseWriter: any DatabaseWriter,
         networkMonitor: any NetworkMonitorProtocol = NetworkMonitor(),
         environment: AppEnvironment,
-        platformProviders: PlatformProviders
+        platformProviders: PlatformProviders,
+        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) -> AuthorizeInboxOperation {
         // Generate clientId before creating state machine
         let clientId = ClientId.generate().value
@@ -78,7 +84,9 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             networkMonitor: networkMonitor,
             environment: environment,
             startsStreamingServices: true,
-            platformProviders: platformProviders
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
         )
         operation.register(clientId: clientId)
         return operation
@@ -93,16 +101,15 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
         environment: AppEnvironment,
         startsStreamingServices: Bool,
         overrideJWTToken: String? = nil,
-        platformProviders: PlatformProviders
+        platformProviders: PlatformProviders,
+        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?,
+        apiClient: (any ConvosAPIClientProtocol)?
     ) {
         let syncingManager = startsStreamingServices ? SyncingManager(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            deviceRegistrationManager: DeviceRegistrationManager(
-                environment: environment,
-                platformProviders: platformProviders
-            )
+            deviceRegistrationManager: deviceRegistrationManager
         ) : nil
         let invitesRepository = InvitesRepository(databaseReader: databaseReader)
         stateMachine = InboxStateMachine(
@@ -114,7 +121,8 @@ final class AuthorizeInboxOperation: AuthorizeInboxOperationProtocol, @unchecked
             networkMonitor: networkMonitor,
             overrideJWTToken: overrideJWTToken,
             environment: environment,
-            appLifecycle: platformProviders.appLifecycle
+            appLifecycle: platformProviders.appLifecycle,
+            apiClient: apiClient
         )
     }
 

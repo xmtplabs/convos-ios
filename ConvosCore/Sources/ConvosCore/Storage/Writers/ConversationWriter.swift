@@ -141,7 +141,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
-                imageLastRenewed: nil
+                imageLastRenewed: nil,
+                isUnused: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -324,7 +325,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageSalt: metadata.imageSalt,
             imageNonce: metadata.imageNonce,
             imageEncryptionKey: metadata.imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: false
         )
     }
 
@@ -418,15 +420,29 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
-        } else {
-            do {
-                try conversationToSave.save(db)
-                firstTimeSeeingConversationExpired = conversationToSave.isExpired
-                actualClientConversationId = conversationToSave.clientConversationId
-            } catch {
-                Log.error("Failed saving incoming conversation \(dbConversation.id): \(error)")
-                throw error
+        } else if let existingConversation {
+            let preferredClientConversationId: String
+            if dbConversation.clientConversationId != existingConversation.clientConversationId {
+                if DBConversation.isDraft(id: dbConversation.clientConversationId) {
+                    preferredClientConversationId = dbConversation.clientConversationId
+                } else {
+                    preferredClientConversationId = existingConversation.clientConversationId
+                }
+            } else {
+                preferredClientConversationId = dbConversation.clientConversationId
             }
+
+            var updatedConversation = conversationToSave.with(clientConversationId: preferredClientConversationId)
+            if existingConversation.isUnused {
+                updatedConversation = updatedConversation.with(isUnused: true)
+            }
+            try updatedConversation.save(db)
+            firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != existingConversation.expiresAt
+            actualClientConversationId = preferredClientConversationId
+        } else {
+            try conversationToSave.save(db)
+            firstTimeSeeingConversationExpired = conversationToSave.isExpired
+            actualClientConversationId = conversationToSave.clientConversationId
         }
 
         if firstTimeSeeingConversationExpired {

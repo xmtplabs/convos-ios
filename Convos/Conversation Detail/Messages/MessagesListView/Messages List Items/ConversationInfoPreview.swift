@@ -16,11 +16,11 @@ struct ConversationInfoPreview: View {
 
                     VStack(spacing: DesignConstants.Spacing.stepHalf) {
                         Text(conversation.displayName)
-                            .font(.headline.weight(.semibold))
+                            .font(.callout.weight(.medium))
                             .foregroundStyle(.colorTextPrimary)
                         if let description = conversation.description, !description.isEmpty {
                             Text(description)
-                                .font(.subheadline.weight(.regular))
+                                .font(.callout)
                                 .foregroundStyle(.colorTextPrimary)
                         }
                     }
@@ -39,6 +39,7 @@ struct ConversationInfoPreview: View {
 
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Image(systemName: "clock.fill")
+                    .accessibilityHidden(true)
 
                 Text("Earlier messages are hidden for privacy")
                     .foregroundStyle(.colorTextSecondary)
@@ -46,6 +47,9 @@ struct ConversationInfoPreview: View {
             }
             .font(.caption)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(conversation.displayName), \(conversation.membersCountString). Earlier messages are hidden for privacy")
+        .accessibilityIdentifier("conversation-info-preview")
         .id("convo-info-\(conversation.id)")
     }
 }

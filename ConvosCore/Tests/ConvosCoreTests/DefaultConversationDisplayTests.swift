@@ -110,7 +110,7 @@ struct DefaultConversationDisplayTests {
         #expect(profiles.formattedNamesString == "Alice, Bob, Somebody")
     }
 
-    @Test("Mixed named and multiple anonymous")
+    @Test("Mixed named and multiple anonymous exceeding limit")
     func mixedNamedAndMultipleAnonymous() {
         let profiles = [
             Profile.mock(name: "Alice"),
@@ -118,7 +118,7 @@ struct DefaultConversationDisplayTests {
             Profile.empty(inboxId: "anon2"),
             Profile.mock(name: "Bob")
         ]
-        #expect(profiles.formattedNamesString == "Alice, Bob, Somebodies")
+        #expect(profiles.formattedNamesString == "Alice, Bob and 2 others")
     }
 
     @Test("One named and one anonymous joined with ampersand")
@@ -370,5 +370,88 @@ struct DefaultConversationDisplayTests {
         } else {
             #expect(Bool(false), "Expected emoji avatar type when no other members have avatars")
         }
+    }
+
+    // MARK: - Member Name Limiting Tests
+
+    @Test("Four named profiles shows three and 1 other")
+    func fourNamedProfilesShowsThreeAndOneOther() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Profile.mock(name: "Bob"),
+            Profile.mock(name: "Charlie"),
+            Profile.mock(name: "David")
+        ]
+        #expect(profiles.formattedNamesString == "Alice, Bob, Charlie and 1 other")
+    }
+
+    @Test("Five named profiles shows three and 2 others")
+    func fiveNamedProfilesShowsThreeAndTwoOthers() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Profile.mock(name: "Bob"),
+            Profile.mock(name: "Charlie"),
+            Profile.mock(name: "David"),
+            Profile.mock(name: "Eve")
+        ]
+        #expect(profiles.formattedNamesString == "Alice, Bob, Charlie and 2 others")
+    }
+
+    @Test("Ten named profiles shows three and 7 others")
+    func tenNamedProfilesShowsThreeAndSevenOthers() {
+        let profiles = (1...10).map { Profile.mock(name: "User\($0)") }
+        #expect(profiles.formattedNamesString == "User1, User10, User2 and 7 others")
+    }
+
+    @Test("Two named with three anonymous shows names and others")
+    func twoNamedThreeAnonymousShowsNamesAndOthers() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Profile.mock(name: "Bob"),
+            Profile.empty(inboxId: "anon1"),
+            Profile.empty(inboxId: "anon2"),
+            Profile.empty(inboxId: "anon3")
+        ]
+        #expect(profiles.formattedNamesString == "Alice, Bob and 3 others")
+    }
+
+    @Test("One named with four anonymous shows name and others")
+    func oneNamedFourAnonymousShowsNameAndOthers() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Profile.empty(inboxId: "anon1"),
+            Profile.empty(inboxId: "anon2"),
+            Profile.empty(inboxId: "anon3"),
+            Profile.empty(inboxId: "anon4")
+        ]
+        #expect(profiles.formattedNamesString == "Alice and 4 others")
+    }
+
+    @Test("Five anonymous profiles shows Somebodies")
+    func fiveAnonymousProfilesShowsSomebodies() {
+        let profiles = (1...5).map { Profile.empty(inboxId: "anon\($0)") }
+        #expect(profiles.formattedNamesString == "Somebodies")
+    }
+
+    @Test("Three named with one anonymous within limit")
+    func threeNamedOneAnonymousWithinLimit() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Profile.mock(name: "Bob"),
+            Profile.empty(inboxId: "anon")
+        ]
+        #expect(profiles.formattedNamesString == "Alice, Bob, Somebody")
+    }
+
+    @Test("Three named with two anonymous exceeds limit")
+    func threeNamedTwoAnonymousExceedsLimit() {
+        let profiles = [
+            Profile.mock(name: "Alice"),
+            Profile.mock(name: "Bob"),
+            Profile.mock(name: "Charlie"),
+            Profile.empty(inboxId: "anon1"),
+            Profile.empty(inboxId: "anon2")
+        ]
+        #expect(profiles.formattedNamesString == "Alice, Bob, Charlie and 2 others")
     }
 }

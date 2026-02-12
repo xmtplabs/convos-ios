@@ -77,6 +77,7 @@ struct RequestPushNotificationsView: View {
                 backgroundColor: buttonBackgroundColor
             )
         )
+        .accessibilityIdentifier("notification-permission-button")
         .transition(.blurReplace)
     }
 }

@@ -65,7 +65,7 @@ struct ClientConversationIdPriorityTests {
 
         let inboxIdA = clientA.inboxID
 
-        // Insert DBInbox record so ConversationWriter can look it up
+        // Insert inbox into database (required by ConversationWriter)
         try await fixtures.databaseManager.dbWriter.write { db in
             try DBInbox(inboxId: inboxIdA, clientId: clientIdA, createdAt: Date()).insert(db)
         }
@@ -130,7 +130,7 @@ struct ClientConversationIdPriorityTests {
 
         let inboxIdA = clientA.inboxID
 
-        // Insert DBInbox record so ConversationWriter can look it up
+        // Insert inbox into database (required by ConversationWriter)
         try await fixtures.databaseManager.dbWriter.write { db in
             try DBInbox(inboxId: inboxIdA, clientId: clientIdA, createdAt: Date()).insert(db)
         }
@@ -195,7 +195,7 @@ struct ClientConversationIdPriorityTests {
 
         let inboxIdA = clientA.inboxID
 
-        // Insert DBInbox record so ConversationWriter can look it up
+        // Insert inbox into database (required by ConversationWriter)
         try await fixtures.databaseManager.dbWriter.write { db in
             try DBInbox(inboxId: inboxIdA, clientId: clientIdA, createdAt: Date()).insert(db)
         }

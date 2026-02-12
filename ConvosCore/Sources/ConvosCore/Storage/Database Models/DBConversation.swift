@@ -48,6 +48,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageNonce: Column = Column(CodingKeys.imageNonce)
         static let imageEncryptionKey: Column = Column(CodingKeys.imageEncryptionKey)
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
+        static let isUnused: Column = Column(CodingKeys.isUnused)
     }
 
     let id: String
@@ -71,6 +72,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageNonce: Data?
     let imageEncryptionKey: Data?
     let imageLastRenewed: Date?
+    let isUnused: Bool
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
         [Columns.creatorId, Columns.id],
@@ -227,7 +229,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -253,7 +256,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -279,7 +283,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -305,7 +310,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -331,7 +337,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -359,7 +366,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -385,7 +393,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -411,7 +420,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -437,7 +447,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -463,7 +474,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -489,7 +501,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -515,7 +528,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -541,7 +555,35 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
+        )
+    }
+
+    func with(isUnused: Bool) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -567,7 +609,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 
@@ -593,7 +636,8 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
         )
     }
 

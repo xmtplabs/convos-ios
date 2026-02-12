@@ -24,34 +24,34 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
         HStack(spacing: DesignConstants.Spacing.step3x) {
             leadingContent()
                 .frame(width: 56.0, height: 56.0)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(title)
-                    .font(isUnread ? .body.weight(.semibold) : .body)
-                    .foregroundColor(.primary)
+                    .font(isUnread ? .body.weight(.medium) : .body)
+                    .foregroundStyle(.colorTextPrimary)
                     .truncationMode(.tail)
                     .lineLimit(1)
 
-                HStack {
-                    subtitle()
-                        .font(.subheadline)
-                        .foregroundColor(isUnread ? .primary : .secondary)
-                        .lineLimit(1)
+                subtitle()
+                    .font(.callout)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Spacer()
-
-                    if isMuted {
-                        Image(systemName: "bell.slash.fill")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-                }
+            if isMuted {
+                Image(systemName: "bell.slash.fill")
+                    .font(.callout)
+                    .foregroundStyle(.colorFillTertiary)
+                    .accessibilityHidden(true)
             }
 
             if isUnread {
                 Circle()
                     .fill(Color.primary)
-                    .frame(width: 12, height: 12)
+                    .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
             }
 
             accessoryContent()
@@ -72,6 +72,16 @@ struct ConversationsListItem: View {
     private var lastMessage: MessagePreview? { conversation.lastMessage }
     private var createdAt: Date { conversation.createdAt }
 
+    private var accessibilityDescription: String {
+        var parts: [String] = [title]
+        if isUnread { parts.append("unread") }
+        if isMuted { parts.append("muted") }
+        if let message = lastMessage {
+            parts.append(message.text)
+        }
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         ListItemView(
             title: title,
@@ -84,7 +94,7 @@ struct ConversationsListItem: View {
                 HStack(spacing: DesignConstants.Spacing.stepX) {
                     if let message = lastMessage {
                         RelativeDateLabel(date: message.createdAt)
-                        Text("•")
+                        Text("·").foregroundStyle(.colorTextTertiary)
                         Text(message.text)
                     } else {
                         RelativeDateLabel(date: createdAt)
@@ -93,6 +103,9 @@ struct ConversationsListItem: View {
             },
             accessoryContent: {}
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityIdentifier("conversation-list-item-\(conversation.id)")
     }
 }
 

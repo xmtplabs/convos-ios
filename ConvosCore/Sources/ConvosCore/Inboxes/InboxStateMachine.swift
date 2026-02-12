@@ -38,8 +38,7 @@ public struct InboxReadyResult: @unchecked Sendable {
 
     /// InboxReadyResult is marked @unchecked Sendable because:
     /// - XMTPClientProvider wraps XMTPiOS.Client which is not Sendable
-    /// - However, XMTP Client is designed for concurrent use (async/await API)
-    /// - All access is properly isolated through actors in the state machine
+    /// - ConvosAPIClient is marked @unchecked Sendable
     public init(client: any XMTPClientProvider, apiClient: any ConvosAPIClientProtocol) {
         self.client = client
         self.apiClient = apiClient
@@ -211,7 +210,8 @@ public actor InboxStateMachine {
         networkMonitor: any NetworkMonitorProtocol,
         overrideJWTToken: String? = nil,
         environment: AppEnvironment,
-        appLifecycle: any AppLifecycleProviding
+        appLifecycle: any AppLifecycleProviding,
+        apiClient: (any ConvosAPIClientProtocol)? = nil
     ) {
         self.initialClientId = clientId
         self._state = .idle(clientId: clientId)
@@ -224,12 +224,17 @@ public actor InboxStateMachine {
         self.environment = environment
         self.appLifecycle = appLifecycle
 
-        // Initialize API client
-        Log.info("Initializing API client (JWT override: \(self.overrideJWTToken != nil))...")
-        self.apiClient = ConvosAPIClientFactory.client(
-            environment: environment,
-            overrideJWTToken: self.overrideJWTToken
-        )
+        // Use provided API client or create a new one
+        if let apiClient {
+            Log.info("Using shared API client")
+            self.apiClient = apiClient
+        } else {
+            Log.info("Initializing API client (JWT override: \(self.overrideJWTToken != nil))...")
+            self.apiClient = ConvosAPIClientFactory.client(
+                environment: environment,
+                overrideJWTToken: self.overrideJWTToken
+            )
+        }
 
         // Set custom XMTP host if provided
         Log.info("XMTP Configuration:")
@@ -925,7 +930,9 @@ public actor InboxStateMachine {
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,
-            deviceSyncEnabled: false
+            deviceSyncEnabled: false,
+            maxDbPoolSize: 10,
+            minDbPoolSize: 3
         )
     }
 

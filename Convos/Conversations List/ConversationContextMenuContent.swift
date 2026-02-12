@@ -15,6 +15,7 @@ func conversationContextMenuContent(
             systemImage: conversation.isPinned ? "pin.slash.fill" : "pin.fill"
         )
     }
+    .accessibilityIdentifier("context-menu-pin")
 
     let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
     Button(action: toggleReadAction) {
@@ -23,6 +24,7 @@ func conversationContextMenuContent(
             systemImage: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill"
         )
     }
+    .accessibilityIdentifier("context-menu-toggle-read")
 
     let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
     Button(action: toggleMuteAction) {
@@ -31,10 +33,12 @@ func conversationContextMenuContent(
             systemImage: conversation.isMuted ? "bell.fill" : "bell.slash.fill"
         )
     }
+    .accessibilityIdentifier("context-menu-toggle-mute")
 
     Divider()
 
     Button(role: .destructive, action: onDelete) {
         Label("Delete", systemImage: "trash")
     }
+    .accessibilityIdentifier("context-menu-delete")
 }

@@ -12,7 +12,8 @@ public enum InboxDeletionProgress: Sendable, Equatable {
 public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Inbox Management
 
-    func addInbox() async -> AnyMessagingService
+    func addInbox() async -> (service: AnyMessagingService, conversationId: String?)
+    func addInboxOnly() async -> AnyMessagingService
     func deleteInbox(clientId: String, inboxId: String) async throws
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
@@ -20,6 +21,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Messaging Services
 
     func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService
+    func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService
 
     // MARK: Factory methods for repositories
 

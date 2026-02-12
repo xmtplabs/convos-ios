@@ -127,13 +127,15 @@ extension XMTPiOS.DecodedMessage {
             guard let contentString = contentReply.content as? String else {
                 throw DecodedMessageDBRepresentationError.mismatchedContentType
             }
+            let isContentEmoji = contentString.allCharactersEmoji
+            let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
             return DBMessageComponents(
                 messageType: .reply,
-                contentType: .text,
+                contentType: isContentEmoji ? .emoji : .text,
                 sourceMessageId: sourceMessageId,
-                emoji: nil,
+                emoji: isContentEmoji ? trimmedContent : nil,
                 attachmentUrls: [],
-                text: contentString,
+                text: isContentEmoji ? nil : contentString,
                 update: nil
             )
         case ContentTypeRemoteAttachment:

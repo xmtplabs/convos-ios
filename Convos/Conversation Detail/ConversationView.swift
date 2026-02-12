@@ -51,8 +51,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onReaction: viewModel.onReaction(emoji:messageId:),
+            onToggleReaction: viewModel.onToggleReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
-            onDoubleTap: viewModel.onDoubleTap(_:),
+            onReply: viewModel.onReply(_:),
+            replyingToMessage: viewModel.replyingToMessage,
+            onCancelReply: viewModel.cancelReply,
             onDisplayNameEndedEditing: {
                 viewModel.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
             },
@@ -110,6 +113,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         Image(systemName: "lock.fill")
                             .foregroundStyle(.colorTextSecondary)
                     }
+                    .accessibilityLabel("Conversation locked")
+                    .accessibilityHint("Tap for lock details")
+                    .accessibilityIdentifier("lock-info-button")
                 } else {
                     switch messagesTopBarTrailingItem {
                     case .share:
@@ -131,6 +137,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         .transaction { transaction in
                             transaction.disablesAnimations = true
                         }
+                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
+                        .accessibilityIdentifier("share-invite-button")
                     case .scan:
                         Button {
                             onScanInviteCode()
@@ -139,6 +147,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         }
                         .buttonBorderShape(.circle)
                         .disabled(!messagesTopBarTrailingItemEnabled)
+                        .accessibilityLabel("Scan invite code")
+                        .accessibilityIdentifier("scan-invite-button")
                     }
                 }
             }
@@ -148,8 +158,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel: viewModel,
                 quicknameViewModel: quicknameViewModel
             )
-            .background(.colorBackgroundPrimary)
-            .interactiveDismissDisabled(viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance)
+            .background(.colorBackgroundSurfaceless)
+            .interactiveDismissDisabled(viewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
             NavigationStack {
@@ -171,7 +181,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $showingLockedInfo) {
             LockedConvoInfoView(
                 isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                onUnlock: {
+                isLocked: viewModel.isLocked,
+                onLock: {
                     viewModel.toggleLock()
                     showingLockedInfo = false
                 },

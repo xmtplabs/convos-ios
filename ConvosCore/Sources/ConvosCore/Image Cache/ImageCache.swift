@@ -237,14 +237,9 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         let identifier = object.imageCacheIdentifier
 
         guard let url = object.imageCacheURL else {
-            // URL became nil - clear cache and notify views
-            let tracking = await urlTracker.track(nil, for: identifier)
-            if tracking.changed {
-                cache.removeObject(forKey: identifier as NSString)
-                await removeImageFromDisk(identifier: identifier)
-                cacheUpdateSubject.send(identifier)
-            }
-            return nil
+            // URL is nil - return cached image if available, don't clear
+            // (Image might be locally staged for upload, or caller should use removeImage() explicitly)
+            return await loadImageFromCache(identifier: identifier, source: "loadImage (nil URL)")
         }
 
         if object.isEncryptedImage {
@@ -314,6 +309,17 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         if let networkImage = await fetchImageFromNetwork(url: url, identifier: identifier) {
             _ = await urlTracker.track(url, for: identifier)
             return networkImage
+        }
+        return nil
+    }
+
+    private func loadImageFromCache(identifier: String, source: String) async -> UIImage? {
+        if let memoryImage = cache.object(forKey: identifier as NSString) {
+            return memoryImage
+        }
+        if let diskImage = await loadImageFromDisk(identifier: identifier, imageFormat: .jpg) {
+            cacheImageInMemory(diskImage, key: identifier, cache: cache, logContext: source)
+            return diskImage
         }
         return nil
     }

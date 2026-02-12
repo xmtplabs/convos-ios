@@ -43,6 +43,8 @@ struct ConversationMemberView: View {
                         Text("Block")
                             .foregroundStyle(.colorCaution)
                     }
+                    .accessibilityLabel("Block \(member.profile.displayName)")
+                    .accessibilityIdentifier("block-member-button")
                     .confirmationDialog("", isPresented: $presentingBlockConfirmation) {
                         Button("Block and leave", role: .destructive) {
                             viewModel.leaveConvo()
@@ -66,12 +68,16 @@ struct ConversationMemberView: View {
                             Text("Remove")
                                 .foregroundStyle(.colorTextSecondary)
                         }
+                        .accessibilityLabel("Remove \(member.profile.displayName)")
+                        .accessibilityIdentifier("remove-member-button")
                     } footer: {
                         Text("Remove \(member.profile.displayName.capitalized) from the convo")
                     }
                 }
             }
         }
+        .scrollContentBackground(.hidden)
+        .background(.colorBackgroundRaisedSecondary)
     }
 }
 

@@ -242,7 +242,8 @@ private extension AssetRenewalURLCollectorTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: false
         )
     }
 }

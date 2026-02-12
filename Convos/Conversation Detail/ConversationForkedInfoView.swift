@@ -48,6 +48,8 @@ struct ConversationForkedInfoView: View {
             }
         }
         .padding(DesignConstants.Spacing.step10x)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("conversation-forked-info")
     }
 }
 

@@ -1,5 +1,5 @@
 {
-  "originHash" : "1ffe6b5e21ea9646820fc89c60c6916b1bbb690d242f6f8cc9d0b23938c30f20",
+  "originHash" : "8525519bbe8a9428a092b43e0d86549df75d7d6da42008a66a61bef5933e2542",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -146,6 +146,15 @@
       }
     },
     {
+      "identity" : "libxmtp",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/xmtp/libxmtp.git",
+      "state" : {
+        "branch" : "ios-4.9.0-dev.6ecd439",
+        "revision" : "297e684d07e78f87da617be80565359c315ba6f0"
+      }
+    },
+    {
       "identity" : "nanopb",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/firebase/nanopb.git",
@@ -245,30 +254,12 @@
       }
     },
     {
-      "identity" : "swiftlintplugins",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/SimplyDanny/SwiftLintPlugins",
-      "state" : {
-        "revision" : "ecafb5b056cb7995324f0d310a61f30661d00cad",
-        "version" : "0.62.2"
-      }
-    },
-    {
       "identity" : "swiftui-introspect",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/siteline/swiftui-introspect.git",
       "state" : {
         "revision" : "9bedf1e79c7b7c34b35b74bef126f56d2400ef7f",
         "version" : "1.4.0-beta.4"
-      }
-    },
-    {
-      "identity" : "xmtp-ios",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/xmtp/xmtp-ios.git",
-      "state" : {
-        "revision" : "fce3ad0a3381ecc08cb305b60c70b888db8c2284",
-        "version" : "4.9.0-dev.fce3ad0"
       }
     }
   ],

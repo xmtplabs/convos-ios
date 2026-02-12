@@ -19,7 +19,7 @@ help: ## Print comprehensive help for all commands
 	@echo "   make version         - Show current version from Xcode project"
 	@echo "   make dry-run-release - Test release workflow with confirmation"
 	@echo "   make dry-run-release-quick - Quick test without confirmation"
-	@echo "   make tag-release     - Create and push a release tag (triggers GitHub Actions and Bitrise build for dev)"
+	@echo "   make tag-release     - Create release branch and PR (tag created automatically on merge)"
 	@echo "   make promote-release - Fast-forward merge dev to main (after tag-release, triggers Bitrise build for prod)"
 	@echo ""
 	@echo "🔧 Setup & Maintenance:"
@@ -40,7 +40,7 @@ help: ## Print comprehensive help for all commands
 	@echo ""
 	@echo "🔄 Release Process:"
 	@echo "   1. Feature branches → dev"
-	@echo "   2. Create release: make tag-release (triggers GitHub Actions and Bitrise build for dev)"
+	@echo "   2. Create release: make tag-release (creates PR, merge triggers tag + GitHub Release)"
 	@echo "   3. Promote release: make promote-release (dev → main, triggers Bitrise build for prod)"
 	@echo "   4. Main → App Store (after review and approval)"
 
@@ -104,7 +104,7 @@ protobuf: ## Generate Swift code from Protocol Buffer definitions
 	@ConvosCore/Sources/ConvosCore/Protobuf\ Models/proto/generate_swift.sh
 
 .PHONY: tag-release
-tag-release: ## Create and push a release tag (triggers GitHub Actions)
+tag-release: ## Create release branch and PR (tag created automatically on merge)
 	./Scripts/create-release-tag.sh
 
 .PHONY: promote-release

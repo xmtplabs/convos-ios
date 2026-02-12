@@ -56,12 +56,29 @@ struct ConversationsView: View {
         )
     }
 
+    var filteredEmptyStateView: some View {
+        FilteredEmptyStateView(
+            message: viewModel.activeFilter.emptyStateMessage,
+            onShowAll: { viewModel.activeFilter = .all }
+        )
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.top, DesignConstants.Spacing.step6x)
+    }
+
     var conversationsList: some View {
         List(selection: $viewModel.selectedConversationId) {
             if !viewModel.pinnedConversations.isEmpty {
                 Color.clear.frame(height: pinnedSectionHeight)
                     .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
                     .listRowSeparator(.hidden)
+            }
+
+            if viewModel.isFilteredResultEmpty {
+                filteredEmptyStateView
+                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
+                    .listRowSeparator(.hidden)
+                    .listRowBackground(Color.clear)
             }
 
             ForEach(viewModel.unpinnedConversations, id: \.id) { conversation in
@@ -106,6 +123,7 @@ struct ConversationsView: View {
                     Image(systemName: "trash")
                 }
                 .tint(.colorCaution)
+                .accessibilityLabel("Delete conversation")
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
@@ -113,12 +131,14 @@ struct ConversationsView: View {
                     Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
                 }
                 .tint(.colorFillSecondary)
+                .accessibilityLabel(conversation.isUnread ? "Mark as read" : "Mark as unread")
 
                 let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
                 Button(action: toggleMuteAction) {
                     Image(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
                 }
                 .tint(.colorPurpleMute)
+                .accessibilityLabel(conversation.isMuted ? "Unmute" : "Mute")
             }
             .confirmationDialog(
                 "This convo will be deleted immediately.",
@@ -166,8 +186,12 @@ struct ConversationsView: View {
             NavigationSplitView {
                 ZStack(alignment: .top) {
                     Group {
-                        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+                        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
                             emptyConversationsViewScrollable
+                        } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+                            ScrollView {
+                                filteredEmptyStateView
+                            }
                         } else {
                             conversationsList
                         }
@@ -204,13 +228,15 @@ struct ConversationsView: View {
                 } action: { newValue in
                     sidebarWidth = newValue.width
                 }
-                .background(.colorBackgroundPrimary)
+                .background(.colorBackgroundSurfaceless)
                 .toolbarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
                         ConvosToolbarButton(padding: false) {
                             presentingAppSettings = true
                         }
+                        .accessibilityLabel("Convos settings")
+                        .accessibilityIdentifier("app-settings-button")
                     }
                     .matchedTransitionSource(
                         id: "app-settings-transition-source",
@@ -239,11 +265,14 @@ struct ConversationsView: View {
                                 }
                             }
                         } label: {
-                            Label(
-                                "Filter",
-                                systemImage: viewModel.activeFilter == .unread ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease"
-                            )
-                            .foregroundStyle(viewModel.activeFilter == .unread ? .blue : .primary)
+                            Image(systemName: "line.3.horizontal.decrease")
+                                .foregroundStyle(viewModel.activeFilter == .unread ? .colorTextPrimaryInverted : .colorFillPrimary)
+                                .frame(width: 32, height: 32)
+                                .background(viewModel.activeFilter == .unread ? .colorFillPrimary : .clear)
+                                .mask(Circle())
+                                .overlay(Circle().stroke(viewModel.activeFilter == .unread ? .colorFillPrimary : .clear, lineWidth: 2))
+                                .accessibilityLabel(viewModel.activeFilter == .unread ? "Filter, showing unread" : "Filter conversations")
+                                .accessibilityIdentifier("filter-button")
                         }
                         .disabled(!viewModel.hasUnpinnedConversations)
                     }
@@ -260,6 +289,8 @@ struct ConversationsView: View {
                         Button("Scan", systemImage: "viewfinder") {
                             viewModel.onJoinConvo()
                         }
+                        .accessibilityLabel("Scan to join a conversation")
+                        .accessibilityIdentifier("scan-button")
                     }
                     .matchedTransitionSource(
                         id: "composer-transition-source",
@@ -270,6 +301,8 @@ struct ConversationsView: View {
                         Button("Compose", systemImage: "square.and.pencil") {
                             viewModel.onStartConvo()
                         }
+                        .accessibilityLabel("Start a new conversation")
+                        .accessibilityIdentifier("compose-button")
                     }
                     .matchedTransitionSource(
                         id: "composer-transition-source",
@@ -319,8 +352,8 @@ struct ConversationsView: View {
                 viewModel: newConvoViewModel,
                 quicknameViewModel: quicknameViewModel
             )
-            .background(.colorBackgroundPrimary)
-            .interactiveDismissDisabled(newConvoViewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance)
+            .background(.colorBackgroundSurfaceless)
+            .interactiveDismissDisabled(newConvoViewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true)
             .navigationTransition(
                 .zoom(
                     sourceID: "composer-transition-source",

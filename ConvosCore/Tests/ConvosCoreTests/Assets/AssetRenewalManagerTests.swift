@@ -444,7 +444,8 @@ private extension AssetRenewalManagerTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
-            imageLastRenewed: imageLastRenewed
+            imageLastRenewed: imageLastRenewed,
+            isUnused: false
         )
     }
 }

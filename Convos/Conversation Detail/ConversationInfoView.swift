@@ -68,9 +68,9 @@ struct ConversationInfoView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var showingExplodeConfirmation: Bool = false
     @State private var presentingEditView: Bool = false
-    @State private var showingLockConfirmation: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
+    @State private var presentingShareView: Bool = false
     @State private var exportedLogsURL: URL?
 
     private let maxMembersToShow: Int = 6
@@ -84,29 +84,31 @@ struct ConversationInfoView: View {
 
     @ViewBuilder
     private var convoCodeRow: some View {
-        let isUnavailable = viewModel.isLocked || viewModel.isFull
-        let subtitle = if isUnavailable {
-            "None"
+        if viewModel.isLocked && !viewModel.isCurrentUserSuperAdmin {
+            EmptyView()
         } else {
-            "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
-        }
-
-        if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
-            // Entire row is ShareLink when available
-            ShareLink(item: inviteURL) {
-                convoCodeRowContent(subtitle: subtitle, showShareIcon: true)
+            let isUnavailable = viewModel.isLocked || viewModel.isFull
+            let subtitle = if isUnavailable {
+                "None"
+            } else {
+                "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
             }
-            .buttonStyle(.plain)
-        } else {
-            // Row with tap gesture for "full" alert
-            convoCodeRowContent(subtitle: subtitle, showShareIcon: false)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if viewModel.isFull {
-                        showingFullInfo = true
-                    }
+
+            if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
+                ShareLink(item: inviteURL) {
+                    convoCodeRowContent(subtitle: subtitle, showShareIcon: true)
                 }
-                .opacity(viewModel.isLocked ? 0.5 : 1.0)
+                .buttonStyle(.plain)
+            } else {
+                convoCodeRowContent(subtitle: subtitle, showShareIcon: false)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if viewModel.isFull {
+                            showingFullInfo = true
+                        }
+                    }
+                    .opacity(viewModel.isLocked ? 0.5 : 1.0)
+            }
         }
     }
 
@@ -148,35 +150,25 @@ struct ConversationInfoView: View {
 
     @ViewBuilder
     private var lockRow: some View {
-        FeatureRowItem(
-            imageName: nil,
-            symbolName: "lock.fill",
-            title: "Lock",
-            subtitle: "Nobody new can join",
-            iconBackgroundColor: .colorFillMinimal,
-            iconForegroundColor: .colorTextPrimary
-        ) {
-            if viewModel.isCurrentUserSuperAdmin {
+        if viewModel.isCurrentUserSuperAdmin {
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "lock.fill",
+                title: "Lock",
+                subtitle: "Nobody new can join",
+                iconBackgroundColor: .colorFillMinimal,
+                iconForegroundColor: .colorTextPrimary
+            ) {
                 Toggle("", isOn: Binding(
                     get: { viewModel.isLocked },
-                    set: { newValue in
-                        if newValue {
-                            showingLockConfirmation = true
-                        } else {
-                            showingLockedInfo = true
-                        }
+                    set: { _ in
+                        showingLockedInfo = true
                     }
                 ))
                 .labelsHidden()
-            } else {
-                Toggle("", isOn: .constant(viewModel.isLocked))
-                    .labelsHidden()
-                    .disabled(true)
-                    .onTapGesture {
-                        if viewModel.isLocked {
-                            showingLockedInfo = true
-                        }
-                    }
+                .accessibilityLabel("Lock conversation")
+                .accessibilityValue(viewModel.isLocked ? "locked" : "unlocked")
+                .accessibilityIdentifier("lock-toggle")
             }
         }
     }
@@ -214,6 +206,8 @@ struct ConversationInfoView: View {
                                 .buttonStyle(.bordered)
                                 .hoverEffect(.lift)
                                 .padding(.top, DesignConstants.Spacing.step2x)
+                                .accessibilityLabel("Edit conversation info")
+                                .accessibilityIdentifier("edit-info-button")
                                 .sheet(isPresented: $presentingEditView) {
                                     ConversationInfoEditView(viewModel: viewModel, focusCoordinator: focusCoordinator)
                                 }
@@ -249,9 +243,6 @@ struct ConversationInfoView: View {
                     convoCodeRow
 
                     lockRow
-                } footer: {
-                    Text("No one new can join the convo when it's locked")
-                        .foregroundStyle(.colorTextSecondary)
                 }
 
                 Section {
@@ -263,6 +254,9 @@ struct ConversationInfoView: View {
                     ) {
                         Toggle("", isOn: $viewModel.notificationsEnabled)
                             .labelsHidden()
+                            .accessibilityLabel("Notifications")
+                            .accessibilityValue(viewModel.notificationsEnabled ? "on" : "off")
+                            .accessibilityIdentifier("notifications-toggle")
                     }
 
                     FeatureRowItem(
@@ -293,7 +287,7 @@ struct ConversationInfoView: View {
                     }
                 } header: {
                     Text("Personal preferences")
-                        .font(.footnote.weight(.semibold))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -308,7 +302,7 @@ struct ConversationInfoView: View {
                     }
                 } header: {
                     Text("Convo rules")
-                        .font(.footnote.weight(.semibold))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -380,7 +374,7 @@ struct ConversationInfoView: View {
                         }
                     } header: {
                         Text("Debug info")
-                            .font(.footnote.weight(.semibold))
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(.colorTextSecondary)
                     }
                     .task {
@@ -402,6 +396,9 @@ struct ConversationInfoView: View {
                             Text("Explode now")
                                 .foregroundStyle(.colorCaution)
                         }
+                        .accessibilityLabel("Explode conversation")
+                        .accessibilityHint("Irrecoverably deletes the conversation for everyone")
+                        .accessibilityIdentifier("explode-now-button")
                         .confirmationDialog("", isPresented: $showingExplodeConfirmation) {
                             Button("Explode", role: .destructive) {
                                 viewModel.explodeConvo()
@@ -417,6 +414,8 @@ struct ConversationInfoView: View {
                     }
                 }
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundRaisedSecondary)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -424,23 +423,44 @@ struct ConversationInfoView: View {
                         dismiss()
                     }
                 }
-            }
-            .selfSizingSheet(isPresented: $showingLockConfirmation) {
-                LockConvoConfirmationView(
-                    onLock: {
-                        viewModel.toggleLock()
-                        showingLockConfirmation = false
-                    },
-                    onCancel: {
-                        showingLockConfirmation = false
+                ToolbarItem(placement: .topBarTrailing) {
+                    if viewModel.isLocked {
+                        Button {
+                            showingLockedInfo = true
+                        } label: {
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                        .accessibilityLabel("Conversation locked")
+                        .accessibilityIdentifier("info-lock-button")
+                    } else {
+                        Button {
+                            if viewModel.isFull {
+                                showingFullInfo = true
+                            } else {
+                                presentingShareView = true
+                            }
+                        } label: {
+                            Image(systemName: "square.and.arrow.up")
+                                .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
+                        }
+                        .fullScreenCover(isPresented: $presentingShareView) {
+                            ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
+                                .presentationBackground(.clear)
+                        }
+                        .transaction { transaction in
+                            transaction.disablesAnimations = true
+                        }
+                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
+                        .accessibilityIdentifier("info-share-button")
                     }
-                )
-                .background(.colorBackgroundRaised)
+                }
             }
             .selfSizingSheet(isPresented: $showingLockedInfo) {
                 LockedConvoInfoView(
                     isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                    onUnlock: {
+                    isLocked: viewModel.isLocked,
+                    onLock: {
                         viewModel.toggleLock()
                         showingLockedInfo = false
                     },

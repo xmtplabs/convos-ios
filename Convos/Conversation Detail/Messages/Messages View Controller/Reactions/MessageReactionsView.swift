@@ -42,7 +42,7 @@ struct MessageReactionsView: View {
                 )
             }
             .frame(width: containerWidth, height: Constant.height)
-            .background(.colorBackgroundPrimary)
+            .background(.colorBackgroundSurfaceless)
             .clipShape(Capsule())
             .shadow(
                 color: Color.black.opacity(0.15),
@@ -124,6 +124,7 @@ struct MessageReactionsView: View {
                             )
                     }
                     .disabled(viewModel.viewState.hidesContent)
+                    .accessibilityLabel("React with \(reaction.emoji)")
                     .scaleEffect(
                         (viewModel.selectedEmoji == nil ? Constant.popScaleNormal : Constant.collapsedScale)
                     )
@@ -270,6 +271,8 @@ struct MessageReactionsView: View {
                     .degrees(viewModel.viewState.isCompact ? Constant.plusRotationCollapsed : 0.0)
                 )
         }
+        .accessibilityLabel(viewModel.viewState.isCompact ? "Show more reactions" : "Show fewer reactions")
+        .accessibilityIdentifier("reactions-expand-collapse")
         .frame(minWidth: contentHeight)
         .padding(.trailing, Constant.plusTrailingPadding)
         .scaleEffect(

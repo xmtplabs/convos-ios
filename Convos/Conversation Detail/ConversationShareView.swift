@@ -55,7 +55,7 @@ struct ConversationShareView: View {
                                 .offset(y: 5.0) // qr code is generated with some padding
                                 .foregroundStyle(.colorTextSecondary)
                                 .textCase(.uppercase)
-                                .font(.caption2)
+                                .font(.caption)
                                 .frame(height: DesignConstants.Spacing.step10x)
 
                                 if let inviteURL = invite.inviteURL {
@@ -64,6 +64,8 @@ struct ConversationShareView: View {
                                         centerImage: conversationImage
                                     )
                                     .padding([.leading, .trailing, .bottom], DesignConstants.Spacing.step10x)
+                                    .accessibilityLabel("Share QR code for conversation invite")
+                                    .accessibilityIdentifier("share-qr-code")
                                 }
                             }
                             .background(.white)
