@@ -149,38 +149,6 @@ struct ConversationInfoView: View {
     }
 
     @ViewBuilder
-    private func explosionCountdownRow(expiresAt: Date) -> some View {
-        TimelineView(.periodic(from: .now, by: 1.0)) { context in
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                Group {
-                    Image(systemName: "burst")
-                        .font(.headline)
-                        .padding(.horizontal, DesignConstants.Spacing.step2x)
-                        .padding(.vertical, DesignConstants.Spacing.step3x)
-                        .foregroundStyle(.white)
-                }
-                .frame(width: DesignConstants.Spacing.step10x, height: DesignConstants.Spacing.step10x)
-                .background(
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .fill(Color.colorCaution)
-                        .aspectRatio(1.0, contentMode: .fit)
-                )
-
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text("Explodes in")
-                        .font(.body)
-                        .foregroundStyle(.colorTextPrimary)
-                    Text(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))
-                        .font(.headline.monospacedDigit())
-                        .foregroundStyle(.colorCaution)
-                }
-
-                Spacer()
-            }
-        }
-    }
-
-    @ViewBuilder
     private var lockRow: some View {
         if viewModel.isCurrentUserSuperAdmin {
             FeatureRowItem(
@@ -279,21 +247,14 @@ struct ConversationInfoView: View {
 
                 if viewModel.canRemoveMembers {
                     Section {
-                        if let expiresAt = viewModel.scheduledExplosionDate {
-                            explosionCountdownRow(expiresAt: expiresAt)
-                        }
-
-                        let action = { showingExplodeSheet = true }
-                        Button(action: action) {
-                            Text(viewModel.isExplosionScheduled ? "Explode now" : "Explode")
-                                .foregroundStyle(.colorCaution)
-                        }
+                        ExplodeInfoRow(
+                            scheduledExplosionDate: viewModel.scheduledExplosionDate,
+                            onTap: { showingExplodeSheet = true },
+                            onExplodeNow: { viewModel.explodeConvo() }
+                        )
                     } footer: {
                         if viewModel.isExplosionScheduled {
                             Text("This convo will be deleted for everyone when the timer runs out")
-                                .foregroundStyle(.colorTextSecondary)
-                        } else {
-                            Text("Choose when this convo will be deleted for everyone")
                                 .foregroundStyle(.colorTextSecondary)
                         }
                     }
