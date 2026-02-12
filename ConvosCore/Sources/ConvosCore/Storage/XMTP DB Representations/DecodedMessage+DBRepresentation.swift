@@ -52,6 +52,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleReplyContent()
         case ContentTypeReaction, ContentTypeReactionV2:
             components = try handleReactionContent()
+        case ContentTypeAttachment:
+            components = try handleAttachmentContent()
         case ContentTypeMultiRemoteAttachment:
             components = try handleMultiRemoteAttachmentContent()
         case ContentTypeRemoteAttachment:
@@ -139,6 +141,23 @@ extension XMTPiOS.DecodedMessage {
                 text: isContentEmoji ? nil : contentString,
                 update: nil
             )
+        case ContentTypeAttachment:
+            guard let attachment = contentReply.content as? Attachment else {
+                throw DecodedMessageDBRepresentationError.mismatchedContentType
+            }
+            guard attachment.mimeType.hasPrefix("image/") else {
+                throw DecodedMessageDBRepresentationError.unsupportedContentType
+            }
+            let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
+            return DBMessageComponents(
+                messageType: .reply,
+                contentType: .attachments,
+                sourceMessageId: sourceMessageId,
+                emoji: nil,
+                attachmentUrls: [fileURL.absoluteString],
+                text: nil,
+                update: nil
+            )
         case ContentTypeRemoteAttachment:
             guard let remoteAttachment = contentReply.content as? RemoteAttachment else {
                 throw DecodedMessageDBRepresentationError.mismatchedContentType
@@ -189,6 +208,38 @@ extension XMTPiOS.DecodedMessage {
             text: nil,
             update: nil
         )
+    }
+
+    private func handleAttachmentContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let attachment = content as? Attachment else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        guard attachment.mimeType.hasPrefix("image/") else {
+            throw DecodedMessageDBRepresentationError.unsupportedContentType
+        }
+        let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .attachments,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [fileURL.absoluteString],
+            text: nil,
+            update: nil
+        )
+    }
+
+    private static func saveInlineAttachment(data: Data, messageId: String, filename: String) throws -> URL {
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let dir = cacheDir.appendingPathComponent("InlineAttachments", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safeFilename = "\(messageId)_\(filename)".replacingOccurrences(of: "/", with: "_")
+        let fileURL = dir.appendingPathComponent(safeFilename)
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
     }
 
     private func handleMultiRemoteAttachmentContent() throws -> DBMessageComponents {
