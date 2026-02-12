@@ -17,7 +17,13 @@ struct ReplyReferenceView: View {
         switch parentMessage.content {
         case .text(let text):
             return String(text.prefix(80))
-        default:
+        case .emoji(let emoji):
+            return emoji
+        case .attachment, .attachments:
+            return "photo"
+        case .invite:
+            return "invite"
+        case .update:
             return ""
         }
     }

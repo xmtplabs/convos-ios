@@ -299,7 +299,7 @@ private struct AttachmentPlaceholder: View {
     @State private var loadError: Error?
     @State private var showingSaveSuccess: Bool = false
     @State private var showingSaveError: Bool = false
-    @State private var isPressed: Bool = false
+    @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
 
