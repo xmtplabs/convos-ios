@@ -103,20 +103,21 @@ struct ReplyReferenceView: View {
                         .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 }
             } else {
-                Text(previewText)
-                    .font(.footnote)
-                    .foregroundStyle(.colorTextSecondary)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-                    .padding(.vertical, DesignConstants.Spacing.step2x)
-                    .frame(maxWidth: C.maxReplyPreviewWidth, alignment: .leading)
-                    .background(
-                        RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
-                            .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
-                    )
-                    .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
-                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
+                HStack(spacing: 0) {
+                    if isOutgoing {
+                        Spacer()
+                            .frame(minWidth: 50)
+                            .layoutPriority(-1)
+                    }
+                    replyTextPreview
+                    if !isOutgoing {
+                        Spacer()
+                            .frame(minWidth: 50)
+                            .layoutPriority(-1)
+                    }
+                }
+                .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
+                .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             }
         }
         .padding(.top, DesignConstants.Spacing.stepX)
@@ -125,8 +126,22 @@ struct ReplyReferenceView: View {
         .accessibilityLabel("Reply to \(parentMessage.sender.profile.displayName): \(previewText)")
     }
 
+    private var replyTextPreview: some View {
+        Text(previewText)
+            .font(.footnote)
+            .foregroundStyle(.colorTextSecondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .background(
+                RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius)
+                    .strokeBorder(.colorBorderSubtle, lineWidth: 1.0)
+            )
+    }
+
     private enum C {
-        static let maxReplyPreviewWidth: CGFloat = 250
+        static let maxReplyPreviewTextWidth: CGFloat = 220
     }
 }
 
