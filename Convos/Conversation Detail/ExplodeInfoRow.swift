@@ -8,7 +8,8 @@ struct ExplodeInfoRow: View {
 
     @State private var isPressing: Bool = false
     @State private var isHolding: Bool = false
-    @State private var holdProgress: CGFloat = 0
+    @State private var pressStartDate: Date?
+    @State private var frozenProgress: Double = 0
     @State private var didFire: Bool = false
 
     var body: some View {
@@ -57,10 +58,52 @@ struct ExplodeInfoRow: View {
 
     @ViewBuilder
     private func scheduledContent(expiresAt: Date) -> some View {
-        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+        TimelineView(.periodic(from: .now, by: 1.0)) { clockContext in
             let countdownText = ExplosionDurationFormatter.countdown(
-                until: expiresAt, from: context.date
+                until: expiresAt, from: clockContext.date
             )
+            holdableRow(countdownText: countdownText)
+        }
+        .contentShape(Rectangle())
+        .onLongPressGesture(
+            minimumDuration: Constant.holdDuration,
+            maximumDistance: Constant.maxDistance,
+            perform: {
+                guard !didFire else { return }
+                didFire = true
+                frozenProgress = 1.0
+                pressStartDate = nil
+                onExplodeNow()
+            },
+            onPressingChanged: { pressing in
+                isPressing = pressing
+                if pressing {
+                    didFire = false
+                    pressStartDate = Date()
+                    frozenProgress = 0
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isHolding = true
+                    }
+                } else if !didFire {
+                    withAnimation(.easeOut(duration: 0.18)) {
+                        isHolding = false
+                        frozenProgress = 0
+                    }
+                    pressStartDate = nil
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private func holdableRow(countdownText: String) -> some View {
+        TimelineView(.animation(paused: !isPressing)) { context in
+            let holdProgress: Double = {
+                if let start = pressStartDate {
+                    return min(1.0, context.date.timeIntervalSince(start) / Constant.holdDuration)
+                }
+                return frozenProgress
+            }()
 
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 ZStack {
@@ -102,33 +145,6 @@ struct ExplodeInfoRow: View {
                 Spacer()
             }
         }
-        .contentShape(Rectangle())
-        .onLongPressGesture(
-            minimumDuration: Constant.holdDuration,
-            maximumDistance: Constant.maxDistance,
-            perform: {
-                guard !didFire else { return }
-                didFire = true
-                onExplodeNow()
-            },
-            onPressingChanged: { pressing in
-                isPressing = pressing
-                if pressing {
-                    didFire = false
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        isHolding = true
-                    }
-                    withAnimation(.linear(duration: Constant.holdDuration)) {
-                        holdProgress = 1.0
-                    }
-                } else if !didFire {
-                    withAnimation(.easeOut(duration: 0.18)) {
-                        isHolding = false
-                        holdProgress = 0
-                    }
-                }
-            }
-        )
     }
 
     private enum Constant {
