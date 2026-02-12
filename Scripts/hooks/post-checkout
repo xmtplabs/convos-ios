@@ -13,11 +13,11 @@ if [ "${3}" == "0" ]; then exit; fi
 # if same commit before and after checkout then do nothing
 if [ "${1}" == "${2}" ]; then exit; fi
 
-# Copy .env from main repo to worktree if it doesn't exist yet
+# Symlink .env from main repo to worktree if it doesn't exist yet
 main_repo="$(git rev-parse --git-common-dir | sed 's|/\.git$||')"
-if [ "$main_repo" != "$git_root" ] && [ -f "$main_repo/.env" ] && [ ! -f "$git_root/.env" ]; then
-    cp "$main_repo/.env" "$git_root/.env"
-    echo "📋 Copied .env from main repo to worktree"
+if [ "$main_repo" != "$git_root" ] && [ -f "$main_repo/.env" ] && [ ! -e "$git_root/.env" ]; then
+    ln -s "$main_repo/.env" "$git_root/.env"
+    echo "🔗 Symlinked .env from main repo to worktree"
 fi
 
 # Git

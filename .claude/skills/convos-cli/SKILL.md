@@ -37,6 +37,9 @@ convos init --force
 This creates a `.env` file with:
 
 - `CONVOS_ENV` - Network environment (local, dev, production)
+- `CONVOS_UPLOAD_PROVIDER` - Upload provider for attachments (e.g., `pinata`)
+- `CONVOS_UPLOAD_PROVIDER_TOKEN` - Authentication token for upload provider
+- `CONVOS_UPLOAD_PROVIDER_GATEWAY` - Custom gateway URL for upload provider
 
 **Note:** Unlike standard XMTP, there is no global wallet key. Each conversation creates its own identity stored in `~/.convos/identities/`.
 
@@ -104,7 +107,58 @@ convos conversation send-reaction <conversation-id> <message-id> remove "👍"
 
 # send a reply referencing another message
 convos conversation send-reply <conversation-id> <message-id> "Replying to you"
+
+# reply with a photo
+convos conversation send-reply <conversation-id> <message-id> --file ./photo.jpg
+
+# reply with a large file (auto-uploaded via provider)
+convos conversation send-reply <conversation-id> <message-id> --file ./video.mp4
 ```
+
+### Send Attachments
+
+```bash
+# send a photo (small files ≤1MB sent inline, large files auto-uploaded via provider)
+convos conversation send-attachment <conversation-id> ./photo.jpg
+
+# force remote upload even for small files
+convos conversation send-attachment <conversation-id> ./photo.jpg --remote
+
+# override MIME type
+convos conversation send-attachment <conversation-id> ./file.bin --mime-type image/png
+
+# use upload provider via flags (no .env needed)
+convos conversation send-attachment <conversation-id> ./photo.jpg \
+  --upload-provider pinata --upload-provider-token <jwt>
+
+# encrypt only — outputs encrypted file + decryption keys for manual upload
+convos conversation send-attachment <conversation-id> ./photo.jpg --encrypt
+
+# send a pre-uploaded encrypted file with decryption keys
+convos conversation send-remote-attachment <conversation-id> <url> \
+  --content-digest <hex> --secret <base64> --salt <base64> \
+  --nonce <base64> --content-length <bytes> --filename photo.jpg
+
+# download an attachment (handles both inline and remote transparently)
+convos conversation download-attachment <conversation-id> <message-id>
+
+# download to a specific path
+convos conversation download-attachment <conversation-id> <message-id> --output ./photo.jpg
+
+# save encrypted payload without decrypting
+convos conversation download-attachment <conversation-id> <message-id> --raw
+```
+
+To enable automatic upload for large files, configure a provider in your `.env`:
+
+```bash
+CONVOS_UPLOAD_PROVIDER=pinata
+CONVOS_UPLOAD_PROVIDER_TOKEN=<your-pinata-jwt>
+# Optional: custom gateway URL
+CONVOS_UPLOAD_PROVIDER_GATEWAY=https://your-gateway.mypinata.cloud
+```
+
+Supported upload providers: `pinata`
 
 ### Read Messages
 
@@ -392,10 +446,11 @@ convos conversation stream "$CONV_ID" --timeout 300
 
 ## Tips
 
-1. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
-2. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
-3. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
-4. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
-5. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
-6. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
-7. **Check command help**: Run `convos <command> --help` for full flag documentation
+1. **Always display the full QR code**: The `conversation invite` and `conversations create` commands output a scannable QR code rendered in Unicode block characters followed by the invite URL. When showing the user the result, you **must** display the complete, unmodified command output so the QR code renders correctly in the terminal. Do not summarize, truncate, or omit the QR code — it is the primary way users share invites. Always show the full stdout output to the user.
+2. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
+3. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
+4. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
+5. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
+6. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
+7. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
+8. **Check command help**: Run `convos <command> --help` for full flag documentation
