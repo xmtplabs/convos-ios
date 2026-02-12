@@ -121,3 +121,4 @@ iOSInjectionProject/
 .claude/task-simulator.json
 *.profraw
 .simulator-setup.log
+qa/reports/
