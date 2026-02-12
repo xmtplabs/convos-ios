@@ -61,59 +61,60 @@ struct ExplodeConvoSheet: View {
     }
 
     private var cardContent: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text("Start an unstoppable countdown")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
+        GlassEffectContainer {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                Text("Start an unstoppable countdown")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextSecondary)
 
-            VStack(alignment: .leading, spacing: 0) {
-                scheduleRow(label: "60 seconds") {
-                    pendingSchedule = .init(label: "60 seconds", date: Date().addingTimeInterval(60))
-                    showingConfirmation = true
-                }
-
-                scheduleRow(label: "1 hour") {
-                    pendingSchedule = .init(label: "1 hour", date: Date().addingTimeInterval(3600))
-                    showingConfirmation = true
-                }
-
-                scheduleRow(label: "24 hours") {
-                    pendingSchedule = .init(label: "24 hours", date: Date().addingTimeInterval(86400))
-                    showingConfirmation = true
-                }
-
-                if let sunday = sundayAtMidnight {
-                    scheduleRow(label: "Sunday at midnight") {
-                        pendingSchedule = .init(label: "Sunday at midnight", date: sunday, preposition: "on")
+                VStack(alignment: .leading, spacing: 0) {
+                    scheduleRow(label: "60 seconds") {
+                        pendingSchedule = .init(label: "60 seconds", date: Date().addingTimeInterval(60))
                         showingConfirmation = true
                     }
-                }
 
-                let chooseDateAction = {
-                    customDate = Date().addingTimeInterval(3600)
-                    showingCustomDatePicker = true
-                }
-                Button(action: chooseDateAction) {
-                    HStack {
-                        Text("Choose date and time")
-                            .foregroundStyle(.colorTextPrimary)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.caption)
-                            .foregroundStyle(.colorTextSecondary)
+                    scheduleRow(label: "1 hour") {
+                        pendingSchedule = .init(label: "1 hour", date: Date().addingTimeInterval(3600))
+                        showingConfirmation = true
                     }
-                    .padding(.vertical, DesignConstants.Spacing.step4x)
-                }
-                .buttonStyle(.plain)
-            }
 
-            holdToExplodeButton
-                .padding(.top, DesignConstants.Spacing.step4x)
+                    scheduleRow(label: "24 hours") {
+                        pendingSchedule = .init(label: "24 hours", date: Date().addingTimeInterval(86400))
+                        showingConfirmation = true
+                    }
+
+                    if let sunday = sundayAtMidnight {
+                        scheduleRow(label: "Sunday at midnight") {
+                            pendingSchedule = .init(label: "Sunday at midnight", date: sunday, preposition: "on")
+                            showingConfirmation = true
+                        }
+                    }
+
+                    let chooseDateAction = {
+                        customDate = Date().addingTimeInterval(3600)
+                        showingCustomDatePicker = true
+                    }
+                    Button(action: chooseDateAction) {
+                        HStack {
+                            Text("Choose date and time")
+                                .foregroundStyle(.colorTextPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.caption)
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                    }
+                    .buttonStyle(.plain)
+                }
+
+                holdToExplodeButton
+                    .padding(.top, DesignConstants.Spacing.step4x)
+            }
+            .padding(DesignConstants.Spacing.step6x)
+            .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
         }
-        .padding(DesignConstants.Spacing.step6x)
-        .background(.colorBackgroundRaised)
-        .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
-        .shadow(color: .black.opacity(0.15), radius: 24, x: 0, y: 12)
     }
 
     @ViewBuilder
