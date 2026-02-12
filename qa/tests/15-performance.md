@@ -17,8 +17,11 @@ The app emits `[PERF]` log lines at key checkpoints. After each action, use `sim
 [Convos] [PERF] ConversationViewModel.init: <ms>ms, <count> messages loaded
 [Convos] [PERF] NewConversation.inboxAcquired: <ms>ms
 [Convos] [PERF] NewConversation.creating: <ms>ms
+[Convos] [PERF] NewConversation.joinRequestSent
 [Convos] [PERF] NewConversation.ready: <ms>ms (origin: <created|joined|existing>)
 ```
+
+**Note:** `joinRequestSent` has no duration — it's a timestamp marker. Compute `join_approval_to_ready` as the wall-clock delta between `joinRequestSent` and `ready (origin: joined)`.
 
 ## Steps
 
@@ -90,13 +93,23 @@ Measures end-to-end time from tapping "compose" to the conversation being ready.
 
 Measures time from opening a deep link invite to the conversation becoming ready.
 
+**Important:** The `join_convo_ready` metric includes time waiting for the conversation creator to approve the join request, which is an external dependency. To minimize QA agent latency inflating this metric:
+- Start `process-join-requests --watch` in a background process **before** opening the deep link, so approval happens as fast as the network allows.
+- The logs emit `[PERF] NewConversation.joinRequestSent` when the app publishes the join request. Use the delta between `joinRequestSent` and `ready` as the `join_approval_to_ready` metric — this isolates the external wait + app processing from the initial setup time.
+
 20. Create a conversation via CLI with a profile name.
 21. Generate an invite.
-22. Get a log marker.
-23. Open the invite deep link in the app. Wait 2-3 seconds.
-24. Process the join request in the background and tap the quickname pill (per ephemeral UI rules).
-25. Read logs and extract `[PERF] NewConversation.*` lines. The `ready` line should show `origin: joined`.
-26. Record the timing values.
+22. Start `process-join-requests --watch` in a background process:
+    ```bash
+    convos conversations process-join-requests --watch --env dev &
+    WATCH_PID=$!
+    ```
+23. Get a log marker.
+24. Open the invite deep link in the app.
+25. Wait for the conversation to become ready (the message input field appears and member count updates).
+26. Stop the background watcher: `kill $WATCH_PID`
+27. Read logs and extract `[PERF] NewConversation.*` lines. The `ready` line should show `origin: joined`. Also extract `joinRequestSent` to compute the approval-to-ready delta.
+28. Record the timing values.
 
 ## Teardown
 
@@ -115,7 +128,10 @@ This is a baseline measurement test — there are no hard pass/fail thresholds o
 | `open_many_msgs` | ConversationViewModel.init with 100+ messages | < 100ms |
 | `new_convo_inbox` | NewConversation.inboxAcquired | < 500ms |
 | `new_convo_ready` | NewConversation.ready (origin: created or existing) | < 1000ms |
-| `join_convo_ready` | NewConversation.ready (origin: joined) | < 5000ms |
+| `join_convo_ready` | NewConversation.ready (origin: joined), total time | informational* |
+| `join_approval_to_ready` | Delta from joinRequestSent to ready (origin: joined) | < 5000ms |
+
+*`join_convo_ready` includes external wait for the creator to approve the join request. The actual app performance metric is `join_approval_to_ready`, which measures from when the join request is published to when the conversation is ready. Use `--watch` on `process-join-requests` to minimize approval delay.
 
 **Regression detection:** If any metric is more than 2x the target, flag it as a potential regression. If it's more than 5x, flag as a critical regression.
 
@@ -132,7 +148,8 @@ Report results as a table:
 | open_many_msgs | Xms | Xms | Xms | Xms | N | ✅/⚠️/❌ |
 | new_convo_inbox | Xms | Xms | Xms | Xms | - | ✅/⚠️/❌ |
 | new_convo_ready | Xms | Xms | Xms | Xms | - | ✅/⚠️/❌ |
-| join_convo_ready | Xms | - | - | Xms | - | ✅/⚠️/❌ |
+| join_convo_ready | Xms | - | - | Xms | - | info only |
+| join_approval_to_ready | Xms | - | - | Xms | - | ✅/⚠️/❌ |
 
 Status: ✅ = within target, ⚠️ = 1-2x target, ❌ = > 2x target
 
