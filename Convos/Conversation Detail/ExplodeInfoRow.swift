@@ -21,12 +21,15 @@ struct ExplodeInfoRow: View {
         if let expiresAt = scheduledExplosionDate {
             scheduledContent(expiresAt: expiresAt)
                 .listRowBackground(
-                    Color.colorCaution
-                        .scaleEffect(
-                            x: isHolding || didFire ? 1.0 : 0.0,
-                            anchor: .leading
-                        )
-                        .animation(.easeInOut(duration: 0.25), value: isHolding)
+                    ZStack {
+                        Color(.secondarySystemGroupedBackground)
+                        Color.colorCaution
+                            .scaleEffect(
+                                x: isHolding || didFire ? 1.0 : 0.0,
+                                anchor: .leading
+                            )
+                    }
+                    .animation(.easeInOut(duration: 0.25), value: isHolding)
                 )
         } else {
             readyContent
@@ -85,12 +88,6 @@ struct ExplodeInfoRow: View {
             content
                 .scaleEffect(value.scale)
                 .offset(x: value.xOffset)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .fill(.white)
-                        .opacity(value.flashOpacity)
-                        .allowsHitTesting(false)
-                )
         } keyframes: { _ in
             KeyframeTrack(\.scale) {
                 SpringKeyframe(1.12, duration: 0.1, spring: .bouncy(duration: 0.1))
@@ -110,11 +107,6 @@ struct ExplodeInfoRow: View {
                 LinearKeyframe(2, duration: 0.025)
                 LinearKeyframe(-2, duration: 0.025)
                 LinearKeyframe(0, duration: 0.02)
-            }
-            KeyframeTrack(\.flashOpacity) {
-                LinearKeyframe(0.0, duration: 0.02)
-                LinearKeyframe(0.8, duration: 0.05)
-                CubicKeyframe(0.0, duration: 0.3)
             }
         }
         .onLongPressGesture(
@@ -171,18 +163,27 @@ struct ExplodeInfoRow: View {
                 return frozenProgress
             }()
 
-            let displayText: String = {
-                if hasExploded { return frozenCountdown }
-                return isHolding ? countdownText : "Exploding in \(countdownText)"
-            }()
+            let displayCountdown = hasExploded ? frozenCountdown : countdownText
 
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 iconArea(holdProgress: holdProgress)
 
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    ShatteringText(text: displayText, isExploded: hasExploded)
-                        .font(isHolding ? .body.monospacedDigit() : .body)
+                    Text("Exploding in \(displayCountdown)")
+                        .font(.body)
                         .foregroundStyle(isHolding || hasExploded ? .white : .colorCaution)
+                        .opacity(hasExploded ? 0 : 1)
+                        .overlay(alignment: .leading) {
+                            if didFire {
+                                ShatteringText(
+                                    text: "Exploding in \(frozenCountdown)",
+                                    isExploded: hasExploded,
+                                    config: Constant.shatterConfig
+                                )
+                                .font(.body)
+                                .foregroundStyle(.white)
+                            }
+                        }
 
                     Text("Hold to explode now")
                         .font(.footnote)
@@ -256,12 +257,22 @@ struct ExplodeInfoRow: View {
     private struct ExplosionKeyframes {
         var scale: CGFloat = 1.0
         var xOffset: CGFloat = 0
-        var flashOpacity: Double = 0
     }
 
     private enum Constant {
         static let holdDuration: TimeInterval = 1.5
         static let maxDistance: CGFloat = 20.0
+
+        static let shatterConfig: ShatteringTextAnimationConfig = .init(
+            letterHorizontalRange: 30...60,
+            letterVerticalRange: 20...45,
+            letterRotationRange: 25...70,
+            letterScaleRange: 1.2...2.5,
+            letterBlurRadius: 1.5,
+            letterAnimationResponse: 0.45,
+            letterAnimationDamping: 0.5,
+            letterStaggerDelay: 0.015
+        )
     }
 }
 
