@@ -96,6 +96,8 @@ struct ImagePickerButton: View {
                 }
             }
         }
+        .accessibilityLabel(currentImage != nil ? "Change photo" : "Choose photo")
+        .accessibilityIdentifier("image-picker-button")
         .photosPicker(
             isPresented: $isPickerPresented,
             selection: $imageSelection,

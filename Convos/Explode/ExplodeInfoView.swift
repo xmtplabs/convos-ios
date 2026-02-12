@@ -11,6 +11,7 @@ struct SoonLabel: View {
                 Capsule()
                     .fill(.colorFillMinimal)
             )
+            .accessibilityLabel("Coming soon")
     }
 }
 
@@ -40,6 +41,8 @@ struct ExplodeInfoView: View {
             .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("explode-info-view")
     }
 }
 

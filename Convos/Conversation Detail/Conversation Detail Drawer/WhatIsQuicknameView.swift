@@ -30,6 +30,7 @@ struct WhatIsQuicknameView: View {
                 .frame(width: 32.0, height: 32.0)
                 .padding(.leading, 10.0)
                 .padding(.vertical, 10.0)
+                .accessibilityHidden(true)
 
                 Text(
                     quicknameSettings.editingDisplayName.isEmpty ? "Somebody" : quicknameSettings.editingDisplayName
@@ -43,6 +44,8 @@ struct WhatIsQuicknameView: View {
                 Capsule()
                     .stroke(.colorBorderSubtle, lineWidth: 1.0)
             )
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Your quickname: \(quicknameSettings.editingDisplayName.isEmpty ? "Somebody" : quicknameSettings.editingDisplayName)")
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {

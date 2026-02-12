@@ -24,6 +24,12 @@ struct ReactionIndicatorView: View {
         reactions.contains { $0.sender.isCurrentUser }
     }
 
+    private var reactionAccessibilityLabel: String {
+        let emojiList = uniqueEmojis.joined(separator: ", ")
+        let countText = totalCount == 1 ? "1 reaction" : "\(totalCount) reactions"
+        return "\(countText): \(emojiList)"
+    }
+
     var body: some View {
         if reactions.isEmpty {
             EmptyView()
@@ -38,6 +44,9 @@ struct ReactionIndicatorView: View {
             }
             .buttonStyle(.plain)
             .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(reactionAccessibilityLabel)
+            .accessibilityHint("Tap to view reactions")
         }
     }
 }

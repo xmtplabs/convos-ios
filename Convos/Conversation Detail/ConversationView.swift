@@ -113,6 +113,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         Image(systemName: "lock.fill")
                             .foregroundStyle(.colorTextSecondary)
                     }
+                    .accessibilityLabel("Conversation locked")
+                    .accessibilityHint("Tap for lock details")
+                    .accessibilityIdentifier("lock-info-button")
                 } else {
                     switch messagesTopBarTrailingItem {
                     case .share:
@@ -134,6 +137,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         .transaction { transaction in
                             transaction.disablesAnimations = true
                         }
+                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
+                        .accessibilityIdentifier("share-invite-button")
                     case .scan:
                         Button {
                             onScanInviteCode()
@@ -142,6 +147,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         }
                         .buttonBorderShape(.circle)
                         .disabled(!messagesTopBarTrailingItemEnabled)
+                        .accessibilityLabel("Scan invite code")
+                        .accessibilityIdentifier("scan-invite-button")
                     }
                 }
             }

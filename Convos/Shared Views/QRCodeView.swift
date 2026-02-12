@@ -101,6 +101,8 @@ struct QRCodeView: View {
             .onChange(of: colorScheme) {
                 Task { currentQRCode = await generateQRCode() }
             }
+            .accessibilityLabel("QR code for sharing invite link")
+            .accessibilityIdentifier("qr-code-view")
     }
 }
 

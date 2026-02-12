@@ -134,6 +134,8 @@ struct MyInfoView: View {
                             }
                             .disabled(didUseQuickname)
                             .background(Capsule().fill(.colorFillPrimary))
+                            .accessibilityLabel(didUseQuickname ? "Quickname applied" : "Use quickname")
+                            .accessibilityIdentifier("use-quickname-button")
                         }
                     }
                     .buttonStyle(.borderless)

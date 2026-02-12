@@ -15,6 +15,7 @@ struct ConvosToolbarButton: View {
                     .foregroundStyle(.colorFillPrimary)
                     .frame(width: 16.0, height: 20.0)
                     .frame(width: 24.0, height: 24.0)
+                    .accessibilityHidden(true)
 
                 Text("Convos")
                     .font(.body)
@@ -23,6 +24,7 @@ struct ConvosToolbarButton: View {
             }
             .padding(padding ? DesignConstants.Spacing.step2x : 0)
         }
+        .accessibilityIdentifier("convos-logo-button")
     }
 }
 
@@ -167,6 +169,9 @@ struct AppSettingsView: View {
                     } label: {
                         Text("Delete all app data")
                     }
+                    .accessibilityLabel("Delete all app data")
+                    .accessibilityHint("Permanently deletes all conversations and your quickname")
+                    .accessibilityIdentifier("delete-all-data-button")
                     .selfSizingSheet(isPresented: $showingDeleteAllDataConfirmation) {
                         DeleteAllDataView(
                             viewModel: viewModel,

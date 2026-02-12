@@ -24,6 +24,8 @@ struct MessageBubble: View {
                 .padding(.vertical, 10.0)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(profile.displayName): \(message)")
     }
 }
 
@@ -49,6 +51,8 @@ struct EmojiBubble: View {
                 .padding(.vertical, DesignConstants.Spacing.step2x)
                 .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(profile.displayName): \(emoji)")
     }
 }
 

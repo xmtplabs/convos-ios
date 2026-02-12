@@ -166,6 +166,9 @@ struct ConversationInfoView: View {
                     }
                 ))
                 .labelsHidden()
+                .accessibilityLabel("Lock conversation")
+                .accessibilityValue(viewModel.isLocked ? "locked" : "unlocked")
+                .accessibilityIdentifier("lock-toggle")
             }
         }
     }
@@ -203,6 +206,8 @@ struct ConversationInfoView: View {
                                 .buttonStyle(.bordered)
                                 .hoverEffect(.lift)
                                 .padding(.top, DesignConstants.Spacing.step2x)
+                                .accessibilityLabel("Edit conversation info")
+                                .accessibilityIdentifier("edit-info-button")
                                 .sheet(isPresented: $presentingEditView) {
                                     ConversationInfoEditView(viewModel: viewModel, focusCoordinator: focusCoordinator)
                                 }
@@ -249,6 +254,9 @@ struct ConversationInfoView: View {
                     ) {
                         Toggle("", isOn: $viewModel.notificationsEnabled)
                             .labelsHidden()
+                            .accessibilityLabel("Notifications")
+                            .accessibilityValue(viewModel.notificationsEnabled ? "on" : "off")
+                            .accessibilityIdentifier("notifications-toggle")
                     }
 
                     FeatureRowItem(
@@ -388,6 +396,9 @@ struct ConversationInfoView: View {
                             Text("Explode now")
                                 .foregroundStyle(.colorCaution)
                         }
+                        .accessibilityLabel("Explode conversation")
+                        .accessibilityHint("Irrecoverably deletes the conversation for everyone")
+                        .accessibilityIdentifier("explode-now-button")
                         .confirmationDialog("", isPresented: $showingExplodeConfirmation) {
                             Button("Explode", role: .destructive) {
                                 viewModel.explodeConvo()
@@ -420,6 +431,8 @@ struct ConversationInfoView: View {
                             Image(systemName: "lock.fill")
                                 .foregroundStyle(.colorTextSecondary)
                         }
+                        .accessibilityLabel("Conversation locked")
+                        .accessibilityIdentifier("info-lock-button")
                     } else {
                         Button {
                             if viewModel.isFull {
@@ -438,6 +451,8 @@ struct ConversationInfoView: View {
                         .transaction { transaction in
                             transaction.disablesAnimations = true
                         }
+                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
+                        .accessibilityIdentifier("info-share-button")
                     }
                 }
             }

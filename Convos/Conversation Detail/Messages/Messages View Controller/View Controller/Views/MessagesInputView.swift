@@ -57,6 +57,8 @@ struct MessagesInputView: View {
                 updateAnimation()
             }
             .hoverEffect(.lift)
+            .accessibilityLabel("Edit your profile")
+            .accessibilityIdentifier("profile-avatar-button")
 
             Group {
                 TextField(
@@ -71,6 +73,8 @@ struct MessagesInputView: View {
                 .frame(minHeight: Self.defaultHeight, maxHeight: 170.0, alignment: .center)
                 .padding(.horizontal, DesignConstants.Spacing.step3x)
                 .disabled(!messagesTextFieldEnabled)
+                .accessibilityLabel("Message input")
+                .accessibilityIdentifier("message-text-field")
             }
             .onSubmit {
                 onSendMessage()
@@ -93,6 +97,8 @@ struct MessagesInputView: View {
             .hoverEffect(.lift)
             .hoverEffectDisabled(!sendButtonEnabled)
             .disabled(!sendButtonEnabled)
+            .accessibilityLabel("Send message")
+            .accessibilityIdentifier("send-message-button")
         }
         .padding(DesignConstants.Spacing.step2x)
         .frame(alignment: .bottom)

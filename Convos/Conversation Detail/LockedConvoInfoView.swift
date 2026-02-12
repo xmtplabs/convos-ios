@@ -47,6 +47,7 @@ struct LockedConvoInfoView: View {
                         Text(isLocked ? "Unlock" : "Lock convo")
                     }
                     .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorBackgroundInverted))
+                    .accessibilityIdentifier(isLocked ? "unlock-convo-button" : "lock-convo-button")
 
                     Button {
                         onDismiss()
@@ -55,6 +56,7 @@ struct LockedConvoInfoView: View {
                     }
                     .convosButtonStyle(.text)
                     .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("locked-convo-dismiss-button")
                 } else {
                     Button {
                         onDismiss()
@@ -62,6 +64,7 @@ struct LockedConvoInfoView: View {
                         Text("Got it")
                     }
                     .convosButtonStyle(.rounded(fullWidth: true))
+                    .accessibilityIdentifier("locked-convo-got-it-button")
                 }
             }
             .padding(.top, DesignConstants.Spacing.step4x)

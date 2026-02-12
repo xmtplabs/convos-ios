@@ -65,6 +65,8 @@ struct ReplyReferenceView: View {
         }
         .padding(.top, DesignConstants.Spacing.stepX)
         .padding(.bottom, DesignConstants.Spacing.stepX)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Reply to \(parentMessage.sender.profile.displayName): \(previewText)")
     }
 }
 

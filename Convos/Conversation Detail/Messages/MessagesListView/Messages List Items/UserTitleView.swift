@@ -19,6 +19,7 @@ struct UserTitleView: View {
                     Spacer()
                 }
             }
+            .accessibilityLabel("From \(name)")
         } else {
             EmptyView()
         }

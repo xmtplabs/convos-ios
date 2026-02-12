@@ -48,6 +48,8 @@ struct ReplyComposerBar: View {
                     .font(.title2)
                     .padding(.horizontal, 3.0)
             }
+            .accessibilityLabel("Cancel reply")
+            .accessibilityIdentifier("cancel-reply-button")
         }
         .padding(.leading, DesignConstants.Spacing.step4x)
         .padding(.trailing, DesignConstants.Spacing.step2x)
@@ -56,6 +58,9 @@ struct ReplyComposerBar: View {
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
         .padding(.horizontal, 10.0)
         .padding(.bottom, DesignConstants.Spacing.stepHalf)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Replying to \(senderName): \(previewText)")
+        .accessibilityIdentifier("reply-composer-bar")
     }
 }
 

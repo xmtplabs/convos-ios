@@ -25,6 +25,8 @@ struct MaxedOutInfoView: View {
             .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("maxed-out-info-view")
     }
 }
 

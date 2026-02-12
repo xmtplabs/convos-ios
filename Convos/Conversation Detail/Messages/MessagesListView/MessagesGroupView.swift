@@ -87,6 +87,8 @@ struct MessagesGroupView: View {
                                     y: 0.0
                                 )
                                 .id("profile-\(group.id)")
+                                .accessibilityLabel("View \(group.sender.profile.displayName)'s profile")
+                                .accessibilityAddTraits(.isButton)
                         }
                     }
                 }
@@ -116,6 +118,7 @@ struct MessagesGroupView: View {
                     .foregroundStyle(.colorTextSecondary)
                     .zIndex(-1)
                     .id("sent-status-\(message.differenceIdentifier)")
+                    .accessibilityLabel("Message sent")
                 }
             }
         }

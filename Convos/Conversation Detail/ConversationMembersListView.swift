@@ -13,6 +13,7 @@ struct ConversationMembersListView: View {
                     HStack {
                         ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
                             .frame(width: DesignConstants.ImageSizes.mediumAvatar, height: DesignConstants.ImageSizes.mediumAvatar)
+                            .accessibilityHidden(true)
 
                         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                             Text(member.profile.displayName)
@@ -28,6 +29,8 @@ struct ConversationMembersListView: View {
                             }
                         }
                     }
+                    .accessibilityElement(children: .combine)
+                    .accessibilityIdentifier("member-\(member.id)")
                 }
             }
         }

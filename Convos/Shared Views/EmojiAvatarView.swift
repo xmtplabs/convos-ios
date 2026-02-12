@@ -15,6 +15,7 @@ struct EmojiAvatarView: View {
                 .clipShape(Circle())
         }
         .aspectRatio(1.0, contentMode: .fit)
+        .accessibilityHidden(true)
     }
 }
 

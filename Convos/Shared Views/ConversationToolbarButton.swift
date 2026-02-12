@@ -75,6 +75,9 @@ struct ConversationToolbarButton: View {
                 content
             }
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityIdentifier("conversation-toolbar-button")
     }
 }
 

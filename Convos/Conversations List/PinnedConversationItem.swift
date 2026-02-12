@@ -9,6 +9,16 @@ struct PinnedConversationItem: View {
         conversation.isUnread && conversation.lastMessage != nil
     }
 
+    private var pinnedAccessibilityLabel: String {
+        var parts: [String] = [conversation.title, "pinned"]
+        if conversation.isUnread { parts.append("unread") }
+        if conversation.isMuted { parts.append("muted") }
+        if hasUnreadMessage, let lastMessage = conversation.lastMessage {
+            parts.append(lastMessage.text)
+        }
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         VStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
             ZStack(alignment: .top) {
@@ -17,6 +27,7 @@ struct PinnedConversationItem: View {
 
                 if hasUnreadMessage, let lastMessage = conversation.lastMessage {
                     messagePreviewOverlay(text: lastMessage.text)
+                        .accessibilityHidden(true)
                         .transition(.asymmetric(
                             insertion: .scale.combined(with: .opacity),
                             removal: .opacity
@@ -36,16 +47,21 @@ struct PinnedConversationItem: View {
                     Image(systemName: "bell.slash.fill")
                         .font(.caption)
                         .foregroundColor(.secondary)
+                        .accessibilityHidden(true)
                 }
 
                 if conversation.isUnread {
                     Circle()
                         .fill(Color.primary)
                         .frame(width: 8.0, height: 8.0)
+                        .accessibilityHidden(true)
                 }
             }
         }
         .frame(width: 96)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(pinnedAccessibilityLabel)
+        .accessibilityIdentifier("pinned-conversation-\(conversation.id)")
         .onAppear {
             if hasUnreadMessage {
                 withAnimation {

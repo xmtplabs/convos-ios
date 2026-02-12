@@ -16,6 +16,8 @@ struct FilteredEmptyStateView: View {
                 Text("Show all")
             }
             .convosButtonStyle(.rounded(fullWidth: false))
+            .accessibilityLabel("Show all conversations")
+            .accessibilityIdentifier("show-all-button")
         }
         .frame(maxWidth: .infinity)
         .padding(DesignConstants.Spacing.step6x)

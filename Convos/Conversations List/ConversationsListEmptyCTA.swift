@@ -27,6 +27,7 @@ struct ConversationsListEmptyCTA: View {
                     }
                     .convosButtonStyle(.rounded(fullWidth: false))
                     .hoverEffect(.lift)
+                    .accessibilityIdentifier("start-convo-button")
                     Button {
                         onJoinConvo()
                     } label: {
@@ -34,6 +35,8 @@ struct ConversationsListEmptyCTA: View {
                     }
                     .convosButtonStyle(.text)
                     .hoverEffect(.lift)
+                    .accessibilityLabel("Join a conversation")
+                    .accessibilityIdentifier("join-convo-button")
                 }
             }
             .padding(40)

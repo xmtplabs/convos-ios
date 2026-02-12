@@ -19,6 +19,7 @@ struct ErrorView: View {
                         Text("Retry")
                     }
                     .convosButtonStyle(.text)
+                    .accessibilityIdentifier("retry-button")
                 }
                 .padding(.top, DesignConstants.Spacing.step4x)
             }

@@ -24,6 +24,7 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
         HStack(spacing: DesignConstants.Spacing.step3x) {
             leadingContent()
                 .frame(width: 56.0, height: 56.0)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(title)
@@ -43,12 +44,14 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
                 Image(systemName: "bell.slash.fill")
                     .font(.callout)
                     .foregroundStyle(.colorFillTertiary)
+                    .accessibilityHidden(true)
             }
 
             if isUnread {
                 Circle()
                     .fill(Color.primary)
                     .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
             }
 
             accessoryContent()
@@ -68,6 +71,16 @@ struct ConversationsListItem: View {
     private var isUnread: Bool { conversation.isUnread }
     private var lastMessage: MessagePreview? { conversation.lastMessage }
     private var createdAt: Date { conversation.createdAt }
+
+    private var accessibilityDescription: String {
+        var parts: [String] = [title]
+        if isUnread { parts.append("unread") }
+        if isMuted { parts.append("muted") }
+        if let message = lastMessage {
+            parts.append(message.text)
+        }
+        return parts.joined(separator: ", ")
+    }
 
     var body: some View {
         ListItemView(
@@ -90,6 +103,9 @@ struct ConversationsListItem: View {
             },
             accessoryContent: {}
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityIdentifier("conversation-list-item-\(conversation.id)")
     }
 }
 

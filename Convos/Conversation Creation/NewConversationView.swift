@@ -122,6 +122,7 @@ private struct ErrorSheetWithRetry: View {
                     Text("Try again")
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
+                .accessibilityIdentifier("error-retry-button")
 
                 Button {
                     onCancel()
@@ -129,6 +130,7 @@ private struct ErrorSheetWithRetry: View {
                     Text("Cancel")
                 }
                 .convosButtonStyle(.text)
+                .accessibilityIdentifier("error-cancel-button")
             }
             .padding(.vertical, DesignConstants.Spacing.step4x)
         }

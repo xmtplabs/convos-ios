@@ -22,6 +22,9 @@ struct InviteView: View {
             .mask(RoundedRectangle(cornerRadius: 38.0))
         }
         .id(invite.differenceIdentifier)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Conversation invite QR code")
+        .accessibilityIdentifier("invite-qr-code")
     }
 }
 

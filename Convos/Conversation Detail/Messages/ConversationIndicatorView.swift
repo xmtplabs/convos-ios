@@ -43,6 +43,9 @@ struct ConversationIndicatorView<InfoView: View>: View {
                     .glassEffect(.regular.interactive(), in: .capsule)
                     .glassEffectID("convoInfo", in: namespace)
                     .glassEffectTransition(.matchedGeometry)
+                    .accessibilityLabel("Conversation info: \(conversationName.isEmpty ? untitledConversationPlaceholder : conversationName)")
+                    .accessibilityHint("Tap to edit conversation name")
+                    .accessibilityIdentifier("conversation-info-button")
                 }
 
                 if isExpanded {

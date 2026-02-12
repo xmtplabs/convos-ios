@@ -79,6 +79,14 @@ private struct ReactionRowView: View {
         .onTapGesture {
             onRemove?()
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(reactionRowAccessibilityLabel)
+        .accessibilityHint(onRemove != nil ? "Tap to remove your reaction" : "")
+    }
+
+    private var reactionRowAccessibilityLabel: String {
+        let name = reaction.sender.isCurrentUser ? "You" : reaction.sender.profile.displayName
+        return "\(name) reacted with \(reaction.emoji)"
     }
 }
 

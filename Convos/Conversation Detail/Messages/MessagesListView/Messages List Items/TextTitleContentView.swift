@@ -19,6 +19,8 @@ struct TextTitleContentView: View {
         }
         .transition(.blurReplace)
         .frame(maxWidth: .infinity, alignment: .center)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(title)
     }
 }
 

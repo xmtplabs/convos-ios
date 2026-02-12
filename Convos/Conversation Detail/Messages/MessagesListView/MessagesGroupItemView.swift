@@ -53,6 +53,7 @@ struct MessagesGroupItemView: View {
                             .foregroundStyle(.tertiary)
                             .scaleEffect(0.4 + progress * 0.6)
                             .opacity(Double(progress))
+                            .accessibilityHidden(true)
                     }
                 }
                 .zIndex(200)
@@ -205,6 +206,7 @@ private struct AttachmentPlaceholder: View {
                             .foregroundColor(.gray)
                     }
                 )
+                .accessibilityLabel("Attachment")
 
             if !isOutgoing { Spacer() }
         }
@@ -232,6 +234,7 @@ private struct MultipleAttachmentsPlaceholder: View {
                             .foregroundColor(.gray)
                     }
                 )
+                .accessibilityLabel("\(urls.count) attachments")
 
             if !isOutgoing { Spacer() }
         }

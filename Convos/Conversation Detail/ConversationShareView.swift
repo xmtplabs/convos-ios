@@ -64,6 +64,8 @@ struct ConversationShareView: View {
                                         centerImage: conversationImage
                                     )
                                     .padding([.leading, .trailing, .bottom], DesignConstants.Spacing.step10x)
+                                    .accessibilityLabel("Share QR code for conversation invite")
+                                    .accessibilityIdentifier("share-qr-code")
                                 }
                             }
                             .background(.white)

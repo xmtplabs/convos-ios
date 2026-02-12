@@ -102,6 +102,8 @@ struct MessageContextMenuOverlay: View {
             .opacity(appeared ? 1.0 : 0.0)
             .animation(.easeOut(duration: 0.18), value: appeared)
             .onTapGesture { dismissMenu() }
+            .accessibilityLabel("Dismiss menu")
+            .accessibilityAddTraits(.isButton)
     }
 
     // MARK: - Reactions Bar
@@ -342,6 +344,8 @@ struct MessageContextMenuOverlay: View {
                         .padding(.vertical, C.actionPaddingV)
                         .contentShape(Rectangle())
                 }
+                .accessibilityLabel("Reply to message")
+                .accessibilityIdentifier("context-menu-reply")
 
                 if let text = copyableText {
                     Divider()
@@ -357,6 +361,8 @@ struct MessageContextMenuOverlay: View {
                             .padding(.vertical, C.actionPaddingV)
                             .contentShape(Rectangle())
                     }
+                    .accessibilityLabel("Copy message text")
+                    .accessibilityIdentifier("context-menu-copy")
                 }
             }
             .font(.body)
