@@ -8,13 +8,22 @@ You have two categories of tools for QA testing:
 
 ### iOS Simulator Tools
 
-You have direct access to simulator tools for interacting with the Convos iOS app:
+You have direct access to simulator tools for interacting with the Convos iOS app.
+
+**Prefer the high-level tools** — they are faster and more reliable because they handle element lookup, coordinate calculation, and interaction in a single call:
+
+- `sim_tap_id` — tap an element by accessibility identifier or label (searches id, then label, then substring). Supports retries for elements that may take time to appear.
+- `sim_type_in_field` — find a text field by id/label, tap to focus, then type text. Optionally clears existing text first. Much more reliable than separate tap + type.
+- `sim_wait_for_element` — poll until an element appears (useful after navigation or network actions). Configurable timeout and interval.
+- `sim_find_elements` — search for elements matching a pattern, or list all elements with identifiers. Good for checking what's on screen.
+
+**Low-level tools** — use these when the high-level tools don't fit (e.g., tapping at a specific coordinate, swiping):
 
 - `sim_screenshot` — take a screenshot to see the current state of the app
-- `sim_ui_describe_all` — get the full accessibility tree (labels, identifiers, frames, values)
-- `sim_ui_tap` — tap at coordinates (use describe_all to find element positions)
+- `sim_ui_describe_all` — get the full accessibility tree as JSON
+- `sim_ui_tap` — tap at specific x,y coordinates
 - `sim_ui_swipe` — swipe between two points
-- `sim_ui_type` — type text into the focused field
+- `sim_ui_type` — type text into the currently focused field
 - `sim_ui_key` — press a key (40 = Return, 42 = Backspace, 41 = Escape)
 - `sim_open_url` — open a URL in the simulator (for deep links)
 - `sim_launch_app` — launch the app by bundle ID
@@ -63,10 +72,12 @@ At the start of a QA session, resolve the UDID once and reuse it for all subsequ
 
 ### Interacting with the App
 
-- Always use `sim_ui_describe_all` to find element coordinates before tapping. Do not guess coordinates.
-- When looking for an element, search by `accessibilityIdentifier` first, then fall back to `label` or `value`.
-- After tapping or performing an action, wait briefly (1-2 seconds) then take a screenshot or describe the UI to confirm the action took effect.
-- If a UI element is not immediately visible, try scrolling or waiting. Network-dependent actions (like messages arriving from the CLI) may take several seconds.
+- **Use `sim_tap_id` to tap elements** — pass the accessibility identifier or label text. Do not manually look up coordinates and call `sim_ui_tap` unless there is no identifier available.
+- **Use `sim_type_in_field` to enter text** — pass the text field's accessibility identifier and the text to type. Do not manually tap then type.
+- **Use `sim_wait_for_element` after navigation or network actions** — it polls until the element appears, avoiding manual sleep + screenshot loops.
+- **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
+- After an action, take a screenshot to visually confirm the result when the accessibility tree alone is insufficient.
+- If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout. Network-dependent actions (like messages arriving from the CLI) may take several seconds.
 
 ### Waiting and Timing
 
