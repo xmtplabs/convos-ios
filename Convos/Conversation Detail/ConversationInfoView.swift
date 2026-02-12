@@ -465,20 +465,26 @@ struct ConversationInfoView: View {
                 })
                 .background(.colorBackgroundRaised)
             }
-            .selfSizingSheet(isPresented: $showingExplodeSheet) {
-                ExplodeConvoSheet(
-                    onSchedule: { date in
-                        viewModel.scheduleExplosion(at: date)
-                        showingExplodeSheet = false
-                    },
-                    onExplodeNow: {
-                        viewModel.explodeConvo()
-                    },
-                    onCancel: {
-                        showingExplodeSheet = false
+            .background {
+                Color.clear
+                    .fullScreenCover(isPresented: $showingExplodeSheet) {
+                        ExplodeConvoSheet(
+                            onSchedule: { date in
+                                viewModel.scheduleExplosion(at: date)
+                                showingExplodeSheet = false
+                            },
+                            onExplodeNow: {
+                                viewModel.explodeConvo()
+                            },
+                            onDismiss: {
+                                showingExplodeSheet = false
+                            }
+                        )
+                        .presentationBackground(.clear)
                     }
-                )
-                .presentationBackground(.colorBackgroundRaised)
+                    .transaction { transaction in
+                        transaction.disablesAnimations = true
+                    }
             }
         }
     }

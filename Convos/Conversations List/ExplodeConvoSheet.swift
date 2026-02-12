@@ -4,7 +4,7 @@ import SwiftUI
 struct ExplodeConvoSheet: View {
     let onSchedule: (Date) -> Void
     let onExplodeNow: () -> Void
-    let onCancel: () -> Void
+    let onDismiss: () -> Void
 
     @State private var showingConfirmation: Bool = false
     @State private var pendingSchedule: ScheduleOption?
@@ -12,6 +12,7 @@ struct ExplodeConvoSheet: View {
     @State private var customDate: Date = Date().addingTimeInterval(3600)
     @State private var explodeState: ExplodeState = .ready
     @State private var explodeTask: Task<Void, Never>?
+    @State private var appeared: Bool = false
 
     private var sundayAtMidnight: Date? {
         let calendar = Calendar.current
@@ -25,21 +26,44 @@ struct ExplodeConvoSheet: View {
         return calendar.startOfDay(for: nextSunday)
     }
 
-    private var confirmationTitle: String {
-        guard let pending = pendingSchedule else {
-            return "Explode convo?"
+    var body: some View {
+        ZStack {
+            Color.black.opacity(appeared ? 0.4 : 0.0)
+                .ignoresSafeArea()
+                .onTapGesture { dismiss() }
+
+            cardContent
+                .padding(.horizontal, DesignConstants.Spacing.step10x)
+                .scaleEffect(appeared ? 1.0 : 0.85)
+                .opacity(appeared ? 1.0 : 0.0)
         }
-        return "Explode convo \(pending.preposition) \(pending.label)?"
+        .animation(.spring(response: 0.36, dampingFraction: 0.78), value: appeared)
+        .onAppear { appeared = true }
+        .alert(
+            "Light the fuse?",
+            isPresented: $showingConfirmation
+        ) {
+            let cancelAction = { pendingSchedule = nil }
+            Button("Cancel", role: .cancel, action: cancelAction)
+
+            let confirmAction = {
+                guard let pending = pendingSchedule else { return }
+                onSchedule(pending.date)
+                pendingSchedule = nil
+            }
+            Button("Start", role: .destructive, action: confirmAction)
+        } message: {
+            Text("The countdown can't be changed or cancelled once it starts")
+        }
+        .sheet(isPresented: $showingCustomDatePicker) {
+            customDatePickerSheet
+        }
     }
 
-    var body: some View {
+    private var cardContent: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text("Explode")
-                .font(.system(.largeTitle))
-                .fontWeight(.bold)
-
-            Text("Start an unstoppable countdown to destroy all messages and members")
-                .font(.body)
+            Text("Start an unstoppable countdown")
+                .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
 
             VStack(alignment: .leading, spacing: 0) {
@@ -83,38 +107,13 @@ struct ExplodeConvoSheet: View {
                 .buttonStyle(.plain)
             }
 
-            VStack(spacing: DesignConstants.Spacing.step2x) {
-                holdToExplodeButton
-
-                let cancelAction = { onCancel() }
-                Button(action: cancelAction) {
-                    Text("Cancel")
-                }
-                .convosButtonStyle(.text)
-                .frame(maxWidth: .infinity)
-            }
-            .padding(.top, DesignConstants.Spacing.step4x)
+            holdToExplodeButton
+                .padding(.top, DesignConstants.Spacing.step4x)
         }
-        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
-        .alert(
-            confirmationTitle,
-            isPresented: $showingConfirmation
-        ) {
-            let cancelAction = { pendingSchedule = nil }
-            Button("Cancel", role: .cancel, action: cancelAction)
-
-            let confirmAction = {
-                guard let pending = pendingSchedule else { return }
-                onSchedule(pending.date)
-                pendingSchedule = nil
-            }
-            Button("Start", role: .destructive, action: confirmAction)
-        } message: {
-            Text("The timer cannot be changed or cancelled once it starts.")
-        }
-        .sheet(isPresented: $showingCustomDatePicker) {
-            customDatePickerSheet
-        }
+        .padding(DesignConstants.Spacing.step6x)
+        .background(.colorBackgroundRaised)
+        .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+        .shadow(color: .black.opacity(0.15), radius: 24, x: 0, y: 12)
     }
 
     @ViewBuilder
@@ -133,7 +132,7 @@ struct ExplodeConvoSheet: View {
     private var holdToExplodeButton: some View {
         ExplodeButton(
             state: explodeState,
-            readyText: "Hold to Explode Now",
+            readyText: "Explode Now",
             explodingText: "Exploding..."
         ) {
             explodeState = .exploding
@@ -144,7 +143,7 @@ struct ExplodeConvoSheet: View {
                 explodeState = .exploded
                 try? await Task.sleep(for: .seconds(ExplodeState.explodedAnimationDelay))
                 guard !Task.isCancelled else { return }
-                onCancel()
+                onDismiss()
             }
         }
         .onDisappear { explodeTask?.cancel() }
@@ -188,6 +187,15 @@ struct ExplodeConvoSheet: View {
         .presentationDetents([.height(340)])
     }
 
+    private func dismiss() {
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+            appeared = false
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            onDismiss()
+        }
+    }
+
     private struct ScheduleOption {
         let label: String
         let date: Date
@@ -195,21 +203,22 @@ struct ExplodeConvoSheet: View {
     }
 }
 
-#Preview("Explode Sheet") {
+#Preview("Explode Dialog") {
     @Previewable @State var presenting: Bool = true
-    VStack {
-        let toggleAction = { presenting.toggle() }
-        Button(action: toggleAction) {
-            Text("Toggle")
+    ZStack {
+        VStack {
+            let toggleAction = { presenting.toggle() }
+            Button(action: toggleAction) {
+                Text("Toggle Explode Dialog")
+            }
         }
-    }
-    .selfSizingSheet(isPresented: $presenting) {
-        ExplodeConvoSheet(
-            onSchedule: { _ in },
-            onExplodeNow: {},
-            onCancel: {}
-        )
-        .background(.colorBackgroundRaised)
+        if presenting {
+            ExplodeConvoSheet(
+                onSchedule: { _ in presenting = false },
+                onExplodeNow: {},
+                onDismiss: { presenting = false }
+            )
+        }
     }
 }
 

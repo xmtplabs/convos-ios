@@ -414,20 +414,27 @@ struct ConversationsView: View {
             PinLimitInfoView()
                 .background(.colorBackgroundRaised)
         }
-        .selfSizingSheet(item: $conversationPendingExplosion) { conversation in
-            ExplodeConvoSheet(
-                onSchedule: { date in
-                    viewModel.scheduleConversationExplosion(conversation, at: date)
-                    conversationPendingExplosion = nil
-                },
-                onExplodeNow: {
-                    viewModel.explodeConversation(conversation)
-                    conversationPendingExplosion = nil
-                },
-                onCancel: {
-                    conversationPendingExplosion = nil
+        .background {
+            Color.clear
+                .fullScreenCover(item: $conversationPendingExplosion) { conversation in
+                    ExplodeConvoSheet(
+                        onSchedule: { date in
+                            viewModel.scheduleConversationExplosion(conversation, at: date)
+                            conversationPendingExplosion = nil
+                        },
+                        onExplodeNow: {
+                            viewModel.explodeConversation(conversation)
+                            conversationPendingExplosion = nil
+                        },
+                        onDismiss: {
+                            conversationPendingExplosion = nil
+                        }
+                    )
+                    .presentationBackground(.clear)
                 }
-            )
+                .transaction { transaction in
+                    transaction.disablesAnimations = true
+                }
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {
