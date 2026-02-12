@@ -634,7 +634,8 @@ extension ConversationViewModel {
                 }
 
                 if hasText {
-                    if let replyTarget {
+                    let textIsReply = replyTarget != nil && !hasAttachment
+                    if textIsReply, let replyTarget {
                         try await messageWriter.sendReply(text: prevMessageText, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
                     } else {
                         try await messageWriter.send(text: prevMessageText, afterPhoto: photoTrackingKey)
