@@ -2,6 +2,7 @@ import ConvosCore
 import SwiftUI
 
 struct ExplodeConvoSheet: View {
+    var isScheduled: Bool = false
     let onSchedule: (Date) -> Void
     let onExplodeNow: () -> Void
     let onDismiss: () -> Void
@@ -60,7 +61,35 @@ struct ExplodeConvoSheet: View {
         }
     }
 
+    @ViewBuilder
     private var cardContent: some View {
+        if isScheduled {
+            scheduledCardContent
+        } else {
+            scheduleCardContent
+        }
+    }
+
+    private var scheduledCardContent: some View {
+        GlassEffectContainer {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                Text("The fuse is lit")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorCaution)
+
+                Text("The fuse is lit")
+                    .font(.title2.weight(.bold))
+
+                holdToExplodeButton
+                    .padding(.top, DesignConstants.Spacing.step2x)
+            }
+            .padding(DesignConstants.Spacing.step6x)
+            .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+        }
+    }
+
+    private var scheduleCardContent: some View {
         GlassEffectContainer {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
                 Text("Start an unstoppable countdown")

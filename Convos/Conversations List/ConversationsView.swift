@@ -418,6 +418,7 @@ struct ConversationsView: View {
             Color.clear
                 .fullScreenCover(item: $conversationPendingExplosion) { conversation in
                     ExplodeConvoSheet(
+                        isScheduled: conversation.scheduledExplosionDate != nil,
                         onSchedule: { date in
                             viewModel.scheduleConversationExplosion(conversation, at: date)
                             conversationPendingExplosion = nil

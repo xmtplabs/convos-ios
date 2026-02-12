@@ -476,11 +476,6 @@ final class ConversationsViewModel {
     }
 
     func explodeConversation(_ conversation: Conversation) {
-        guard conversation.scheduledExplosionDate == nil else {
-            Log.warning("Conversation \(conversation.id) already has a scheduled explosion")
-            return
-        }
-
         let conversationId = conversation.id
         let clientId = conversation.clientId
         let inboxId = conversation.inboxId
