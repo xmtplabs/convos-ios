@@ -41,7 +41,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
     let shouldBlurPhotos: Bool
-    let onDoubleTap: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void

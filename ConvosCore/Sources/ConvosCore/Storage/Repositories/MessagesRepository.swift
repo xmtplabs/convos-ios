@@ -400,7 +400,6 @@ extension Array where Element == DBMessage {
         return (messages, updatedSeenIds)
     }
 
-
     // swiftlint:disable:next function_parameter_count
     private static func composeReplyMessage(
         sourceMessage: DBMessage?,
@@ -419,22 +418,7 @@ extension Array where Element == DBMessage {
         case .emoji:
             replyContent = .emoji(dbMessage.emoji ?? "")
         case .attachments:
-            let keys: [String] = dbMessage.attachmentUrls
-            let localStates = try AttachmentLocalState
-                .filter(keys.contains(AttachmentLocalState.Columns.attachmentKey))
-                .fetchAll(database)
-            let statesDict = Dictionary(uniqueKeysWithValues: localStates.map { ($0.attachmentKey, $0) })
-            let hydratedAttachments = keys.map { key in
-                let localState = statesDict[key]
-                return HydratedAttachment(
-                    key: key,
-                    isRevealed: localState?.isRevealed ?? false,
-                    isHiddenByOwner: localState?.isHiddenByOwner ?? false,
-                    width: localState?.width,
-                    height: localState?.height
-                )
-            }
-            replyContent = .attachments(hydratedAttachments)
+            replyContent = .attachments(dbMessage.attachmentUrls.map { HydratedAttachment(key: $0) })
         case .update, .invite:
             return nil
         }
@@ -457,22 +441,7 @@ extension Array where Element == DBMessage {
         case .emoji:
             parentContent = .emoji(sourceDBMessage.emoji ?? "")
         case .attachments:
-            let keys: [String] = sourceDBMessage.attachmentUrls
-            let localStates = try AttachmentLocalState
-                .filter(keys.contains(AttachmentLocalState.Columns.attachmentKey))
-                .fetchAll(database)
-            let statesDict = Dictionary(uniqueKeysWithValues: localStates.map { ($0.attachmentKey, $0) })
-            let hydratedAttachments = keys.map { key in
-                let localState = statesDict[key]
-                return HydratedAttachment(
-                    key: key,
-                    isRevealed: localState?.isRevealed ?? false,
-                    isHiddenByOwner: localState?.isHiddenByOwner ?? false,
-                    width: localState?.width,
-                    height: localState?.height
-                )
-            }
-            parentContent = .attachments(hydratedAttachments)
+            parentContent = .attachments(sourceDBMessage.attachmentUrls.map { HydratedAttachment(key: $0) })
         case .invite:
             if let invite = sourceDBMessage.invite {
                 parentContent = .invite(invite)
