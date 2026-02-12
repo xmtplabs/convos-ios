@@ -103,13 +103,13 @@ struct ExplodeConvoSheet: View {
                                 .font(.caption)
                                 .foregroundStyle(.colorTextSecondary)
                         }
-                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                        .padding(.vertical, DesignConstants.Spacing.step3x)
                     }
                     .buttonStyle(.plain)
                 }
 
                 holdToExplodeButton
-                    .padding(.top, DesignConstants.Spacing.step4x)
+                    .padding(.top, DesignConstants.Spacing.step2x)
             }
             .padding(DesignConstants.Spacing.step6x)
             .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
@@ -125,17 +125,13 @@ struct ExplodeConvoSheet: View {
                     .foregroundStyle(.colorTextPrimary)
                 Spacer()
             }
-            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
         }
         .buttonStyle(.plain)
     }
 
     private var holdToExplodeButton: some View {
-        ExplodeButton(
-            state: explodeState,
-            readyText: "Explode Now",
-            explodingText: "Exploding..."
-        ) {
+        let explodeAction = {
             explodeState = .exploding
             onExplodeNow()
             explodeTask = Task { @MainActor in
@@ -147,6 +143,21 @@ struct ExplodeConvoSheet: View {
                 onDismiss()
             }
         }
+        var config: HoldToConfirmStyleConfig = .default
+        config.backgroundColor = .colorCaution
+        config.duration = 1.5
+        return Button(action: explodeAction) {
+            VStack(spacing: DesignConstants.Spacing.stepHalf) {
+                Text("Explode Now")
+                    .font(.body.weight(.semibold))
+                Text("Tap and hold")
+                    .font(.caption)
+                    .opacity(0.7)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(HoldToConfirmPrimitiveStyle(config: config))
         .onDisappear { explodeTask?.cancel() }
     }
 
