@@ -46,6 +46,8 @@ struct ConversationInfoEditView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .frame(maxWidth: 166.0)
+                    .accessibilityLabel("Conversation name")
+                    .accessibilityIdentifier("conversation-name-field")
                     .onAppear {
                         viewModel.isEditingConversationName = true
                     }
@@ -60,6 +62,8 @@ struct ConversationInfoEditView: View {
                         text: $viewModel.editingDescription
                     )
                     .lineLimit(5)
+                    .accessibilityLabel("Conversation description")
+                    .accessibilityIdentifier("conversation-description-field")
                     .onAppear {
                         viewModel.isEditingDescription = true
                     }
@@ -70,6 +74,7 @@ struct ConversationInfoEditView: View {
                         Text("Include info with invites")
                     }
                     .disabled(viewModel.isUpdatingPublicPreview)
+                    .accessibilityIdentifier("include-info-toggle")
                 } footer: {
                     Text("When enabled, anyone with your convo code can see its pic, name and description")
                         .font(.footnote)

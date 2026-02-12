@@ -98,22 +98,20 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         let clientMessageId = UUID().uuidString
         let inboxId = client.inboxId
 
-        let existingReaction = try await databaseWriter.read { db in
-            try DBMessage
+        // Atomic check-and-save to prevent duplicate reactions from concurrent calls
+        let isNewReaction = try await databaseWriter.write { db -> Bool in
+            let existingReaction = try DBMessage
                 .filter(DBMessage.Columns.sourceMessageId == messageId)
                 .filter(DBMessage.Columns.senderId == inboxId)
                 .filter(DBMessage.Columns.emoji == emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
                 .fetchOne(db)
-        }
 
-        if existingReaction != nil {
-            Log.info("Reaction already exists locally, skipping duplicate")
-            return
-        }
+            if existingReaction != nil {
+                Log.info("Reaction already exists locally, skipping duplicate")
+                return false
+            }
 
-        // Save locally FIRST for optimistic UI
-        try await databaseWriter.write { db in
             let localReaction = DBMessage(
                 id: clientMessageId,
                 clientMessageId: clientMessageId,
@@ -133,7 +131,10 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
             )
             try localReaction.save(db)
             Log.info("Saved local reaction with id: \(clientMessageId)")
+            return true
         }
+
+        guard isNewReaction else { return }
 
         // Now do network operations (can be slow, but UI already updated)
         guard let conversation = try await client.conversation(with: conversationId) else {

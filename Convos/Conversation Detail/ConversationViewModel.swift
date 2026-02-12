@@ -16,6 +16,7 @@ class ConversationViewModel {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
+    private let replyWriter: any ReplyMessageWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private let messagesListRepository: any MessagesListRepositoryProtocol
 
@@ -172,6 +173,7 @@ class ConversationViewModel {
     var presentingNewConversationForInvite: NewConversationViewModel?
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
+    var replyingToMessage: AnyMessage?
 
     // MARK: - Onboarding
 
@@ -186,9 +188,6 @@ class ConversationViewModel {
     }
 
     @ObservationIgnored
-    private var joinFromInviteTask: Task<Void, Never>?
-
-    @ObservationIgnored
     private var loadConversationImageTask: Task<Void, Never>?
 
     @ObservationIgnored
@@ -201,6 +200,21 @@ class ConversationViewModel {
         session: any SessionManagerProtocol
     ) async throws -> ConversationViewModel {
         let messagingService = try await session.messagingService(
+            for: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+        return ConversationViewModel(
+            conversation: conversation,
+            session: session,
+            messagingService: messagingService
+        )
+    }
+
+    static func createSync(
+        conversation: Conversation,
+        session: any SessionManagerProtocol
+    ) -> ConversationViewModel {
+        let messagingService = session.messagingServiceSync(
             for: conversation.clientId,
             inboxId: conversation.inboxId
         )
@@ -229,6 +243,7 @@ class ConversationViewModel {
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.reactionWriter = messagingService.reactionWriter()
+        self.replyWriter = messagingService.replyWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
@@ -240,9 +255,8 @@ class ConversationViewModel {
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
-            self.conversation = try conversationRepository.fetchConversation() ?? conversation
         } catch {
-            Log.error("Error fetching messages or conversation: \(error.localizedDescription)")
+            Log.error("Error fetching messages: \(error.localizedDescription)")
             self.messages = []
         }
 
@@ -279,6 +293,7 @@ class ConversationViewModel {
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.reactionWriter = messagingService.reactionWriter()
+        self.replyWriter = messagingService.replyWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
@@ -290,9 +305,8 @@ class ConversationViewModel {
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
-            self.conversation = try conversationRepository.fetchConversation() ?? conversation
         } catch {
-            Log.error("Error fetching messages or conversation: \(error.localizedDescription)")
+            Log.error("Error fetching messages: \(error.localizedDescription)")
             self.messages = []
         }
 
@@ -307,6 +321,7 @@ class ConversationViewModel {
     // MARK: - Private
 
     private func observe() {
+        messagesListRepository.startObserving()
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -374,6 +389,11 @@ class ConversationViewModel {
         } else {
             presentingConversationSettings = true
         }
+    }
+
+    func onConversationInfoLongPress(focusCoordinator: FocusCoordinator) {
+        UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+        focusCoordinator.moveFocus(to: .conversationName)
     }
 
     func onConversationNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {
@@ -465,16 +485,34 @@ class ConversationViewModel {
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         guard !messageText.isEmpty else { return }
         let prevMessageText = messageText
+        let replyTarget = replyingToMessage
         messageText = ""
+        replyingToMessage = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
         Task { [weak self] in
             guard let self else { return }
             do {
-                try await outgoingMessageWriter.send(text: prevMessageText)
+                if let replyTarget {
+                    try await replyWriter.sendReply(
+                        text: prevMessageText,
+                        to: replyTarget.base.id,
+                        in: conversation.id
+                    )
+                } else {
+                    try await outgoingMessageWriter.send(text: prevMessageText)
+                }
             } catch {
                 Log.error("Error sending message: \(error)")
             }
         }
+    }
+
+    func onReply(_ message: AnyMessage) {
+        replyingToMessage = message
+    }
+
+    func cancelReply() {
+        replyingToMessage = nil
     }
 
     func onReaction(emoji: String, messageId: String) {
@@ -492,23 +530,23 @@ class ConversationViewModel {
         }
     }
 
-    func onTapReactions(_ message: AnyMessage) {
-        presentingReactionsForMessage = message
-    }
-
-    func onDoubleTap(_ message: AnyMessage) {
+    func onToggleReaction(emoji: String, messageId: String) {
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await reactionWriter.toggleReaction(
-                    emoji: "❤️",
-                    to: message.base.id,
+                    emoji: emoji,
+                    to: messageId,
                     in: conversation.id
                 )
             } catch {
                 Log.error("Error toggling reaction: \(error)")
             }
         }
+    }
+
+    func onTapReactions(_ message: AnyMessage) {
+        presentingReactionsForMessage = message
     }
 
     func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
@@ -544,18 +582,10 @@ class ConversationViewModel {
     }
 
     func onTapInvite(_ invite: MessageInvite) {
-        joinFromInviteTask?.cancel()
-        joinFromInviteTask = Task { [weak self] in
-            guard let self else { return }
-            let viewModel = await NewConversationViewModel.create(
-                session: session
-            )
-            guard !Task.isCancelled else { return }  // Check for cancellation after async operation
-            viewModel.joinConversation(inviteCode: invite.inviteSlug)
-            await MainActor.run {
-                self.presentingNewConversationForInvite = viewModel
-            }
-        }
+        presentingNewConversationForInvite = NewConversationViewModel(
+            session: session,
+            mode: .joinInvite(code: invite.inviteSlug)
+        )
     }
 
     func onDisplayNameEndedEditing(focusCoordinator: FocusCoordinator, context: FocusTransitionContext) {

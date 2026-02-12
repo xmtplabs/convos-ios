@@ -31,6 +31,8 @@ struct InfoView: View {
             .padding(.vertical, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("info-view")
     }
 }
 

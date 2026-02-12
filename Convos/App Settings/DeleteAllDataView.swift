@@ -80,6 +80,9 @@ private struct HoldToDeleteButton: View {
         }
         .disabled(isDeleting)
         .buttonStyle(HoldToConfirmPrimitiveStyle(config: buttonConfig))
+        .accessibilityLabel(isDeleting ? "Deleting data" : "Hold to delete all data")
+        .accessibilityHint(isDeleting ? "" : "Hold to confirm deletion")
+        .accessibilityIdentifier("hold-to-delete-button")
     }
 
     private var textView: some View {

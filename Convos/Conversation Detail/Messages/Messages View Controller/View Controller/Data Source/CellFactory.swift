@@ -6,7 +6,8 @@ struct MessageCellActions {
     let onTapInvite: (MessageInvite) -> Void
     let onTapAvatar: (AnyMessage) -> Void
     let onTapReactions: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
+    let onReply: (AnyMessage) -> Void
+    let contextMenuState: MessageContextMenuState
 }
 
 // swiftlint:disable force_cast

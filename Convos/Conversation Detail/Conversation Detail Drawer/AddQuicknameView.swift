@@ -32,6 +32,8 @@ struct AddQuicknameView: View {
                 )
             )
         }
+        .accessibilityLabel("Chat as \(profile.displayName)")
+        .accessibilityIdentifier("add-quickname-button")
         .hoverEffect(.lift)
         .padding(.vertical, DesignConstants.Spacing.step4x)
     }

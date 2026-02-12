@@ -34,6 +34,7 @@ struct QuickEditView: View {
                 symbolName: imageSymbolName
             )
             .frame(width: 52.0, height: 52.0)
+            .accessibilityIdentifier("quick-edit-image-picker")
 
             TextField(
                 placeholderText,
@@ -67,6 +68,8 @@ struct QuickEditView: View {
                     }
                     .frame(width: 32.0, height: 32.0)
                     .padding(.trailing, 10.0)
+                    .accessibilityLabel("Profile settings")
+                    .accessibilityIdentifier("quick-edit-settings-button")
                 }
             }
             .onChange(of: text) { _, newValue in
@@ -91,6 +94,8 @@ struct QuickEditView: View {
             }
             .frame(width: 52.0, height: 52.0)
             .background(Circle().fill(.colorFillPrimary))
+            .accessibilityLabel("Done editing")
+            .accessibilityIdentifier("quick-edit-done-button")
         }
         .frame(maxWidth: .infinity)
     }

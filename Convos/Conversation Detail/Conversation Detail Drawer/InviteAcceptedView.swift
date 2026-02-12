@@ -29,6 +29,8 @@ struct InviteAcceptedView: View {
         .frame(maxWidth: .infinity)
         .background(.colorFillMinimal)
         .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Invite accepted. See and send messages after someone approves you.")
         .onAppear {
             DispatchQueue.main
                 .asyncAfter(deadline: .now() + ConversationOnboardingState.waitingForInviteAcceptanceDelay) {

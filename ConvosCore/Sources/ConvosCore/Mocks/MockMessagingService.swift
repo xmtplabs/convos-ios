@@ -18,6 +18,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     private let _conversationPermissionsRepository: any ConversationPermissionsRepositoryProtocol
     private let _outgoingMessageWriter: any OutgoingMessageWriterProtocol
     private let _reactionWriter: any ReactionWriterProtocol
+    private let _replyWriter: any ReplyMessageWriterProtocol
 
     // MARK: - Initialization
 
@@ -30,7 +31,8 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil,
         conversationPermissionsRepository: (any ConversationPermissionsRepositoryProtocol)? = nil,
         outgoingMessageWriter: (any OutgoingMessageWriterProtocol)? = nil,
-        reactionWriter: (any ReactionWriterProtocol)? = nil
+        reactionWriter: (any ReactionWriterProtocol)? = nil,
+        replyWriter: (any ReplyMessageWriterProtocol)? = nil
     ) {
         self._inboxStateManager = inboxStateManager ?? MockInboxStateManager()
         self._myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
@@ -41,6 +43,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         self._conversationPermissionsRepository = conversationPermissionsRepository ?? MockConversationPermissionsRepository()
         self._outgoingMessageWriter = outgoingMessageWriter ?? MockOutgoingMessageWriter()
         self._reactionWriter = reactionWriter ?? MockReactionWriter()
+        self._replyWriter = replyWriter ?? MockReplyMessageWriter()
     }
 
     // MARK: - MessagingServiceProtocol
@@ -79,6 +82,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func reactionWriter() -> any ReactionWriterProtocol {
         _reactionWriter
+    }
+
+    public func replyWriter() -> any ReplyMessageWriterProtocol {
+        _replyWriter
     }
 
     public func conversationLocalStateWriter() -> any ConversationLocalStateWriterProtocol {

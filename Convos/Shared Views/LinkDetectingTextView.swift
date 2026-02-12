@@ -3,21 +3,30 @@ import SwiftUI
 // MARK: - Link Detecting Text View
 struct LinkDetectingTextView: View {
     let linkColor: Color?
+    let isSelectable: Bool
     private let attributedText: AttributedString
 
     private static let linkDetector: NSDataDetector? = {
         try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
     }()
 
-    init(_ text: String, linkColor: Color? = nil) {
+    init(_ text: String, linkColor: Color? = nil, isSelectable: Bool = false) {
         self.linkColor = linkColor
+        self.isSelectable = isSelectable
         self.attributedText = Self.makeAttributedString(from: text)
     }
 
+    @ViewBuilder
     var body: some View {
-        Text(attributedText)
-            .tint(linkColor)
-            .textSelection(.enabled) // Allow text selection
+        if isSelectable {
+            Text(attributedText)
+                .tint(linkColor)
+                .textSelection(.enabled)
+        } else {
+            Text(attributedText)
+                .tint(linkColor)
+                .textSelection(.disabled)
+        }
     }
 
     private static func makeAttributedString(from text: String) -> AttributedString {

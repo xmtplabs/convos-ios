@@ -34,6 +34,7 @@ func conversationContextMenuContent(
             )
         }
     }
+    .accessibilityIdentifier("context-menu-pin")
 
     if conversation.creator.isCurrentUser {
         Button(action: onExplode) {
@@ -42,10 +43,12 @@ func conversationContextMenuContent(
             Image(systemName: "burst")
         }
     }
+    .accessibilityIdentifier("context-menu-toggle-read")
 
     Button(role: .destructive, action: onDelete) {
         Text("Delete")
         Text("For me")
         Image(systemName: "trash")
     }
+    .accessibilityIdentifier("context-menu-delete")
 }

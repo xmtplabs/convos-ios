@@ -2,39 +2,61 @@ import SwiftUI
 
 struct LockedConvoInfoView: View {
     let isCurrentUserSuperAdmin: Bool
-    let onUnlock: () -> Void
+    let isLocked: Bool
+    let onLock: () -> Void
     let onDismiss: () -> Void
+
+    private var title: String {
+        if isCurrentUserSuperAdmin && !isLocked {
+            return "Lock?"
+        }
+        return "Locked"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text("Locked")
+            Text(title)
                 .font(.system(.largeTitle))
                 .fontWeight(.bold)
 
-            Text("Nobody new can join this convo.")
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
+            if isCurrentUserSuperAdmin {
+                Text("Nobody new can join this convo.")
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimary)
 
-            Text("New convo codes can't be created, and any outstanding codes no longer work.")
-                .font(.body)
-                .foregroundStyle(.colorTextSecondary)
+                Text(isLocked
+                    ? "New convo codes can't be created, and any outstanding codes no longer work."
+                    : "New convo codes can't be created, and any outstanding codes will no longer work.")
+                    .font(.body)
+                    .foregroundStyle(.colorTextSecondary)
+            } else {
+                Text("Nobody new can join this convo.")
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimary)
+
+                Text("New convo codes can't be created, and any outstanding codes no longer work.")
+                    .font(.body)
+                    .foregroundStyle(.colorTextSecondary)
+            }
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 if isCurrentUserSuperAdmin {
                     Button {
-                        onUnlock()
+                        onLock()
                     } label: {
-                        Text("Unlock")
+                        Text(isLocked ? "Unlock" : "Lock convo")
                     }
                     .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorBackgroundInverted))
+                    .accessibilityIdentifier(isLocked ? "unlock-convo-button" : "lock-convo-button")
 
                     Button {
                         onDismiss()
                     } label: {
-                        Text("Keep locked")
+                        Text(isLocked ? "Keep locked" : "Cancel")
                     }
                     .convosButtonStyle(.text)
                     .frame(maxWidth: .infinity)
+                    .accessibilityIdentifier("locked-convo-dismiss-button")
                 } else {
                     Button {
                         onDismiss()
@@ -42,6 +64,7 @@ struct LockedConvoInfoView: View {
                         Text("Got it")
                     }
                     .convosButtonStyle(.rounded(fullWidth: true))
+                    .accessibilityIdentifier("locked-convo-got-it-button")
                 }
             }
             .padding(.top, DesignConstants.Spacing.step4x)
@@ -50,7 +73,7 @@ struct LockedConvoInfoView: View {
     }
 }
 
-#Preview("Super Admin") {
+#Preview("Super Admin - Locked") {
     @Previewable @State var presenting: Bool = true
     VStack {
         Button {
@@ -62,7 +85,28 @@ struct LockedConvoInfoView: View {
     .selfSizingSheet(isPresented: $presenting) {
         LockedConvoInfoView(
             isCurrentUserSuperAdmin: true,
-            onUnlock: {},
+            isLocked: true,
+            onLock: {},
+            onDismiss: {}
+        )
+        .background(.colorBackgroundRaised)
+    }
+}
+
+#Preview("Super Admin - Unlocked") {
+    @Previewable @State var presenting: Bool = true
+    VStack {
+        Button {
+            presenting.toggle()
+        } label: {
+            Text("Toggle")
+        }
+    }
+    .selfSizingSheet(isPresented: $presenting) {
+        LockedConvoInfoView(
+            isCurrentUserSuperAdmin: true,
+            isLocked: false,
+            onLock: {},
             onDismiss: {}
         )
         .background(.colorBackgroundRaised)
@@ -81,7 +125,8 @@ struct LockedConvoInfoView: View {
     .selfSizingSheet(isPresented: $presenting) {
         LockedConvoInfoView(
             isCurrentUserSuperAdmin: false,
-            onUnlock: {},
+            isLocked: true,
+            onLock: {},
             onDismiss: {}
         )
         .background(.colorBackgroundRaised)

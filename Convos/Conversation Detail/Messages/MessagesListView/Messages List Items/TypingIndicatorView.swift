@@ -15,6 +15,8 @@ struct TypingIndicatorView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 4)
         }
+        .accessibilityLabel("Someone is typing")
+        .accessibilityIdentifier("typing-indicator")
     }
 }
 

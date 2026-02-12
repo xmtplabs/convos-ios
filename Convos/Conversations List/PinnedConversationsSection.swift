@@ -71,6 +71,8 @@ struct PinnedConversationsSection: View {
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .accessibilityLabel("Pinned conversations")
+        .accessibilityIdentifier("pinned-conversations-section")
     }
 
     private var gridLayout: some View {
@@ -84,6 +86,8 @@ struct PinnedConversationsSection: View {
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .accessibilityLabel("Pinned conversations")
+        .accessibilityIdentifier("pinned-conversations-section")
     }
 }
 

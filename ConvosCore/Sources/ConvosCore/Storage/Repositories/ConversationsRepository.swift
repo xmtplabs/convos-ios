@@ -57,6 +57,7 @@ fileprivate extension Database {
             .filter(!DBConversation.Columns.id.like("draft-%"))
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
+            .filter(DBConversation.Columns.isUnused == false)
             .detailedConversationQuery()
             .fetchAll(self)
         return try dbConversationDetails.composeConversations(from: self)

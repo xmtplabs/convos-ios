@@ -34,6 +34,7 @@ struct SetupQuicknameView: View {
             HStack(spacing: DesignConstants.Spacing.stepX) {
                 Image(systemName: "lanyardcard.fill")
                     .foregroundStyle(.colorLava)
+                    .accessibilityHidden(true)
                 Text("Add your name for this convo")
                     .font(.callout)
                     .foregroundStyle(.colorTextPrimaryInverted)
@@ -45,6 +46,8 @@ struct SetupQuicknameView: View {
                     .fill(.colorBackgroundInverted)
             )
         }
+        .accessibilityLabel("Add your name for this convo")
+        .accessibilityIdentifier("setup-quickname-button")
         .transition(.blurReplace)
         .hoverEffect(.lift)
         .padding(.vertical, DesignConstants.Spacing.step4x)

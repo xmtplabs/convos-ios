@@ -26,6 +26,8 @@ struct LabeledTextField: View {
                 .inset(by: 0.5)
                 .stroke(textFieldBorderColor, lineWidth: 1.0)
         )
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(label)
     }
 }
 

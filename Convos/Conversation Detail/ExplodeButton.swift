@@ -118,6 +118,19 @@ struct ExplodeButton: View {
         }
     }
 
+    private var explodeAccessibilityLabel: String {
+        switch state {
+        case .ready:
+            return readyText
+        case .exploding:
+            return explodingText
+        case .exploded:
+            return "Conversation exploded"
+        case .error(let message):
+            return "Error: \(message)"
+        }
+    }
+
     // MARK: - Body
 
     var body: some View {
@@ -138,6 +151,9 @@ struct ExplodeButton: View {
         .onChange(of: state) { _, newValue in
             handleStateChange(newValue)
         }
+        .accessibilityLabel(explodeAccessibilityLabel)
+        .accessibilityHint(state.isReady ? "Hold to confirm" : "")
+        .accessibilityIdentifier("explode-button")
     }
 
     @ViewBuilder

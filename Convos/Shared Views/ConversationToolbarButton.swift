@@ -12,6 +12,7 @@ struct ConversationToolbarButton: View {
     let subtitle: String
     let scheduledExplosionDate: Date?
     let action: () -> Void
+    var longPressAction: (() -> Void)?
 
     init(
         conversation: Conversation,
@@ -20,7 +21,8 @@ struct ConversationToolbarButton: View {
         placeholderName: String,
         subtitle: String = "Customize",
         scheduledExplosionDate: Date? = nil,
-        action: @escaping () -> Void
+        action: @escaping () -> Void,
+        longPressAction: (() -> Void)? = nil
     ) {
         self.conversation = conversation
         self._conversationImage = conversationImage
@@ -29,6 +31,7 @@ struct ConversationToolbarButton: View {
         self.subtitle = subtitle
         self.scheduledExplosionDate = scheduledExplosionDate
         self.action = action
+        self.longPressAction = longPressAction
     }
 
     var title: String {
@@ -55,31 +58,45 @@ struct ConversationToolbarButton: View {
         }
     }
 
-    var body: some View {
-        Button {
-            action()
-        } label: {
-            HStack(spacing: 0.0) {
-                ConversationAvatarView(
-                    conversation: conversation,
-                    conversationImage: conversationImage
-                )
-                .frame(width: 36.0, height: 36.0)
+    private var content: some View {
+        HStack(spacing: 0.0) {
+            ConversationAvatarView(
+                conversation: conversation,
+                conversationImage: conversationImage
+            )
+            .frame(width: 36.0, height: 36.0)
 
-                VStack(alignment: .leading, spacing: 0.0) {
-                    Text(title)
-                        .lineLimit(1)
-                        .frame(maxWidth: 140.0, alignment: .leading)
-                        .font(.callout.weight(.medium))
-                        .truncationMode(.tail)
-                        .foregroundStyle(.colorTextPrimary)
-                        .fixedSize()
-                    subtitleView
-                }
-                .padding(.horizontal, DesignConstants.Spacing.step2x)
+            VStack(alignment: .leading, spacing: 0.0) {
+                Text(title)
+                    .lineLimit(1)
+                    .frame(maxWidth: 140.0, alignment: .leading)
+                    .font(.callout.weight(.medium))
+                    .truncationMode(.tail)
+                    .foregroundStyle(.colorTextPrimary)
+                    .fixedSize()
+                subtitleView
             }
-            .padding(DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
         }
+        .padding(DesignConstants.Spacing.step2x)
+    }
+
+    var body: some View {
+        Group {
+            if longPressAction != nil {
+                content
+                    .contentShape(.rect)
+                    .onTapGesture(perform: action)
+                    .onLongPressGesture(perform: longPressAction ?? {})
+            } else {
+                Button(action: action) {
+                    content
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(subtitle)")
+        .accessibilityIdentifier("conversation-toolbar-button")
     }
 }
 

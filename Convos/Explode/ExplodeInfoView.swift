@@ -3,14 +3,16 @@ import SwiftUI
 struct SoonLabel: View {
     var body: some View {
         Text("Soon")
-            .font(.footnote)
-            .foregroundStyle(.colorTextSecondary)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .font(.subheadline)
+            .foregroundStyle(.colorTextTertiary)
+            .padding(.vertical, 6.0)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .frame(minHeight: DesignConstants.Spacing.step8x)
             .background(
                 Capsule()
                     .fill(.colorFillMinimal)
             )
+            .accessibilityLabel("Coming soon")
     }
 }
 
@@ -40,6 +42,8 @@ struct ExplodeInfoView: View {
             .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("explode-info-view")
     }
 }
 

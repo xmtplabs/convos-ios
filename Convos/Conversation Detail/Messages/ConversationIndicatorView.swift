@@ -1,7 +1,7 @@
 import ConvosCore
 import SwiftUI
 
-struct ConversationInfoButton<InfoView: View>: View {
+struct ConversationIndicatorView<InfoView: View>: View {
     let conversation: Conversation
     let placeholderName: String
     let untitledConversationPlaceholder: String
@@ -15,6 +15,7 @@ struct ConversationInfoButton<InfoView: View>: View {
     let showsExplodeNowButton: Bool
     let explodeState: ExplodeState
     let onConversationInfoTapped: () -> Void
+    let onConversationInfoLongPressed: () -> Void
     let onConversationNameEndedEditing: () -> Void
     let onConversationSettings: () -> Void
     let onExplodeNow: () -> Void
@@ -36,13 +37,17 @@ struct ConversationInfoButton<InfoView: View>: View {
                         placeholderName: untitledConversationPlaceholder,
                         subtitle: subtitle,
                         scheduledExplosionDate: scheduledExplosionDate,
-                        action: onConversationInfoTapped
+                        action: onConversationInfoTapped,
+                        longPressAction: onConversationInfoLongPressed
                     )
                     .fixedSize(horizontal: false, vertical: true)
                     .clipShape(.capsule)
                     .glassEffect(.regular.interactive(), in: .capsule)
                     .glassEffectID("convoInfo", in: namespace)
                     .glassEffectTransition(.matchedGeometry)
+                    .accessibilityLabel("Conversation info: \(conversationName.isEmpty ? untitledConversationPlaceholder : conversationName)")
+                    .accessibilityHint("Tap to edit conversation name")
+                    .accessibilityIdentifier("conversation-info-button")
                 }
 
                 if isExpanded {
@@ -114,7 +119,7 @@ struct ConversationInfoButton<InfoView: View>: View {
     let conversation: Conversation = .mock()
     let placeholderName: String = conversation.name ?? "Convo name"
 
-    ConversationInfoButton(
+    ConversationIndicatorView(
         conversation: conversation,
         placeholderName: placeholderName,
         untitledConversationPlaceholder: "Untitled",
@@ -128,6 +133,9 @@ struct ConversationInfoButton<InfoView: View>: View {
         showsExplodeNowButton: true,
         explodeState: .ready,
         onConversationInfoTapped: {
+            focusCoordinator?.moveFocus(to: .conversationName)
+        },
+        onConversationInfoLongPressed: {
             focusCoordinator?.moveFocus(to: .conversationName)
         },
         onConversationNameEndedEditing: {

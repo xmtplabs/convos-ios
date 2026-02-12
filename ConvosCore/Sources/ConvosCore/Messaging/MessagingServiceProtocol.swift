@@ -37,6 +37,7 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
 
     func messageWriter(for conversationId: String) -> any OutgoingMessageWriterProtocol
     func reactionWriter() -> any ReactionWriterProtocol
+    func replyWriter() -> any ReplyMessageWriterProtocol
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol

@@ -25,6 +25,7 @@ struct LockConvoConfirmationView: View {
                     Text("Lock convo")
                 }
                 .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorBackgroundInverted))
+                .accessibilityIdentifier("lock-convo-confirm-button")
 
                 Button {
                     onCancel()
@@ -33,6 +34,7 @@ struct LockConvoConfirmationView: View {
                 }
                 .convosButtonStyle(.text)
                 .frame(maxWidth: .infinity)
+                .accessibilityIdentifier("lock-convo-cancel-button")
             }
             .padding(.top, DesignConstants.Spacing.step4x)
         }

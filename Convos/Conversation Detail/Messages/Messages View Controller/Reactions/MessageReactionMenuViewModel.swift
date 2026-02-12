@@ -37,6 +37,12 @@ class MessageReactionMenuViewModel {
         }
     }
 
+    var canReply: Bool = false
+    var onReply: (() -> Void)?
+
+    var copyableText: String?
+    var onCopy: (() -> Void)?
+
     var alignment: Alignment = .leading
 
     var viewState: ViewState = .minimized {

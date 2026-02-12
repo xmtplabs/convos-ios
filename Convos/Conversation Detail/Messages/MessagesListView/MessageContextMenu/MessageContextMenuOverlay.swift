@@ -1,0 +1,437 @@
+import ConvosCore
+import SwiftUI
+
+struct MessageContextMenuOverlay: View {
+    @Bindable var state: MessageContextMenuState
+    let onReaction: (String, String) -> Void
+    let onReply: (AnyMessage) -> Void
+    let onCopy: (String) -> Void
+
+    @State private var appeared: Bool = false
+    @State private var emojiAppeared: [Bool] = []
+    @State private var showMoreAppeared: Bool = false
+    @State private var drawerExpanded: Bool = true
+    @State private var showingEmojiPicker: Bool = false
+    @State private var customEmoji: String?
+    @State private var selectedEmoji: String?
+    @State private var popScale: CGFloat = 1.0
+
+    private var message: AnyMessage? { state.presentedMessage }
+
+    private var copyableText: String? {
+        guard let message else { return nil }
+        switch message.base.content {
+        case .text(let text): return text
+        case .emoji(let text): return text
+        default: return nil
+        }
+    }
+
+    var body: some View {
+        if let message = state.presentedMessage {
+            GeometryReader { proxy in
+                let overlayOrigin = proxy.frame(in: .global).origin
+                let screenSize = proxy.size
+                let safeTop = proxy.safeAreaInsets.top
+                let localBubble = CGRect(
+                    x: state.bubbleFrame.origin.x - overlayOrigin.x,
+                    y: state.bubbleFrame.origin.y - overlayOrigin.y,
+                    width: state.bubbleFrame.width,
+                    height: state.bubbleFrame.height
+                )
+                let endBubble = endBubbleRect(
+                    source: localBubble,
+                    screenSize: screenSize,
+                    safeTop: safeTop
+                )
+                let activeBubble = appeared ? endBubble : localBubble
+
+                ZStack(alignment: .topLeading) {
+                    backgroundDimming
+
+                    // Reactions drawer hidden for now, re-enable after polish
+                    // reactionsBar(
+                    //     messageId: message.base.id,
+                    //     bubbleRect: activeBubble,
+                    //     sourceBubble: localBubble
+                    // )
+                    // .zIndex(1)
+
+                    actionMenu(
+                        message: message,
+                        bubbleRect: activeBubble
+                    )
+                    .zIndex(2)
+
+                    bubblePreview(
+                        message: message,
+                        sourceBubble: localBubble,
+                        endBubble: endBubble
+                    )
+                    .zIndex(3)
+                }
+            }
+            .ignoresSafeArea()
+            .onAppear {
+                emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
+                withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
+                    appeared = true
+                }
+                let totalDelay = C.emojiAppearanceDelayStep * Double(C.defaultReactions.count)
+                DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
+                    withAnimation {
+                        showMoreAppeared = true
+                    }
+                }
+                for index in C.defaultReactions.indices {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + C.emojiAppearanceDelayStep * Double(index)) {
+                        withAnimation {
+                            emojiAppeared[index] = true
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Background
+
+    private var backgroundDimming: some View {
+        Color.clear
+            .background(.ultraThinMaterial)
+            .opacity(appeared ? 1.0 : 0.0)
+            .animation(.easeOut(duration: 0.18), value: appeared)
+            .onTapGesture { dismissMenu() }
+            .accessibilityLabel("Dismiss menu")
+            .accessibilityAddTraits(.isButton)
+    }
+
+    // MARK: - Reactions Bar
+
+    private func reactionsBar(
+        messageId: String,
+        bubbleRect: CGRect,
+        sourceBubble: CGRect
+    ) -> some View {
+        let startSize: CGFloat = min(sourceBubble.height, sourceBubble.width)
+        let drawerWidth: CGFloat = drawerExpanded ? C.expandedWidth : (selectedEmoji != nil ? C.collapsedWidth : C.compactWidth)
+        let currentWidth: CGFloat = appeared ? drawerWidth : startSize
+        let currentHeight: CGFloat = appeared ? C.drawerHeight : startSize
+
+        let endY: CGFloat = bubbleRect.minY - C.drawerHeight - C.sectionSpacing
+        let endX: CGFloat = state.isOutgoing ? bubbleRect.maxX - drawerWidth : bubbleRect.minX
+        let startY: CGFloat = sourceBubble.midY - startSize / 2
+        let startX: CGFloat = state.isOutgoing ? sourceBubble.maxX - startSize : sourceBubble.minX
+        let barX: CGFloat = appeared ? endX : startX
+        let barY: CGFloat = appeared ? endY : startY
+
+        return GlassEffectContainer {
+            GeometryReader { reader in
+                let readerHeight = max(reader.size.height - C.padding * 2, 0)
+                ZStack(alignment: .leading) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 0) {
+                            ForEach(Array(C.defaultReactions.enumerated()), id: \.element) { index, emoji in
+                                let didAppear = emojiAppeared.indices.contains(index) && emojiAppeared[index]
+                                let action = {
+                                    selectReaction(emoji, messageId: messageId)
+                                }
+                                Button(action: action) {
+                                    Text(emoji)
+                                        .font(.system(size: C.emojiFontSize))
+                                        .padding(C.padding)
+                                        .blur(radius: !drawerExpanded ? C.blurRadius : (didAppear ? 0 : C.blurRadius))
+                                        .scaleEffect(!drawerExpanded ? 0 : (didAppear ? 1.0 : 0))
+                                        .rotationEffect(.degrees(didAppear && drawerExpanded ? 0 : C.emojiRotation))
+                                        .opacity(!drawerExpanded ? 0 : 1)
+                                        .animation(.spring(response: 0.29, dampingFraction: 0.6), value: didAppear)
+                                        .animation(.spring(response: 0.29, dampingFraction: 0.6), value: drawerExpanded)
+                                }
+                                .disabled(!drawerExpanded)
+                                .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
+                            }
+                        }
+                        .padding(.horizontal, C.padding)
+                    }
+                    .frame(height: reader.size.height)
+                    .contentMargins(.trailing, readerHeight, for: .scrollContent)
+                    .mask(
+                        HStack(spacing: 0) {
+                            LinearGradient(
+                                colors: [.black.opacity(0), .black],
+                                startPoint: .leading, endPoint: .trailing
+                            )
+                            .frame(width: C.padding)
+                            Rectangle().fill(.black)
+                            LinearGradient(
+                                colors: [.black, .black.opacity(0)],
+                                startPoint: .leading, endPoint: .trailing
+                            )
+                            .frame(width: readerHeight * 0.3)
+                            Rectangle().fill(.clear)
+                                .frame(width: readerHeight)
+                        }
+                    )
+
+                    HStack(spacing: 0) {
+                        Spacer()
+
+                        ZStack {
+                            Text(selectedEmoji ?? customEmoji ?? "")
+                                .font(.system(size: C.selectedEmojiFontSize))
+                                .frame(width: C.selectedEmojiFrame, height: C.selectedEmojiFrame)
+                                .scaleEffect(
+                                    popScale * (selectedEmoji != nil || customEmoji != nil ? 1.0 : 0)
+                                )
+                                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji ?? customEmoji)
+                                .animation(.spring(response: 0.14, dampingFraction: 0.5), value: popScale)
+
+                            Image(systemName: "face.smiling")
+                                .font(.system(size: C.faceSmilingFontSize))
+                                .tint(.black)
+                                .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil && showMoreAppeared ? 0.2 : 0)
+                                .blur(radius: !drawerExpanded ? 0 : C.blurRadius)
+                                .rotationEffect(.degrees(!drawerExpanded ? 0 : -30))
+                                .scaleEffect(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
+                                .animation(.spring(response: 0.29, dampingFraction: 0.8), value: drawerExpanded)
+                        }
+                        .frame(width: reader.size.height, height: reader.size.height)
+
+                        let plusAction = {
+                            withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
+                                drawerExpanded.toggle()
+                                showingEmojiPicker = !drawerExpanded
+                            }
+                        }
+                        Button(action: plusAction) {
+                            Image(systemName: "plus")
+                                .font(.system(size: C.plusIconFontSize))
+                                .padding(C.padding)
+                                .tint(.colorTextSecondary)
+                                .offset(x: !showMoreAppeared ? 40 : 0)
+                                .opacity(!showMoreAppeared ? 0 : 1)
+                                .animation(
+                                    .spring(response: 0.29, dampingFraction: 0.7),
+                                    value: showMoreAppeared
+                                )
+                                .rotationEffect(.degrees(!drawerExpanded ? -45 : 0))
+                        }
+                        .frame(minWidth: readerHeight)
+                        .padding(.trailing, C.plusTrailingPadding)
+                        .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
+                        .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
+                        .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
+                    }
+                }
+                .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
+            }
+            .frame(width: currentWidth, height: currentHeight)
+            .clipShape(.capsule)
+            .glassEffect(.regular.interactive(), in: .capsule)
+        }
+        .frame(width: currentWidth, height: currentHeight)
+        .offset(x: barX, y: barY)
+        .animation(.spring(response: 0.36, dampingFraction: 0.78), value: appeared)
+        .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
+        .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
+        .emojiPicker(
+            isPresented: $showingEmojiPicker,
+            onPick: { emoji in
+                customEmoji = emoji
+                selectReaction(emoji, messageId: messageId)
+            },
+            onDelete: {
+                customEmoji = nil
+            }
+        )
+    }
+
+    private func selectReaction(_ emoji: String, messageId: String) {
+        selectedEmoji = emoji
+        onReaction(emoji, messageId)
+        showingEmojiPicker = false
+
+        withAnimation(.spring(response: 0.14, dampingFraction: 0.5)) {
+            popScale = 1.2
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.11) {
+            withAnimation(.spring(response: 0.29, dampingFraction: 0.8)) {
+                popScale = 1.0
+                drawerExpanded = false
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.44) {
+            dismissMenu()
+        }
+    }
+
+    // MARK: - Bubble Positioning
+
+    private func endBubbleRect(
+        source: CGRect,
+        screenSize: CGSize,
+        safeTop: CGFloat
+    ) -> CGRect {
+        let topInset: CGFloat = safeTop + C.topInset
+        let minY: CGFloat = topInset + C.drawerHeight + C.sectionSpacing
+        let maxY: CGFloat = screenSize.height / 2 - min(C.maxPreviewHeight, source.height)
+        let desiredY: CGFloat = min(max(source.origin.y, minY), maxY < 0 ? minY : maxY)
+        let finalX: CGFloat = (screenSize.width - source.width) / 2
+        return CGRect(x: finalX, y: desiredY, width: source.width, height: source.height)
+    }
+
+    // MARK: - Bubble Preview
+
+    @ViewBuilder
+    private func bubblePreview(
+        message: AnyMessage,
+        sourceBubble: CGRect,
+        endBubble: CGRect
+    ) -> some View {
+        let rect = appeared ? endBubble : sourceBubble
+        Group {
+            switch message.base.content {
+            case .text(let text):
+                MessageBubble(
+                    style: state.bubbleStyle,
+                    message: text,
+                    isOutgoing: state.isOutgoing,
+                    profile: message.base.sender.profile
+                )
+
+            case .emoji(let text):
+                EmojiBubble(
+                    emoji: text,
+                    isOutgoing: state.isOutgoing,
+                    profile: message.base.sender.profile
+                )
+
+            default:
+                EmptyView()
+            }
+        }
+        .contentShape(Rectangle())
+        .frame(width: rect.width, height: rect.height)
+        .offset(x: rect.minX, y: rect.minY)
+        .shadow(
+            color: .black.opacity(appeared ? 0.18 : 0.0),
+            radius: appeared ? 20 : 0,
+            x: 0,
+            y: appeared ? 8 : 0
+        )
+        .animation(.spring(response: 0.36, dampingFraction: 0.8), value: appeared)
+    }
+
+    // MARK: - Action Menu
+
+    private func actionMenu(message: AnyMessage, bubbleRect: CGRect) -> some View {
+        let finalY = bubbleRect.maxY + C.sectionSpacing
+        let anchorX = state.isOutgoing ? bubbleRect.maxX : bubbleRect.minX
+
+        return GlassEffectContainer {
+            VStack(spacing: 0) {
+                let replyAction = {
+                    let msg = message
+                    dismissMenu()
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
+                        onReply(msg)
+                    }
+                }
+                Button(action: replyAction) {
+                    Label("Reply", systemImage: "arrowshape.turn.up.left")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, C.actionPaddingH)
+                        .padding(.vertical, C.actionPaddingV)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Reply to message")
+                .accessibilityIdentifier("context-menu-reply")
+
+                if let text = copyableText {
+                    Divider()
+                        .padding(.horizontal, C.actionPaddingH)
+                    let copyAction = {
+                        dismissMenu()
+                        onCopy(text)
+                    }
+                    Button(action: copyAction) {
+                        Label("Copy", systemImage: "doc.on.doc")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, C.actionPaddingH)
+                            .padding(.vertical, C.actionPaddingV)
+                            .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Copy message text")
+                    .accessibilityIdentifier("context-menu-copy")
+                }
+            }
+            .font(.body)
+            .foregroundStyle(.primary)
+            .opacity(appeared ? 1.0 : 0.0)
+            .animation(
+                .spring(response: 0.29, dampingFraction: 0.8).delay(0.087),
+                value: appeared
+            )
+            .frame(width: C.menuWidth)
+            .clipShape(.rect(cornerRadius: C.menuCornerRadius))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: C.menuCornerRadius))
+        }
+        .fixedSize()
+        .scaleEffect(
+            appeared ? 1.0 : 0.01,
+            anchor: state.isOutgoing ? .topTrailing : .topLeading
+        )
+        .offset(
+            x: state.isOutgoing ? anchorX - C.menuWidth : anchorX,
+            y: appeared ? finalY : bubbleRect.midY
+        )
+        .opacity(appeared ? 1.0 : 0.0)
+        .animation(.spring(response: 0.36, dampingFraction: 0.78).delay(0.022), value: appeared)
+    }
+
+    // MARK: - Helpers
+
+    private func dismissMenu() {
+        showingEmojiPicker = false
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+            appeared = false
+            emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
+            showMoreAppeared = false
+            selectedEmoji = nil
+            customEmoji = nil
+            popScale = 1.0
+            drawerExpanded = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            state.dismiss()
+        }
+    }
+
+    // swiftlint:disable type_name
+    private enum C {
+        static let sectionSpacing: CGFloat = 8
+        static let padding: CGFloat = 8
+        static let drawerHeight: CGFloat = 56
+        static let expandedWidth: CGFloat = 280
+        static let compactWidth: CGFloat = 112
+        static let collapsedWidth: CGFloat = 72
+        static let emojiFontSize: CGFloat = 24
+        static let selectedEmojiFontSize: CGFloat = 28
+        static let selectedEmojiFrame: CGFloat = 32
+        static let faceSmilingFontSize: CGFloat = 28
+        static let plusIconFontSize: CGFloat = 24
+        static let plusTrailingPadding: CGFloat = 8
+        static let blurRadius: CGFloat = 10
+        static let emojiRotation: Double = -15
+        static let emojiAppearanceDelayStep: TimeInterval = 0.036
+        static let menuWidth: CGFloat = 200
+        static let menuCornerRadius: CGFloat = 14
+        static let actionPaddingH: CGFloat = 16
+        static let actionPaddingV: CGFloat = 12
+        static let topInset: CGFloat = 56
+        static let maxPreviewHeight: CGFloat = 75
+
+        static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
+    }
+    // swiftlint:enable type_name
+}
