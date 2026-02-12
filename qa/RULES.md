@@ -139,6 +139,13 @@ These errors are frequently transient — XMTP may log an error even when the op
 
 **How to tell the difference:** XMTP errors contain `XMTPiOS`, `FfiError`, `GroupError`, `Sync`, or `libxmtp` in the message. App errors come from Convos namespaces (`[Convos]`, `[ConvosCore]`) without an XMTP error wrapper, or indicate logic failures (nil unwraps, missing data, database constraint violations).
 
+**Database errors are always app-level errors.** SQLite errors (`SQLite error`, `FOREIGN KEY constraint failed`, `UNIQUE constraint failed`, `NOT NULL constraint failed`, etc.) indicate a real problem in the app's data layer — even when they occur after an XMTP operation or during teardown. These should always be reported with full context, including:
+- The exact SQL operation that failed (the log usually includes the SQL statement).
+- What the app was doing at the time (e.g., processing an incoming message, exploding a conversation).
+- Whether the error had a visible effect on the UI.
+
+Do not dismiss database errors as "expected after teardown" — a well-handled teardown should not produce constraint violations. If exploding a conversation causes FOREIGN KEY failures, that means the app is receiving and trying to store messages for a conversation that has already been deleted from the local database, which is a bug worth tracking.
+
 **Warnings:** Warnings do not stop the test, but should be noted in the test results. Some warnings are expected (e.g., stream reconnection warnings). Use judgment about whether a warning pattern is concerning.
 
 **Log format:** Each log line looks like:

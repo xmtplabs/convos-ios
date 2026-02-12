@@ -50,25 +50,33 @@ Measures time to open a conversation with a small number of messages (< 50). If 
 
 Measures time to open a conversation with enough messages to exceed the first paginated request (page size is 50). The conversation must have **at least 75 messages** with a variety of content types to be realistic.
 
+**Important:** Messages sent before the app joins a conversation are intentionally hidden ("Earlier messages are hidden for privacy") and are never synced to the local database. All messages for this test must be sent **after** the app has joined the conversation.
+
 8. Create a conversation specifically for this test:
    a. Create a conversation via CLI with a profile name.
-   b. Generate an invite and join from the app (process join request in background, tap the quickname pill per ephemeral UI rules).
-   c. Send **100+ messages** from the CLI with mixed content — short messages, longer messages (2-3 sentences), messages with emoji, and some repeated patterns to simulate real conversation:
+   b. Generate an invite.
+   c. Start `process-join-requests --watch` in the background, then open the invite in the app. Wait for the conversation to be joined (2 members visible).
+   d. **After the app has joined**, send **100+ messages** from the CLI with mixed content — short messages, longer messages (2-3 sentences), messages with emoji, and some repeated patterns to simulate real conversation:
       ```bash
       for i in $(seq 1 40); do
-        convos conversations send-message --conversation <id> --text "Message number $i - a short one"
+        convos conversation send-text <id> "Message number $i - a short one" --env dev
       done
       for i in $(seq 1 30); do
-        convos conversations send-message --conversation <id> --text "This is a longer message number $i. It has multiple sentences to simulate real conversation content. People often write paragraphs like this in group chats."
+        convos conversation send-text <id> "This is a longer message number $i. It has multiple sentences to simulate real conversation content. People often write paragraphs like this in group chats." --env dev
       done
       for i in $(seq 1 20); do
-        convos conversations send-message --conversation <id> --text "🎉🔥👀 Emoji blast $i! 🚀✨💯"
+        convos conversation send-text <id> "🎉🔥👀 Emoji blast $i! 🚀✨💯" --env dev
       done
       for i in $(seq 1 10); do
-        convos conversations send-message --conversation <id> --text "Final batch $i - wrapping up the conversation with some more messages to push well past the page boundary"
+        convos conversation send-text <id> "Final batch $i - wrapping up the conversation with some more messages to push well past the page boundary" --env dev
       done
       ```
-   d. Wait 10-15 seconds for all messages to sync to the app. Open the conversation and scroll to verify messages loaded.
+   e. Wait 15-20 seconds for all messages to sync to the app's local database. Verify by scrolling the conversation to confirm messages are visible.
+   f. Optionally verify the message count in GRDB directly:
+      ```bash
+      sqlite3 <path-to-convos.sqlite> "SELECT count(*) FROM message WHERE conversationId = '<id>' AND messageType != 'reaction';"
+      ```
+      Expect 50+ (the page size limit will cap `fetchInitial()` at 50, but the DB should have 100+).
 9. Navigate back to conversations list. Get a log marker.
 10. Tap on the heavy conversation.
 11. Wait for the conversation to load.
