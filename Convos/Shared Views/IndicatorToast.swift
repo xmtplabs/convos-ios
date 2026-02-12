@@ -30,9 +30,9 @@ struct RevealSettingsToast: View {
     let onDismiss: () -> Void
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
             Image(systemName: "eye.circle.fill")
-                .font(.title2)
+                .font(.system(size: 32.0))
                 .foregroundStyle(.colorOrange)
                 .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
 
@@ -50,9 +50,10 @@ struct RevealSettingsToast: View {
 
             Toggle("", isOn: $isAutoReveal)
                 .labelsHidden()
+                .padding(.trailing, DesignConstants.Spacing.stepX)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step3x)
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
         .frame(maxWidth: 260)
         .clipShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
