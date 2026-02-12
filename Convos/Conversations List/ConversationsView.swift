@@ -414,25 +414,20 @@ struct ConversationsView: View {
             PinLimitInfoView()
                 .background(.colorBackgroundRaised)
         }
-        .selfSizingSheet(isPresented: Binding(
-            get: { conversationPendingExplosion != nil },
-            set: { if !$0 { conversationPendingExplosion = nil } }
-        )) {
-            if let conversation = conversationPendingExplosion {
-                ExplodeConvoSheet(
-                    onSchedule: { date in
-                        viewModel.scheduleConversationExplosion(conversation, at: date)
-                        conversationPendingExplosion = nil
-                    },
-                    onExplodeNow: {
-                        viewModel.explodeConversation(conversation)
-                        conversationPendingExplosion = nil
-                    },
-                    onCancel: {
-                        conversationPendingExplosion = nil
-                    }
-                )
-            }
+        .selfSizingSheet(item: $conversationPendingExplosion) { conversation in
+            ExplodeConvoSheet(
+                onSchedule: { date in
+                    viewModel.scheduleConversationExplosion(conversation, at: date)
+                    conversationPendingExplosion = nil
+                },
+                onExplodeNow: {
+                    viewModel.explodeConversation(conversation)
+                    conversationPendingExplosion = nil
+                },
+                onCancel: {
+                    conversationPendingExplosion = nil
+                }
+            )
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {

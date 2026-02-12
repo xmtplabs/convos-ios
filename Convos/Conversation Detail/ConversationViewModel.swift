@@ -703,7 +703,7 @@ extension ConversationViewModel {
 
     func explodeConvo() {
         guard canRemoveMembers else { return }
-        guard explodeState.isReady || explodeState.isError else { return }
+        guard explodeState.isReady || explodeState.isError || explodeState.isScheduled else { return }
 
         explodeState = .exploding
 
