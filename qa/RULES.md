@@ -2,6 +2,14 @@
 
 General rules and conventions that apply to all QA test scenarios. Read this document fully before executing any test.
 
+## Read-Only Policy
+
+**The QA agent must never modify source code, project files, or configuration during testing.** The agent may read source files to gain context about what a test is exercising (e.g., understanding how a view is structured, what accessibility identifiers exist), but must not edit, create, or delete any project files.
+
+The only files the agent may create are test result reports (in `qa/results/` or as directed by the user).
+
+If a test reveals a bug, the agent should document it with detailed repro steps, screenshots, and log excerpts — not attempt to fix it.
+
 ## Tools
 
 You have two categories of tools for QA testing:
@@ -16,6 +24,11 @@ You have direct access to simulator tools for interacting with the Convos iOS ap
 - `sim_type_in_field` — find a text field by id/label, tap to focus, then type text. Optionally clears existing text first. Much more reliable than separate tap + type.
 - `sim_wait_for_element` — poll until an element appears (useful after navigation or network actions). Configurable timeout and interval.
 - `sim_find_elements` — search for elements matching a pattern, or list all elements with identifiers. Good for checking what's on screen.
+
+**Log monitoring tools** — use these to detect app errors during testing:
+
+- `sim_log_tail` — read recent app log lines, filtered by level (default: warning+error). Returns a `marker` timestamp for incremental reads.
+- `sim_log_check_errors` — quick check for new errors since a marker. Returns errors if any, or confirms clean.
 
 **Low-level tools** — use these when the high-level tools don't fit (e.g., tapping at a specific coordinate, swiping):
 
@@ -79,6 +92,34 @@ At the start of a QA session, resolve the UDID once and reuse it for all subsequ
 - After an action, take a screenshot to visually confirm the result when the accessibility tree alone is insufficient.
 - If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout. Network-dependent actions (like messages arriving from the CLI) may take several seconds.
 
+### Log Monitoring
+
+App logs must be monitored throughout every test to catch errors early.
+
+**Setup:** At the start of each test, call `sim_log_tail` to get the current marker timestamp. This establishes a baseline — any errors from before the test starts are ignored.
+
+**During the test:** After each major step (e.g., joining a conversation, sending a message, navigating to a new screen), call `sim_log_check_errors` with the current marker. This checks for new error-level logs since the last check.
+
+**If an error is detected:** Stop the test immediately. Do not continue to the next step. Instead:
+
+1. Take a screenshot of the current app state.
+2. Call `sim_log_tail` with `level: "all"` and the marker to capture the full log context around the error (including info/debug lines that may explain what happened).
+3. Record the failure with:
+   - The test step that was being executed when the error occurred.
+   - The exact error log line(s).
+   - The full log context (10-20 lines before and after the error).
+   - A screenshot of the app at the time of failure.
+   - The sequence of actions taken up to this point (repro steps).
+4. Report the failure as described in the Test Results section.
+
+**Warnings:** Warnings do not stop the test, but should be noted in the test results. Some warnings are expected (e.g., stream reconnection warnings). Use judgment about whether a warning pattern is concerning.
+
+**Log format:** Each log line looks like:
+```
+[2026-02-12T07:24:16Z] [error] [Logger.swift:32] [ConvosCore] Failed processing group message: ...
+```
+The fields are: `[timestamp] [level] [source file:line] [namespace] message`
+
 ### Waiting and Timing
 
 - After sending a message via CLI, wait at least 3-5 seconds before checking the app UI.
@@ -140,6 +181,34 @@ After completing a test, report results clearly:
 - Include relevant screenshots for any failures.
 - Note any unexpected behavior even if the test passed.
 - If the test failed due to infrastructure issues (simulator crash, network timeout), note that separately from app bugs.
+- Include any warnings from the log monitoring, noting whether they seem expected or concerning.
+
+**When a test fails (either from pass/fail criteria or from a log error), include a failure report:**
+
+```
+### Failure: <brief description>
+
+**Step:** <which test step was being executed>
+**Type:** <log error | UI assertion | crash | timeout>
+
+**Repro Steps:**
+1. <step 1 that was taken>
+2. <step 2>
+3. ...
+N. <step where failure occurred>
+
+**Error Logs:**
+<paste the relevant error log lines>
+
+**Log Context:**
+<paste ~10-20 lines of surrounding logs for context>
+
+**Screenshot:** <include a screenshot if applicable>
+
+**Notes:** <any additional observations about the failure>
+```
+
+This format ensures anyone reading the report can reproduce the issue without needing to re-run the test.
 
 ## Message Content Types
 

@@ -94,6 +94,21 @@ async function resolveUdid(pi: ExtensionAPI, explicitUdid?: string): Promise<str
   throw new Error("No booted simulator found. Boot one first with: xcrun simctl boot <name>");
 }
 
+// --- Log file helpers ---
+
+function findAppLogFile(udid: string): string | null {
+  const { execSync } = require("node:child_process");
+  try {
+    const result = execSync(
+      `find ~/Library/Developer/CoreSimulator/Devices/${udid}/data/Containers/Shared/AppGroup -name "convos.log" 2>/dev/null | head -1`,
+      { encoding: "utf-8", timeout: 5000 }
+    ).trim();
+    return result || null;
+  } catch {
+    return null;
+  }
+}
+
 // --- Shared helpers ---
 
 interface AXElement {
@@ -641,6 +656,159 @@ export default function (pi: ExtensionAPI) {
           isError: true,
         };
       }
+    },
+  });
+
+  // --- log_tail: Read recent app logs, filtered by level ---
+  pi.registerTool({
+    name: "sim_log_tail",
+    label: "Simulator: Tail App Logs",
+    description:
+      "Read recent lines from the Convos app log file on the simulator. " +
+      "By default filters for warning and error level logs only. " +
+      "Reads from the end of the log file. Use `since_marker` to only get logs newer than a previously returned marker.",
+    parameters: Type.Object({
+      udid: Type.Optional(Type.String({ description: "Simulator UDID. Auto-detected if omitted." })),
+      lines: Type.Optional(Type.Number({ description: "Maximum number of lines to return (default: 100)" })),
+      level: Type.Optional(Type.String({ description: "Filter level: 'all', 'warning+error' (default), 'error'" })),
+      since_marker: Type.Optional(Type.String({ description: "Only return logs after this timestamp marker (ISO8601 from a previous call)" })),
+    }),
+    async execute(_toolCallId, params, signal) {
+      const udid = await resolveUdid(pi, params.udid);
+      const logFile = findAppLogFile(udid);
+      if (!logFile) {
+        return { content: [{ type: "text", text: "No log file found for this simulator. The app may not have been launched yet." }], details: {} };
+      }
+
+      const maxLines = params.lines ?? 100;
+      const level = params.level ?? "warning+error";
+
+      // Read the tail of the log file
+      const result = await pi.exec("tail", ["-n", String(maxLines * 5), logFile], { signal, timeout: 5000 });
+      if (result.code !== 0) {
+        return { content: [{ type: "text", text: `Failed to read log file: ${result.stderr}` }], isError: true };
+      }
+
+      let lines = result.stdout.split("\n").filter(l => l.trim().length > 0);
+
+      // Filter by level
+      if (level === "warning+error") {
+        lines = lines.filter(l => l.includes("[warning]") || l.includes("[error]"));
+      } else if (level === "error") {
+        lines = lines.filter(l => l.includes("[error]"));
+      }
+
+      // Filter by since_marker (timestamp comparison)
+      if (params.since_marker) {
+        const markerTime = params.since_marker;
+        lines = lines.filter(l => {
+          const match = l.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+          if (!match) return false;
+          return match[1] > markerTime;
+        });
+      }
+
+      // Trim to maxLines
+      lines = lines.slice(-maxLines);
+
+      if (lines.length === 0) {
+        const marker = new Date().toISOString().replace(/\.\d{3}/, "");
+        return {
+          content: [{ type: "text", text: `No ${level === "all" ? "" : level + " "}logs found.\nmarker: ${marker}` }],
+          details: {},
+        };
+      }
+
+      // Extract latest timestamp as marker for next call
+      const lastLine = lines[lines.length - 1];
+      const tsMatch = lastLine.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+      const marker = tsMatch ? tsMatch[1] : new Date().toISOString().replace(/\.\d{3}/, "");
+
+      return {
+        content: [{ type: "text", text: `${lines.length} log entries (${level}):\n\n${lines.join("\n")}\n\nmarker: ${marker}` }],
+        details: {},
+      };
+    },
+  });
+
+  // --- log_check_errors: Quick check for new errors since a marker ---
+  pi.registerTool({
+    name: "sim_log_check_errors",
+    label: "Simulator: Check for Log Errors",
+    description:
+      "Quick check for new error-level log entries since a given marker timestamp. " +
+      "Returns errors if any, or confirms no errors. " +
+      "Use this between test steps to detect app errors early. " +
+      "Call sim_log_tail first to get an initial marker, then pass that marker here.",
+    parameters: Type.Object({
+      since_marker: Type.String({ description: "Timestamp marker from a previous sim_log_tail or sim_log_check_errors call" }),
+      udid: Type.Optional(Type.String({ description: "Simulator UDID. Auto-detected if omitted." })),
+    }),
+    async execute(_toolCallId, params, signal) {
+      const udid = await resolveUdid(pi, params.udid);
+      const logFile = findAppLogFile(udid);
+      if (!logFile) {
+        return { content: [{ type: "text", text: "No log file found." }], details: {} };
+      }
+
+      // Read recent logs
+      const result = await pi.exec("tail", ["-n", "500", logFile], { signal, timeout: 5000 });
+      if (result.code !== 0) {
+        return { content: [{ type: "text", text: `Failed to read log file: ${result.stderr}` }], isError: true };
+      }
+
+      const markerTime = params.since_marker;
+      const errors = result.stdout.split("\n")
+        .filter(l => l.includes("[error]"))
+        .filter(l => {
+          const match = l.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+          if (!match) return false;
+          return match[1] > markerTime;
+        });
+
+      const warnings = result.stdout.split("\n")
+        .filter(l => l.includes("[warning]"))
+        .filter(l => {
+          const match = l.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+          if (!match) return false;
+          return match[1] > markerTime;
+        });
+
+      // New marker
+      const allNew = [...warnings, ...errors];
+      let newMarker = markerTime;
+      if (allNew.length > 0) {
+        const lastLine = allNew[allNew.length - 1];
+        const tsMatch = lastLine.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+        if (tsMatch) newMarker = tsMatch[1];
+      } else {
+        newMarker = new Date().toISOString().replace(/\.\d{3}/, "");
+      }
+
+      if (errors.length > 0) {
+        return {
+          content: [{
+            type: "text",
+            text: `⚠️ ${errors.length} ERROR(s) detected since ${markerTime}:\n\n${errors.join("\n")}${warnings.length > 0 ? `\n\n${warnings.length} warning(s):\n${warnings.join("\n")}` : ""}\n\nmarker: ${newMarker}`,
+          }],
+          isError: true,
+        };
+      }
+
+      if (warnings.length > 0) {
+        return {
+          content: [{
+            type: "text",
+            text: `No errors. ${warnings.length} warning(s) since ${markerTime}:\n\n${warnings.join("\n")}\n\nmarker: ${newMarker}`,
+          }],
+          details: {},
+        };
+      }
+
+      return {
+        content: [{ type: "text", text: `✅ No errors or warnings since ${markerTime}\nmarker: ${newMarker}` }],
+        details: {},
+      };
     },
   });
 
