@@ -250,12 +250,9 @@ class MessagesRepository: MessagesRepositoryProtocol {
             return ValueObservation
                 .tracking { db in
                     do {
-                        // Force tracking of AttachmentLocalState table so changes
-                        // to reveal/hide state trigger re-emission of messages
-                        let localStateCount = try AttachmentLocalState.fetchCount(db)
+                        // Fetch all local states to force GRDB tracking on that table,
+                        // ensuring reveal/hide changes trigger re-emission
                         let allLocalStates = try AttachmentLocalState.fetchAll(db)
-                        let revealedKeys = allLocalStates.filter { $0.isRevealed }.map { $0.attachmentKey }
-                        Log.info("[MessagesRepo] Observation triggered. LocalState count: \(localStateCount), revealed: \(revealedKeys)")
 
                         // Get current state safely
                         let currentState = stateQueue.sync { () -> LoadingState in
@@ -269,6 +266,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
                         let (messages, updatedSeenIds) = try db.composeMessages(
                             for: conversationId,
                             limit: limit,
+                            prefetchedLocalStates: allLocalStates,
                             seenMessageIds: currentState.seenIds,
                             isInitialLoad: currentState.isInitial,
                             isPaginating: currentState.isPaginating
@@ -300,6 +298,7 @@ extension Array where Element == DBMessage {
                          memberProfileCache: MemberProfileCache,
                          reactionsBySourceId: [String: [DBMessage]],
                          sourceMessagesById: [String: DBMessage],
+                         attachmentLocalStates: [String: AttachmentLocalState] = [:],
                          seenMessageIds: Set<String>,
                          isInitialLoad: Bool = false,
                          isPaginating: Bool = false) -> ([AnyMessage], Set<String>) {
@@ -337,7 +336,14 @@ extension Array where Element == DBMessage {
                     messageContent = .invite(invite)
                 case .attachments:
                     let hydratedAttachments = dbMessage.attachmentUrls.map { key in
-                        HydratedAttachment(key: key)
+                        let localState = attachmentLocalStates[key]
+                        return HydratedAttachment(
+                            key: key,
+                            isRevealed: localState?.isRevealed ?? false,
+                            isHiddenByOwner: localState?.isHiddenByOwner ?? false,
+                            width: localState?.width,
+                            height: localState?.height
+                        )
                     }
                     messageContent = .attachments(hydratedAttachments)
                 case .emoji:
@@ -390,6 +396,7 @@ extension Array where Element == DBMessage {
                 return Self.composeReplyMessage(
                     sourceMessage: sourceMessage, dbMessage: dbMessage,
                     in: conversation, memberProfileCache: memberProfileCache,
+                    attachmentLocalStates: attachmentLocalStates,
                     sender: sender, source: source, reactions: reactions, origin: origin
                 )
             case .reaction:
@@ -406,6 +413,7 @@ extension Array where Element == DBMessage {
         dbMessage: DBMessage,
         in conversation: Conversation,
         memberProfileCache: MemberProfileCache,
+        attachmentLocalStates: [String: AttachmentLocalState],
         sender: ConversationMember,
         source: MessageSource,
         reactions: [MessageReaction],
@@ -418,7 +426,16 @@ extension Array where Element == DBMessage {
         case .emoji:
             replyContent = .emoji(dbMessage.emoji ?? "")
         case .attachments:
-            replyContent = .attachments(dbMessage.attachmentUrls.map { HydratedAttachment(key: $0) })
+            replyContent = .attachments(dbMessage.attachmentUrls.map { key in
+                let localState = attachmentLocalStates[key]
+                return HydratedAttachment(
+                    key: key,
+                    isRevealed: localState?.isRevealed ?? false,
+                    isHiddenByOwner: localState?.isHiddenByOwner ?? false,
+                    width: localState?.width,
+                    height: localState?.height
+                )
+            })
         case .update, .invite:
             return nil
         }
@@ -441,7 +458,16 @@ extension Array where Element == DBMessage {
         case .emoji:
             parentContent = .emoji(sourceDBMessage.emoji ?? "")
         case .attachments:
-            parentContent = .attachments(sourceDBMessage.attachmentUrls.map { HydratedAttachment(key: $0) })
+            parentContent = .attachments(sourceDBMessage.attachmentUrls.map { key in
+                let localState = attachmentLocalStates[key]
+                return HydratedAttachment(
+                    key: key,
+                    isRevealed: localState?.isRevealed ?? false,
+                    isHiddenByOwner: localState?.isHiddenByOwner ?? false,
+                    width: localState?.width,
+                    height: localState?.height
+                )
+            })
         case .invite:
             if let invite = sourceDBMessage.invite {
                 parentContent = .invite(invite)
@@ -633,6 +659,7 @@ fileprivate extension Database {
     func composeMessages(
         for conversationId: String,
         limit: Int? = nil,
+        prefetchedLocalStates: [AttachmentLocalState]? = nil,
         seenMessageIds: Set<String>,
         isInitialLoad: Bool = false,
         isPaginating: Bool = false
@@ -689,12 +716,29 @@ fileprivate extension Database {
             }
         }
 
+        let localStates: [AttachmentLocalState]
+        if let prefetchedLocalStates {
+            localStates = prefetchedLocalStates
+        } else {
+            let allAttachmentKeys = rawMessages.flatMap { $0.attachmentUrls }
+                + sourceMessagesById.values.flatMap { $0.attachmentUrls }
+            if !allAttachmentKeys.isEmpty {
+                localStates = try AttachmentLocalState
+                    .filter(allAttachmentKeys.contains(AttachmentLocalState.Columns.attachmentKey))
+                    .fetchAll(self)
+            } else {
+                localStates = []
+            }
+        }
+        let attachmentLocalStates = Dictionary(uniqueKeysWithValues: localStates.map { ($0.attachmentKey, $0) })
+
         let chronologicalMessages = rawMessages.reversed()
         let result = Array(chronologicalMessages).composeMessages(
             in: conversation,
             memberProfileCache: memberProfileCache,
             reactionsBySourceId: reactionsBySourceId,
             sourceMessagesById: sourceMessagesById,
+            attachmentLocalStates: attachmentLocalStates,
             seenMessageIds: seenMessageIds,
             isInitialLoad: isInitialLoad,
             isPaginating: isPaginating
