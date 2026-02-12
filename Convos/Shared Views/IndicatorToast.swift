@@ -54,7 +54,7 @@ struct RevealSettingsToast: View {
         }
         .padding(.horizontal, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
-        .frame(maxWidth: 260)
+        .fixedSize()
         .clipShape(.capsule)
         .glassEffect(.regular.interactive(), in: .capsule)
         .task {
