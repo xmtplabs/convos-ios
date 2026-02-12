@@ -124,7 +124,7 @@ The fields are: `[timestamp] [level] [source file:line] [namespace] message`
 
 - After sending a message via CLI, wait at least 3-5 seconds before checking the app UI.
 - After opening a deep link, wait 2-3 seconds for the app to process it.
-- If something hasn't appeared after a reasonable wait, retry once or twice with increasing delays before marking as failed.
+- If something hasn't appeared after a reasonable wait, retry once before marking as failed.
 - Use screenshots as the primary way to verify visual state.
 
 ### Verifying Results

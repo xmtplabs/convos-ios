@@ -31,6 +31,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 11 | `qa/tests/11-mute-conversation.md` | Mute and unmute conversations |
 | 12 | `qa/tests/12-create-conversation-from-app.md` | Create conversation from app and invite others |
 | 13 | `qa/tests/13-migration.md` | Database migration from main branch to current branch |
+| 14 | `qa/tests/14-quickname.md` | Quickname setup, auto-apply, quick edit, My Info override, App Settings edit |
 
 ## Running Tests
 
