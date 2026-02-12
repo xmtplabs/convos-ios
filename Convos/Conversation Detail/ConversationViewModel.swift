@@ -216,6 +216,7 @@ class ConversationViewModel {
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol
     ) {
+        let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
@@ -251,6 +252,7 @@ class ConversationViewModel {
 
         presentingConversationForked = self.conversation.isForked
 
+        Log.info("[PERF] ConversationViewModel.init: \(String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000))ms, \(messages.count) messages loaded")
         Log.info("Created for conversation: \(conversation.id)")
 
         observe()
