@@ -64,6 +64,7 @@ public enum ExplosionDurationFormatter {
     // MARK: - Compact Countdown (HH:MM for badge)
 
     public static func compactCountdown(interval: TimeInterval) -> String {
+        guard interval > 0 else { return "Exploding..." }
         let totalSeconds = Int(ceil(interval))
         let hours = totalSeconds / 3600
         let minutes = (totalSeconds % 3600) / 60

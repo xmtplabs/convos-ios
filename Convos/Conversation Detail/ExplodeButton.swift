@@ -122,6 +122,8 @@ struct ExplodeButton: View {
         switch state {
         case .ready:
             return readyText
+        case .scheduled:
+            return "Scheduled to explode"
         case .exploding:
             return explodingText
         case .exploded:

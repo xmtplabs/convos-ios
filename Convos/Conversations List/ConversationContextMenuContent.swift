@@ -43,7 +43,7 @@ func conversationContextMenuContent(
             Image(systemName: "burst")
         }
     }
-    .accessibilityIdentifier("context-menu-toggle-read")
+    .accessibilityIdentifier("context-menu-explode")
 
     Button(role: .destructive, action: onDelete) {
         Text("Delete")

@@ -512,7 +512,6 @@ struct ConversationInfoView: View {
                     },
                     onExplodeNow: {
                         viewModel.explodeConvo()
-                        showingExplodeSheet = false
                     },
                     onCancel: {
                         showingExplodeSheet = false

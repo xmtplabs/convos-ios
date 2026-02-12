@@ -138,7 +138,7 @@ struct ExplodeConvoSheet: View {
         ) {
             explodeState = .exploding
             onExplodeNow()
-            explodeTask = Task {
+            explodeTask = Task { @MainActor in
                 try? await Task.sleep(for: .seconds(0.5))
                 guard !Task.isCancelled else { return }
                 explodeState = .exploded

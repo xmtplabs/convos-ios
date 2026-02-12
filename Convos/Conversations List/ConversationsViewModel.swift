@@ -515,10 +515,21 @@ final class ConversationsViewModel {
                 }
 
                 let metadataWriter = messagingService.conversationMetadataWriter()
-                try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
-                try await metadataWriter.removeMembers(memberInboxIds, from: conversationId)
-
-                try await group.updateConsentState(state: .denied)
+                do {
+                    try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
+                } catch {
+                    Log.error("Failed updating local expiresAt after explosion: \(error.localizedDescription)")
+                }
+                do {
+                    try await metadataWriter.removeMembers(memberInboxIds, from: conversationId)
+                } catch {
+                    Log.error("Failed removing local members after explosion: \(error.localizedDescription)")
+                }
+                do {
+                    try await group.updateConsentState(state: .denied)
+                } catch {
+                    Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
+                }
 
                 conversation.postLeftConversationNotification()
                 Log.info("Exploded conversation from list: \(conversationId)")

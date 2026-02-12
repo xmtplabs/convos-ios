@@ -736,18 +736,30 @@ extension ConversationViewModel {
                     throw ExplodeConvoError.notGroupConversation
                 }
 
-                try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
+                do {
+                    try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
+                } catch {
+                    Log.error("Failed updating local expiresAt after explosion: \(error.localizedDescription)")
+                }
 
                 let memberIdsToRemove = conversation.members
                     .map { $0.profile.inboxId }
 
-                try await metadataWriter.removeMembers(
-                    memberIdsToRemove,
-                    from: conversation.id
-                )
+                do {
+                    try await metadataWriter.removeMembers(
+                        memberIdsToRemove,
+                        from: conversation.id
+                    )
+                } catch {
+                    Log.error("Failed removing local members after explosion: \(error.localizedDescription)")
+                }
 
-                try await group.updateConsentState(state: .denied)
-                Log.info("Denied exploded conversation to prevent re-sync")
+                do {
+                    try await group.updateConsentState(state: .denied)
+                    Log.info("Denied exploded conversation to prevent re-sync")
+                } catch {
+                    Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
+                }
 
                 self.presentingConversationSettings = false
                 self.conversation.postLeftConversationNotification()
