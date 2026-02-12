@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { readFileSync, existsSync, mkdtempSync, unlinkSync, rmdirSync } from "node:fs";
+import { readFileSync, existsSync, mkdtempSync, unlinkSync, rmdirSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -65,19 +65,31 @@ export default function (pi: ExtensionAPI) {
       const udid = await getUdid(ctx.cwd);
       const tmpDir = mkdtempSync(join(tmpdir(), "sim-screenshot-"));
       const screenshotPath = join(tmpDir, "screenshot.png");
+      const resizedPath = join(tmpDir, "screenshot-resized.jpeg");
       try {
         await execFileAsync("xcrun", ["simctl", "io", udid, "screenshot", screenshotPath]);
-        const data = readFileSync(screenshotPath);
-        const base64 = data.toString("base64");
+        const maxBase64Bytes = 4.5 * 1024 * 1024;
+        let data = readFileSync(screenshotPath);
+        let base64 = data.toString("base64");
+        let mimeType = "image/png";
+        if (base64.length > maxBase64Bytes) {
+          try {
+            await execFileAsync("sips", ["-Z", "1280", "-s", "format", "jpeg", "-s", "formatOptions", "70", screenshotPath, "--out", resizedPath]);
+            data = readFileSync(resizedPath);
+            base64 = data.toString("base64");
+            mimeType = "image/jpeg";
+          } catch {}
+        }
         return {
           content: [
-            { type: "text" as const, text: "Simulator screenshot [image/png]" },
-            { type: "image" as const, data: base64, mimeType: "image/png" },
+            { type: "text" as const, text: `Simulator screenshot [${mimeType}]` },
+            { type: "image" as const, data: base64, mimeType },
           ],
           details: {},
         };
       } finally {
         try { unlinkSync(screenshotPath); } catch {}
+        try { unlinkSync(resizedPath); } catch {}
         try { rmdirSync(tmpDir); } catch {}
       }
     },
