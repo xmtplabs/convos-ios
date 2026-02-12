@@ -481,13 +481,13 @@ struct ConversationInfoView: View {
                         showingLockedInfo = false
                     }
                 )
-                .background(.colorBackgroundRaised)
+                .background(.colorBackgroundSurfaceless)
             }
             .selfSizingSheet(isPresented: $showingFullInfo) {
                 FullConvoInfoView(onDismiss: {
                     showingFullInfo = false
                 })
-                .background(.colorBackgroundRaised)
+                .background(.colorBackgroundSurfaceless)
             }
         }
     }

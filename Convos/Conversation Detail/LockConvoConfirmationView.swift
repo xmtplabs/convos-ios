@@ -56,6 +56,6 @@ struct LockConvoConfirmationView: View {
             onLock: {},
             onCancel: {}
         )
-        .background(.colorBackgroundRaised)
+        .background(.colorBackgroundSurfaceless)
     }
 }

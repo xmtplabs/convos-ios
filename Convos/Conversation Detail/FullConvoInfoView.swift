@@ -34,5 +34,5 @@ struct FullConvoInfoView: View {
 
 #Preview {
     FullConvoInfoView(onDismiss: {})
-        .background(.colorBackgroundRaised)
+        .background(.colorBackgroundSurfaceless)
 }

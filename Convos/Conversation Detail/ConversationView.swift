@@ -101,7 +101,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             ConversationForkedInfoView {
                 viewModel.leaveConvo()
             }
-            .background(.colorBackgroundRaised)
+            .background(.colorBackgroundSurfaceless)
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
             MyInfoView(
@@ -206,20 +206,20 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     showingLockedInfo = false
                 }
             )
-            .background(.colorBackgroundRaised)
+            .background(.colorBackgroundSurfaceless)
         }
         .selfSizingSheet(isPresented: $showingFullInfo) {
             FullConvoInfoView(onDismiss: {
                 showingFullInfo = false
             })
-            .background(.colorBackgroundRaised)
+            .background(.colorBackgroundSurfaceless)
         }
         .selfSizingSheet(
             isPresented: $viewModel.presentingRevealMediaInfoSheet,
             onDismiss: { viewModel.showRevealSettingsToast() },
             content: {
                 RevealMediaInfoSheet()
-                    .background(.colorBackgroundRaised)
+                    .background(.colorBackgroundSurfaceless)
             }
         )
     }
