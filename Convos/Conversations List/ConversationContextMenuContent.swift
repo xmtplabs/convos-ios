@@ -36,7 +36,7 @@ func conversationContextMenuContent(
     }
     .accessibilityIdentifier("context-menu-pin")
 
-    if conversation.creator.isCurrentUser {
+    if conversation.creator.isCurrentUser, conversation.scheduledExplosionDate == nil {
         Button(action: onExplode) {
             Text("Explode")
             Text("For everyone")
