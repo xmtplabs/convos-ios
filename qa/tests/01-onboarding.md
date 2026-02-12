@@ -23,8 +23,8 @@ Verify that a first-time user can launch the app, create a conversation, and com
 
 ### Quickname onboarding appears
 
-7. After creating the conversation, the onboarding flow should begin. Verify that a "setup quickname" prompt appears — a button labeled something like "Add your name for this convo".
-8. Tap the setup quickname button.
+7. After creating the conversation, **immediately** poll for the setup quickname prompt using `sim_wait_for_element` with identifier `setup-quickname-button` (timeout: 15s, interval: 1s). Do not take screenshots or perform other operations first — the prompt may appear quickly after conversation creation.
+8. As soon as the element is found, tap it immediately using `sim_tap_id` with identifier `setup-quickname-button`.
 9. The profile editor should appear. Enter a display name like "QA Tester".
 10. Confirm or dismiss the profile editor.
 11. A "Quickname saved" confirmation should appear briefly.

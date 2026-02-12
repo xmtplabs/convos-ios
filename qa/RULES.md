@@ -6,9 +6,22 @@ General rules and conventions that apply to all QA test scenarios. Read this doc
 
 **The QA agent must never modify source code, project files, or configuration during testing.** The agent may read source files to gain context about what a test is exercising (e.g., understanding how a view is structured, what accessibility identifiers exist), but must not edit, create, or delete any project files.
 
-The only files the agent may create are test result reports (in `qa/results/` or as directed by the user).
+The only files the agent may create or modify are:
+- Test result reports (in `qa/results/` or as directed by the user)
+- QA process files (`qa/RULES.md`, `qa/tests/*.md`) — see **Continuous Improvement** below
 
 If a test reveals a bug, the agent should document it with detailed repro steps, screenshots, and log excerpts — not attempt to fix it.
+
+## Continuous Improvement
+
+**The QA agent should actively improve the QA process as it learns.** If the agent discovers a more reliable or efficient way to perform a test step, it should update the relevant rules or test file so future runs benefit. This includes:
+
+- **Fixing flaky steps.** If a step repeatedly fails due to timing, element lookup strategy, or ordering issues — and the agent finds a workaround that works — update the test instructions with the working approach (e.g., switching from identifier to label search, using `sim_tap_id` with retries instead of wait-then-tap, running commands in the background).
+- **Adding missing context.** If a test step is ambiguous or missing detail that caused the agent to get stuck, clarify it. Add the accessibility identifier, label text, or exact UI flow that the step requires.
+- **Documenting gotchas.** If something non-obvious is required for a step to succeed (e.g., a specific element only appears during an async operation, or a search must use label instead of identifier), add a note so the agent doesn't rediscover it next time.
+- **Breaking out of loops.** If the agent catches itself retrying the same failing approach more than twice, it should stop, investigate the root cause (check source code for accessibility identifiers, read logs, try alternative lookup strategies), and update the test or rules with what it learns.
+
+When updating QA files, keep changes focused and minimal — fix the specific issue encountered, don't rewrite entire sections speculatively.
 
 ## Tools
 
@@ -100,10 +113,22 @@ App logs must be monitored throughout every test to catch errors early.
 
 **During the test:** After each major step (e.g., joining a conversation, sending a message, navigating to a new screen), call `sim_log_check_errors` with the current marker. This checks for new error-level logs since the last check.
 
-**If an error is detected:** Stop the test immediately. Do not continue to the next step. Instead:
+**If an error is detected:** Classify it before deciding whether to stop.
 
+**XMTP / network-layer errors** — these originate from the XMTP SDK and often look like:
+```
+XMTPiOS.FfiError.Error(message: "[GroupError::Sync] Group error: synced N messages, ...")
+Error updating profile display name: XMTPiOS.FfiError.Error(...)
+[GroupError::Sync] ...
+```
+These errors are frequently transient — XMTP may log an error even when the operation partially succeeded or will succeed on retry. **Do not stop the test for XMTP-layer errors.** Instead:
+1. Note the error in the test results (include the full log line).
+2. Continue executing the test steps.
+3. Judge pass/fail based on the **end result in the app** — did the UI show the correct state? Did the expected data appear? If the app behaves correctly despite the XMTP error, the test step passes. If the app shows incorrect state (e.g., profile name reverts, message not delivered, conversation stuck), then the step fails and the XMTP error is noted as the likely cause.
+
+**App-level errors** — these are errors from Convos application code that indicate unexpected failures (crashes, unhandled exceptions, assertion failures, database errors). Stop the test and record the failure:
 1. Take a screenshot of the current app state.
-2. Call `sim_log_tail` with `level: "all"` and the marker to capture the full log context around the error (including info/debug lines that may explain what happened).
+2. Call `sim_log_tail` with `level: "all"` and the marker to capture the full log context around the error.
 3. Record the failure with:
    - The test step that was being executed when the error occurred.
    - The exact error log line(s).
@@ -111,6 +136,8 @@ App logs must be monitored throughout every test to catch errors early.
    - A screenshot of the app at the time of failure.
    - The sequence of actions taken up to this point (repro steps).
 4. Report the failure as described in the Test Results section.
+
+**How to tell the difference:** XMTP errors contain `XMTPiOS`, `FfiError`, `GroupError`, `Sync`, or `libxmtp` in the message. App errors come from Convos namespaces (`[Convos]`, `[ConvosCore]`) without an XMTP error wrapper, or indicate logic failures (nil unwraps, missing data, database constraint violations).
 
 **Warnings:** Warnings do not stop the test, but should be noted in the test results. Some warnings are expected (e.g., stream reconnection warnings). Use judgment about whether a warning pattern is concerning.
 
@@ -126,6 +153,36 @@ The fields are: `[timestamp] [level] [source file:line] [namespace] message`
 - After opening a deep link, wait 2-3 seconds for the app to process it.
 - If something hasn't appeared after a reasonable wait, retry once before marking as failed.
 - Use screenshots as the primary way to verify visual state.
+
+### Ephemeral / Auto-Dismissing UI
+
+Some UI elements appear briefly and auto-dismiss after a few seconds (e.g., onboarding pills, quickname pills, success confirmations). These require fast detection:
+
+- **Start polling BEFORE the trigger completes.** Many ephemeral elements appear during an async operation (e.g., the quickname pill appears while `process-join-requests` is still running). If you wait for the CLI command to finish before polling, the pill may already be gone. Run the CLI command **in the background** (append `&` in bash) and start tapping **immediately** — do not wait for the background command to complete.
+- **Use `sim_tap_id` with `retries` to find-and-tap in one atomic operation.** Do not use `sim_wait_for_element` followed by a separate `sim_tap_id` — the element can auto-dismiss between the two calls. `sim_tap_id` with retries polls and taps the instant it finds the element.
+- **Search by label text, not accessibility identifier.** Some elements' accessibility identifiers are not reliably found when nested inside overlay/drawer views. Use a substring of the label instead (e.g., `"Tap to chat"` for the quickname pill).
+- **Use `sim_find_elements` as a fallback** if `sim_tap_id` exhausts retries — to check whether the element appeared and dismissed between polls.
+- If a test step says "look for" an ephemeral element, the sequence should be: start the trigger in the background → immediately call `sim_tap_id` with retries → then screenshot to verify the result after tapping.
+
+**Example pattern for invite + quickname pill:**
+```
+# 1. Open invite in app
+sim_open_url ...
+sleep 3
+
+# 2. Start join processing in background AND tap simultaneously
+# These two calls must be made in the SAME function_calls block so they run in parallel:
+bash: convos conversations process-join-requests --conversation <id> &
+sim_tap_id: identifier="Tap to chat", retries=30
+
+# 3. Screenshot to verify the result
+sim_screenshot
+```
+
+Known ephemeral elements:
+- **Quickname pill**: appears above the composer when entering a new conversation with a quickname set. Search using label substring `"Tap to chat"` (full label is like `"UQ, Tap to chat as Updated QN"`). Accessibility identifier is `add-quickname-button` but may not be found reliably — prefer label search. Auto-dismisses after ~8 seconds.
+- **Setup quickname prompt**: appears during first-conversation onboarding. Search using label `"Add your name for this convo"` or identifier `setup-quickname-button`. Does not auto-dismiss (requires interaction).
+- **Saved/success confirmations**: brief confirmations that auto-dismiss after ~3 seconds.
 
 ### Verifying Results
 
@@ -171,7 +228,19 @@ The invite flow is multi-step and requires coordination between the inviting sid
 2. The joiner opens the invite (via deep link, QR scan, or paste).
 3. The creator must process the join request for the joiner to be added.
 
-When using the CLI as the creator, always run `process-join-requests` after the app has opened the invite. Use `--watch` with a timeout if the timing is uncertain.
+**Critical ordering: The app must open the invite FIRST, before the CLI runs `process-join-requests`.** The join request does not exist until the app opens the invite link and sends a join request to the network. Running `process-join-requests` before the app has opened the invite will find nothing to process and silently succeed, leaving the joiner stuck.
+
+**Correct sequence:**
+1. Generate the invite via CLI.
+2. Open the invite in the app (via `sim_open_url` deep link, QR scan, or paste).
+3. Wait 2-3 seconds for the app to process the deep link and send the join request.
+4. **Then** run `process-join-requests` from the CLI.
+
+**Always use `--watch` with `--timeout`** when running `process-join-requests`. The join request may take a moment to arrive over the network. Example:
+```bash
+convos conversation process-join-requests <convo-id> --watch --timeout 30
+```
+Never run `process-join-requests` without `--timeout` — it can hang indefinitely with `--watch`, or miss the request without `--watch`. A 30-second timeout is a safe default.
 
 ### Test Results
 
@@ -182,6 +251,7 @@ After completing a test, report results clearly:
 - Note any unexpected behavior even if the test passed.
 - If the test failed due to infrastructure issues (simulator crash, network timeout), note that separately from app bugs.
 - Include any warnings from the log monitoring, noting whether they seem expected or concerning.
+- **XMTP errors:** List all XMTP-layer errors observed during the test in a dedicated section, even if the test passed. Note whether each error appeared to affect the app's behavior or was transient/innocuous. This helps track XMTP SDK issues over time without conflating them with app bugs.
 
 **When a test fails (either from pass/fail criteria or from a log error), include a failure report:**
 

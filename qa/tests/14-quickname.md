@@ -15,11 +15,9 @@ Note the quickname display name and avatar before starting. These will be verifi
 ### Part 1: Quickname auto-applied on new conversation
 
 1. Create a new conversation via the CLI with a name like "Quickname Test" and a profile name for the CLI user.
-2. Generate an invite and open it as a deep link in the app.
-3. Process the join request from the CLI.
-4. After the app enters the conversation, look for the quickname pill above the message composer. It should be a capsule-shaped button that says something like "Tap to chat as <quickname display name>" and shows the quickname avatar.
-5. The pill auto-dismisses after a few seconds. If it is still visible, tap it.
-6. After tapping the pill (or after it auto-dismisses if tapped), verify:
+2. Generate an invite and open it as a deep link in the app. Wait 2-3 seconds for the app to send the join request.
+3. Start the CLI `process-join-requests` command **in the background** (append `&` in bash) and **in the same parallel call block**, use `sim_tap_id` with identifier `"Tap to chat"` and `retries: 30` to find-and-tap the quickname pill in one atomic operation. The pill appears as soon as the conversation becomes ready (during join processing) and auto-dismisses after ~8 seconds. The background CLI command and the `sim_tap_id` must be issued simultaneously so polling starts before the pill appears. Do not use `sim_wait_for_element` followed by a separate tap — the pill will auto-dismiss between the two calls.
+4. After the pill is tapped, take a screenshot and verify:
    - The composer area shows the quickname avatar next to the text field.
    - The text field placeholder says "Chat as <quickname display name>".
 7. Send a message from the app.
@@ -64,14 +62,12 @@ Note the quickname display name and avatar before starting. These will be verifi
 ### Part 5: Verify updated quickname in a new conversation
 
 34. Create another conversation via the CLI with a different name like "Quickname Persist Test".
-35. Generate an invite and open it as a deep link.
-36. Process the join request from the CLI.
-37. After the app enters the new conversation, verify the quickname pill appears again offering to use the quickname.
-38. Verify the pill shows the updated quickname display name ("Updated QN" or whatever was set in Part 4).
-39. Tap the pill to apply the quickname.
-40. Verify the composer shows "Chat as Updated QN".
-41. Send a message and verify it appears with the updated quickname display name.
-42. Use the CLI to check profiles — the app user's name should be the updated quickname.
+35. Generate an invite and open it as a deep link. Wait 2-3 seconds for the app to send the join request.
+36. Start the CLI `process-join-requests` command **in the background** (append `&`) and **in the same parallel call block**, use `sim_tap_id` with identifier `"Tap to chat"` and `retries: 30` to find-and-tap the quickname pill atomically.
+37. Verify the tap result label contains the updated quickname display name ("Updated QN" or whatever was set in Part 4).
+38. Verify the composer shows "Chat as Updated QN".
+39. Send a message and verify it appears with the updated quickname display name.
+40. Use the CLI to check profiles — the app user's name should be the updated quickname.
 
 ## Teardown
 
