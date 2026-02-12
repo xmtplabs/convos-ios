@@ -1,5 +1,6 @@
 import ConvosCore
 import SwiftUI
+import UIKit
 
 struct ExplodeInfoRow: View {
     let scheduledExplosionDate: Date?
@@ -11,11 +12,22 @@ struct ExplodeInfoRow: View {
     @State private var pressStartDate: Date?
     @State private var frozenProgress: Double = 0
     @State private var didFire: Bool = false
+    @State private var pressScale: CGFloat = 1.0
+    @State private var explosionTrigger: Int = 0
+    @State private var hasExploded: Bool = false
+    @State private var frozenCountdown: String = ""
 
     var body: some View {
         if let expiresAt = scheduledExplosionDate {
             scheduledContent(expiresAt: expiresAt)
-                .listRowBackground(isHolding ? Color.colorCaution : nil)
+                .listRowBackground(
+                    Color.colorCaution
+                        .scaleEffect(
+                            x: isHolding || didFire ? 1.0 : 0.0,
+                            anchor: .leading
+                        )
+                        .animation(.easeInOut(duration: 0.25), value: isHolding)
+                )
         } else {
             readyContent
         }
@@ -64,7 +76,47 @@ struct ExplodeInfoRow: View {
             )
             holdableRow(countdownText: countdownText)
         }
+        .scaleEffect(pressScale)
         .contentShape(Rectangle())
+        .keyframeAnimator(
+            initialValue: ExplosionKeyframes(),
+            trigger: explosionTrigger
+        ) { content, value in
+            content
+                .scaleEffect(value.scale)
+                .offset(x: value.xOffset)
+                .overlay(
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                        .fill(.white)
+                        .opacity(value.flashOpacity)
+                        .allowsHitTesting(false)
+                )
+        } keyframes: { _ in
+            KeyframeTrack(\.scale) {
+                SpringKeyframe(1.12, duration: 0.1, spring: .bouncy(duration: 0.1))
+                SpringKeyframe(0.96, duration: 0.08)
+                SpringKeyframe(1.05, duration: 0.08)
+                SpringKeyframe(0.98, duration: 0.06)
+                SpringKeyframe(1.0, duration: 0.12)
+            }
+            KeyframeTrack(\.xOffset) {
+                LinearKeyframe(0, duration: 0.06)
+                LinearKeyframe(8, duration: 0.035)
+                LinearKeyframe(-8, duration: 0.035)
+                LinearKeyframe(6, duration: 0.035)
+                LinearKeyframe(-6, duration: 0.035)
+                LinearKeyframe(4, duration: 0.035)
+                LinearKeyframe(-4, duration: 0.035)
+                LinearKeyframe(2, duration: 0.025)
+                LinearKeyframe(-2, duration: 0.025)
+                LinearKeyframe(0, duration: 0.02)
+            }
+            KeyframeTrack(\.flashOpacity) {
+                LinearKeyframe(0.0, duration: 0.02)
+                LinearKeyframe(0.8, duration: 0.05)
+                CubicKeyframe(0.0, duration: 0.3)
+            }
+        }
         .onLongPressGesture(
             minimumDuration: Constant.holdDuration,
             maximumDistance: Constant.maxDistance,
@@ -73,16 +125,27 @@ struct ExplodeInfoRow: View {
                 didFire = true
                 frozenProgress = 1.0
                 pressStartDate = nil
-                onExplodeNow()
+                frozenCountdown = ExplosionDurationFormatter.countdown(
+                    until: expiresAt, from: Date()
+                )
+                triggerExplosion()
             },
             onPressingChanged: { pressing in
                 isPressing = pressing
                 if pressing {
                     didFire = false
+                    hasExploded = false
                     pressStartDate = Date()
                     frozenProgress = 0
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isHolding = true
+                    }
+                    withAnimation(.spring(response: 0.08, dampingFraction: 0.5)) {
+                        pressScale = 0.97
+                    }
+                    withAnimation(.spring(response: 0.15, dampingFraction: 0.7).delay(0.08)) {
+                        pressScale = 1.0
                     }
                 } else if !didFire {
                     withAnimation(.easeOut(duration: 0.18)) {
@@ -90,6 +153,9 @@ struct ExplodeInfoRow: View {
                         frozenProgress = 0
                     }
                     pressStartDate = nil
+                    withAnimation(.spring(response: 0.12, dampingFraction: 0.6)) {
+                        pressScale = 1.0
+                    }
                 }
             }
         )
@@ -105,46 +171,92 @@ struct ExplodeInfoRow: View {
                 return frozenProgress
             }()
 
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                ZStack {
-                    Image(systemName: "burst")
-                        .font(.body)
-                        .foregroundStyle(.white)
-                        .opacity(isHolding ? 0 : 1)
+            let displayText: String = {
+                if hasExploded { return frozenCountdown }
+                return isHolding ? countdownText : "Exploding in \(countdownText)"
+            }()
 
-                    Circle()
-                        .stroke(Color.white.opacity(0.3), lineWidth: 1.0)
-                        .overlay(
-                            Circle()
-                                .fill(.white)
-                                .scaleEffect(holdProgress)
-                        )
-                        .padding(DesignConstants.Spacing.step2x)
-                        .opacity(isHolding ? 1 : 0)
-                }
-                .frame(
-                    width: DesignConstants.Spacing.step10x,
-                    height: DesignConstants.Spacing.step10x
-                )
-                .background(
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .fill(Color.colorCaution)
-                        .opacity(isHolding ? 0 : 1)
-                )
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                iconArea(holdProgress: holdProgress)
 
                 VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                    Text(isHolding ? countdownText : "Exploding in \(countdownText)")
+                    ShatteringText(text: displayText, isExploded: hasExploded)
                         .font(isHolding ? .body.monospacedDigit() : .body)
-                        .foregroundStyle(isHolding ? .white : .colorCaution)
+                        .foregroundStyle(isHolding || hasExploded ? .white : .colorCaution)
 
                     Text("Hold to explode now")
                         .font(.footnote)
                         .foregroundStyle(isHolding ? .white.opacity(0.7) : .colorTextSecondary)
+                        .opacity(hasExploded ? 0 : 1)
+                        .animation(.easeOut(duration: 0.2), value: hasExploded)
                 }
 
                 Spacer()
             }
         }
+    }
+
+    @ViewBuilder
+    private func iconArea(holdProgress: Double) -> some View {
+        ZStack {
+            Image(systemName: "burst")
+                .font(.body)
+                .foregroundStyle(.white)
+                .scaleEffect(isHolding ? 0.4 : 1.0)
+                .opacity(isHolding ? 0 : 1)
+
+            Circle()
+                .stroke(Color.white.opacity(0.3), lineWidth: 1.0)
+                .overlay(
+                    Circle()
+                        .fill(.white)
+                        .scaleEffect(holdProgress)
+                )
+                .padding(DesignConstants.Spacing.step2x)
+                .opacity(isHolding && !hasExploded ? 1 : 0)
+
+            Circle()
+                .fill(.white.opacity(0.8))
+                .padding(DesignConstants.Spacing.step2x)
+                .scaleEffect(hasExploded ? 5.0 : 1.0)
+                .opacity(hasExploded ? 0 : (didFire ? 0.8 : 0))
+                .animation(.easeOut(duration: 0.4), value: hasExploded)
+
+            Circle()
+                .stroke(.white, lineWidth: 2)
+                .padding(DesignConstants.Spacing.step2x)
+                .scaleEffect(hasExploded ? 6.0 : 1.0)
+                .opacity(hasExploded ? 0 : (didFire ? 0.6 : 0))
+                .animation(.easeOut(duration: 0.5), value: hasExploded)
+        }
+        .frame(
+            width: DesignConstants.Spacing.step10x,
+            height: DesignConstants.Spacing.step10x
+        )
+        .background(
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                .fill(Color.colorCaution)
+                .opacity(isHolding ? 0 : 1)
+        )
+    }
+
+    private func triggerExplosion() {
+        UIImpactFeedbackGenerator(style: .heavy).impactOccurred()
+        explosionTrigger += 1
+        onExplodeNow()
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(50))
+            withAnimation(.easeOut(duration: 0.4)) {
+                hasExploded = true
+            }
+        }
+    }
+
+    private struct ExplosionKeyframes {
+        var scale: CGFloat = 1.0
+        var xOffset: CGFloat = 0
+        var flashOpacity: Double = 0
     }
 
     private enum Constant {
