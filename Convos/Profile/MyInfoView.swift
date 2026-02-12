@@ -24,21 +24,23 @@ struct MyInfoView: View {
         NavigationStack {
             Form {
                 Section {
-                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                         Text("My info")
-                            .font(.largeTitle.weight(.bold))
+                            .font(.system(size: 40, weight: .bold))
+                            .tracking(-1)
                             .foregroundStyle(.colorTextPrimary)
 
-                        Text("No info appears in convos unless you choose to reveal it.")
-                            .font(.body)
+                        Text("Private unless you choose to share it")
+                            .font(.subheadline)
                             .foregroundStyle(.colorTextPrimary)
+                            .padding(.bottom, DesignConstants.Spacing.stepX)
 
                         Text("Your info is stored on your device only.")
-                            .font(.callout)
+                            .font(.footnote)
                             .foregroundStyle(.colorTextSecondary)
                     }
                     .padding(.top, DesignConstants.Spacing.step2x)
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step2x)
                     .listRowBackground(Color.clear)
                 }
                 .listRowSeparator(.hidden)
@@ -49,30 +51,29 @@ struct MyInfoView: View {
 
                 if showsProfile {
                     Section {
-                        HStack(spacing: DesignConstants.Spacing.step2x) {
-                            ProfileAvatarView(
-                                profile: profile,
-                                profileImage: profileImage,
-                                useSystemPlaceholder: false
-                            )
-                            .frame(width: 32.0, height: 32.0)
+                        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                            HStack(spacing: DesignConstants.Spacing.step2x) {
+                                ProfileAvatarView(
+                                    profile: profile,
+                                    profileImage: profileImage,
+                                    useSystemPlaceholder: false
+                                )
+                                .frame(width: 16.0, height: 16.0)
 
-                            Text(
-                                editingDisplayName.isEmpty ? "Somebody" : editingDisplayName
-                            )
-                            .foregroundStyle(.colorTextPrimary)
+                                Text(
+                                    editingDisplayName.isEmpty ? "Somebody" : editingDisplayName
+                                )
+                                .font(.body)
+                                .foregroundStyle(.colorTextPrimary)
 
-                            Spacer()
-                        }
-                        .listRowBackground(Color.colorBackgroundSubtle)
-                        .listRowInsets(.all, 10.0)
-                    } header: {
-                        HStack {
+                                Spacer()
+                            }
+
                             Text("How you appear in this convo")
-                                .font(.callout.weight(.regular))
+                                .font(.caption)
                                 .foregroundStyle(.colorTextSecondary)
-                            Spacer()
                         }
+                        .listRowBackground(Color.clear)
                     }
                 }
 
@@ -83,8 +84,8 @@ struct MyInfoView: View {
                                 currentImage: $quicknameViewModel.profileImage,
                                 isPickerPresented: $isImagePickerPresented,
                                 showsCurrentImage: true,
-                                symbolSize: 16.0,
-                                symbolName: "photo.fill.on.rectangle.fill"
+                                symbolSize: 12.0,
+                                symbolName: "photo.fill"
                             )
                             .frame(width: 32.0, height: 32.0)
 
@@ -131,6 +132,7 @@ struct MyInfoView: View {
                                             .padding(.vertical, 6.0)
                                     }
                                 }
+                                .frame(minHeight: DesignConstants.Spacing.step8x)
                             }
                             .disabled(didUseQuickname)
                             .background(Capsule().fill(.colorFillPrimary))
@@ -139,16 +141,9 @@ struct MyInfoView: View {
                         }
                     }
                     .buttonStyle(.borderless)
-                    .listRowInsets(.all, 10.0)
-                } header: {
-                    HStack {
-                        Text("Quickname")
-                            .font(.callout.weight(.regular))
-                            .foregroundStyle(.colorTextSecondary)
-                        Spacer()
-                    }
+                    .listRowInsets(.init(top: DesignConstants.Spacing.step2x, leading: 10.0, bottom: DesignConstants.Spacing.step2x, trailing: 10.0))
                 } footer: {
-                    Text("Add this name and pic quickly in new convos")
+                    Text("Quickname: a name and pic to use quick")
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -156,38 +151,34 @@ struct MyInfoView: View {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Text("Social names · Phone number")
                             .font(.body)
-                            .foregroundStyle(.placeholder)
+                            .foregroundStyle(.colorTextTertiary)
 
                         Spacer()
 
                         SoonLabel()
                     }
-                } header: {
-                    HStack {
-                        Text("Verified info")
-                            .font(.callout.weight(.regular))
-                            .foregroundStyle(.colorTextSecondary)
-                        Spacer()
-                    }
+                    .padding(.vertical, 10.0)
+                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                } footer: {
+                    Text("Verified info")
+                        .foregroundStyle(.colorTextSecondary)
                 }
 
                 Section {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Text("Human · Age")
                             .font(.body)
-                            .foregroundStyle(.placeholder)
+                            .foregroundStyle(.colorTextTertiary)
 
                         Spacer()
 
                         SoonLabel()
                     }
-                } header: {
-                    HStack {
-                        Text("Proofs")
-                            .font(.callout.weight(.regular))
-                            .foregroundStyle(.colorTextSecondary)
-                        Spacer()
-                    }
+                    .padding(.vertical, 10.0)
+                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                } footer: {
+                    Text("Proofs")
+                        .foregroundStyle(.colorTextSecondary)
                 }
             }
             .scrollContentBackground(.hidden)
