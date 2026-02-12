@@ -252,11 +252,6 @@ struct ConversationInfoView: View {
                             onTap: { showingExplodeSheet = true },
                             onExplodeNow: { viewModel.explodeConvo() }
                         )
-                    } footer: {
-                        if viewModel.isExplosionScheduled {
-                            Text("This convo will be deleted for everyone when the timer runs out")
-                                .foregroundStyle(.colorTextSecondary)
-                        }
                     }
                 }
 
