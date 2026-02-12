@@ -28,7 +28,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             let width = messagesLayout.layoutFrame.width
             switch item {
             case .invite:
-                return .estimated(CGSize(width: width, height: 316.0))
+                return .estimated(CGSize(width: width, height: 348.0))
             case .conversationInfo:
                 return .estimated(CGSize(width: width, height: 300.0))
             case .date:
@@ -44,7 +44,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     }
 
     private func estimatedHeight(for group: MessagesGroup, width: CGFloat) -> CGFloat {
-        var height: CGFloat = 8.0
+        var height: CGFloat = 16.0
         var childCount: Int = 0
 
         for (index, message) in group.messages.enumerated() {
@@ -97,20 +97,21 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         case .text:
             height = 40.0
         case .invite:
-            height = 80.0
+            height = 240.0
         case .update:
             height = 30.0
         }
 
         if case .reply(let reply, _) = message {
-            let isParentPhoto = reply.parentMessage.content.isAttachment
-            // avatar row + spacing
             height += 24.0
-            if isParentPhoto {
-                // photo preview (max 80) + spacing
+            switch reply.parentMessage.content {
+            case .attachment, .attachments:
                 height += 88.0
-            } else {
-                // text preview bubble + spacing
+            case .emoji:
+                height += 44.0
+            case .invite:
+                height += 176.0
+            default:
                 height += 32.0
             }
         }

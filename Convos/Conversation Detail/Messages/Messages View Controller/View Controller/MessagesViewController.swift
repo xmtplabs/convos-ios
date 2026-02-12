@@ -205,14 +205,6 @@ final class MessagesViewController: UIViewController {
         fatalError()
     }
 
-    // MARK: - Lifecycle Methods
-
-    override func viewDidAppear(_ animated: Bool) {
-        super.viewDidAppear(animated)
-
-        collectionView.collectionViewLayout.invalidateLayout()
-    }
-
     override func viewDidLoad() {
         super.viewDidLoad()
 
