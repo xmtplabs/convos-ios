@@ -79,11 +79,11 @@ struct ReplyComposerBar: View {
             .accessibilityLabel("Cancel reply")
             .accessibilityIdentifier("cancel-reply-button")
         }
-        .padding(.leading, DesignConstants.Spacing.step4x)
+        .padding(.leading, attachment != nil ? DesignConstants.Spacing.step2x : DesignConstants.Spacing.step4x)
         .padding(.trailing, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .fixedSize(horizontal: false, vertical: true)
-        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
+        .glassEffect(.regular.interactive(), in: .rect(cornerRadius: attachment != nil ? 16.0 : 26.0))
         .padding(.horizontal, 10.0)
         .padding(.bottom, DesignConstants.Spacing.stepHalf)
         .accessibilityElement(children: .combine)
