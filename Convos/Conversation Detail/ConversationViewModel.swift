@@ -782,19 +782,10 @@ extension ConversationViewModel {
     }
 
     private func showExplosionLocalNotification() async {
-        let content = UNMutableNotificationContent()
-        content.title = "\u{1F4A5} \(conversation.displayName) \u{1F4A5}"
-        content.body = "A convo exploded"
-        content.sound = .default
-        content.userInfo = ["isExplosion": true]
-
-        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
-        let request = UNNotificationRequest(
-            identifier: "self-explosion-\(conversation.id)",
-            content: content,
-            trigger: trigger
+        await UNUserNotificationCenter.current().addExplosionNotification(
+            conversationId: conversation.id,
+            displayName: conversation.displayName
         )
-        try? await UNUserNotificationCenter.current().add(request)
     }
 
     func scheduleExplosion(at expiresAt: Date) {
@@ -910,5 +901,23 @@ extension ConversationViewModel {
             session: MockInboxesService(),
             messagingService: MockMessagingService()
         )
+    }
+}
+
+extension UNUserNotificationCenter {
+    func addExplosionNotification(conversationId: String, displayName: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = "\u{1F4A5} \(displayName) \u{1F4A5}"
+        content.body = "A convo exploded"
+        content.sound = .default
+        content.userInfo = ["isExplosion": true]
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "self-explosion-\(conversationId)",
+            content: content,
+            trigger: trigger
+        )
+        try? await add(request)
     }
 }

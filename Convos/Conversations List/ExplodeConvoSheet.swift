@@ -82,10 +82,11 @@ struct ExplodeConvoSheet: View {
                         .foregroundStyle(.colorTextPrimary)
 
                     Text("It can't be changed or cancelled.")
-                        .font(.subheadline)
+                        .font(.footnote)
                         .foregroundStyle(.colorTextSecondary)
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .padding(.bottom, DesignConstants.Spacing.step2x)
 
                 holdToExplodeButton
             }
