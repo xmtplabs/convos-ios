@@ -34,7 +34,7 @@ Generate an invite for the conversation and capture the invite URL.
 
 ### Verify the app is in the conversation
 
-8. The app should transition into the conversation view.
+8. The app should transition into the conversation view. Conversations should appear **instantly** after the join request is processed — there is no expected delay. If the conversation does not appear within a few seconds of the CLI confirming the join was processed, that is a bug.
 9. Verify the conversation name matches what was set in setup.
 
 ### Exchange a message to confirm

@@ -352,6 +352,10 @@ convos reset
 
 This removes all identity files and databases. After reset, re-initialize with `convos init --env dev --force` if needed.
 
+### Join Request Processing Timing
+
+After the CLI processes a join request, the conversation should appear in the app **instantly** — within a few seconds at most. There is no expected delay. If the conversation remains in a "pending" or "waiting for approval" state after the CLI has confirmed the join was processed and shows 2+ members, that is a bug worth filing. Do not wait indefinitely or assume it will eventually sync.
+
 ### XMTP Message Visibility
 
 CLI participants can only see messages sent **after** they joined the conversation. Messages sent before joining are not visible — this is by design (XMTP group encryption). When verifying message exchange between app and CLI, always send test messages after the CLI has joined and been accepted.
