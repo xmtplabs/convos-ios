@@ -53,9 +53,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     }
                 }
             }
-            .padding(.horizontal, 10.0)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.top, DesignConstants.Spacing.step2x)
-            .padding(.bottom, DesignConstants.Spacing.step2x)
+            .padding(.bottom, DesignConstants.Spacing.step4x)
         }
         .background(HeightReader())
         .onPreferenceChange(HeightPreferenceKey.self) { height in

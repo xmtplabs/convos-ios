@@ -84,7 +84,7 @@ struct ReplyComposerBar: View {
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .fixedSize(horizontal: false, vertical: true)
         .glassEffect(.regular.interactive(), in: .rect(cornerRadius: attachment != nil ? 16.0 : 26.0))
-        .padding(.horizontal, 10.0)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.bottom, DesignConstants.Spacing.stepHalf)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Replying to \(senderName): \(previewText)")
