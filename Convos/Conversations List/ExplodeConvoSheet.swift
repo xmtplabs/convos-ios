@@ -233,7 +233,7 @@ struct ExplodeConvoSheet: View {
                     isExploded: explodeState.isExploded,
                     config: Constant.shatterConfig
                 )
-                .font(.body.weight(.semibold))
+                .font(.body)
                 ShatteringText(
                     text: "Tap and hold",
                     isExploded: explodeState.isExploded,
