@@ -103,6 +103,12 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
                         }
                     }
             }
+            .sensoryFeedback(.impact(weight: .light), trigger: isPressing) { _, newValue in
+                newValue
+            }
+            .sensoryFeedback(.success, trigger: didFire) { _, newValue in
+                newValue
+            }
             .onLongPressGesture(
                 minimumDuration: config.duration,
                 maximumDistance: config.maxDistance,
