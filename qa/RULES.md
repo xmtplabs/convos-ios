@@ -338,6 +338,10 @@ When the app launches for the first time (or after a reset), the conversation cr
 
 Unless the test is specifically about onboarding, complete or dismiss onboarding steps as quickly as possible to get to the feature being tested.
 
+### No Sleep Calls
+
+Never use `sleep` between test steps. All simulator tools (`sim_wait_and_tap`, `sim_find_elements`, `sim_chain`) have built-in timeouts and polling. After a CLI action (e.g., `send-text`), immediately check for the result in the app using `sim_find_elements` — if the message hasn't arrived yet, the tool returns empty and you can retry. The only acceptable blocking wait is the CLI `conversations join` command (without `--no-wait`), which blocks until the app processes the join request.
+
 ### CLI Reset Before Each Test
 
 Always reset the CLI before running a test that uses it. Old identities from previous runs can pollute conversations (multiple members with the same name, messages not arriving due to stale XMTP clients):
