@@ -34,23 +34,27 @@ function findElement(
   tree: AccessibilityElement[],
   identifier: string
 ): AccessibilityElement | null {
-  // 1. Exact id match
   for (const el of tree) {
     if (el.AXUniqueId === identifier) return el;
   }
-  // 2. Prefix match on id
   for (const el of tree) {
     if (el.AXUniqueId?.startsWith(identifier)) return el;
   }
-  // 3. Exact label match
   for (const el of tree) {
     if (el.AXLabel === identifier) return el;
   }
-  // 4. Substring label match
   for (const el of tree) {
     if (el.AXLabel?.includes(identifier)) return el;
   }
   return null;
+}
+
+function matchesIdentifier(el: AccessibilityElement, identifier: string): boolean {
+  if (el.AXUniqueId === identifier) return true;
+  if (el.AXUniqueId?.startsWith(identifier)) return true;
+  if (el.AXLabel === identifier) return true;
+  if (el.AXLabel?.includes(identifier)) return true;
+  return false;
 }
 
 function getAccessibilityTree(udid: string): AccessibilityElement[] {
@@ -59,6 +63,75 @@ function getAccessibilityTree(udid: string): AccessibilityElement[] {
     { encoding: "utf-8" }
   );
   return JSON.parse(result);
+}
+
+function describePoint(
+  udid: string,
+  x: number,
+  y: number
+): AccessibilityElement | null {
+  try {
+    const result = execSync(
+      `${IDB} ui describe-point ${x} ${y} --udid ${udid} 2>/dev/null`,
+      { encoding: "utf-8" }
+    );
+    return JSON.parse(result);
+  } catch {
+    return null;
+  }
+}
+
+function getScreenSize(udid: string): { width: number; height: number } {
+  try {
+    const result = execSync(
+      `xcrun simctl list devices -j 2>/dev/null`,
+      { encoding: "utf-8" }
+    );
+    const json = JSON.parse(result);
+    for (const runtime of Object.values(json.devices) as any[]) {
+      for (const device of runtime as any[]) {
+        if (device.udid === udid && device.logicalSize) {
+          return {
+            width: device.logicalSize.width,
+            height: device.logicalSize.height,
+          };
+        }
+      }
+    }
+  } catch {}
+  return { width: 440, height: 956 };
+}
+
+function probeForElement(
+  udid: string,
+  identifier: string
+): AccessibilityElement | null {
+  const screen = getScreenSize(udid);
+  const probePoints: [number, number][] = [];
+
+  // Bottom toolbar area (most common hidden elements)
+  const bottomY = screen.height - 50;
+  for (let x = 40; x < screen.width; x += 40) {
+    probePoints.push([x, bottomY]);
+    probePoints.push([x, bottomY - 20]);
+  }
+
+  // Top toolbar area
+  const topY = 84;
+  for (let x = 40; x < screen.width; x += 40) {
+    probePoints.push([x, topY]);
+  }
+
+  const seen = new Set<string>();
+  for (const [x, y] of probePoints) {
+    const el = describePoint(udid, x, y);
+    if (!el) continue;
+    const key = `${el.AXUniqueId || ""}:${el.AXLabel || ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    if (matchesIdentifier(el, identifier)) return el;
+  }
+  return null;
 }
 
 function tapPoint(udid: string, x: number, y: number) {
@@ -86,12 +159,42 @@ function getCenter(el: AccessibilityElement): { x: number; y: number } {
   throw new Error("Cannot determine element center");
 }
 
+function tryFindAndTap(
+  udid: string,
+  identifier: string
+): { found: boolean; message: string } {
+  // 1. Try tree search first (fast)
+  const tree = getAccessibilityTree(udid);
+  const el = findElement(tree, identifier);
+  if (el) {
+    const center = getCenter(el);
+    tapPoint(udid, Math.round(center.x), Math.round(center.y));
+    return {
+      found: true,
+      message: `id=${el.AXUniqueId || "none"}, label="${el.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)})`,
+    };
+  }
+
+  // 2. Probe toolbar areas for hidden elements
+  const probed = probeForElement(udid, identifier);
+  if (probed) {
+    const center = getCenter(probed);
+    tapPoint(udid, Math.round(center.x), Math.round(center.y));
+    return {
+      found: true,
+      message: `id=${probed.AXUniqueId || "none"}, label="${probed.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)}) [found via probe]`,
+    };
+  }
+
+  return { found: false, message: "" };
+}
+
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "sim_wait_and_tap",
     label: "Wait for element then tap it",
     description:
-      "Poll the accessibility tree until an element with the given identifier or label appears, then immediately tap it. Combines sim_wait_for_element + sim_tap_id into a single call. Returns the element info that was tapped.",
+      "Poll the accessibility tree until an element with the given identifier or label appears, then immediately tap it. Combines sim_wait_for_element + sim_tap_id into a single call. Also probes toolbar areas for elements hidden from tree traversal. Returns the element info that was tapped.",
     parameters: Type.Object({
       identifier: Type.String({
         description: "Accessibility identifier or label to wait for and tap",
@@ -102,7 +205,9 @@ export default function (pi: ExtensionAPI) {
         })
       ),
       udid: Type.Optional(
-        Type.String({ description: "Simulator UDID. Auto-detected if omitted." })
+        Type.String({
+          description: "Simulator UDID. Auto-detected if omitted.",
+        })
       ),
     }),
     async execute(_toolCallId, params, signal) {
@@ -116,17 +221,14 @@ export default function (pi: ExtensionAPI) {
         if (signal?.aborted) throw new Error("Aborted");
 
         try {
-          const tree = getAccessibilityTree(udid);
-          const el = findElement(tree, params.identifier);
-          if (el) {
-            const center = getCenter(el);
-            tapPoint(udid, Math.round(center.x), Math.round(center.y));
+          const result = tryFindAndTap(udid, params.identifier);
+          if (result.found) {
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Found and tapped after ${elapsed}s: id=${el.AXUniqueId || "none"}, label="${el.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)})`,
+                  text: `Found and tapped after ${elapsed}s: ${result.message}`,
                 },
               ],
               details: {},
@@ -139,7 +241,6 @@ export default function (pi: ExtensionAPI) {
         await new Promise((r) => setTimeout(r, interval * 1000));
       }
 
-      // Timeout — gather available elements for debugging
       let available = "";
       try {
         const tree = getAccessibilityTree(udid);
