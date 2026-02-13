@@ -37,6 +37,7 @@ struct FrameInfo: Codable {
 struct AgentRequest: Codable {
     let action: String
     let params: [String: AnyCodable]?
+    let steps: [AgentRequest]?
 }
 
 struct AgentResponse: Codable {
@@ -330,6 +331,8 @@ class CommandHandler {
             return longPress(request.params)
         case "doubleTap":
             return doubleTap(request.params)
+        case "chain":
+            return chain(request.steps)
         case "ping":
             return AgentResponse(success: true, message: "pong", screenState: nil, tappedElement: nil, error: nil)
         default:
@@ -338,6 +341,39 @@ class CommandHandler {
                 error: "Unknown action: \(request.action)"
             )
         }
+    }
+
+    private func chain(_ steps: [AgentRequest]?) -> AgentResponse {
+        guard let steps, !steps.isEmpty else {
+            return errorResponse("chain requires non-empty steps array")
+        }
+
+        var messages: [String] = []
+        for (i, step) in steps.enumerated() {
+            let result = handle(step)
+            if !result.success {
+                let state = ScreenStateBuilder.capture(app: app)
+                return AgentResponse(
+                    success: false,
+                    message: "Failed at step \(i + 1)/\(steps.count): \(step.action)",
+                    screenState: state,
+                    tappedElement: nil,
+                    error: result.error
+                )
+            }
+            if let msg = result.message {
+                messages.append("[\(i + 1)] \(step.action): \(msg)")
+            }
+        }
+
+        let state = ScreenStateBuilder.capture(app: app)
+        return AgentResponse(
+            success: true,
+            message: messages.joined(separator: "\n"),
+            screenState: state,
+            tappedElement: nil,
+            error: nil
+        )
     }
 
     // MARK: - Actions
@@ -617,7 +653,7 @@ class CommandHandler {
 
     // MARK: - Helpers
 
-    private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+    private let springboard: XCUIApplication = XCUIApplication(bundleIdentifier: "com.apple.springboard")
 
     private func waitAndFind(
         identifier: String?,

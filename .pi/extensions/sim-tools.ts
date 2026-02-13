@@ -404,4 +404,43 @@ export default function (pi: ExtensionAPI) {
       return { content: [{ type: "text" as const, text }], details: {} };
     },
   });
+
+  // --- chain: run multiple actions, return final screen state ---
+  pi.registerTool({
+    name: "sim_chain",
+    label: "Run multiple actions in sequence",
+    description:
+      "Execute a sequence of actions without returning intermediate screen states. Only the final screen state is returned. If any step fails, stops and returns the error with current screen state. Use this to batch predictable sequences like: tap compose → fill field → tap send.",
+    parameters: Type.Object({
+      steps: Type.Array(
+        Type.Object({
+          action: Type.String({
+            description:
+              "Action name: tapElement, fillField, tapCoordinate, swipe, longPress, doubleTap, pressKey, scrollUntilVisible, waitForElement",
+          }),
+          params: Type.Optional(
+            Type.Record(Type.String(), Type.Any(), {
+              description: "Action parameters (identifier, label, labelContains, text, etc.)",
+            })
+          ),
+        }),
+        { description: "Array of actions to execute in order" }
+      ),
+    }),
+    async execute(_id, params) {
+      const resp = await agentAction("chain", { steps: params.steps });
+
+      let text = "";
+      if (resp.message) text += resp.message + "\n";
+      if (!resp.success && resp.error) text += `\nError: ${resp.error}\n`;
+      if (resp.screenState) {
+        text += `\nScreen:\n${formatScreenState(resp.screenState)}`;
+      }
+      return {
+        content: [{ type: "text" as const, text }],
+        details: {},
+        isError: !resp.success,
+      };
+    },
+  });
 }

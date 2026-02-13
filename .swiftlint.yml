@@ -144,4 +144,5 @@ excluded:
   - ConvosTests/Helpers
   - ConvosAppClipTests
   - ConvosAppClipUITests
+  - AgentServer
   - "**/*.pb.swift"  # Generated protobuf files
