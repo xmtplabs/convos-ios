@@ -102,6 +102,18 @@ At the start of a QA session, resolve the UDID once and reuse it for all subsequ
 
 ## General Testing Rules
 
+### Simulator Preparation
+
+At the start of a QA session (before any tests), disable animations on the simulator to speed up test execution and eliminate timing issues caused by transitions:
+
+```bash
+UDID=<simulator-udid>
+xcrun simctl spawn $UDID defaults write com.apple.Accessibility ReduceMotionEnabled -bool true
+xcrun simctl spawn $UDID defaults write -g UIAnimationDragCoefficient -int 0
+```
+
+Then relaunch the app so it picks up the Reduce Motion setting. These persist across app launches until the simulator is erased.
+
 ### Before Each Test
 
 1. Resolve the simulator UDID as described above.
