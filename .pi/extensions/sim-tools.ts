@@ -94,15 +94,19 @@ function isRelevant(el: UIElementInfo): boolean {
 
 function formatScreenState(state: ScreenState): string {
   const lines: string[] = [];
-  const seen = new Set<string>();
+  const seenIds = new Set<string>();
+  const seenLabels = new Set<string>();
   for (const el of state.elements) {
     const id = el.identifier || "";
     const label = el.label || "";
     if (!id && !label) continue;
     if (!isRelevant(el)) continue;
-    const key = `${id}:${label}:${el.elementType}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
+    // Dedup: if we already showed this id, skip
+    if (id && seenIds.has(id)) continue;
+    // Dedup: if no id but same label already shown, skip
+    if (!id && label && seenLabels.has(label)) continue;
+    if (id) seenIds.add(id);
+    if (label) seenLabels.add(label);
     const enabled = el.isEnabled ? "" : " (disabled)";
     lines.push(
       `  ${(id || "(no id)").padEnd(30)} ${label.padEnd(40)} ${el.elementType}${enabled}`
