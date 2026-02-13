@@ -127,8 +127,26 @@ Then relaunch the app so it picks up the Reduce Motion setting. These persist ac
 - **Use `sim_type_in_field` to enter text** — pass the text field's accessibility identifier and the text to type. Do not manually tap then type.
 - **Use `sim_wait_for_element` after navigation or network actions** — it polls until the element appears, avoiding manual sleep + screenshot loops.
 - **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
-- After an action, take a screenshot to visually confirm the result when the accessibility tree alone is insufficient.
 - If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout. Network-dependent actions (like messages arriving from the CLI) may take several seconds.
+
+### Verifying Results: Accessibility Tree vs Screenshots
+
+**Prefer the accessibility tree** — it's structured, fast, and deterministic. Use `sim_find_elements`, `sim_wait_for_element`, or `sim_ui_describe_all` to verify:
+- An element exists or appeared (e.g., message bubble with expected label)
+- Text content, labels, and values are correct
+- Element state (enabled/disabled, checked/unchecked)
+- Navigation completed (expected screen identifiers present)
+- List contents (conversation names, message text)
+- Custom actions available on an element (e.g., "React", "Reply", "Mute")
+
+**Use screenshots only when visual verification is required:**
+- Image/photo rendering (did an attachment actually display?)
+- Layout verification (split view, positioning, spacing)
+- Visual styling that accessibility doesn't capture (colors, emoji rendering size)
+- Debugging when the accessibility tree doesn't match expectations
+- First look at an unfamiliar screen to orient before interacting
+
+**Do not use screenshots to:** check if a button exists, read text labels, verify navigation happened, or confirm a message appeared. The accessibility tree handles all of these faster and more reliably.
 
 ### Log Monitoring
 
