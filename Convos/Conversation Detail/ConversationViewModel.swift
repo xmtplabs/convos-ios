@@ -140,7 +140,13 @@ class ConversationViewModel {
     }
     var isConversationImageDirty: Bool = false
     var messageText: String = ""
-    var selectedAttachmentImage: UIImage?
+    var selectedAttachmentImage: UIImage? {
+        didSet {
+            if selectedAttachmentImage != nil, oldValue == nil {
+                onPhotoAttached()
+            }
+        }
+    }
     private(set) var currentEagerUploadKey: String?
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
@@ -195,6 +201,7 @@ class ConversationViewModel {
     var presentingReactionsForMessage: AnyMessage?
     var replyingToMessage: AnyMessage?
     var presentingRevealMediaInfoSheet: Bool = false
+    var presentingPhotosInfoSheet: Bool = false
     var activeToast: IndicatorToastStyle?
 
     var autoRevealPhotos: Bool = false {
@@ -202,6 +209,12 @@ class ConversationViewModel {
             guard oldValue != autoRevealPhotos else { return }
             persistAutoReveal(autoRevealPhotos)
         }
+    }
+
+    private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
+    private var hasShownPhotosInfoSheet: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasShownPhotosInfoSheetKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
     private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
@@ -221,10 +234,17 @@ class ConversationViewModel {
 
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
+        defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
+    }
+
+    func onPhotoAttached() {
+        guard !hasShownPhotosInfoSheet else { return }
+        hasShownPhotosInfoSheet = true
+        presentingPhotosInfoSheet = true
     }
 
     var shouldBlurPhotos: Bool {

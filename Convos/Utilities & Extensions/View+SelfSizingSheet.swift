@@ -45,6 +45,7 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
                             sheetHeight = height
                         }
                         .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
+                        .presentationDragIndicator(.hidden)
                         .presentationBackground(.ultraThinMaterial)
                         .id(presentationCount)
                 }
@@ -96,6 +97,7 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
                             sheetHeight = height
                         }
                         .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
+                        .presentationDragIndicator(.hidden)
                         .presentationBackground(.ultraThinMaterial)
                         .id(presentationCount)
                 }

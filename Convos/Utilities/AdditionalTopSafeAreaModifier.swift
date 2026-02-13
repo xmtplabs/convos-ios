@@ -39,22 +39,30 @@ private final class AdditionalTopSafeAreaViewController: UIViewController {
         applyInset()
     }
 
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        applyInset()
+    }
+
     func updateInset(_ newInset: CGFloat) {
         inset = newInset
         applyInset()
     }
 
     private func applyInset() {
-        guard let rootVC = findRootViewController() else { return }
-        rootVC.additionalSafeAreaInsets.top = inset
+        guard let hostingVC = findHostingController() else { return }
+        hostingVC.additionalSafeAreaInsets.top = inset
     }
 
-    private func findRootViewController() -> UIViewController? {
-        var vc = parent
-        while let p = vc?.parent {
-            vc = p
+    private func findHostingController() -> UIViewController? {
+        var vc: UIViewController? = parent
+        while let current = vc {
+            if String(describing: type(of: current)).contains("HostingController") {
+                return current
+            }
+            vc = current.parent
         }
-        return vc
+        return nil
     }
 }
 

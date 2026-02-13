@@ -218,6 +218,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 RevealMediaInfoSheet()
             }
         )
+        .selfSizingSheet(
+            isPresented: $viewModel.presentingPhotosInfoSheet,
+            onDismiss: { focusCoordinator.moveFocus(to: .message) },
+            content: {
+                PhotosInfoSheet()
+            }
+        )
     }
 }
 
