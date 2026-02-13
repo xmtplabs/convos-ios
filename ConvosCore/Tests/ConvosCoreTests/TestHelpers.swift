@@ -106,6 +106,7 @@ class TestFixtures {
             codecs: [
                 TextCodec(),
                 ReplyCodec(),
+                ReactionV2Codec(),
                 ReactionCodec(),
                 AttachmentCodec(),
                 RemoteAttachmentCodec(),

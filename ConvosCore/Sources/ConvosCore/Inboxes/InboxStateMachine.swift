@@ -921,6 +921,7 @@ public actor InboxStateMachine {
             codecs: [
                 TextCodec(),
                 ReplyCodec(),
+                ReactionV2Codec(),
                 ReactionCodec(),
                 AttachmentCodec(),
                 RemoteAttachmentCodec(),

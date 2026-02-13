@@ -360,6 +360,7 @@ private class IntegrationTestFixtures {
             codecs: [
                 TextCodec(),
                 ReplyCodec(),
+                ReactionV2Codec(),
                 ReactionCodec(),
                 AttachmentCodec(),
                 RemoteAttachmentCodec(),
