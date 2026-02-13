@@ -71,8 +71,7 @@ struct FeatureInfoSheet: View {
             }
             .padding(.top, DesignConstants.Spacing.step4x)
         }
-        .padding([.leading, .trailing], DesignConstants.Spacing.step10x)
-        .padding(.top, 20.0)
+        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
     }
 
@@ -143,7 +142,7 @@ struct FeatureInfoParagraph: Identifiable {
 #Preview("Pin Limit") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { PinLimitInfoView().padding(.top, 10) }
+        .selfSizingSheet(isPresented: $isPresented) { PinLimitInfoView() }
 }
 
 #Preview("Network Issue") {

@@ -29,6 +29,8 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
     let onDismiss: (() -> Void)?
     let sheetContent: () -> SheetContent
 
+    private static var sheetTopInset: CGFloat { 20.0 }
+
     func body(content: Content) -> some View {
         content
             .sheet(
@@ -44,7 +46,7 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
                         .readHeight { height in
                             sheetHeight = height
                         }
-                        .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
+                        .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight + Self.sheetTopInset)] : [.medium])
                         .presentationDragIndicator(.hidden)
                         .presentationBackground(.ultraThinMaterial)
                         .id(presentationCount)
@@ -82,6 +84,8 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
     let onDismiss: (() -> Void)?
     let sheetContent: (Item) -> SheetContent
 
+    private static var sheetTopInset: CGFloat { 20.0 }
+
     func body(content: Content) -> some View {
         content
             .sheet(
@@ -96,7 +100,7 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
                         .readHeight { height in
                             sheetHeight = height
                         }
-                        .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
+                        .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight + Self.sheetTopInset)] : [.medium])
                         .presentationDragIndicator(.hidden)
                         .presentationBackground(.ultraThinMaterial)
                         .id(presentationCount)
