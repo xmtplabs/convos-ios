@@ -229,7 +229,7 @@ private struct ReplyReferencePhotoPreview: View {
                     .frame(maxHeight: Self.maxHeight)
                     .scaleEffect(shouldBlur ? 1.2 : 1.0)
                     .blur(radius: shouldBlur ? 96 : 0)
-                    .opacity(shouldBlur ? 0.4 : 1.0)
+                    .opacity(1.0)
                     .clipShape(RoundedRectangle(cornerRadius: 12.0))
                     .contentShape(RoundedRectangle(cornerRadius: 12.0))
                     .onTapGesture {
@@ -246,7 +246,7 @@ private struct ReplyReferencePhotoPreview: View {
                         } else {
                             let hideAction = { onHide() }
                             Button(action: hideAction) {
-                                Label("Hide", systemImage: "eye.slash")
+                                Label("Blur", systemImage: "eye.slash")
                             }
                         }
                     }

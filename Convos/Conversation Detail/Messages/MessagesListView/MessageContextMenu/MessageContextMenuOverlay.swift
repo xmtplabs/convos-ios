@@ -458,7 +458,7 @@ struct MessageContextMenuOverlay: View {
                     }
                     menuRow(
                         icon: isBlurred ? "eye" : "eye.slash",
-                        title: isBlurred ? "Reveal" : "Hide",
+                        title: isBlurred ? "Reveal" : "Blur",
                         action: toggleAction
                     )
                 }

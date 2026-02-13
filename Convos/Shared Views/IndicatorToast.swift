@@ -50,7 +50,8 @@ struct RevealSettingsToast: View {
                 .labelsHidden()
                 .padding(.trailing, DesignConstants.Spacing.stepX)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.leading, DesignConstants.Spacing.step4x)
+        .padding(.trailing, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .fixedSize()
         .clipShape(.capsule)

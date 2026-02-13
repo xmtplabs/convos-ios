@@ -323,8 +323,7 @@ private struct AttachmentPlaceholder: View {
     }
 
     private var blurOpacity: Double {
-        guard showBlurOverlay else { return 1.0 }
-        return isPressed ? 0.5 : 0.3
+        1.0
     }
 
     private var placeholderAspectRatio: CGFloat {
