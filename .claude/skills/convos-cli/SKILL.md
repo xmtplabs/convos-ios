@@ -87,8 +87,8 @@ convos conversations list --json --verbose 2>/dev/null
 # create a conversation (auto-creates a per-conversation identity)
 convos conversations create --name "My Group" --profile-name "Alice"
 
-# create with admin-only permissions (default)
-convos conversations create --name "Announcement Channel"
+# create with admin-only permissions
+convos conversations create --name "Announcement Channel" --permissions admin-only
 
 # create and capture the conversation ID
 CONV_ID=$(convos conversations create --name "Test" --json | jq -r '.conversationId')
