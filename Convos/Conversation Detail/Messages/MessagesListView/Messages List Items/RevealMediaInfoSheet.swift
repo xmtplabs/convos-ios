@@ -3,6 +3,8 @@ import SwiftUI
 struct RevealMediaInfoSheet: View {
     @Environment(\.dismiss) var dismiss: DismissAction
 
+    @Environment(\.openURL) private var openURL: OpenURLAction
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             Text("Real life is off the record.™")
@@ -11,10 +13,10 @@ struct RevealMediaInfoSheet: View {
             Text("Reveal")
                 .font(.system(.largeTitle))
                 .fontWeight(.bold)
-            Text("You control when, where and whether media can appear in your convos.")
+            Text("View things when you choose to. Blur or reveal any pic, anytime.")
                 .font(.body)
                 .foregroundStyle(.colorTextPrimary)
-            Text("Revealing is a personal decision, and the sender will not know your choice.")
+            Text("Revealing is a personal preference, and no one else in the convo will know your choice.")
                 .font(.body)
                 .foregroundStyle(.colorTextSecondary)
 
@@ -25,6 +27,15 @@ struct RevealMediaInfoSheet: View {
                     Text("Got it")
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
+
+                Button {
+                    // swiftlint:disable:next force_unwrapping
+                    openURL(URL(string: "https://learn.convos.org/reveal")!)
+                } label: {
+                    Text("Learn more")
+                }
+                .convosButtonStyle(.text)
+                .frame(maxWidth: .infinity)
             }
             .padding(.top, DesignConstants.Spacing.step4x)
         }
