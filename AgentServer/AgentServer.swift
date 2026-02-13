@@ -38,14 +38,16 @@ struct AgentRequest: Codable {
     let action: String
     let params: [String: AnyCodable]?
     let steps: [AgentRequest]?
+    let observe: Bool?
 }
 
 struct AgentResponse: Codable {
-    let success: Bool
-    let message: String?
-    let screenState: ScreenState?
-    let tappedElement: UIElementInfo?
-    let error: String?
+    var success: Bool
+    var message: String?
+    var screenState: ScreenState?
+    var tappedElement: UIElementInfo?
+    var error: String?
+    var durationMs: Int?
 }
 
 // MARK: - AnyCodable for flexible params
@@ -107,32 +109,29 @@ enum ElementMatch {
         labelContains: String?,
         elementType: String?
     ) -> XCUIElement? {
+        // Use direct identifier lookup (fastest path - no full tree traversal)
         if let id = identifier {
-            let el = app.descendants(matching: .any).matching(identifier: id).firstMatch
-            if el.exists { return el }
+            let el = app.descendants(matching: .any)[id]
+            if el.waitForExistence(timeout: 0) { return el }
         }
 
         if let exactLabel = label {
             let predicate = NSPredicate(format: "label == %@", exactLabel)
             let el = app.descendants(matching: .any).matching(predicate).firstMatch
-            if el.exists { return el }
+            if el.waitForExistence(timeout: 0) { return el }
         }
 
         if let partial = labelContains {
             let predicate = NSPredicate(format: "label CONTAINS %@", partial)
             let el = app.descendants(matching: .any).matching(predicate).firstMatch
-            if el.exists { return el }
+            if el.waitForExistence(timeout: 0) { return el }
         }
 
-        // Fallback: try identifier as label or substring
+        // Fallback: try identifier as label
         if let id = identifier {
             let predicate = NSPredicate(format: "label == %@", id)
             let el = app.descendants(matching: .any).matching(predicate).firstMatch
-            if el.exists { return el }
-
-            let subPredicate = NSPredicate(format: "label CONTAINS %@", id)
-            let subEl = app.descendants(matching: .any).matching(subPredicate).firstMatch
-            if subEl.exists { return subEl }
+            if el.waitForExistence(timeout: 0) { return el }
         }
 
         return nil
@@ -199,35 +198,44 @@ enum ElementInfoBuilder {
 
     static func buildFlat(from app: XCUIApplication) -> [UIElementInfo] {
         var results: [UIElementInfo] = []
-        let allElements = app.descendants(matching: .any)
-        let count = allElements.count
+        let interactiveTypes: [(XCUIElement.ElementType, Int)] = [
+            (.button, 30),
+            (.textField, 10), (.secureTextField, 5), (.textView, 5), (.searchField, 5),
+            (.switch, 10), (.toggle, 10), (.slider, 5), (.popUpButton, 10),
+            (.menuItem, 15), (.link, 10), (.alert, 5), (.sheet, 5), (.toolbar, 5),
+            (.staticText, 15),
+        ]
 
-        for i in 0..<min(count, 200) {
-            let el = allElements.element(boundBy: i)
-            guard el.exists else { continue }
-            let id = el.identifier
-            let label = el.label
-            if id.isEmpty && label.isEmpty { continue }
+        for (type, maxCount) in interactiveTypes {
+            let t0 = CFAbsoluteTimeGetCurrent()
+            let query = app.descendants(matching: type)
+            let count = query.count // swiftlint:disable:this empty_count
+            let limit = min(count, maxCount)
+            for i in 0..<limit {
+                let el = query.element(boundBy: i)
+                let id = el.identifier
+                let label = el.label
+                if id.isEmpty && label.isEmpty { continue }
 
-            results.append(UIElementInfo(
-                identifier: id.isEmpty ? nil : id,
-                label: label.isEmpty ? nil : label,
-                value: el.value as? String,
-                placeholderValue: el.placeholderValue,
-                elementType: elementTypeName(el.elementType),
-                frame: FrameInfo(
-                    x: Double(el.frame.origin.x),
-                    y: Double(el.frame.origin.y),
-                    width: Double(el.frame.size.width),
-                    height: Double(el.frame.size.height)
-                ),
-                isEnabled: el.isEnabled,
-                isHittable: el.isHittable,
-                isSelected: el.isSelected,
-                hasFocus: el.hasFocus,
-                children: nil,
-                customActions: nil
-            ))
+                results.append(UIElementInfo(
+                    identifier: id.isEmpty ? nil : id,
+                    label: label.isEmpty ? nil : label,
+                    value: nil,
+                    placeholderValue: nil,
+                    elementType: elementTypeName(type),
+                    frame: FrameInfo(x: 0, y: 0, width: 0, height: 0),
+                    isEnabled: true,
+                    isHittable: true,
+                    isSelected: false,
+                    hasFocus: false,
+                    children: nil,
+                    customActions: nil
+                ))
+            }
+            let t1 = CFAbsoluteTimeGetCurrent()
+            if count > 0 {
+                print("[TEST PERF] query \(elementTypeName(type)): \(limit)/\(count) in \(Int((t1 - t0) * 1000))ms")
+            }
         }
         return results
     }
@@ -309,7 +317,20 @@ class CommandHandler {
         self.app = app
     }
 
+    private var shouldObserve: Bool = false
+
     func handle(_ request: AgentRequest) -> AgentResponse {
+        shouldObserve = request.observe ?? false
+        defer { shouldObserve = false }
+        let start = CFAbsoluteTimeGetCurrent()
+        var result = dispatch(request)
+        let elapsed = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+        result.durationMs = elapsed
+        print("[TEST PERF] \(request.action): \(elapsed)ms")
+        return result
+    }
+
+    private func dispatch(_ request: AgentRequest) -> AgentResponse {
         switch request.action {
         case "observeScreen":
             return observeScreen()
@@ -343,6 +364,8 @@ class CommandHandler {
         }
     }
 
+    var skipSettleAndCapture: Bool = false
+
     private func chain(_ steps: [AgentRequest]?) -> AgentResponse {
         guard let steps, !steps.isEmpty else {
             return errorResponse("chain requires non-empty steps array")
@@ -350,7 +373,10 @@ class CommandHandler {
 
         var messages: [String] = []
         for (i, step) in steps.enumerated() {
+            let isLast = i == steps.count - 1
+            skipSettleAndCapture = !isLast
             let result = handle(step)
+            skipSettleAndCapture = false
             if !result.success {
                 let state = ScreenStateBuilder.capture(app: app)
                 return AgentResponse(
@@ -397,21 +423,49 @@ class CommandHandler {
             return errorResponse("tapElement requires identifier, label, or labelContains")
         }
 
+        var t0 = CFAbsoluteTimeGetCurrent()
         guard let element = waitAndFind(
             identifier: identifier, label: label, labelContains: labelContains,
             timeout: timeout
         ) else {
-            let state = ScreenStateBuilder.capture(app: app)
+            let state = shouldObserve ? ScreenStateBuilder.capture(app: app) : nil
             return AgentResponse(
                 success: false, message: nil, screenState: state, tappedElement: nil,
                 error: "Element not found within \(timeout)s"
             )
         }
+        var t1 = CFAbsoluteTimeGetCurrent()
+        print("[TEST PERF] waitAndFind: \(Int((t1 - t0) * 1000))ms")
 
-        let info = ElementInfoBuilder.build(from: element, depth: 0, maxDepth: 0)
+        t0 = CFAbsoluteTimeGetCurrent()
+        let elId = element.identifier
+        let elLabel = element.label
+        t1 = CFAbsoluteTimeGetCurrent()
+        print("[TEST PERF] read id+label: \(Int((t1 - t0) * 1000))ms")
+
+        t0 = CFAbsoluteTimeGetCurrent()
         element.tap()
+        t1 = CFAbsoluteTimeGetCurrent()
+        print("[TEST PERF] tap: \(Int((t1 - t0) * 1000))ms")
+
+        t0 = CFAbsoluteTimeGetCurrent()
         waitForSettle()
-        let state = ScreenStateBuilder.capture(app: app)
+        t1 = CFAbsoluteTimeGetCurrent()
+        print("[TEST PERF] settle: \(Int((t1 - t0) * 1000))ms")
+
+        t0 = CFAbsoluteTimeGetCurrent()
+        let state = captureIfNeeded()
+        t1 = CFAbsoluteTimeGetCurrent()
+        print("[TEST PERF] capture: \(Int((t1 - t0) * 1000))ms")
+        let info = UIElementInfo(
+            identifier: elId.isEmpty ? nil : elId,
+            label: elLabel.isEmpty ? nil : elLabel,
+            value: nil, placeholderValue: nil,
+            elementType: "element",
+            frame: FrameInfo(x: 0, y: 0, width: 0, height: 0),
+            isEnabled: true, isHittable: true, isSelected: false, hasFocus: false,
+            children: nil, customActions: nil
+        )
         return AgentResponse(success: true, message: "Tapped", screenState: state, tappedElement: info, error: nil)
     }
 
@@ -670,13 +724,15 @@ class CommandHandler {
             ) {
                 return el
             }
-            if let el = ElementMatch.find(
-                in: springboard, identifier: identifier, label: label,
-                labelContains: labelContains, elementType: nil
-            ) {
-                return el
-            }
-            Thread.sleep(forTimeInterval: 0.2)
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
+        // Last resort: check springboard for system dialogs
+        if let el = ElementMatch.find(
+            in: springboard, identifier: identifier, label: label,
+            labelContains: labelContains, elementType: nil
+        ) {
+            return el
         }
 
         return nil
@@ -700,7 +756,13 @@ class CommandHandler {
     }
 
     private func waitForSettle() {
-        Thread.sleep(forTimeInterval: 0.3)
+        guard !skipSettleAndCapture else { return }
+        Thread.sleep(forTimeInterval: 0.1)
+    }
+
+    private func captureIfNeeded() -> ScreenState? {
+        guard !skipSettleAndCapture && shouldObserve else { return nil }
+        return ScreenStateBuilder.capture(app: app)
     }
 
     private func errorResponse(_ message: String) -> AgentResponse {

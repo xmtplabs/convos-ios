@@ -34,12 +34,13 @@ interface AgentResponse {
 
 async function agentAction(
   action: string,
-  params?: Record<string, any>
+  params?: Record<string, any>,
+  observe: boolean = false
 ): Promise<AgentResponse> {
   const resp = await fetch(`${AGENT_URL}/action`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, params }),
+    body: JSON.stringify({ action, params, observe }),
   });
   return resp.json();
 }
@@ -145,6 +146,7 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_id, params) {
+      // On failure, observe to show what's on screen
       const resp = await agentAction("tapElement", {
         identifier: params.identifier,
         label: params.label,
@@ -153,9 +155,11 @@ export default function (pi: ExtensionAPI) {
       });
 
       if (!resp.success) {
-        let text = `Element not found: ${params.identifier || params.label || params.labelContains}\n`;
-        if (resp.screenState) {
-          text += `\nElements on screen:\n${formatScreenState(resp.screenState)}`;
+        // Retry with observe to show available elements
+        const obs = await agentAction("observeScreen", {}, true);
+        let text = `Not found: ${params.identifier || params.label || params.labelContains}`;
+        if (obs.screenState) {
+          text += `\n\nScreen:\n${formatScreenState(obs.screenState)}`;
         }
         return {
           content: [{ type: "text" as const, text }],
@@ -164,12 +168,10 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      let text = "";
+      let text = "Tapped";
       if (resp.tappedElement) {
-        text += `Tapped: ${formatElement(resp.tappedElement)}\n`;
-      }
-      if (resp.screenState) {
-        text += `\nScreen after tap:\n${formatScreenState(resp.screenState)}`;
+        const el = resp.tappedElement;
+        text = `Tapped: ${el.identifier || el.label || "element"}`;
       }
       return { content: [{ type: "text" as const, text }], details: {} };
     },
@@ -202,25 +204,14 @@ export default function (pi: ExtensionAPI) {
       });
 
       if (!resp.success) {
-        let text = `Field not found: ${params.identifier || params.label}\n`;
-        if (resp.screenState) {
-          text += `\nElements on screen:\n${formatScreenState(resp.screenState)}`;
-        }
         return {
-          content: [{ type: "text" as const, text }],
+          content: [{ type: "text" as const, text: `Field not found: ${params.identifier || params.label}` }],
           details: {},
           isError: true,
         };
       }
 
-      let text = `Typed "${params.text}"`;
-      if (resp.tappedElement) {
-        text += ` into ${formatElement(resp.tappedElement)}`;
-      }
-      if (resp.screenState) {
-        text += `\n\nScreen after typing:\n${formatScreenState(resp.screenState)}`;
-      }
-      return { content: [{ type: "text" as const, text }], details: {} };
+      return { content: [{ type: "text" as const, text: `Typed "${params.text}"` }], details: {} };
     },
   });
 
@@ -232,7 +223,7 @@ export default function (pi: ExtensionAPI) {
       "Return all elements currently visible on screen with their identifiers, labels, types, frames, and enabled state. Use this to see what's on screen without interacting.",
     parameters: Type.Object({}),
     async execute() {
-      const resp = await agentAction("observeScreen");
+      const resp = await agentAction("observeScreen", {}, true);
       if (!resp.success || !resp.screenState) {
         return {
           content: [
