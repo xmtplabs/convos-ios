@@ -14,6 +14,7 @@ struct ExplodeConvoSheet: View {
     @State private var explodeState: ExplodeState = .ready
     @State private var explodeTask: Task<Void, Never>?
     @State private var appeared: Bool = false
+    @State private var highlightedMenuIndex: Int?
 
     private var sundayAtMidnight: Date? {
         let calendar = Calendar.current
@@ -99,49 +100,10 @@ struct ExplodeConvoSheet: View {
                     Text("Start an unstoppable countdown")
                         .font(.subheadline)
                         .foregroundStyle(.colorTextSecondary)
+                        .padding(.horizontal, DesignConstants.Spacing.step3x)
 
-                    VStack(alignment: .leading, spacing: 0) {
-                        scheduleRow(label: "60 seconds") {
-                            pendingSchedule = .init(label: "60 seconds", date: Date().addingTimeInterval(60))
-                            showingConfirmation = true
-                        }
-
-                        scheduleRow(label: "1 hour") {
-                            pendingSchedule = .init(label: "1 hour", date: Date().addingTimeInterval(3600))
-                            showingConfirmation = true
-                        }
-
-                        scheduleRow(label: "24 hours") {
-                            pendingSchedule = .init(label: "24 hours", date: Date().addingTimeInterval(86400))
-                            showingConfirmation = true
-                        }
-
-                        if let sunday = sundayAtMidnight {
-                            scheduleRow(label: "Sunday at midnight") {
-                                pendingSchedule = .init(label: "Sunday at midnight", date: sunday, preposition: "on")
-                                showingConfirmation = true
-                            }
-                        }
-
-                        let chooseDateAction = {
-                            customDate = Date().addingTimeInterval(3600)
-                            showingCustomDatePicker = true
-                        }
-                        Button(action: chooseDateAction) {
-                            HStack {
-                                Text("Choose date and time")
-                                    .foregroundStyle(.colorTextPrimary)
-                                Spacer()
-                                Image(systemName: "chevron.right")
-                                    .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.colorTextPrimary)
-                            }
-                            .frame(height: DesignConstants.Spacing.step11x)
-                        }
-                        .buttonStyle(.plain)
-                    }
+                    scheduleMenuContent
                 }
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 holdToExplodeButton
             }
@@ -152,17 +114,93 @@ struct ExplodeConvoSheet: View {
         }
     }
 
-    @ViewBuilder
-    private func scheduleRow(label: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            HStack {
-                Text(label)
-                    .foregroundStyle(.colorTextPrimary)
-                Spacer()
-            }
-            .frame(height: DesignConstants.Spacing.step10x)
+    private var scheduleMenuItems: [(label: String, showsChevron: Bool)] {
+        var items: [(label: String, showsChevron: Bool)] = [
+            ("60 seconds", false),
+            ("1 hour", false),
+            ("24 hours", false),
+        ]
+        if sundayAtMidnight != nil {
+            items.append(("Sunday at midnight", false))
         }
-        .buttonStyle(.plain)
+        items.append(("Choose date and time", true))
+        return items
+    }
+
+    private var scheduleMenuContent: some View {
+        let items = scheduleMenuItems
+        let rowHeight: CGFloat = DesignConstants.Spacing.step11x
+        return VStack(alignment: .leading, spacing: 0) {
+            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                HStack {
+                    Text(item.label)
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    if item.showsChevron {
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                    }
+                }
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
+                .frame(height: rowHeight)
+            }
+        }
+        .background(alignment: .topLeading) {
+            if highlightedMenuIndex != nil {
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                    .fill(Color.primary.opacity(0.06))
+                    .frame(height: rowHeight)
+                    .frame(maxWidth: .infinity)
+                    .offset(y: CGFloat(highlightedMenuIndex ?? 0) * rowHeight)
+                    .transition(.opacity.animation(.easeOut(duration: 0.08)))
+            }
+        }
+        .animation(.smooth(duration: 0.15), value: highlightedMenuIndex)
+        .contentShape(Rectangle())
+        .sensoryFeedback(.selection, trigger: highlightedMenuIndex) { _, newValue in
+            newValue != nil
+        }
+        .coordinateSpace(name: "scheduleMenu")
+        .gesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named("scheduleMenu"))
+                .onChanged { value in
+                    let index = Int(value.location.y / rowHeight)
+                    let newIndex = (index >= 0 && index < items.count) ? index : nil
+                    if newIndex != highlightedMenuIndex {
+                        highlightedMenuIndex = newIndex
+                    }
+                }
+                .onEnded { _ in
+                    if let index = highlightedMenuIndex {
+                        performScheduleMenuAction(at: index)
+                    }
+                    highlightedMenuIndex = nil
+                }
+        )
+    }
+
+    private func performScheduleMenuAction(at index: Int) {
+        let hasSunday = sundayAtMidnight != nil
+        switch index {
+        case 0:
+            pendingSchedule = .init(label: "60 seconds", date: Date().addingTimeInterval(60))
+            showingConfirmation = true
+        case 1:
+            pendingSchedule = .init(label: "1 hour", date: Date().addingTimeInterval(3600))
+            showingConfirmation = true
+        case 2:
+            pendingSchedule = .init(label: "24 hours", date: Date().addingTimeInterval(86400))
+            showingConfirmation = true
+        case 3 where hasSunday:
+            if let sunday = sundayAtMidnight {
+                pendingSchedule = .init(label: "Sunday at midnight", date: sunday, preposition: "on")
+                showingConfirmation = true
+            }
+        default:
+            customDate = Date().addingTimeInterval(3600)
+            showingCustomDatePicker = true
+        }
     }
 
     private var holdToExplodeButton: some View {
