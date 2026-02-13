@@ -360,6 +360,16 @@ private struct AttachmentPlaceholder: View {
                 .scaleEffect(showBlurOverlay ? 1.3 : 1.0)
                 .blur(radius: showBlurOverlay ? blurRadius : 0)
                 .opacity(showBlurOverlay ? blurOpacity : 1.0)
+                .overlay(alignment: .top) {
+                    LinearGradient(
+                        colors: [.black, .clear],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(height: 56)
+                    .opacity(0.15)
+                    .blendMode(.plusDarker)
+                }
 
             if showBlurOverlay {
                 PhotoBlurOverlayContent()
@@ -500,21 +510,14 @@ struct PhotoSenderLabel: View {
                 useSystemPlaceholder: false
             )
             .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
-            .overlay(
-                Circle()
-                    .strokeBorder(Color.colorVibrantQuaternary, lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
 
             if !isOutgoing {
                 Text(profile.displayName)
                     .font(.caption)
                     .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
             }
         }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .padding(DesignConstants.Spacing.step4x)
     }
 }
 

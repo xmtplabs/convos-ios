@@ -51,7 +51,7 @@ struct MessagesGroupView: View {
                         .blur(radius: isAppearing ? 10.0 : 0.0)
                         .font(.footnote)
                         .foregroundColor(.secondary)
-                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x)
+                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
                         .padding(.bottom, DesignConstants.Spacing.stepHalf)
                 }
 
@@ -109,7 +109,7 @@ struct MessagesGroupView: View {
                         }
                     }
                 }
-                .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step2x : 0)
+                .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
 
                 if !message.base.reactions.isEmpty {
                     ReactionIndicatorView(

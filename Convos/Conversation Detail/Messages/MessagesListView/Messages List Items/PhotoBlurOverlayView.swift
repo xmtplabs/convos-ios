@@ -11,7 +11,7 @@ struct PhotoBlurOverlayContent: View {
                 .font(.system(size: 20))
                 .foregroundStyle(.white)
         }
-        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+        .opacity(0.6)
         .padding(DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }
