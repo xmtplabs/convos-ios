@@ -338,19 +338,30 @@ When the app launches for the first time (or after a reset), the conversation cr
 
 Unless the test is specifically about onboarding, complete or dismiss onboarding steps as quickly as possible to get to the feature being tested.
 
+### XMTP Message Visibility
+
+CLI participants can only see messages sent **after** they joined the conversation. Messages sent before joining are not visible — this is by design (XMTP group encryption). When verifying message exchange between app and CLI, always send test messages after the CLI has joined and been accepted.
+
 ### Invite URLs — Never Paste Manually
 
 When copying an invite URL from the app's share sheet (via the Copy button), **always read it programmatically from the simulator pasteboard**. Never manually copy-paste a URL into a bash command — base64 characters like `l`/`1`, `O`/`0`, `V`/`v` are easily corrupted.
 
 ```bash
-# Correct: read from pasteboard into a variable
-INVITE_URL=$(xcrun simctl pbpaste $UDID | tr -d '\n' | grep -oE 'https://dev\.convos\.org/v2\?i=[A-Za-z0-9_=-]+' | head -1)
+# 1. Clear the pasteboard before tapping Copy
+echo -n "" | xcrun simctl pbcopy $UDID
 
-# Then use the variable (always quote it)
-convos conversations join "$INVITE_URL" --profile-name "CLI Bot" --no-wait
+# 2. Tap the share button, wait for the share sheet, tap Copy
+#    (use sim_wait_and_tap label="Copy")
+
+# 3. Read the clean URL from pasteboard
+INVITE_URL=$(xcrun simctl pbpaste $UDID)
+
+# 4. Join WITHOUT --no-wait — this blocks until accepted and returns the conversation ID
+RESULT=$(convos conversations join "$INVITE_URL" --profile-name "CLI Bot" --json)
+CONV_ID=$(echo "$RESULT" | python3 -c "import json,sys; print(json.load(sys.stdin)['conversationId'])")
 ```
 
-Note: `xcrun simctl pbpaste` may return rich text content (not just the URL) if other items are on the clipboard. Always extract the URL with grep.
+Always clear the pasteboard first — `xcrun simctl pbpaste` may return stale rich text content from previous operations. Always join without `--no-wait` to get the conversation ID in one call.
 
 ### Processing Invites
 
