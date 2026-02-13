@@ -3,36 +3,44 @@ import SwiftUI
 
 struct FeatureRowItem<AccessoryView: View>: View {
     let imageName: String?
-    let symbolName: String
+    let symbolName: String?
     let title: String
     let subtitle: String?
     var iconBackgroundColor: Color = .colorOrange
     var iconForegroundColor: Color = .white
     @ViewBuilder let accessoryView: () -> AccessoryView
 
-    var image: Image {
+    private var hasIcon: Bool {
+        imageName != nil || symbolName != nil
+    }
+
+    var image: Image? {
         if let imageName {
             Image(imageName)
-        } else {
+        } else if let symbolName {
             Image(systemName: symbolName)
+        } else {
+            nil
         }
     }
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            Group {
-                image
-                    .font(.headline)
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .padding(.vertical, 10.0)
-                    .foregroundStyle(iconForegroundColor)
+            if let image {
+                Group {
+                    image
+                        .font(.headline)
+                        .padding(.horizontal, DesignConstants.Spacing.step2x)
+                        .padding(.vertical, 10.0)
+                        .foregroundStyle(iconForegroundColor)
+                }
+                .frame(width: 40.0, height: 40.0)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                        .fill(iconBackgroundColor)
+                        .aspectRatio(1.0, contentMode: .fit)
+                )
             }
-            .frame(width: 40.0, height: 40.0)
-            .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                    .fill(iconBackgroundColor)
-                    .aspectRatio(1.0, contentMode: .fit)
-            )
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(title)
@@ -262,12 +270,12 @@ struct ConversationInfoView: View {
                     FeatureRowItem(
                         imageName: nil,
                         symbolName: "eye.circle.fill",
-                        title: "Reveal media",
-                        subtitle: viewModel.autoRevealPhotos ? "Automatic" : "Tap"
+                        title: "Reveal mode",
+                        subtitle: "Blur incoming pics"
                     ) {
                         Toggle("", isOn: Binding(
-                            get: { viewModel.autoRevealPhotos },
-                            set: { viewModel.setAutoReveal($0) }
+                            get: { !viewModel.autoRevealPhotos },
+                            set: { viewModel.setAutoReveal(!$0) }
                         ))
                         .labelsHidden()
                     }
