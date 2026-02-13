@@ -321,46 +321,25 @@ struct ExplodeConvoSheet: View {
             let engine = try CHHapticEngine()
             try engine.start()
 
-            var events: [CHHapticEvent] = []
-
-            events.append(CHHapticEvent(
-                eventType: .hapticTransient,
-                parameters: [
-                    CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
-                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0),
-                ],
-                relativeTime: 0
-            ))
-
-            events.append(CHHapticEvent(
-                eventType: .hapticContinuous,
-                parameters: [
-                    CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.7),
-                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.2),
-                ],
-                relativeTime: 0.05,
-                duration: 1.0
-            ))
-
-            let aftershocks: [(time: Double, intensity: Float, sharpness: Float)] = [
-                (0.12, 0.9, 0.8),
-                (0.25, 0.8, 0.7),
-                (0.40, 0.7, 0.6),
-                (0.55, 0.6, 0.5),
-                (0.70, 0.5, 0.4),
-                (0.85, 0.4, 0.3),
-                (1.00, 0.3, 0.25),
-            ]
-            for aftershock in aftershocks {
-                events.append(CHHapticEvent(
+            let events: [CHHapticEvent] = [
+                CHHapticEvent(
                     eventType: .hapticTransient,
                     parameters: [
-                        CHHapticEventParameter(parameterID: .hapticIntensity, value: aftershock.intensity),
-                        CHHapticEventParameter(parameterID: .hapticSharpness, value: aftershock.sharpness),
+                        CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
+                        CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0),
                     ],
-                    relativeTime: aftershock.time
-                ))
-            }
+                    relativeTime: 0
+                ),
+                CHHapticEvent(
+                    eventType: .hapticContinuous,
+                    parameters: [
+                        CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.7),
+                        CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.2),
+                    ],
+                    relativeTime: 0.05,
+                    duration: 1.0
+                ),
+            ]
 
             let pattern = try CHHapticPattern(events: events, parameters: [])
             let player = try engine.makePlayer(with: pattern)
