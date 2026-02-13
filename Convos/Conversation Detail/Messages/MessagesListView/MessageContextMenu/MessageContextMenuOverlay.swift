@@ -398,7 +398,7 @@ struct MessageContextMenuOverlay: View {
             isOutgoing: state.isOutgoing,
             profile: message.base.sender.profile,
             shouldBlur: shouldBlurPhoto,
-            cornerRadius: C.photoCornerRadius
+            cornerRadius: appeared ? C.photoCornerRadius : 0
         )
     }
 
