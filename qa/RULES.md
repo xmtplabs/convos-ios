@@ -185,7 +185,7 @@ Then relaunch the app so it picks up the Reduce Motion setting. These persist ac
 - **Use `sim_wait_for_element` after navigation or network actions** — it polls until the element appears, avoiding manual sleep + screenshot loops.
 - **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
 - If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout.
-- **Maximum sleep/wait time: 2 seconds.** With animations disabled and XMTP on dev, messages sync fast and UI transitions are instant. Never use `sleep` longer than 2s between steps. Prefer `sim_wait_for_element` (which polls actively) over `sleep` (which wastes time). If something hasn't appeared after 2s, it's likely a real failure — investigate rather than waiting longer.
+- **Never sleep — wait for elements instead.** If you know the accessibility identifier or label of the next element you need, use `sim_wait_for_element` to poll for it. This is faster (returns as soon as the element appears) and more reliable (fails with a clear timeout instead of silently proceeding too early). Only use `sleep` as a last resort when there is genuinely no element to wait for (e.g., after a dismiss gesture where you need the UI to settle). Even then, keep it under 1 second.
 
 ### Verifying Results: Accessibility Tree vs Screenshots
 
