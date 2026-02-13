@@ -56,18 +56,37 @@ function formatElement(el: UIElementInfo): string {
   return parts.join(", ");
 }
 
-// Types the agent can interact with
-const ACTIONABLE_TYPES = new Set([
-  "button", "textField", "secureTextField", "textView", "searchField",
-  "switch", "toggle", "slider", "popUpButton", "menuItem", "link",
-  "cell", "staticText",
+// System/keyboard identifiers to always hide
+const SYSTEM_IDS = new Set([
+  "inputView", "SystemInputAssistantView", "CenterPageView",
+  "UIKeyboardLayoutStar Preview", "AdditionalDimmingOverlay",
+  "dictation", "shift", "delete", "more", "space", "Return",
+  "Done", "Toolbar", "checkmark",
 ]);
 
 function isRelevant(el: UIElementInfo): boolean {
-  // Always show elements with accessibility identifiers (devs set these intentionally)
-  if (el.identifier && !el.identifier.startsWith("_Tt")) return true;
-  // Show actionable elements with labels
-  if (el.label && ACTIONABLE_TYPES.has(el.elementType)) return true;
+  const id = el.identifier || "";
+  const label = el.label || "";
+
+  // Hide system/keyboard noise
+  if (SYSTEM_IDS.has(id)) return false;
+  // Hide internal SwiftUI identifiers
+  if (id.startsWith("_Tt")) return false;
+  // Hide keyboard keys (single char, no id)
+  if (!id && label.length === 1) return false;
+  // Hide elements with no id and no label
+  if (!id && !label) return false;
+  // Hide system image names used as identifiers (SF Symbols)
+  if (id && !id.includes("-") && id.includes(".") && !id.startsWith("qr")) return false;
+
+  // Show app elements with identifiers (devs set these)
+  if (id && id.includes("-")) return true;
+  // Show buttons and interactive elements with labels
+  if (label && ["button", "textField", "secureTextField", "textView",
+    "searchField", "switch", "toggle", "slider", "popUpButton",
+    "menuItem", "link", "cell"].includes(el.elementType)) return true;
+  // Show staticText with labels that look like content (not timestamps, not single words under 3 chars)
+  if (el.elementType === "staticText" && label.length > 3) return true;
   // Show alerts
   if (el.elementType === "alert" || el.elementType === "sheet") return true;
   return false;
