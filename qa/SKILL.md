@@ -32,6 +32,11 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 12 | `qa/tests/12-create-conversation-from-app.md` | Create conversation from app and invite others |
 | 13 | `qa/tests/13-migration.md` | Database migration from main branch to current branch |
 | 14 | `qa/tests/14-quickname.md` | Quickname setup, auto-apply, quick edit, My Info override, App Settings edit |
+| 15 | `qa/tests/15-performance.md` | Performance baselines: conversation open, create, join timings |
+| 16 | `qa/tests/16-conversation-filters.md` | Unread filter, clear filter, empty state, filter persistence |
+| 17 | `qa/tests/17-swipe-actions.md` | Mark read/unread via swipe and context menu |
+| 18 | `qa/tests/18-delete-all-data.md` | Delete all data flow, confirmation, progress, completion |
+| 19 | `qa/tests/19-profile-photo.md` | Profile photo, group photo, sync to other participants |
 
 ## Running Tests
 
@@ -57,6 +62,11 @@ Recommended order:
 11. **09-explode-conversation** — tests explosion (destructive, run late)
 12. **10-pin-conversation** — tests pinning (needs multiple conversations)
 13. **11-mute-conversation** — tests muting
+14. **16-conversation-filters** — tests unread filter (needs conversations with mixed read states)
+15. **17-swipe-actions** — tests mark read/unread swipe actions
+16. **19-profile-photo** — tests profile and group photos
+17. **15-performance** — performance baselines (run last, non-destructive)
+18. **18-delete-all-data** — wipes all data (run very last, destructive)
 
 ### Reporting
 

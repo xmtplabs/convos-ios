@@ -1,6 +1,6 @@
-# Test: Lock Conversation and Verify Invites Invalidated
+# Test: Lock and Unlock Conversation
 
-Verify that locking a conversation prevents new members from joining, and that invites generated before locking no longer work.
+Verify that locking a conversation prevents new members from joining, invites are invalidated, non-admins cannot lock, and unlocking restores invite generation while old invites remain invalid.
 
 ## Prerequisites
 
@@ -9,54 +9,78 @@ Verify that locking a conversation prevents new members from joining, and that i
 
 ## Setup
 
-Use the CLI to create a conversation and add the app as a member via the invite flow. The CLI user should be the super admin (creator) of the conversation.
+Use the CLI to create a conversation with a name like "Lock Test" and add the app as a member via the invite flow. The CLI user should be the super admin (creator).
 
-After the app joins, generate a new invite URL from the CLI. Save this invite URL — it will be tested after locking.
+After the app joins, generate a new invite URL from the CLI. Save this URL for testing after lock.
 
 ## Steps
 
-### Verify the pre-lock invite works (optional sanity check)
+### Verify pre-lock state
 
-1. Confirm that the conversation is not locked. Check the conversation info in the app — there should be no lock icon.
+1. In the app, open the conversation and verify no lock icon appears in the toolbar.
+2. Open conversation info and verify the lock toggle is off.
 
 ### Generate an invite before locking
 
-2. Use the CLI to generate an invite for the conversation. Save the invite URL or slug.
+3. Use the CLI to generate an invite. Save the invite URL.
 
 ### Lock the conversation from the CLI
 
-3. Use the CLI to lock the conversation.
-4. Wait a few seconds for the lock state to sync.
+4. Use the CLI to lock the conversation.
+5. Wait a few seconds for the lock state to sync.
 
-### Verify lock state in the app
+### Verify lock state syncs to the app
 
-5. In the app, check the conversation view. A lock icon should appear in the top toolbar area.
-6. Open conversation info and verify the lock state is reflected (the lock toggle should be on, or the share button should be unavailable).
+6. In the app, verify a lock icon appears in the conversation toolbar area.
+7. Open conversation info and verify the lock toggle is on or the share button is unavailable.
+8. Verify the conversation info reflects the locked state (e.g., no invite section, or "locked" label).
 
 ### Verify the pre-lock invite no longer works
 
-7. Reset the CLI state (remove existing identities) so you can act as a new user trying to join.
-8. Re-initialize the CLI for dev environment.
-9. Attempt to join the conversation using the invite URL that was generated before locking.
-10. The join attempt should fail or be rejected. The invite should not work because the conversation is locked.
+9. Reset the CLI state (`rm -rf ~/.convos/identities ~/.convos/db`).
+10. Re-initialize the CLI for dev.
+11. Attempt to join using the saved pre-lock invite URL.
+12. The join attempt should fail or be rejected because the conversation is locked.
 
-### Verify no new invite can be shared from the app
+### Verify non-admin cannot lock
 
-11. In the app, check the conversation info view. The convo code section should show "None" or the share functionality should be disabled.
+13. The app user (who joined as a regular member) should check conversation info. Verify the lock option is either not visible or shows an explanation that only super admins can lock.
 
-### Unlock and verify (optional)
+### Unlock the conversation
 
-12. If the app user is a super admin, unlock the conversation from the conversation info view by toggling the lock.
-13. Verify the lock icon disappears and new invites can be generated.
+14. Re-initialize the CLI with the original creator identity (or use a second CLI identity that is the super admin).
+15. Use the CLI to unlock the conversation.
+16. Wait a few seconds for the unlock state to sync.
+
+### Verify unlock state syncs to the app
+
+17. In the app, verify the lock icon disappears from the toolbar.
+18. Open conversation info and verify the lock toggle is off and sharing is available again.
+
+### Verify old invite still invalid after unlock
+
+19. Attempt to join using the same pre-lock invite URL (from step 3).
+20. The join should still fail — unlocking does not restore previously invalidated invites.
+
+### Verify new invite works after unlock
+
+21. Use the CLI to generate a new invite after unlocking.
+22. Reset CLI state again and re-initialize.
+23. Join using the new invite URL.
+24. The join should succeed — the conversation is unlocked and the new invite is valid.
 
 ## Teardown
 
-Explode the conversation via CLI (re-initialize with the original identity if needed).
+Explode the conversation via CLI (re-initialize with the creator identity if needed).
 
 ## Pass/Fail Criteria
 
-- [ ] Conversation can be locked via CLI
-- [ ] Lock state syncs to the app (lock icon appears)
-- [ ] Invites generated before locking do not work after the conversation is locked
-- [ ] The app prevents sharing new invites when the conversation is locked
-- [ ] Conversation info reflects the locked state
+- [ ] Pre-lock state: no lock icon, lock toggle off
+- [ ] Lock state syncs to the app (lock icon appears in toolbar)
+- [ ] Conversation info reflects locked state
+- [ ] Pre-lock invite does not work after locking
+- [ ] App prevents sharing new invites when locked
+- [ ] Non-admin cannot lock (option not available or explanation shown)
+- [ ] Unlock state syncs to the app (lock icon disappears)
+- [ ] Old invite still invalid after unlock
+- [ ] New invite works after unlock
