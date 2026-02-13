@@ -23,6 +23,7 @@
 // ```
 
 import Foundation
+import UserNotifications
 
 // MARK: - iOS Platform Providers Extension
 
@@ -51,7 +52,8 @@ extension PlatformProviders {
         return PlatformProviders(
             appLifecycle: appLifecycle,
             deviceInfo: deviceInfo,
-            pushNotificationRegistrar: pushNotificationRegistrar
+            pushNotificationRegistrar: pushNotificationRegistrar,
+            notificationCenter: UNUserNotificationCenter.current()
         )
     }
 
@@ -64,7 +66,8 @@ extension PlatformProviders {
         PlatformProviders(
             appLifecycle: MockAppLifecycleProvider(),
             deviceInfo: MockDeviceInfoProvider(),
-            pushNotificationRegistrar: MockPushNotificationRegistrarProvider()
+            pushNotificationRegistrar: MockPushNotificationRegistrarProvider(),
+            notificationCenter: MockUserNotificationCenter()
         )
     }
 }

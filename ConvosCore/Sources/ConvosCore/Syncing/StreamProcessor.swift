@@ -67,6 +67,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
+    private let notificationCenter: any UserNotificationCenterProtocol
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
 
@@ -76,12 +77,14 @@ actor StreamProcessor: StreamProcessorProtocol {
         identityStore: any KeychainIdentityStoreProtocol,
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
-        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil
+        deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+        notificationCenter: any UserNotificationCenterProtocol
     ) {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.deviceRegistrationManager = deviceRegistrationManager
+        self.notificationCenter = notificationCenter
         self.inviteJoinErrorHandler = nil
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
         self.conversationWriter = ConversationWriter(
@@ -251,9 +254,61 @@ actor StreamProcessor: StreamProcessorProtocol {
             currentInboxId: params.client.inboxId
         )
 
-        if case .applied = result {
-            let conversationName = (try? conversation.name()).orUntitled
+        let conversationName = (try? conversation.name()).orUntitled
+
+        switch result {
+        case .applied:
             await postExplosionNotification(conversationName: conversationName, conversationId: conversation.id)
+        case .scheduled(let expiresAt):
+            let senderName = await getSenderDisplayName(senderInboxId: senderInboxId, conversationId: conversation.id)
+            await postScheduledExplosionNotification(
+                senderName: senderName,
+                conversationName: conversationName,
+                conversationId: conversation.id,
+                expiresAt: expiresAt
+            )
+        case .fromSelf, .alreadyExpired, .unauthorized:
+            break
+        }
+    }
+
+    private func getSenderDisplayName(senderInboxId: String, conversationId: String) async -> String {
+        do {
+            let profile = try await databaseReader.read { db in
+                try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)
+            }
+            if let name = profile?.name, !name.isEmpty {
+                return name
+            }
+        } catch {
+            Log.error("Failed to get sender display name: \(error.localizedDescription)")
+        }
+        return "Someone"
+    }
+
+    private func postScheduledExplosionNotification(
+        senderName: String,
+        conversationName: String,
+        conversationId: String,
+        expiresAt: Date
+    ) async {
+        let content = UNMutableNotificationContent()
+        content.title = "\(senderName) set this convo to explode 💣"
+        content.body = "in \(ExplosionDurationFormatter.format(until: expiresAt))"
+        content.sound = .default
+        content.userInfo = ["isScheduledExplosion": true, "conversationId": conversationId]
+        content.threadIdentifier = conversationId
+
+        let request = UNNotificationRequest(
+            identifier: "scheduled-explosion-\(conversationId)",
+            content: content,
+            trigger: nil
+        )
+
+        do {
+            try await notificationCenter.add(request)
+        } catch {
+            Log.error("Failed to post scheduled explosion notification: \(error.localizedDescription)")
         }
     }
 
@@ -272,7 +327,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         )
 
         do {
-            try await UNUserNotificationCenter.current().add(request)
+            try await notificationCenter.add(request)
         } catch {
             Log.error("Failed to post explosion notification: \(error.localizedDescription)")
         }

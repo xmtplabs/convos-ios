@@ -408,10 +408,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 preferredClientConversationId = dbConversation.clientConversationId
             }
 
-            // Apply updates: preserve isUnused flag and clientConversationId
+            // Apply updates: preserve local-only fields
             var updatedConversation = dbConversation.with(clientConversationId: preferredClientConversationId)
             if existingConversation.isUnused {
                 updatedConversation = updatedConversation.with(isUnused: true)
+            }
+            if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
+                updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
             }
             try updatedConversation.save(db)
             firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != existingConversation.expiresAt

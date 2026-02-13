@@ -128,13 +128,15 @@ actor SyncingManager: SyncingManagerProtocol {
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
-         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil) {
+         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+         notificationCenter: any UserNotificationCenterProtocol) {
         self.identityStore = identityStore
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            deviceRegistrationManager: deviceRegistrationManager
+            deviceRegistrationManager: deviceRegistrationManager,
+            notificationCenter: notificationCenter
         )
         self.joinRequestsManager = InviteJoinRequestsManager(
             identityStore: identityStore,

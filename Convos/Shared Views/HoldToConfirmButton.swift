@@ -20,6 +20,9 @@ struct HoldToConfirmStyleConfig {
     var progressIndicatorPadding: CGFloat = DesignConstants.Spacing.step3x
     var progressIndicatorStrokeWidth: CGFloat = 1.0
 
+    // Shape
+    var cornerRadius: CGFloat?
+
     // Progress indicator
     var showProgressIndicator: Bool = true
 
@@ -71,15 +74,16 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
                     return frozenProgress
                 }()
 
+                let shape = RoundedRectangle(cornerRadius: config.cornerRadius ?? 999)
                 label()
                     .padding(.vertical, config.verticalPadding)
                     .background(
-                        Capsule()
+                        shape
                             .fill(config.backgroundColor)
                             .overlay(
                                 config.pressedOverlayColor
                                     .opacity(currentProgress > 0.0 ? config.pressedOverlayOpacity : 0.0),
-                                in: Capsule()
+                                in: shape
                             )
                     )
                     .overlay(alignment: .leading) {
@@ -98,6 +102,12 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
                             .opacity(isEnabled && currentProgress > 0.0 ? 1.0 : 0.0)
                         }
                     }
+            }
+            .sensoryFeedback(.impact(weight: .light), trigger: isPressing) { _, newValue in
+                newValue
+            }
+            .sensoryFeedback(.success, trigger: didFire) { _, newValue in
+                newValue
             }
             .onLongPressGesture(
                 minimumDuration: config.duration,

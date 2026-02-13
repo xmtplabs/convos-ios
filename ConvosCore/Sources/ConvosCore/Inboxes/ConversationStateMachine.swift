@@ -174,7 +174,8 @@ public actor ConversationStateMachine {
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            databaseReader: databaseReader
+            databaseReader: databaseReader,
+            notificationCenter: MockUserNotificationCenter()
         )
     }
 

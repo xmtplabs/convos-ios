@@ -5,6 +5,7 @@ struct PinnedConversationsSection: View {
     let pinnedConversations: [Conversation]
     let viewModel: ConversationsViewModel
     @Binding var conversationPendingDeletion: Conversation?
+    @Binding var conversationPendingExplosion: Conversation?
     let onSelectConversation: (Conversation) -> Void
 
     private var shouldUseGrid: Bool {
@@ -29,6 +30,7 @@ struct PinnedConversationsSection: View {
                 conversationContextMenuContent(
                     conversation: conversation,
                     viewModel: viewModel,
+                    onExplode: { conversationPendingExplosion = conversation },
                     onDelete: { conversationPendingDeletion = conversation }
                 )
             }
@@ -91,6 +93,7 @@ struct PinnedConversationsSection: View {
 
 #Preview {
     @Previewable @State var conversationPendingDeletion: Conversation?
+    @Previewable @State var conversationPendingExplosion: Conversation?
     let convos = ConvosClient.mock()
     let viewModel = ConversationsViewModel(session: convos.session)
 
@@ -102,6 +105,7 @@ struct PinnedConversationsSection: View {
         ],
         viewModel: viewModel,
         conversationPendingDeletion: $conversationPendingDeletion,
+        conversationPendingExplosion: $conversationPendingExplosion,
         onSelectConversation: { _ in }
     )
 }

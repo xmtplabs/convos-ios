@@ -2,6 +2,7 @@ import Combine
 import ConvosCore
 import Observation
 import UIKit
+import UserNotifications
 
 @MainActor
 @Observable
@@ -15,6 +16,7 @@ class ConversationViewModel {
     private let consentWriter: any ConversationConsentWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
+    private let explosionWriter: any ConversationExplosionWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
     private let replyWriter: any ReplyMessageWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
@@ -71,7 +73,10 @@ class ConversationViewModel {
         conversation.computedDisplayName
     }
     var conversationInfoSubtitle: String {
-        conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
+        if let expiresAt = scheduledExplosionDate {
+            return ExplosionDurationFormatter.countdown(until: expiresAt)
+        }
+        return conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
     }
     var conversationNamePlaceholder: String = "Convo name"
     var conversationDescriptionPlaceholder: String = "Description"
@@ -130,6 +135,14 @@ class ConversationViewModel {
         conversation.members.count > 1 && conversation.creator.isCurrentUser
     }
 
+    var scheduledExplosionDate: Date? {
+        conversation.scheduledExplosionDate
+    }
+
+    var isExplosionScheduled: Bool {
+        scheduledExplosionDate != nil
+    }
+
     // MARK: - Lock Conversation
 
     var isLocked: Bool {
@@ -178,6 +191,13 @@ class ConversationViewModel {
 
     @ObservationIgnored
     private var loadConversationImageTask: Task<Void, Never>?
+
+    @ObservationIgnored
+    private var explodeTask: Task<Void, Never>?
+
+    deinit {
+        explodeTask?.cancel()
+    }
 
     // MARK: - Init
 
@@ -228,6 +248,7 @@ class ConversationViewModel {
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
+        self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.replyWriter = messagingService.replyWriter()
 
@@ -278,6 +299,7 @@ class ConversationViewModel {
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
+        self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.replyWriter = messagingService.replyWriter()
 
@@ -677,72 +699,83 @@ class ConversationViewModel {
             }
         }
     }
+}
 
-    private enum ExplodeConvoError: Error {
-        case conversationNotFound
-        case notGroupConversation
-    }
+// MARK: - Explosion Actions
 
+extension ConversationViewModel {
     func explodeConvo() {
         guard canRemoveMembers else { return }
-        guard case .ready = explodeState else { return }
+        guard explodeState.isReady || explodeState.isError || explodeState.isScheduled else { return }
 
         explodeState = .exploding
 
-        Task { [weak self] in
+        explodeTask?.cancel()
+        explodeTask = Task { [weak self] in
             guard let self else { return }
 
             do {
-                let expiresAt = Date()
-
-                Log.info("Sending ExplodeSettings message...")
-                let messagingService = try await session.messagingService(
-                    for: conversation.clientId,
-                    inboxId: conversation.inboxId
-                )
-                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversation.id) else {
-                    throw ExplodeConvoError.conversationNotFound
-                }
-
-                // Use nonisolated(unsafe) to capture non-Sendable XMTP Conversation type
-                nonisolated(unsafe) let unsafeConversation = xmtpConversation
-                try await withTimeout(seconds: 20) {
-                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
-                }
-                Log.info("ExplodeSettings message sent successfully")
-
-                await MainActor.run {
-                    self.explodeState = .exploded
-                }
-
-                guard case .group(let group) = xmtpConversation else {
-                    throw ExplodeConvoError.notGroupConversation
-                }
-
-                try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
-
-                let memberIdsToRemove = conversation.members
-                    .map { $0.profile.inboxId }
-
-                try await metadataWriter.removeMembers(
-                    memberIdsToRemove,
-                    from: conversation.id
+                let memberIds = conversation.members.map { $0.profile.inboxId }
+                try await explosionWriter.explodeConversation(
+                    conversationId: conversation.id,
+                    memberInboxIds: memberIds
                 )
 
-                try await group.updateConsentState(state: .denied)
-                Log.info("Denied exploded conversation to prevent re-sync")
+                self.presentingConversationSettings = false
+                self.explodeState = .exploded
 
-                await MainActor.run {
-                    self.presentingConversationSettings = false
-                    self.conversation.postLeftConversationNotification()
-                }
+                await UNUserNotificationCenter.current().addExplosionNotification(
+                    conversationId: conversation.id,
+                    displayName: conversation.displayName
+                )
+
+                NotificationCenter.default.post(
+                    name: .conversationExpired,
+                    object: nil,
+                    userInfo: ["conversationId": self.conversation.id]
+                )
+                self.conversation.postLeftConversationNotification()
                 Log.info("Explode complete, inbox deletion triggered")
             } catch {
                 Log.error("Error exploding convo: \(error.localizedDescription)")
-                await MainActor.run {
-                    self.explodeState = .error("Explode failed")
-                }
+                self.explodeState = .error("Explode failed")
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                self.explodeState = .ready
+            }
+        }
+    }
+
+    func scheduleExplosion(at expiresAt: Date) {
+        guard canRemoveMembers else { return }
+        // Intentionally excludes .isScheduled — rescheduling is not supported
+        guard explodeState.isReady || explodeState.isError else { return }
+
+        if expiresAt <= Date() {
+            explodeConvo()
+            return
+        }
+
+        explodeState = .exploding
+
+        explodeTask?.cancel()
+        explodeTask = Task { [weak self] in
+            guard let self else { return }
+
+            do {
+                try await explosionWriter.scheduleExplosion(
+                    conversationId: conversation.id,
+                    expiresAt: expiresAt
+                )
+
+                self.explodeState = .scheduled(expiresAt)
+                Log.info("Explosion scheduled for \(expiresAt)")
+            } catch {
+                Log.error("Error scheduling explosion: \(error.localizedDescription)")
+                self.explodeState = .error("Schedule failed")
+                try? await Task.sleep(for: .seconds(2))
+                guard !Task.isCancelled else { return }
+                self.explodeState = .ready
             }
         }
     }
@@ -802,5 +835,23 @@ extension ConversationViewModel {
             session: MockInboxesService(),
             messagingService: MockMessagingService()
         )
+    }
+}
+
+extension UNUserNotificationCenter {
+    func addExplosionNotification(conversationId: String, displayName: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = "\u{1F4A5} \(displayName) \u{1F4A5}"
+        content.body = "A convo exploded"
+        content.sound = .default
+        content.userInfo = ["isExplosion": true]
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "self-explosion-\(conversationId)",
+            content: content,
+            trigger: trigger
+        )
+        try? await add(request)
     }
 }

@@ -37,14 +37,19 @@ public struct PlatformProviders: Sendable {
     /// Provider for push notification token management
     public let pushNotificationRegistrar: any PushNotificationRegistrarProtocol
 
+    /// Provider for user notification center (local notifications)
+    public let notificationCenter: any UserNotificationCenterProtocol
+
     public init(
         appLifecycle: any AppLifecycleProviding,
         deviceInfo: any DeviceInfoProviding,
-        pushNotificationRegistrar: any PushNotificationRegistrarProtocol
+        pushNotificationRegistrar: any PushNotificationRegistrarProtocol,
+        notificationCenter: any UserNotificationCenterProtocol
     ) {
         self.appLifecycle = appLifecycle
         self.deviceInfo = deviceInfo
         self.pushNotificationRegistrar = pushNotificationRegistrar
+        self.notificationCenter = notificationCenter
     }
 }
 
@@ -129,7 +134,8 @@ extension PlatformProviders {
         PlatformProviders(
             appLifecycle: MockAppLifecycleProvider(),
             deviceInfo: MockDeviceInfoProvider(),
-            pushNotificationRegistrar: MockPushNotificationRegistrarProvider()
+            pushNotificationRegistrar: MockPushNotificationRegistrarProvider(),
+            notificationCenter: MockUserNotificationCenter()
         )
     }
 }
