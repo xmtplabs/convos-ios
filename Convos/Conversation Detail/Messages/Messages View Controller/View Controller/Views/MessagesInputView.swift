@@ -80,7 +80,8 @@ struct MessagesInputView: View {
                     .foregroundStyle(.colorTextPrimary)
                     .tint(.colorTextPrimary)
                     .frame(minHeight: Self.defaultHeight, maxHeight: 170.0, alignment: .center)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .padding(.leading, DesignConstants.Spacing.step2x)
+                    .padding(.trailing, DesignConstants.Spacing.step3x)
                     .disabled(!messagesTextFieldEnabled)
                     .accessibilityLabel("Message input")
                     .accessibilityIdentifier("message-text-field")
@@ -122,8 +123,8 @@ struct MessagesInputView: View {
                     attachmentPreview(image: image)
                 }
             }
-            .padding(.horizontal, DesignConstants.Spacing.step2x * 2)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .padding(.bottom, DesignConstants.Spacing.step2x)
         }
         .scrollClipDisabled()
         .padding(.horizontal, -DesignConstants.Spacing.step2x)
@@ -136,7 +137,7 @@ struct MessagesInputView: View {
                 .resizable()
                 .aspectRatio(contentMode: .fill)
                 .frame(width: attachmentPreviewSize, height: attachmentPreviewSize)
-                .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step3x))
+                .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
                 .scaleEffect(isPoofing ? 1.3 : 1.0)
                 .blur(radius: isPoofing ? 12.0 : 0.0)
                 .opacity(isPoofing ? 0.0 : 1.0)
@@ -150,13 +151,17 @@ struct MessagesInputView: View {
                     isPoofing = false
                 }
             } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.system(size: 20.0))
-                    .symbolRenderingMode(.palette)
-                    .foregroundStyle(.white, .black.opacity(0.6))
+                Image(systemName: "xmark")
+                    .font(.system(size: 10.0, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20.0, height: 20.0)
+                    .background(.black)
+                    .clipShape(.circle)
+                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1.0))
             }
             .opacity(isPoofing ? 0.0 : 1.0)
-            .offset(x: 6.0, y: -6.0)
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.trailing, DesignConstants.Spacing.step2x)
         }
     }
 }
