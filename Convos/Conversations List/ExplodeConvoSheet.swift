@@ -73,76 +73,82 @@ struct ExplodeConvoSheet: View {
     private var scheduledCardContent: some View {
         GlassEffectContainer {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                Text("The fuse is lit")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorCaution)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                    Text("The fuse is lit")
+                        .font(.subheadline)
+                        .foregroundStyle(.colorCaution)
 
-                Text("The fuse is lit")
-                    .font(.title2.weight(.bold))
+                    Text("The fuse is lit")
+                        .font(.title2.weight(.bold))
+                }
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 holdToExplodeButton
-                    .padding(.top, DesignConstants.Spacing.step2x)
             }
-            .padding(DesignConstants.Spacing.step6x)
-            .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+            .padding(DesignConstants.Spacing.step4x)
+            .padding(.top, DesignConstants.Spacing.step3x)
+            .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLargest))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLargest))
         }
     }
 
     private var scheduleCardContent: some View {
         GlassEffectContainer {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                Text("Start an unstoppable countdown")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                    Text("Start an unstoppable countdown")
+                        .font(.subheadline)
+                        .foregroundStyle(.colorTextSecondary)
 
-                VStack(alignment: .leading, spacing: 0) {
-                    scheduleRow(label: "60 seconds") {
-                        pendingSchedule = .init(label: "60 seconds", date: Date().addingTimeInterval(60))
-                        showingConfirmation = true
-                    }
-
-                    scheduleRow(label: "1 hour") {
-                        pendingSchedule = .init(label: "1 hour", date: Date().addingTimeInterval(3600))
-                        showingConfirmation = true
-                    }
-
-                    scheduleRow(label: "24 hours") {
-                        pendingSchedule = .init(label: "24 hours", date: Date().addingTimeInterval(86400))
-                        showingConfirmation = true
-                    }
-
-                    if let sunday = sundayAtMidnight {
-                        scheduleRow(label: "Sunday at midnight") {
-                            pendingSchedule = .init(label: "Sunday at midnight", date: sunday, preposition: "on")
+                    VStack(alignment: .leading, spacing: 0) {
+                        scheduleRow(label: "60 seconds") {
+                            pendingSchedule = .init(label: "60 seconds", date: Date().addingTimeInterval(60))
                             showingConfirmation = true
                         }
-                    }
 
-                    let chooseDateAction = {
-                        customDate = Date().addingTimeInterval(3600)
-                        showingCustomDatePicker = true
-                    }
-                    Button(action: chooseDateAction) {
-                        HStack {
-                            Text("Choose date and time")
-                                .foregroundStyle(.colorTextPrimary)
-                            Spacer()
-                            Image(systemName: "chevron.right")
-                                .font(.caption)
-                                .foregroundStyle(.colorTextSecondary)
+                        scheduleRow(label: "1 hour") {
+                            pendingSchedule = .init(label: "1 hour", date: Date().addingTimeInterval(3600))
+                            showingConfirmation = true
                         }
-                        .padding(.vertical, DesignConstants.Spacing.step3x)
+
+                        scheduleRow(label: "24 hours") {
+                            pendingSchedule = .init(label: "24 hours", date: Date().addingTimeInterval(86400))
+                            showingConfirmation = true
+                        }
+
+                        if let sunday = sundayAtMidnight {
+                            scheduleRow(label: "Sunday at midnight") {
+                                pendingSchedule = .init(label: "Sunday at midnight", date: sunday, preposition: "on")
+                                showingConfirmation = true
+                            }
+                        }
+
+                        let chooseDateAction = {
+                            customDate = Date().addingTimeInterval(3600)
+                            showingCustomDatePicker = true
+                        }
+                        Button(action: chooseDateAction) {
+                            HStack {
+                                Text("Choose date and time")
+                                    .foregroundStyle(.colorTextPrimary)
+                                Spacer()
+                                Image(systemName: "chevron.right")
+                                    .font(.caption.weight(.semibold))
+                                    .foregroundStyle(.colorTextPrimary)
+                            }
+                            .frame(height: DesignConstants.Spacing.step11x)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 holdToExplodeButton
-                    .padding(.top, DesignConstants.Spacing.step2x)
             }
-            .padding(DesignConstants.Spacing.step6x)
-            .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+            .padding(DesignConstants.Spacing.step4x)
+            .padding(.top, DesignConstants.Spacing.step3x)
+            .clipShape(.rect(cornerRadius: DesignConstants.CornerRadius.mediumLargest))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: DesignConstants.CornerRadius.mediumLargest))
         }
     }
 
@@ -154,7 +160,7 @@ struct ExplodeConvoSheet: View {
                     .foregroundStyle(.colorTextPrimary)
                 Spacer()
             }
-            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .frame(height: DesignConstants.Spacing.step10x)
         }
         .buttonStyle(.plain)
     }
@@ -174,6 +180,8 @@ struct ExplodeConvoSheet: View {
         }
         var config: HoldToConfirmStyleConfig = .default
         config.backgroundColor = .colorCaution
+        config.verticalPadding = DesignConstants.Spacing.step3x
+        config.cornerRadius = DesignConstants.CornerRadius.mediumLarger
         config.duration = 1.5
         return Button(action: explodeAction) {
             VStack(spacing: DesignConstants.Spacing.stepHalf) {
