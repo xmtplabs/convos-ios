@@ -186,6 +186,9 @@ Then relaunch the app so it picks up the Reduce Motion setting. These persist ac
 - **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
 - If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout.
 - **Never sleep — wait for elements instead.** If you know the accessibility identifier or label of the next element you need, use `sim_wait_for_element` to poll for it. This is faster (returns as soon as the element appears) and more reliable (fails with a clear timeout instead of silently proceeding too early). Only use `sleep` as a last resort when there is genuinely no element to wait for (e.g., after a dismiss gesture where you need the UI to settle). Even then, keep it under 1 second.
+- **SwiftUI toolbar items are hidden from tree traversal.** Buttons inside `.toolbar { }` (e.g., `compose-button`, `scan-button`) exist and have correct accessibility identifiers, but `sim_find_elements`, `sim_tap_id`, and `sim_wait_and_tap` cannot find them because `idb ui describe-all` does not enumerate children of the system `Toolbar` group. Use `sim_ui_describe_point` to confirm they exist at specific coordinates, then tap with `sim_ui_tap`. Known toolbar buttons and their approximate centers:
+  - `compose-button` ("Start a new conversation"): **(386, 904)**
+  - `scan-button` ("Scan to join a conversation"): **(338, 904)**
 
 ### Verifying Results: Accessibility Tree vs Screenshots
 
