@@ -244,8 +244,12 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                     return .unauthorized
                 }
 
-                // Skip if already has expiresAt set (idempotency)
-                if dbConversation.expiresAt != nil {
+                if let existingExpiresAt = dbConversation.expiresAt {
+                    if settings.expiresAt < existingExpiresAt {
+                        let updated = dbConversation.with(expiresAt: settings.expiresAt)
+                        try updated.save(db)
+                        return .updated
+                    }
                     return .alreadyExpired
                 }
                 let updated = dbConversation.with(expiresAt: settings.expiresAt)
