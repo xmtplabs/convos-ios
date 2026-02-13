@@ -338,6 +338,17 @@ When the app launches for the first time (or after a reset), the conversation cr
 
 Unless the test is specifically about onboarding, complete or dismiss onboarding steps as quickly as possible to get to the feature being tested.
 
+### CLI Reset Before Each Test
+
+Always reset the CLI before running a test that uses it. Old identities from previous runs can pollute conversations (multiple members with the same name, messages not arriving due to stale XMTP clients):
+
+```bash
+rm -rf ~/.convos/identities/*.json ~/.convos/db/dev/*.db3
+convos init --env dev --force
+```
+
+`convos init --force` only recreates the config file — it does NOT delete identity files. You must manually remove them.
+
 ### XMTP Message Visibility
 
 CLI participants can only see messages sent **after** they joined the conversation. Messages sent before joining are not visible — this is by design (XMTP group encryption). When verifying message exchange between app and CLI, always send test messages after the CLI has joined and been accepted.
