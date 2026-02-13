@@ -814,6 +814,10 @@ extension ConversationViewModel {
                     throw ExplodeConvoError.conversationNotFound
                 }
 
+                guard case .group = xmtpConversation else {
+                    throw ExplodeConvoError.notGroupConversation
+                }
+
                 nonisolated(unsafe) let unsafeConversation = xmtpConversation
                 try await withTimeout(seconds: 20) {
                     try await unsafeConversation.sendExplode(expiresAt: expiresAt)

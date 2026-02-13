@@ -79,6 +79,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         _schedulingTasks[conversationId] = Task { [weak self] in
             guard let self else { return }
             await self.scheduleNotifications(conversationId: conversationId, expiresAt: expiresAt)
+            guard !Task.isCancelled else { return }
             self.removeSchedulingTask(for: conversationId)
         }
         taskLock.unlock()
