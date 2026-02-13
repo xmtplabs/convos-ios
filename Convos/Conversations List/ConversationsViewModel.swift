@@ -4,6 +4,7 @@ import Foundation
 import Observation
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @MainActor
 @Observable
@@ -299,6 +300,7 @@ final class ConversationsViewModel {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
+                    conversations.removeAll { $0.id == conversationId }
                     if _selectedConversationId == conversationId {
                         _selectedConversationId = nil
                         selectedConversationViewModel = nil
@@ -526,6 +528,11 @@ final class ConversationsViewModel {
                     Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
                 }
 
+                await self.showExplosionLocalNotification(
+                    conversationId: conversationId,
+                    displayName: conversation.displayName
+                )
+
                 NotificationCenter.default.post(
                     name: .conversationExpired,
                     object: nil,
@@ -537,6 +544,22 @@ final class ConversationsViewModel {
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
             }
         }
+    }
+
+    private func showExplosionLocalNotification(conversationId: String, displayName: String) async {
+        let content = UNMutableNotificationContent()
+        content.title = "\u{1F4A5} \(displayName) \u{1F4A5}"
+        content.body = "A convo exploded"
+        content.sound = .default
+        content.userInfo = ["isExplosion": true]
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "self-explosion-\(conversationId)",
+            content: content,
+            trigger: trigger
+        )
+        try? await UNUserNotificationCenter.current().add(request)
     }
 
     func scheduleConversationExplosion(_ conversation: Conversation, at expiresAt: Date) {
