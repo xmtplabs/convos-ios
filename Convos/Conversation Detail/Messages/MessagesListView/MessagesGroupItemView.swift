@@ -319,7 +319,7 @@ private struct AttachmentPlaceholder: View {
 
     private var blurRadius: CGFloat {
         guard showBlurOverlay else { return 0 }
-        return isPressed ? 15 : 20
+        return isPressed ? 80 : 96
     }
 
     private var blurOpacity: Double {
@@ -358,6 +358,7 @@ private struct AttachmentPlaceholder: View {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+                .scaleEffect(showBlurOverlay ? 1.2 : 1.0)
                 .blur(radius: showBlurOverlay ? blurRadius : 0)
                 .opacity(showBlurOverlay ? blurOpacity : 1.0)
 
@@ -368,6 +369,7 @@ private struct AttachmentPlaceholder: View {
 
             PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
         }
+        .clipped()
         .contentShape(Rectangle())
         .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
         .animation(.easeOut(duration: 0.15), value: isPressed)
