@@ -359,6 +359,7 @@ After completing a test, report results clearly:
 - Note any unexpected behavior even if the test passed.
 - If the test failed due to infrastructure issues (simulator crash, network timeout), note that separately from app bugs.
 - Include any warnings from the log monitoring, noting whether they seem expected or concerning.
+- **Log every error to CXDB every time it appears** — even if you've seen the same error in previous runs. Use `$CXDB log-error` for each error line. Recurrence frequency is valuable data; dismissing repeat errors hides patterns. Mark XMTP-layer errors with `is_app_error=0` and app-level errors with `is_app_error=1`.
 - **XMTP errors:** List all XMTP-layer errors observed during the test in a dedicated section, even if the test passed. Note whether each error appeared to affect the app's behavior or was transient/innocuous. This helps track XMTP SDK issues over time without conflating them with app bugs.
 
 **When a test fails (either from pass/fail criteria or from a log error), include a failure report:**
