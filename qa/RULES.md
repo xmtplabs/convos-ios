@@ -7,8 +7,9 @@ General rules and conventions that apply to all QA test scenarios. Read this doc
 **The QA agent must never modify source code, project files, or configuration during testing.** The agent may read source files to gain context about what a test is exercising (e.g., understanding how a view is structured, what accessibility identifiers exist), but must not edit, create, or delete any project files.
 
 The only files the agent may create or modify are:
-- Test result reports (in `qa/results/` or as directed by the user)
-- QA process files (`qa/RULES.md`, `qa/tests/*.md`) — see **Continuous Improvement** below
+- Test result reports (in `qa/reports/` or as directed by the user)
+- QA process files (`qa/RULES.md`, `qa/tests/*.md`, `qa/tests/structured/*.yaml`) — see **Continuous Improvement** below
+- CXDB database (`qa/cxdb/qa.sqlite`) — test execution state, results, and findings
 
 If a test reveals a bug, the agent should document it with detailed repro steps, screenshots, and log excerpts — not attempt to fix it.
 
@@ -99,6 +100,62 @@ All QA tests must run on the simulator for the current branch. To determine the 
 Pass the resolved UDID to every simulator tool call (the `udid` parameter). Also pass it to any `xcrun simctl` commands (use the UDID instead of `booted`).
 
 At the start of a QA session, resolve the UDID once and reuse it for all subsequent operations.
+
+## CXDB — Persistent Test State
+
+CXDB (`qa/cxdb/qa.sqlite`) stores test results, state, and findings across context windows. Use `qa/cxdb/cxdb.sh` to interact with it.
+
+### Session Start
+
+At the start of every QA session:
+
+```bash
+CXDB=qa/cxdb/cxdb.sh
+
+# Check for an incomplete run to resume
+ACTIVE=$($CXDB active-run)
+if [ -n "$ACTIVE" ]; then
+    echo "Resuming run $ACTIVE"
+    $CXDB all-state "$ACTIVE"          # Load conversation IDs, etc.
+    $CXDB pending-tests "$ACTIVE" "01,12,03,..."  # See what's left
+else
+    # Start a new run
+    RUN=$($CXDB new-run "$UDID" "$(git rev-parse --short HEAD)" "iPhone")
+fi
+```
+
+### During Each Test
+
+```bash
+TR=$($CXDB start-test "$RUN" "05" "Reactions")
+
+# After each criterion check:
+$CXDB record-criterion "$TR" "cli_reaction_text_visible" "pass" "CLI reaction on text appears" "👍 found near message"
+
+# Persist state for future tests or session resume:
+$CXDB set-state "$RUN" "05" "conversation_id" "$CONV_ID"
+$CXDB set-state "$RUN" "_run" "shared_conversation_id" "$CONV_ID"  # run-level state
+
+# Log errors and findings:
+$CXDB log-error "$RUN" "05" "$TIMESTAMP" "ConvosCore" "$ERROR_MSG" "0"
+$CXDB log-bug "$RUN" "05" "major" "Title" "Description"
+$CXDB log-a11y "$RUN" "05" "element purpose" "recommendation"
+
+# When done:
+$CXDB finish-test "$TR" "pass"
+```
+
+### After All Tests
+
+```bash
+$CXDB finish-run "$RUN"                    # Derives status from test results
+$CXDB report-md "$RUN" > qa/reports/run-$RUN.md  # Generate markdown report
+$CXDB summary "$RUN"                       # Quick console summary
+```
+
+### Structured Tests
+
+When a structured YAML test exists in `qa/tests/structured/`, prefer it over the markdown version. The YAML defines explicit actions, verifications, and criteria that reduce interpretation overhead. The agent still adapts and recovers from errors — the YAML is a plan, not a script.
 
 ## General Testing Rules
 
