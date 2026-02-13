@@ -83,6 +83,9 @@ Status: PASS / FAIL / PARTIAL
 
 ### Notes
 <Any observations, unexpected behavior, or infrastructure issues>
+
+### Accessibility Improvements Needed
+<List any UI elements that were hard to find — missing identifiers, coordinate-only taps, etc.>
 ```
 
 After all tests complete, output a summary table:

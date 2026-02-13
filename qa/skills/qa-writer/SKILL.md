@@ -53,6 +53,10 @@ Every test file follows this structure:
 
 - [ ] <Criterion 1 — a specific, verifiable assertion>
 - [ ] <Criterion 2>
+
+## Accessibility Improvements Needed
+
+<List any UI elements that were hard to find during testing — missing identifiers, elements only reachable by coordinate tap, etc. This section drives accessibility fixes.>
 ```
 
 ## Writing Guidelines

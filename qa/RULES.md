@@ -23,6 +23,8 @@ If a test reveals a bug, the agent should document it with detailed repro steps,
 
 When updating QA files, keep changes focused and minimal — fix the specific issue encountered, don't rewrite entire sections speculatively.
 
+- **Flagging hard-to-find UI elements.** If `sim_tap_id` cannot find an element by its expected identifier or label — requiring fallback to coordinate tapping, `sim_ui_describe_all`, or source code inspection — note it in the test report under a dedicated "Accessibility Improvements Needed" section. Include the element's purpose, what was tried, what worked, and a recommendation (e.g., "add `accessibilityIdentifier("compose-button")` to the bottom toolbar compose icon"). These reports drive accessibility improvements that make future QA runs more reliable and also improve VoiceOver support.
+
 ## Tools
 
 You have two categories of tools for QA testing:
