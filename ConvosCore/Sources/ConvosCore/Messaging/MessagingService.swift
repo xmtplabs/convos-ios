@@ -170,6 +170,13 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
         )
     }
 
+    func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol {
+        ConversationExplosionWriter(
+            inboxStateManager: inboxStateManager,
+            metadataWriter: conversationMetadataWriter()
+        )
+    }
+
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol {
         ConversationPermissionsRepository(inboxStateManager: inboxStateManager,
                                           databaseReader: databaseReader)

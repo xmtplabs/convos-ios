@@ -16,6 +16,7 @@ class ConversationViewModel {
     private let consentWriter: any ConversationConsentWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
+    private let explosionWriter: any ConversationExplosionWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
     private let replyWriter: any ReplyMessageWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
@@ -247,6 +248,7 @@ class ConversationViewModel {
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
+        self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.replyWriter = messagingService.replyWriter()
 
@@ -297,6 +299,7 @@ class ConversationViewModel {
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
+        self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
         self.replyWriter = messagingService.replyWriter()
 
@@ -701,11 +704,6 @@ class ConversationViewModel {
 // MARK: - Explosion Actions
 
 extension ConversationViewModel {
-    private enum ExplodeConvoError: Error {
-        case conversationNotFound
-        case notGroupConversation
-    }
-
     func explodeConvo() {
         guard canRemoveMembers else { return }
         guard explodeState.isReady || explodeState.isError || explodeState.isScheduled else { return }
@@ -717,56 +715,19 @@ extension ConversationViewModel {
             guard let self else { return }
 
             do {
-                let expiresAt = Date()
-
-                Log.info("Sending ExplodeSettings message...")
-                let messagingService = try await session.messagingService(
-                    for: conversation.clientId,
-                    inboxId: conversation.inboxId
+                let memberIds = conversation.members.map { $0.profile.inboxId }
+                try await explosionWriter.explodeConversation(
+                    conversationId: conversation.id,
+                    memberInboxIds: memberIds
                 )
-                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversation.id) else {
-                    throw ExplodeConvoError.conversationNotFound
-                }
 
-                nonisolated(unsafe) let unsafeConversation = xmtpConversation
-                try await withTimeout(seconds: 20) {
-                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
-                }
-                Log.info("ExplodeSettings message sent successfully")
-
+                self.presentingConversationSettings = false
                 self.explodeState = .exploded
 
-                guard case .group(let group) = xmtpConversation else {
-                    throw ExplodeConvoError.notGroupConversation
-                }
-
-                do {
-                    try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
-                } catch {
-                    Log.error("Failed updating local expiresAt after explosion: \(error.localizedDescription)")
-                }
-
-                let memberIdsToRemove = conversation.members
-                    .map { $0.profile.inboxId }
-
-                do {
-                    try await metadataWriter.removeMembers(
-                        memberIdsToRemove,
-                        from: conversation.id
-                    )
-                } catch {
-                    Log.error("Failed removing local members after explosion: \(error.localizedDescription)")
-                }
-
-                do {
-                    try await group.updateConsentState(state: .denied)
-                    Log.info("Denied exploded conversation to prevent re-sync")
-                } catch {
-                    Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
-                }
-
-                await self.showExplosionLocalNotification()
+                await UNUserNotificationCenter.current().addExplosionNotification(
+                    conversationId: conversation.id,
+                    displayName: conversation.displayName
+                )
 
                 NotificationCenter.default.post(
                     name: .conversationExpired,
@@ -783,13 +744,6 @@ extension ConversationViewModel {
                 self.explodeState = .ready
             }
         }
-    }
-
-    private func showExplosionLocalNotification() async {
-        await UNUserNotificationCenter.current().addExplosionNotification(
-            conversationId: conversation.id,
-            displayName: conversation.displayName
-        )
     }
 
     func scheduleExplosion(at expiresAt: Date) {
@@ -809,41 +763,12 @@ extension ConversationViewModel {
             guard let self else { return }
 
             do {
-                Log.info("Scheduling explosion for \(expiresAt)...")
-                let messagingService = try await session.messagingService(
-                    for: conversation.clientId,
-                    inboxId: conversation.inboxId
+                try await explosionWriter.scheduleExplosion(
+                    conversationId: conversation.id,
+                    expiresAt: expiresAt
                 )
-                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversation.id) else {
-                    throw ExplodeConvoError.conversationNotFound
-                }
-
-                guard case .group = xmtpConversation else {
-                    throw ExplodeConvoError.notGroupConversation
-                }
-
-                nonisolated(unsafe) let unsafeConversation = xmtpConversation
-                try await withTimeout(seconds: 20) {
-                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
-                }
-                Log.info("Scheduled explosion message sent successfully for \(expiresAt)")
-
-                do {
-                    try await metadataWriter.updateExpiresAt(expiresAt, for: conversation.id)
-                } catch {
-                    Log.error("Failed to persist expiresAt locally: \(error.localizedDescription)")
-                }
 
                 self.explodeState = .scheduled(expiresAt)
-                NotificationCenter.default.post(
-                    name: .conversationScheduledExplosion,
-                    object: nil,
-                    userInfo: [
-                        "conversationId": self.conversation.id,
-                        "expiresAt": expiresAt
-                    ]
-                )
                 Log.info("Explosion scheduled for \(expiresAt)")
             } catch {
                 Log.error("Error scheduling explosion: \(error.localizedDescription)")

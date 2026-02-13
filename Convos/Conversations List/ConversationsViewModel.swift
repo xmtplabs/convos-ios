@@ -495,42 +495,12 @@ final class ConversationsViewModel {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let expiresAt = Date()
                 let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
-                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversationId) else {
-                    Log.error("Conversation not found for explosion: \(conversationId)")
-                    self.hiddenConversationIds.remove(conversationId)
-                    return
-                }
-
-                guard case .group(let group) = xmtpConversation else {
-                    Log.error("Cannot explode non-group conversation: \(conversationId)")
-                    self.hiddenConversationIds.remove(conversationId)
-                    return
-                }
-
-                nonisolated(unsafe) let unsafeConversation = xmtpConversation
-                try await withTimeout(seconds: 20) {
-                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
-                }
-
-                let metadataWriter = messagingService.conversationMetadataWriter()
-                do {
-                    try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
-                } catch {
-                    Log.error("Failed updating local expiresAt after explosion: \(error.localizedDescription)")
-                }
-                do {
-                    try await metadataWriter.removeMembers(memberInboxIds, from: conversationId)
-                } catch {
-                    Log.error("Failed removing local members after explosion: \(error.localizedDescription)")
-                }
-                do {
-                    try await group.updateConsentState(state: .denied)
-                } catch {
-                    Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
-                }
+                let explosionWriter = messagingService.conversationExplosionWriter()
+                try await explosionWriter.explodeConversation(
+                    conversationId: conversationId,
+                    memberInboxIds: memberInboxIds
+                )
 
                 await UNUserNotificationCenter.current().addExplosionNotification(
                     conversationId: conversationId,
@@ -571,27 +541,10 @@ final class ConversationsViewModel {
             guard let self else { return }
             do {
                 let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
-                let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-                guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversationId) else {
-                    Log.error("Conversation not found for scheduling explosion: \(conversationId)")
-                    return
-                }
-
-                nonisolated(unsafe) let unsafeConversation = xmtpConversation
-                try await withTimeout(seconds: 20) {
-                    try await unsafeConversation.sendExplode(expiresAt: expiresAt)
-                }
-
-                let metadataWriter = messagingService.conversationMetadataWriter()
-                try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)
-
-                NotificationCenter.default.post(
-                    name: .conversationScheduledExplosion,
-                    object: nil,
-                    userInfo: [
-                        "conversationId": conversationId,
-                        "expiresAt": expiresAt
-                    ]
+                let explosionWriter = messagingService.conversationExplosionWriter()
+                try await explosionWriter.scheduleExplosion(
+                    conversationId: conversationId,
+                    expiresAt: expiresAt
                 )
                 Log.info("Scheduled explosion from list for conversation: \(conversationId) at \(expiresAt)")
             } catch {
