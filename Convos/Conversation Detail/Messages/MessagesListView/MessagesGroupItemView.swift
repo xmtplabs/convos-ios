@@ -360,18 +360,26 @@ private struct AttachmentPlaceholder: View {
                 .scaleEffect(showBlurOverlay ? 1.3 : 1.0)
                 .blur(radius: showBlurOverlay ? blurRadius : 0)
                 .opacity(showBlurOverlay ? blurOpacity : 1.0)
-                .overlay(alignment: .top) {
-                    LinearGradient(
-                        colors: [.black, .clear],
-                        startPoint: .top,
-                        endPoint: .bottom
-                    )
-                    .frame(height: 56)
-                    .opacity(0.15)
-                    .blendMode(.plusDarker)
+                .overlay(alignment: isOutgoing ? .bottom : .top) {
+                    VStack(spacing: 0) {
+                        if !isOutgoing {
+                            Color(.colorBorderEdge).frame(height: 1)
+                        }
+                        LinearGradient(
+                            colors: [.black, .clear],
+                            startPoint: isOutgoing ? .bottom : .top,
+                            endPoint: isOutgoing ? .top : .bottom
+                        )
+                        .frame(height: 56)
+                        .opacity(0.15)
+                        .blendMode(.plusDarker)
+                        if isOutgoing {
+                            Color(.colorBorderEdge).frame(height: 1)
+                        }
+                    }
                 }
 
-            if showBlurOverlay {
+            if showBlurOverlay, !isOutgoing {
                 PhotoBlurOverlayContent()
                     .transition(.opacity)
             }
