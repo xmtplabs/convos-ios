@@ -1,4 +1,5 @@
 import ConvosCore
+import CoreHaptics
 import SwiftUI
 
 struct ExplodeConvoSheet: View {
@@ -15,6 +16,7 @@ struct ExplodeConvoSheet: View {
     @State private var explodeTask: Task<Void, Never>?
     @State private var appeared: Bool = false
     @State private var highlightedMenuIndex: Int?
+    @State private var explosionTrigger: Int = 0
 
     private var sundayAtMidnight: Date? {
         let calendar = Calendar.current
@@ -74,15 +76,16 @@ struct ExplodeConvoSheet: View {
     private var scheduledCardContent: some View {
         GlassEffectContainer {
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
                     Text("The fuse is lit")
-                        .font(.subheadline)
-                        .foregroundStyle(.colorCaution)
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
 
-                    Text("The fuse is lit")
-                        .font(.title2.weight(.bold))
+                    Text("It can't be changed or cancelled.")
+                        .font(.subheadline)
+                        .foregroundStyle(.colorTextSecondary)
                 }
-                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.horizontal, DesignConstants.Spacing.step3x)
 
                 holdToExplodeButton
             }
@@ -206,14 +209,15 @@ struct ExplodeConvoSheet: View {
     private var holdToExplodeButton: some View {
         let explodeAction = {
             explodeState = .exploding
-            onExplodeNow()
             explodeTask = Task { @MainActor in
-                try? await Task.sleep(for: .seconds(0.5))
+                try? await Task.sleep(for: .seconds(0.15))
                 guard !Task.isCancelled else { return }
                 explodeState = .exploded
-                try? await Task.sleep(for: .seconds(ExplodeState.explodedAnimationDelay))
+                playExplosionRipple()
+                explosionTrigger += 1
+                try? await Task.sleep(for: .seconds(0.7))
                 guard !Task.isCancelled else { return }
-                onDismiss()
+                onExplodeNow()
             }
         }
         var config: HoldToConfirmStyleConfig = .default
@@ -223,16 +227,52 @@ struct ExplodeConvoSheet: View {
         config.duration = 1.5
         return Button(action: explodeAction) {
             VStack(spacing: DesignConstants.Spacing.stepHalf) {
-                Text("Explode Now")
-                    .font(.body.weight(.semibold))
-                Text("Tap and hold")
-                    .font(.caption)
-                    .opacity(0.7)
+                ShatteringText(
+                    text: "Explode Now",
+                    isExploded: explodeState.isExploded,
+                    config: Constant.shatterConfig
+                )
+                .font(.body.weight(.semibold))
+                ShatteringText(
+                    text: "Tap and hold",
+                    isExploded: explodeState.isExploded,
+                    config: Constant.shatterConfig
+                )
+                .font(.caption)
+                .opacity(0.7)
             }
             .foregroundStyle(.white)
             .frame(maxWidth: .infinity)
         }
         .buttonStyle(HoldToConfirmPrimitiveStyle(config: config))
+        .keyframeAnimator(
+            initialValue: ExplosionKeyframes(),
+            trigger: explosionTrigger
+        ) { content, value in
+            content
+                .scaleEffect(value.scale)
+                .offset(x: value.xOffset)
+        } keyframes: { _ in
+            KeyframeTrack(\.scale) {
+                SpringKeyframe(1.1, duration: 0.1, spring: .bouncy(duration: 0.1))
+                SpringKeyframe(0.96, duration: 0.08)
+                SpringKeyframe(1.04, duration: 0.08)
+                SpringKeyframe(0.98, duration: 0.06)
+                SpringKeyframe(1.0, duration: 0.12)
+            }
+            KeyframeTrack(\.xOffset) {
+                LinearKeyframe(0, duration: 0.06)
+                LinearKeyframe(6, duration: 0.035)
+                LinearKeyframe(-6, duration: 0.035)
+                LinearKeyframe(4, duration: 0.035)
+                LinearKeyframe(-4, duration: 0.035)
+                LinearKeyframe(3, duration: 0.035)
+                LinearKeyframe(-3, duration: 0.035)
+                LinearKeyframe(1, duration: 0.025)
+                LinearKeyframe(-1, duration: 0.025)
+                LinearKeyframe(0, duration: 0.02)
+            }
+        }
         .onDisappear { explodeTask?.cancel() }
     }
 
@@ -274,6 +314,60 @@ struct ExplodeConvoSheet: View {
         .presentationDetents([.height(340)])
     }
 
+    private func playExplosionRipple() {
+        guard CHHapticEngine.capabilitiesForHardware().supportsHaptics else { return }
+        do {
+            let engine = try CHHapticEngine()
+            try engine.start()
+
+            var events: [CHHapticEvent] = []
+
+            events.append(CHHapticEvent(
+                eventType: .hapticTransient,
+                parameters: [
+                    CHHapticEventParameter(parameterID: .hapticIntensity, value: 1.0),
+                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 1.0),
+                ],
+                relativeTime: 0
+            ))
+
+            events.append(CHHapticEvent(
+                eventType: .hapticContinuous,
+                parameters: [
+                    CHHapticEventParameter(parameterID: .hapticIntensity, value: 0.7),
+                    CHHapticEventParameter(parameterID: .hapticSharpness, value: 0.2),
+                ],
+                relativeTime: 0.05,
+                duration: 1.0
+            ))
+
+            let aftershocks: [(time: Double, intensity: Float, sharpness: Float)] = [
+                (0.12, 0.9, 0.8),
+                (0.25, 0.8, 0.7),
+                (0.40, 0.7, 0.6),
+                (0.55, 0.6, 0.5),
+                (0.70, 0.5, 0.4),
+                (0.85, 0.4, 0.3),
+                (1.00, 0.3, 0.25),
+            ]
+            for aftershock in aftershocks {
+                events.append(CHHapticEvent(
+                    eventType: .hapticTransient,
+                    parameters: [
+                        CHHapticEventParameter(parameterID: .hapticIntensity, value: aftershock.intensity),
+                        CHHapticEventParameter(parameterID: .hapticSharpness, value: aftershock.sharpness),
+                    ],
+                    relativeTime: aftershock.time
+                ))
+            }
+
+            let pattern = try CHHapticPattern(events: events, parameters: [])
+            let player = try engine.makePlayer(with: pattern)
+            try player.start(atTime: 0)
+            engine.notifyWhenPlayersFinished { _ in .stopEngine }
+        } catch {}
+    }
+
     private func dismiss() {
         withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
             appeared = false
@@ -287,6 +381,24 @@ struct ExplodeConvoSheet: View {
         let label: String
         let date: Date
         var preposition: String = "in"
+    }
+
+    private struct ExplosionKeyframes {
+        var scale: CGFloat = 1.0
+        var xOffset: CGFloat = 0
+    }
+
+    private enum Constant {
+        static let shatterConfig: ShatteringTextAnimationConfig = .init(
+            letterHorizontalRange: 30...60,
+            letterVerticalRange: 20...45,
+            letterRotationRange: 25...70,
+            letterScaleRange: 1.2...2.5,
+            letterBlurRadius: 1.5,
+            letterAnimationResponse: 0.45,
+            letterAnimationDamping: 0.5,
+            letterStaggerDelay: 0.015
+        )
     }
 }
 
