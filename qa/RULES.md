@@ -287,6 +287,18 @@ N. <step where failure occurred>
 
 This format ensures anyone reading the report can reproduce the issue without needing to re-run the test.
 
+## Test Assets
+
+### Photos / Images
+
+When a test needs to send a photo or image attachment, download one from picsum:
+
+```bash
+curl -sL "https://picsum.photos/850/650" -o /tmp/test-photo.jpg
+```
+
+Do not try to generate images with ImageMagick, Pillow, or raw bytes — those tools may not be installed and produce corrupt files. Picsum always returns a valid JPEG.
+
 ## Message Content Types
 
 The app supports these message content types:
