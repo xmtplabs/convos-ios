@@ -357,7 +357,7 @@ private struct AttachmentPlaceholder: View {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .scaleEffect(showBlurOverlay ? 1.2 : 1.0)
+                .scaleEffect(showBlurOverlay ? 1.3 : 1.0)
                 .blur(radius: showBlurOverlay ? blurRadius : 0)
                 .opacity(showBlurOverlay ? blurOpacity : 1.0)
 

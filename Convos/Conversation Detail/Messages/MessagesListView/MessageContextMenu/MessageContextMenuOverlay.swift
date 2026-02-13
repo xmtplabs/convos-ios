@@ -615,7 +615,7 @@ private struct ContextMenuPhotoPreview: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .scaleEffect(shouldBlur ? 1.2 : 1.0)
+                        .scaleEffect(shouldBlur ? 1.3 : 1.0)
                         .blur(radius: shouldBlur ? 96 : 0)
 
                     PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)

@@ -227,7 +227,7 @@ private struct ReplyReferencePhotoPreview: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxHeight: Self.maxHeight)
-                    .scaleEffect(shouldBlur ? 1.2 : 1.0)
+                    .scaleEffect(shouldBlur ? 1.3 : 1.0)
                     .blur(radius: shouldBlur ? 96 : 0)
                     .opacity(1.0)
                     .clipShape(RoundedRectangle(cornerRadius: 12.0))
