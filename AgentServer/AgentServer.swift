@@ -213,6 +213,8 @@ enum ElementInfoBuilder {
             let limit = min(count, maxCount)
             for i in 0..<limit {
                 let el = query.element(boundBy: i)
+                // Guard against stale snapshots — element may vanish mid-iteration
+                guard el.waitForExistence(timeout: 0) else { continue }
                 let id = el.identifier
                 let label = el.label
                 if id.isEmpty && label.isEmpty { continue }
@@ -237,6 +239,39 @@ enum ElementInfoBuilder {
                 print("[TEST PERF] query \(elementTypeName(type)): \(limit)/\(count) in \(Int((t1 - t0) * 1000))ms")
             }
         }
+
+        // Also scan springboard for system dialogs, share sheets, etc.
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let sbTypes: [(XCUIElement.ElementType, Int)] = [
+            (.button, 15), (.staticText, 10), (.textField, 5), (.alert, 5),
+        ]
+        for (type, maxCount) in sbTypes {
+            let query = springboard.descendants(matching: type)
+            let count = query.count // swiftlint:disable:this empty_count
+            let limit = min(count, maxCount)
+            for i in 0..<limit {
+                let el = query.element(boundBy: i)
+                guard el.waitForExistence(timeout: 0) else { continue }
+                let id = el.identifier
+                let label = el.label
+                if id.isEmpty && label.isEmpty { continue }
+                results.append(UIElementInfo(
+                    identifier: id.isEmpty ? nil : id,
+                    label: label.isEmpty ? nil : label,
+                    value: nil,
+                    placeholderValue: nil,
+                    elementType: "springboard.\(elementTypeName(type))",
+                    frame: FrameInfo(x: 0, y: 0, width: 0, height: 0),
+                    isEnabled: true,
+                    isHittable: true,
+                    isSelected: false,
+                    hasFocus: false,
+                    children: nil,
+                    customActions: nil
+                ))
+            }
+        }
+
         return results
     }
 
@@ -733,15 +768,14 @@ class CommandHandler {
             ) {
                 return el
             }
+            // Check springboard every iteration (for share sheets, system dialogs)
+            if let el = ElementMatch.find(
+                in: springboard, identifier: identifier, label: label,
+                labelContains: labelContains, elementType: nil
+            ) {
+                return el
+            }
             Thread.sleep(forTimeInterval: 0.1)
-        }
-
-        // Last resort: check springboard for system dialogs
-        if let el = ElementMatch.find(
-            in: springboard, identifier: identifier, label: label,
-            labelContains: labelContains, elementType: nil
-        ) {
-            return el
         }
 
         return nil

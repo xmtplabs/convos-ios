@@ -338,6 +338,20 @@ When the app launches for the first time (or after a reset), the conversation cr
 
 Unless the test is specifically about onboarding, complete or dismiss onboarding steps as quickly as possible to get to the feature being tested.
 
+### Invite URLs — Never Paste Manually
+
+When copying an invite URL from the app's share sheet (via the Copy button), **always read it programmatically from the simulator pasteboard**. Never manually copy-paste a URL into a bash command — base64 characters like `l`/`1`, `O`/`0`, `V`/`v` are easily corrupted.
+
+```bash
+# Correct: read from pasteboard into a variable
+INVITE_URL=$(xcrun simctl pbpaste $UDID | tr -d '\n' | grep -oE 'https://dev\.convos\.org/v2\?i=[A-Za-z0-9_=-]+' | head -1)
+
+# Then use the variable (always quote it)
+convos conversations join "$INVITE_URL" --profile-name "CLI Bot" --no-wait
+```
+
+Note: `xcrun simctl pbpaste` may return rich text content (not just the URL) if other items are on the clipboard. Always extract the URL with grep.
+
 ### Processing Invites
 
 The invite flow is multi-step and requires coordination between the inviting side and the joining side:
