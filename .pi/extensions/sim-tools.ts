@@ -56,6 +56,33 @@ function formatElement(el: UIElementInfo): string {
   return parts.join(", ");
 }
 
+const NOISE_TYPES = new Set([
+  "unknown", "image", "other",
+]);
+const NOISE_IDS = new Set([
+  "inputView", "SystemInputAssistantView", "CenterPageView",
+  "UIKeyboardLayoutStar Preview", "AdditionalDimmingOverlay",
+  "dictation", "shift", "delete", "more", "space", "Return",
+]);
+const NOISE_LABELS = new Set([
+  "Typing Predictions", "Padding-Left", "Padding-Right",
+  "Emoji", "Dictate", "shift", "delete", "numbers", "return",
+  "Horizontal scroll bar, 1 page", "Vertical scroll bar, 1 page",
+  "Vertical scroll bar, 2 pages",
+]);
+
+function isNoise(el: UIElementInfo): boolean {
+  if (NOISE_IDS.has(el.identifier || "")) return true;
+  if (NOISE_LABELS.has(el.label || "")) return true;
+  // Single-character labels with no id are keyboard keys
+  if (!el.identifier && el.label && el.label.length === 1) return true;
+  // Keyboard predictions (short labels in "other" type with no id)
+  if (!el.identifier && el.elementType === "other" && el.label && el.label.length <= 5) return true;
+  // System elements with no id and noise types
+  if (!el.identifier && NOISE_TYPES.has(el.elementType)) return true;
+  return false;
+}
+
 function formatScreenState(state: ScreenState): string {
   const lines: string[] = [];
   const seen = new Set<string>();
@@ -63,6 +90,7 @@ function formatScreenState(state: ScreenState): string {
     const id = el.identifier || "";
     const label = el.label || "";
     if (!id && !label) continue;
+    if (isNoise(el)) continue;
     const key = `${id}:${label}:${el.elementType}`;
     if (seen.has(key)) continue;
     seen.add(key);
