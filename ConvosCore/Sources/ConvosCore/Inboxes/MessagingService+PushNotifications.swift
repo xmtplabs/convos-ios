@@ -473,6 +473,10 @@ extension MessagingService {
             if !toRemove.isEmpty {
                 center.removeDeliveredNotifications(withIdentifiers: toRemove)
             }
+            center.removePendingNotificationRequests(withIdentifiers: [
+                "explosion-reminder-\(conversationId)",
+                "explosion-\(conversationId)"
+            ])
             let conversationName = (try? group.name()).orUntitled
             var explosionUserInfo = userInfo
             explosionUserInfo["isExplosion"] = true
