@@ -235,7 +235,7 @@ struct MessagesGroupItemView: View {
             isOutgoing: message.base.sender.isCurrentUser,
             profile: message.base.sender.profile,
             shouldBlurPhotos: shouldBlurPhotos,
-            cornerRadius: DesignConstants.CornerRadius.photo,
+            cornerRadius: 0,
             onReveal: { onPhotoRevealed(attachment.key) },
             onHide: { onPhotoHidden(attachment.key) },
             onDoubleTap: { onDoubleTap(message) },
@@ -513,7 +513,8 @@ struct PhotoSenderLabel: View {
                     .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
             }
         }
-        .padding(DesignConstants.Spacing.step4x)
+        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
     }
 }
 
