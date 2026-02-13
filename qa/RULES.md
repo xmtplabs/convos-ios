@@ -347,11 +347,10 @@ Never use `sleep` between test steps. All simulator tools (`sim_wait_and_tap`, `
 Always reset the CLI before running a test that uses it. Old identities from previous runs can pollute conversations (multiple members with the same name, messages not arriving due to stale XMTP clients):
 
 ```bash
-rm -rf ~/.convos/identities/*.json ~/.convos/db/dev/*.db3
-convos init --env dev --force
+convos reset
 ```
 
-`convos init --force` only recreates the config file — it does NOT delete identity files. You must manually remove them.
+This removes all identity files and databases. After reset, re-initialize with `convos init --env dev --force` if needed.
 
 ### XMTP Message Visibility
 
