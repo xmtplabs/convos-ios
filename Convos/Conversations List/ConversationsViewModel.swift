@@ -298,16 +298,16 @@ final class ConversationsViewModel {
                 guard let conversationId = notification.userInfo?["conversationId"] as? String else {
                     return
                 }
-                MainActor.assumeIsolated { [weak self] in
+                Task { @MainActor [weak self] in
                     guard let self else { return }
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
-                    self.conversations.removeAll { $0.id == conversationId }
-                    if self._selectedConversationId == conversationId {
-                        self._selectedConversationId = nil
-                        self.selectedConversationViewModel = nil
+                    conversations.removeAll { $0.id == conversationId }
+                    if _selectedConversationId == conversationId {
+                        _selectedConversationId = nil
+                        selectedConversationViewModel = nil
                     }
-                    if self.newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
-                        self.newConversationViewModel = nil
+                    if newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
+                        newConversationViewModel = nil
                     }
                 }
             }
@@ -542,8 +542,8 @@ final class ConversationsViewModel {
                     object: nil,
                     userInfo: ["conversationId": conversationId]
                 )
-                self.hiddenConversationIds.remove(conversationId)
                 conversation.postLeftConversationNotification()
+                self.hiddenConversationIds.remove(conversationId)
                 Log.info("Exploded conversation from list: \(conversationId)")
             } catch {
                 self.hiddenConversationIds.remove(conversationId)
