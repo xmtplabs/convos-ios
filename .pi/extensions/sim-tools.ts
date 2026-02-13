@@ -1,253 +1,366 @@
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import { Type } from "@sinclair/typebox";
-import { execSync } from "node:child_process";
 
-const IDB = "/Users/jarod/Library/Python/3.9/bin/idb";
+const AGENT_URL = "http://localhost:8615";
 
-function getDefaultUdid(): string {
-  try {
-    const result = execSync(
-      `xcrun simctl list devices booted -j 2>/dev/null`,
-      { encoding: "utf-8" }
-    );
-    const json = JSON.parse(result);
-    for (const runtime of Object.values(json.devices) as any[]) {
-      for (const device of runtime) {
-        if (device.state === "Booted") return device.udid;
-      }
-    }
-  } catch {}
-  throw new Error("No booted simulator found");
+interface UIElementInfo {
+  identifier?: string;
+  label?: string;
+  value?: string;
+  placeholderValue?: string;
+  elementType: string;
+  frame: { x: number; y: number; width: number; height: number };
+  isEnabled: boolean;
+  isHittable: boolean;
+  isSelected: boolean;
+  hasFocus: boolean;
 }
 
-interface AccessibilityElement {
-  AXUniqueId?: string;
-  AXLabel?: string;
-  AXFrame?: string;
-  frame?: { x: number; y: number; width: number; height: number };
-  role?: string;
-  type?: string;
-  enabled?: boolean;
+interface ScreenState {
+  elements: UIElementInfo[];
+  focusedElement?: UIElementInfo;
+  alerts: UIElementInfo[];
+  navigationBars: string[];
+  timestamp: number;
 }
 
-function findElement(
-  tree: AccessibilityElement[],
-  identifier: string
-): AccessibilityElement | null {
-  for (const el of tree) {
-    if (el.AXUniqueId === identifier) return el;
-  }
-  for (const el of tree) {
-    if (el.AXUniqueId?.startsWith(identifier)) return el;
-  }
-  for (const el of tree) {
-    if (el.AXLabel === identifier) return el;
-  }
-  for (const el of tree) {
-    if (el.AXLabel?.includes(identifier)) return el;
-  }
-  return null;
+interface AgentResponse {
+  success: boolean;
+  message?: string;
+  screenState?: ScreenState;
+  tappedElement?: UIElementInfo;
+  error?: string;
 }
 
-function matchesIdentifier(el: AccessibilityElement, identifier: string): boolean {
-  if (el.AXUniqueId === identifier) return true;
-  if (el.AXUniqueId?.startsWith(identifier)) return true;
-  if (el.AXLabel === identifier) return true;
-  if (el.AXLabel?.includes(identifier)) return true;
-  return false;
+async function agentAction(
+  action: string,
+  params?: Record<string, any>
+): Promise<AgentResponse> {
+  const resp = await fetch(`${AGENT_URL}/action`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ action, params }),
+  });
+  return resp.json();
 }
 
-function getAccessibilityTree(udid: string): AccessibilityElement[] {
-  const result = execSync(
-    `${IDB} ui describe-all --udid ${udid} 2>/dev/null`,
-    { encoding: "utf-8" }
+function formatElement(el: UIElementInfo): string {
+  const parts: string[] = [];
+  if (el.identifier) parts.push(`id=${el.identifier}`);
+  if (el.label) parts.push(`label="${el.label}"`);
+  parts.push(`type=${el.elementType}`);
+  parts.push(
+    `center=(${Math.round(el.frame.x + el.frame.width / 2)},${Math.round(el.frame.y + el.frame.height / 2)})`
   );
-  return JSON.parse(result);
+  if (!el.isEnabled) parts.push("disabled");
+  return parts.join(", ");
 }
 
-function describePoint(
-  udid: string,
-  x: number,
-  y: number
-): AccessibilityElement | null {
-  try {
-    const result = execSync(
-      `${IDB} ui describe-point ${x} ${y} --udid ${udid} 2>/dev/null`,
-      { encoding: "utf-8" }
-    );
-    return JSON.parse(result);
-  } catch {
-    return null;
-  }
-}
-
-function getScreenSize(udid: string): { width: number; height: number } {
-  try {
-    const result = execSync(
-      `xcrun simctl io ${udid} enumerate 2>/dev/null`,
-      { encoding: "utf-8" }
-    );
-    // Look for a line like "        3   Framebuffer 440 x 956"
-    const match = result.match(/Framebuffer\s+(\d+)\s*x\s*(\d+)/);
-    if (match) {
-      return { width: parseInt(match[1]), height: parseInt(match[2]) };
-    }
-  } catch {}
-  // Fallback: use idb to get a screenshot and check dimensions
-  // Or just use a reasonable grid that works for any phone
-  return { width: 440, height: 956 };
-}
-
-/**
- * Probe the screen with hit-testing to find an element hidden from
- * tree traversal. Uses a coarse grid (~60 points) for speed.
- */
-function probeForElement(
-  udid: string,
-  identifier: string
-): AccessibilityElement | null {
-  const screen = getScreenSize(udid);
-  const stepX = 80;
-  const stepY = 80;
+function formatScreenState(state: ScreenState): string {
+  const lines: string[] = [];
   const seen = new Set<string>();
-
-  for (let y = 60; y < screen.height; y += stepY) {
-    for (let x = 40; x < screen.width; x += stepX) {
-      const el = describePoint(udid, x, y);
-      if (!el) continue;
-      const key = `${el.AXUniqueId || ""}:${el.AXLabel || ""}`;
-      if (seen.has(key)) continue;
-      seen.add(key);
-      if (matchesIdentifier(el, identifier)) return el;
-    }
-  }
-  return null;
-}
-
-function tapPoint(udid: string, x: number, y: number) {
-  execSync(`${IDB} ui tap ${x} ${y} --udid ${udid} 2>/dev/null`);
-}
-
-function getCenter(el: AccessibilityElement): { x: number; y: number } {
-  if (el.frame) {
-    return {
-      x: el.frame.x + el.frame.width / 2,
-      y: el.frame.y + el.frame.height / 2,
-    };
-  }
-  if (el.AXFrame) {
-    const match = el.AXFrame.match(
-      /\{\{([\d.]+),\s*([\d.]+)\},\s*\{([\d.]+),\s*([\d.]+)\}\}/
+  for (const el of state.elements) {
+    const id = el.identifier || "";
+    const label = el.label || "";
+    if (!id && !label) continue;
+    const key = `${id}:${label}:${el.elementType}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const enabled = el.isEnabled ? "" : " (disabled)";
+    lines.push(
+      `  ${(id || "(no id)").padEnd(30)} ${label.padEnd(40)} ${el.elementType}${enabled}`
     );
-    if (match) {
-      return {
-        x: parseFloat(match[1]) + parseFloat(match[3]) / 2,
-        y: parseFloat(match[2]) + parseFloat(match[4]) / 2,
-      };
+  }
+
+  if (state.alerts.length > 0) {
+    lines.push("\nAlerts:");
+    for (const alert of state.alerts) {
+      lines.push(`  ${alert.label || alert.identifier || "unknown alert"}`);
     }
   }
-  throw new Error("Cannot determine element center");
+
+  return lines.join("\n");
 }
 
 export default function (pi: ExtensionAPI) {
+  // --- tapElement: find + tap + return new screen state ---
   pi.registerTool({
     name: "sim_wait_and_tap",
-    label: "Wait for element then tap it",
+    label: "Find element, tap it, return screen state",
     description:
-      "Poll the accessibility tree until an element with the given identifier or label appears, then immediately tap it. Combines sim_wait_for_element + sim_tap_id into a single call. Falls back to hit-test probing across the full screen to find elements hidden from tree traversal (e.g., toolbar buttons). Returns the element info that was tapped.",
+      "Find an element by accessibility identifier or label, tap it, wait for the UI to settle, and return the resulting screen state. Replaces the wait-for-element + tap + describe pattern with a single call. Returns the tapped element info and all elements now on screen.",
     parameters: Type.Object({
-      identifier: Type.String({
-        description: "Accessibility identifier or label to wait for and tap",
-      }),
-      timeout: Type.Optional(
-        Type.Number({
-          description: "Maximum wait time in seconds (default: 5)",
-        })
+      identifier: Type.Optional(
+        Type.String({ description: "Accessibility identifier to find" })
       ),
-      udid: Type.Optional(
-        Type.String({
-          description: "Simulator UDID. Auto-detected if omitted.",
-        })
+      label: Type.Optional(
+        Type.String({ description: "Exact label text to find" })
+      ),
+      labelContains: Type.Optional(
+        Type.String({ description: "Substring of label to find" })
+      ),
+      timeout: Type.Optional(
+        Type.Number({ description: "Max wait time in seconds (default: 5)" })
       ),
     }),
-    async execute(_toolCallId, params, signal) {
-      const udid = params.udid || getDefaultUdid();
-      const timeout = params.timeout ?? 5;
-      const interval = 0.5;
-      const maxAttempts = Math.ceil(timeout / interval);
-      const startTime = Date.now();
+    async execute(_id, params) {
+      const resp = await agentAction("tapElement", {
+        identifier: params.identifier,
+        label: params.label,
+        labelContains: params.labelContains,
+        timeout: params.timeout ?? 5,
+      });
 
-      // Phase 1: Poll the tree (fast, handles most elements)
-      for (let i = 0; i < maxAttempts; i++) {
-        if (signal?.aborted) throw new Error("Aborted");
-
-        try {
-          const tree = getAccessibilityTree(udid);
-          const el = findElement(tree, params.identifier);
-          if (el) {
-            const center = getCenter(el);
-            tapPoint(udid, Math.round(center.x), Math.round(center.y));
-            const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-            return {
-              content: [
-                {
-                  type: "text" as const,
-                  text: `Found and tapped after ${elapsed}s: id=${el.AXUniqueId || "none"}, label="${el.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)})`,
-                },
-              ],
-              details: {},
-            };
-          }
-        } catch (e: any) {
-          if (e.message === "Aborted") throw e;
+      if (!resp.success) {
+        let text = `Element not found: ${params.identifier || params.label || params.labelContains}\n`;
+        if (resp.screenState) {
+          text += `\nElements on screen:\n${formatScreenState(resp.screenState)}`;
         }
-
-        await new Promise((r) => setTimeout(r, interval * 1000));
+        return {
+          content: [{ type: "text" as const, text }],
+          details: {},
+          isError: true,
+        };
       }
 
-      // Phase 2: One full-screen probe for elements hidden from tree traversal
-      try {
-        const probed = probeForElement(udid, params.identifier);
-        if (probed) {
-          const center = getCenter(probed);
-          tapPoint(udid, Math.round(center.x), Math.round(center.y));
-          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
-          return {
-            content: [
-              {
-                type: "text" as const,
-                text: `Found and tapped after ${elapsed}s: id=${probed.AXUniqueId || "none"}, label="${probed.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)}) [found via probe]`,
-              },
-            ],
-            details: {},
-          };
+      let text = "";
+      if (resp.tappedElement) {
+        text += `Tapped: ${formatElement(resp.tappedElement)}\n`;
+      }
+      if (resp.screenState) {
+        text += `\nScreen after tap:\n${formatScreenState(resp.screenState)}`;
+      }
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
+  // --- fillField: find text field + type + return screen state ---
+  pi.registerTool({
+    name: "sim_fill_field",
+    label: "Find text field, type text, return screen state",
+    description:
+      "Find a text field by identifier or label, tap to focus, optionally clear it, type text, and return the resulting screen state.",
+    parameters: Type.Object({
+      identifier: Type.Optional(
+        Type.String({ description: "Text field accessibility identifier" })
+      ),
+      label: Type.Optional(
+        Type.String({ description: "Text field label" })
+      ),
+      text: Type.String({ description: "Text to type" }),
+      clearFirst: Type.Optional(
+        Type.Boolean({ description: "Clear existing text first (default: false)" })
+      ),
+    }),
+    async execute(_id, params) {
+      const resp = await agentAction("fillField", {
+        identifier: params.identifier,
+        label: params.label,
+        text: params.text,
+        clearFirst: params.clearFirst ?? false,
+      });
+
+      if (!resp.success) {
+        let text = `Field not found: ${params.identifier || params.label}\n`;
+        if (resp.screenState) {
+          text += `\nElements on screen:\n${formatScreenState(resp.screenState)}`;
         }
-      } catch (e: any) {
-        if (e.message === "Aborted") throw e;
+        return {
+          content: [{ type: "text" as const, text }],
+          details: {},
+          isError: true,
+        };
       }
 
-      let available = "";
-      try {
-        const tree = getAccessibilityTree(udid);
-        available = tree
-          .filter((e: any) => e.AXUniqueId || e.AXLabel)
-          .map(
-            (e: any) =>
-              `  ${e.AXUniqueId || "(no id)"}: "${e.AXLabel || ""}" [${e.role || ""}]`
-          )
-          .join("\n");
-      } catch {}
+      let text = `Typed "${params.text}"`;
+      if (resp.tappedElement) {
+        text += ` into ${formatElement(resp.tappedElement)}`;
+      }
+      if (resp.screenState) {
+        text += `\n\nScreen after typing:\n${formatScreenState(resp.screenState)}`;
+      }
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
 
+  // --- observeScreen: get current screen state ---
+  pi.registerTool({
+    name: "sim_observe",
+    label: "Get current screen state",
+    description:
+      "Return all elements currently visible on screen with their identifiers, labels, types, frames, and enabled state. Use this to see what's on screen without interacting.",
+    parameters: Type.Object({}),
+    async execute() {
+      const resp = await agentAction("observeScreen");
+      if (!resp.success || !resp.screenState) {
+        return {
+          content: [
+            { type: "text" as const, text: resp.error || "Failed to observe" },
+          ],
+          details: {},
+          isError: true,
+        };
+      }
       return {
         content: [
           {
             type: "text" as const,
-            text: `Timed out after ${timeout}s waiting for "${params.identifier}"\n\nAvailable elements:\n${available}`,
+            text: formatScreenState(resp.screenState),
           },
         ],
         details: {},
-        isError: true,
       };
+    },
+  });
+
+  // --- longPress: find element + long press ---
+  pi.registerTool({
+    name: "sim_long_press",
+    label: "Long press an element",
+    description:
+      "Find an element and long-press it (e.g., to open a context menu). Returns the resulting screen state.",
+    parameters: Type.Object({
+      identifier: Type.Optional(Type.String({ description: "Accessibility identifier" })),
+      label: Type.Optional(Type.String({ description: "Exact label text" })),
+      labelContains: Type.Optional(Type.String({ description: "Label substring" })),
+      duration: Type.Optional(Type.Number({ description: "Press duration in seconds (default: 1)" })),
+    }),
+    async execute(_id, params) {
+      const resp = await agentAction("longPress", {
+        identifier: params.identifier,
+        label: params.label,
+        labelContains: params.labelContains,
+        duration: params.duration ?? 1.0,
+      });
+
+      if (!resp.success) {
+        let text = `Element not found for long press\n`;
+        if (resp.screenState) {
+          text += `\nElements on screen:\n${formatScreenState(resp.screenState)}`;
+        }
+        return { content: [{ type: "text" as const, text }], details: {}, isError: true };
+      }
+
+      let text = "";
+      if (resp.tappedElement) {
+        text += `Long pressed: ${formatElement(resp.tappedElement)}\n`;
+      }
+      if (resp.screenState) {
+        text += `\nScreen after long press:\n${formatScreenState(resp.screenState)}`;
+      }
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
+  // --- doubleTap: find element + double tap ---
+  pi.registerTool({
+    name: "sim_double_tap",
+    label: "Double tap an element",
+    description:
+      "Find an element and double-tap it (e.g., to react to a message). Returns the resulting screen state.",
+    parameters: Type.Object({
+      identifier: Type.Optional(Type.String({ description: "Accessibility identifier" })),
+      label: Type.Optional(Type.String({ description: "Exact label text" })),
+      labelContains: Type.Optional(Type.String({ description: "Label substring" })),
+    }),
+    async execute(_id, params) {
+      const resp = await agentAction("doubleTap", {
+        identifier: params.identifier,
+        label: params.label,
+        labelContains: params.labelContains,
+      });
+
+      if (!resp.success) {
+        let text = `Element not found for double tap\n`;
+        if (resp.screenState) {
+          text += `\nElements on screen:\n${formatScreenState(resp.screenState)}`;
+        }
+        return { content: [{ type: "text" as const, text }], details: {}, isError: true };
+      }
+
+      let text = "";
+      if (resp.tappedElement) {
+        text += `Double tapped: ${formatElement(resp.tappedElement)}\n`;
+      }
+      if (resp.screenState) {
+        text += `\nScreen after double tap:\n${formatScreenState(resp.screenState)}`;
+      }
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
+  // --- swipe ---
+  pi.registerTool({
+    name: "sim_swipe",
+    label: "Swipe on screen or element",
+    description:
+      "Swipe in a direction, optionally on a specific element. Returns the resulting screen state.",
+    parameters: Type.Object({
+      direction: Type.String({ description: "up, down, left, or right" }),
+      identifier: Type.Optional(
+        Type.String({ description: "Element to swipe on (swipes app if omitted)" })
+      ),
+    }),
+    async execute(_id, params) {
+      const resp = await agentAction("swipe", {
+        direction: params.direction,
+        identifier: params.identifier,
+      });
+
+      if (!resp.success) {
+        return {
+          content: [{ type: "text" as const, text: resp.error || "Swipe failed" }],
+          details: {},
+          isError: true,
+        };
+      }
+
+      let text = `Swiped ${params.direction}`;
+      if (resp.screenState) {
+        text += `\n\nScreen after swipe:\n${formatScreenState(resp.screenState)}`;
+      }
+      return { content: [{ type: "text" as const, text }], details: {} };
+    },
+  });
+
+  // --- scrollUntilVisible ---
+  pi.registerTool({
+    name: "sim_scroll_to",
+    label: "Scroll until element is visible",
+    description:
+      "Repeatedly swipe until an element matching the query becomes visible and hittable. Returns the element and screen state.",
+    parameters: Type.Object({
+      identifier: Type.Optional(Type.String({ description: "Accessibility identifier" })),
+      label: Type.Optional(Type.String({ description: "Exact label" })),
+      labelContains: Type.Optional(Type.String({ description: "Label substring" })),
+      direction: Type.Optional(Type.String({ description: "Scroll direction: up or down (default: up)" })),
+      maxSwipes: Type.Optional(Type.Number({ description: "Max swipes (default: 10)" })),
+    }),
+    async execute(_id, params) {
+      const resp = await agentAction("scrollUntilVisible", {
+        identifier: params.identifier,
+        label: params.label,
+        labelContains: params.labelContains,
+        direction: params.direction ?? "up",
+        maxSwipes: params.maxSwipes ?? 10,
+      });
+
+      if (!resp.success) {
+        let text = `Element not found after scrolling\n`;
+        if (resp.screenState) {
+          text += `\nElements on screen:\n${formatScreenState(resp.screenState)}`;
+        }
+        return { content: [{ type: "text" as const, text }], details: {}, isError: true };
+      }
+
+      let text = "Found after scrolling";
+      if (resp.tappedElement) {
+        text += `: ${formatElement(resp.tappedElement)}`;
+      }
+      if (resp.screenState) {
+        text += `\n\nScreen:\n${formatScreenState(resp.screenState)}`;
+      }
+      return { content: [{ type: "text" as const, text }], details: {} };
     },
   });
 }
