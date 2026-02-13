@@ -2,6 +2,7 @@ import Combine
 import ConvosCore
 import Observation
 import UIKit
+import UserNotifications
 
 @MainActor
 @Observable
@@ -761,12 +762,13 @@ extension ConversationViewModel {
                     Log.error("Failed denying consent after explosion: \(error.localizedDescription)")
                 }
 
+                await self.showExplosionLocalNotification()
+
                 NotificationCenter.default.post(
                     name: .conversationExpired,
                     object: nil,
                     userInfo: ["conversationId": self.conversation.id]
                 )
-                self.presentingConversationSettings = false
                 self.conversation.postLeftConversationNotification()
                 Log.info("Explode complete, inbox deletion triggered")
             } catch {
@@ -777,6 +779,22 @@ extension ConversationViewModel {
                 self.explodeState = .ready
             }
         }
+    }
+
+    private func showExplosionLocalNotification() async {
+        let content = UNMutableNotificationContent()
+        content.title = "\u{1F4A5} \(conversation.displayName) \u{1F4A5}"
+        content.body = "A convo exploded"
+        content.sound = .default
+        content.userInfo = ["isExplosion": true]
+
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 0.1, repeats: false)
+        let request = UNNotificationRequest(
+            identifier: "self-explosion-\(conversation.id)",
+            content: content,
+            trigger: trigger
+        )
+        try? await UNUserNotificationCenter.current().add(request)
     }
 
     func scheduleExplosion(at expiresAt: Date) {
