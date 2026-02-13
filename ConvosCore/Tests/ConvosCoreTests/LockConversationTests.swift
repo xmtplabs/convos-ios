@@ -192,6 +192,7 @@ struct LockConversationTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
         }
@@ -288,6 +289,7 @@ struct LockConversationTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
         }
@@ -459,6 +461,7 @@ struct LockConversationTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
         }
@@ -583,6 +586,7 @@ struct LockConversationTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
 

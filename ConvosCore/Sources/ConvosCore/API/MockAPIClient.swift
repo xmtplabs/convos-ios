@@ -64,4 +64,10 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     func unregisterInstallation(clientId: String) async throws {
         // no-op in mock
     }
+
+    // MARK: - Asset Renewal
+
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
+    }
 }

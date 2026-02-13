@@ -104,4 +104,16 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func isInboxSleeping(clientId: String) async -> Bool {
         false
     }
+
+    // MARK: - Asset Renewal
+
+    public func makeAssetRenewalManager() async -> AssetRenewalManager {
+        let dbManager = MockDatabaseManager.shared
+        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
+        return AssetRenewalManager(
+            databaseWriter: dbManager.dbWriter,
+            apiClient: MockAPIClient(),
+            recoveryHandler: recoveryHandler
+        )
+    }
 }
