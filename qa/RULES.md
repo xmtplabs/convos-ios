@@ -49,12 +49,23 @@ You have direct access to simulator tools for interacting with the Convos iOS ap
 
 - `sim_screenshot` — take a screenshot to see the current state of the app
 - `sim_ui_describe_all` — get the full accessibility tree as JSON
-- `sim_ui_tap` — tap at specific x,y coordinates
+- `sim_ui_tap` — tap at specific x,y coordinates. Use `duration` param for long-press (e.g., `duration: 0.5` for message context menus, which require ≥0.3s)
 - `sim_ui_swipe` — swipe between two points
 - `sim_ui_type` — type text into the currently focused field
 - `sim_ui_key` — press a key (40 = Return, 42 = Backspace, 41 = Escape)
 - `sim_open_url` — open a URL in the simulator (for deep links)
 - `sim_launch_app` — launch the app by bundle ID
+
+**Gesture shortcuts via bash** — for gestures the sim tools can't express directly:
+
+- **Double-tap** (e.g., to react to a message with ❤️): Run two `idb` taps in parallel. First find the element's center coordinates, then:
+  ```bash
+  IDB=/Users/jarod/Library/Python/3.9/bin/idb
+  UDID=<simulator-udid>
+  $IDB ui tap <x> <y> --udid $UDID & $IDB ui tap <x> <y> --udid $UDID & wait
+  ```
+  Both taps land within the UIKit double-tap time window (~300ms).
+- **Long-press** (e.g., to open a message context menu): Use `sim_ui_tap` with `duration: 0.5`.
 
 ### Convos CLI
 
