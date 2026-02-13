@@ -166,7 +166,7 @@ enum ElementInfoBuilder {
 
         if depth < maxDepth {
             let childElements = element.children(matching: .any)
-            if !childElements.isEmpty && childElements.count < 50 {
+            if childElements.count > 0 && childElements.count < 50 { // swiftlint:disable:this empty_count
                 children = (0..<childElements.count).compactMap { i in
                     let child = childElements.element(boundBy: i)
                     guard child.exists else { return nil }
@@ -272,9 +272,15 @@ enum ScreenStateBuilder {
     static func capture(app: XCUIApplication) -> ScreenState {
         let elements = ElementInfoBuilder.buildFlat(from: app)
 
-        let alerts = app.alerts.allElementsBoundByIndex.filter(\.exists).map {
+        var alerts = app.alerts.allElementsBoundByIndex.filter(\.exists).map {
             ElementInfoBuilder.build(from: $0, depth: 0, maxDepth: 2)
         }
+
+        let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+        let springboardAlerts = springboard.alerts.allElementsBoundByIndex.filter(\.exists).map {
+            ElementInfoBuilder.build(from: $0, depth: 0, maxDepth: 2)
+        }
+        alerts.append(contentsOf: springboardAlerts)
 
         let navBars = app.navigationBars.allElementsBoundByIndex.compactMap { bar -> String? in
             guard bar.exists else { return nil }
@@ -611,6 +617,8 @@ class CommandHandler {
 
     // MARK: - Helpers
 
+    private let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
+
     private func waitAndFind(
         identifier: String?,
         label: String?,
@@ -622,6 +630,12 @@ class CommandHandler {
         while Date() < deadline {
             if let el = ElementMatch.find(
                 in: app, identifier: identifier, label: label,
+                labelContains: labelContains, elementType: nil
+            ) {
+                return el
+            }
+            if let el = ElementMatch.find(
+                in: springboard, identifier: identifier, label: label,
                 labelContains: labelContains, elementType: nil
             ) {
                 return el
