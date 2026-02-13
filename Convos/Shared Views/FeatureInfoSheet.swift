@@ -99,55 +99,55 @@ struct FeatureInfoParagraph: Identifiable {
 #Preview("Photos") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { PhotosInfoSheet() }
+        .selfSizingSheet(isPresented: $isPresented) { PhotosInfoSheet().padding(.top, 20) }
 }
 
 #Preview("Reveal") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { RevealMediaInfoSheet() }
+        .selfSizingSheet(isPresented: $isPresented) { RevealMediaInfoSheet().padding(.top, 20) }
 }
 
 #Preview("Explode") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { ExplodeInfoView() }
+        .selfSizingSheet(isPresented: $isPresented) { ExplodeInfoView().padding(.top, 20) }
 }
 
 #Preview("Full Convo") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { FullConvoInfoView(onDismiss: { isPresented = false }) }
+        .selfSizingSheet(isPresented: $isPresented) { FullConvoInfoView(onDismiss: { isPresented = false }).padding(.top, 20) }
 }
 
 #Preview("Locked Convo") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
         .selfSizingSheet(isPresented: $isPresented) {
-            LockedConvoInfoView(isCurrentUserSuperAdmin: false, isLocked: true, onLock: {}, onDismiss: { isPresented = false })
+            LockedConvoInfoView(isCurrentUserSuperAdmin: false, isLocked: true, onLock: {}, onDismiss: { isPresented = false }).padding(.top, 20)
         }
 }
 
 #Preview("Maxed Out") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { MaxedOutInfoView(maxNumberOfConvos: 20) }
+        .selfSizingSheet(isPresented: $isPresented) { MaxedOutInfoView(maxNumberOfConvos: 20).padding(.top, 20) }
 }
 
 #Preview("Invalid Invite") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { InfoView(title: "Invalid invite", description: "Looks like this invite isn't active anymore.") }
+        .selfSizingSheet(isPresented: $isPresented) { InfoView(title: "Invalid invite", description: "Looks like this invite isn't active anymore.").padding(.top, 20) }
 }
 
 #Preview("Pin Limit") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { PinLimitInfoView() }
+        .selfSizingSheet(isPresented: $isPresented) { PinLimitInfoView().padding(.top, 10) }
 }
 
 #Preview("Network Issue") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
-        .selfSizingSheet(isPresented: $isPresented) { ConversationForkedInfoView(onDelete: {}) }
+        .selfSizingSheet(isPresented: $isPresented) { ConversationForkedInfoView(onDelete: {}).padding(.top, 20) }
 }
