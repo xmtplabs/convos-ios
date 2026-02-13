@@ -194,6 +194,10 @@ class ConversationViewModel {
     @ObservationIgnored
     private var explodeTask: Task<Void, Never>?
 
+    deinit {
+        explodeTask?.cancel()
+    }
+
     // MARK: - Init
 
     static func create(
@@ -790,6 +794,7 @@ extension ConversationViewModel {
 
     func scheduleExplosion(at expiresAt: Date) {
         guard canRemoveMembers else { return }
+        // Intentionally excludes .isScheduled — rescheduling is not supported
         guard explodeState.isReady || explodeState.isError else { return }
 
         if expiresAt <= Date() {
