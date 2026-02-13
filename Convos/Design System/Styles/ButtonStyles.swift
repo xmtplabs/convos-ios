@@ -48,7 +48,7 @@ struct RoundedButtonStyle: ButtonStyle {
             .font(.subheadline)
             .lineLimit(1)
             .truncationMode(.middle)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .opacity(configuration.isPressed ? 0.6 : 1.0)
             .background(backgroundColor)
@@ -68,7 +68,7 @@ struct RoundedDestructiveButtonStyle: ButtonStyle {
             .font(.subheadline)
             .lineLimit(1)
             .truncationMode(.middle)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .opacity(configuration.isPressed ? 0.6 : 1.0)
             .background(.colorCaution.opacity(0.08))
@@ -86,8 +86,8 @@ struct TextButtonStyle: ButtonStyle {
             .lineLimit(1)
             .truncationMode(.middle)
             .foregroundStyle(.colorTextSecondary)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
-            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
             .opacity(isEnabled ? configuration.isPressed ? 0.6 : 1.0 : 0.3)
     }
 }
@@ -103,7 +103,7 @@ struct OutlineButtonStyle: ButtonStyle {
             .font(.subheadline)
             .lineLimit(1)
             .truncationMode(.middle)
-            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .background(Color.clear)
             .overlay(
