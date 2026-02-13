@@ -436,7 +436,7 @@ class CommandHandler {
             }
         }
 
-        let state = ScreenStateBuilder.capture(app: app)
+        let state = captureIfNeeded()
         return AgentResponse(
             success: true,
             message: messages.joined(separator: "\n"),
@@ -547,9 +547,8 @@ class CommandHandler {
 
         element.typeText(text)
         waitForSettle()
-        let info = ElementInfoBuilder.build(from: element, depth: 0, maxDepth: 0)
-        let state = ScreenStateBuilder.capture(app: app)
-        return AgentResponse(success: true, message: "Typed '\(text)'", screenState: state, tappedElement: info, error: nil)
+        let state = captureIfNeeded()
+        return AgentResponse(success: true, message: "Typed '\(text)'", screenState: state, tappedElement: nil, error: nil)
     }
 
     private func tapCoordinate(_ params: [String: AnyCodable]?) -> AgentResponse {
@@ -571,7 +570,7 @@ class CommandHandler {
         }
 
         waitForSettle()
-        let state = ScreenStateBuilder.capture(app: app)
+        let state = captureIfNeeded()
         return AgentResponse(success: true, message: "Tapped (\(x), \(y))", screenState: state, tappedElement: nil, error: nil)
     }
 
@@ -601,7 +600,7 @@ class CommandHandler {
         }
 
         waitForSettle()
-        let state = ScreenStateBuilder.capture(app: app)
+        let state = captureIfNeeded()
         return AgentResponse(success: true, message: "Swiped \(direction)", screenState: state, tappedElement: nil, error: nil)
     }
 
@@ -622,7 +621,7 @@ class CommandHandler {
                 labelContains: labelContains, elementType: nil
             ), el.isHittable {
                 let info = ElementInfoBuilder.build(from: el, depth: 0, maxDepth: 0)
-                let state = ScreenStateBuilder.capture(app: app)
+                let state = captureIfNeeded()
                 return AgentResponse(success: true, message: "Found after scrolling", screenState: state, tappedElement: info, error: nil)
             }
 
@@ -664,7 +663,7 @@ class CommandHandler {
         }
 
         let info = ElementInfoBuilder.build(from: element, depth: 0, maxDepth: 0)
-        let state = ScreenStateBuilder.capture(app: app)
+        let state = captureIfNeeded()
         return AgentResponse(success: true, message: "Found", screenState: state, tappedElement: info, error: nil)
     }
 
@@ -688,7 +687,7 @@ class CommandHandler {
         }
 
         waitForSettle()
-        let state = ScreenStateBuilder.capture(app: app)
+        let state = captureIfNeeded()
         return AgentResponse(success: true, message: "Pressed \(key)", screenState: state, tappedElement: nil, error: nil)
     }
 
@@ -717,7 +716,7 @@ class CommandHandler {
         let info = ElementInfoBuilder.build(from: element, depth: 0, maxDepth: 0)
         element.press(forDuration: duration)
         waitForSettle()
-        let state = ScreenStateBuilder.capture(app: app)
+        let state = captureIfNeeded()
         return AgentResponse(success: true, message: "Long pressed for \(duration)s", screenState: state, tappedElement: info, error: nil)
     }
 
@@ -745,7 +744,7 @@ class CommandHandler {
         let info = ElementInfoBuilder.build(from: element, depth: 0, maxDepth: 0)
         element.doubleTap()
         waitForSettle()
-        let state = ScreenStateBuilder.capture(app: app)
+        let state = captureIfNeeded()
         return AgentResponse(success: true, message: "Double tapped", screenState: state, tappedElement: info, error: nil)
     }
 
