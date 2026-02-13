@@ -99,21 +99,20 @@ function getScreenSize(udid: string): { width: number; height: number } {
 }
 
 /**
- * Probe the entire screen with hit-testing to find an element
- * hidden from tree traversal. Uses a coarse grid first, then
- * refines if a Group container is found (element may be inside it).
+ * Probe the screen with hit-testing to find an element hidden from
+ * tree traversal. Uses a coarse grid (~60 points) for speed.
  */
 function probeForElement(
   udid: string,
   identifier: string
 ): AccessibilityElement | null {
   const screen = getScreenSize(udid);
-  const step = 30;
+  const stepX = 80;
+  const stepY = 80;
   const seen = new Set<string>();
 
-  // Scan the full screen in a grid
-  for (let y = 60; y < screen.height; y += step) {
-    for (let x = 20; x < screen.width; x += step) {
+  for (let y = 60; y < screen.height; y += stepY) {
+    for (let x = 40; x < screen.width; x += stepX) {
       const el = describePoint(udid, x, y);
       if (!el) continue;
       const key = `${el.AXUniqueId || ""}:${el.AXLabel || ""}`;
@@ -150,36 +149,6 @@ function getCenter(el: AccessibilityElement): { x: number; y: number } {
   throw new Error("Cannot determine element center");
 }
 
-function tryFindAndTap(
-  udid: string,
-  identifier: string
-): { found: boolean; message: string } {
-  // 1. Try tree search first (fast)
-  const tree = getAccessibilityTree(udid);
-  const el = findElement(tree, identifier);
-  if (el) {
-    const center = getCenter(el);
-    tapPoint(udid, Math.round(center.x), Math.round(center.y));
-    return {
-      found: true,
-      message: `id=${el.AXUniqueId || "none"}, label="${el.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)})`,
-    };
-  }
-
-  // 2. Probe full screen for hidden elements
-  const probed = probeForElement(udid, identifier);
-  if (probed) {
-    const center = getCenter(probed);
-    tapPoint(udid, Math.round(center.x), Math.round(center.y));
-    return {
-      found: true,
-      message: `id=${probed.AXUniqueId || "none"}, label="${probed.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)}) [found via probe]`,
-    };
-  }
-
-  return { found: false, message: "" };
-}
-
 export default function (pi: ExtensionAPI) {
   pi.registerTool({
     name: "sim_wait_and_tap",
@@ -208,18 +177,22 @@ export default function (pi: ExtensionAPI) {
       const maxAttempts = Math.ceil(timeout / interval);
       const startTime = Date.now();
 
+      // Phase 1: Poll the tree (fast, handles most elements)
       for (let i = 0; i < maxAttempts; i++) {
         if (signal?.aborted) throw new Error("Aborted");
 
         try {
-          const result = tryFindAndTap(udid, params.identifier);
-          if (result.found) {
+          const tree = getAccessibilityTree(udid);
+          const el = findElement(tree, params.identifier);
+          if (el) {
+            const center = getCenter(el);
+            tapPoint(udid, Math.round(center.x), Math.round(center.y));
             const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
             return {
               content: [
                 {
                   type: "text" as const,
-                  text: `Found and tapped after ${elapsed}s: ${result.message}`,
+                  text: `Found and tapped after ${elapsed}s: id=${el.AXUniqueId || "none"}, label="${el.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)})`,
                 },
               ],
               details: {},
@@ -230,6 +203,27 @@ export default function (pi: ExtensionAPI) {
         }
 
         await new Promise((r) => setTimeout(r, interval * 1000));
+      }
+
+      // Phase 2: One full-screen probe for elements hidden from tree traversal
+      try {
+        const probed = probeForElement(udid, params.identifier);
+        if (probed) {
+          const center = getCenter(probed);
+          tapPoint(udid, Math.round(center.x), Math.round(center.y));
+          const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: `Found and tapped after ${elapsed}s: id=${probed.AXUniqueId || "none"}, label="${probed.AXLabel || ""}", center=(${Math.round(center.x)},${Math.round(center.y)}) [found via probe]`,
+              },
+            ],
+            details: {},
+          };
+        }
+      } catch (e: any) {
+        if (e.message === "Aborted") throw e;
       }
 
       let available = "";
