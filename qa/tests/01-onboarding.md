@@ -25,15 +25,19 @@ Verify that a first-time user can launch the app, create a conversation, and com
 
 7. After creating the conversation, **immediately** poll for the setup quickname prompt using `sim_wait_for_element` with identifier `setup-quickname-button` (timeout: 15s, interval: 1s). Do not take screenshots or perform other operations first — the prompt may appear quickly after conversation creation.
 8. As soon as the element is found, tap it immediately using `sim_tap_id` with identifier `setup-quickname-button`.
-9. The profile editor should appear. Enter a display name like "QA Tester".
-10. Confirm or dismiss the profile editor.
-11. A "Quickname saved" confirmation should appear briefly.
+9. The quick-edit profile editor should appear. Enter a display name like "QA Tester" in `quick-edit-display-name-field`.
+10. Tap `quick-edit-done-button` to save.
+11. A "Quickname saved" confirmation screen appears with identity explanation and "Continue" button.
+
+### Continue past quickname confirmation
+
+12. Tap "Continue" on the quickname confirmation screen. This must be done before the notification prompt will appear.
 
 ### Notification permission
 
-12. After the quickname step, a notification permission prompt should appear — either the system permission dialog or a custom prompt within the app.
-13. If the system dialog appears, accept or deny it. If a custom prompt appears, interact with it.
-14. The onboarding flow should complete and the conversation view should be fully usable.
+13. After tapping Continue, a custom notification prompt appears with `notification-permission-button` ("Notify me of new messages"). Tap it.
+14. The system notification permission dialog appears (Allow / Don't Allow). Tap either option.
+15. The onboarding flow should complete and the conversation view should be fully usable.
 
 ### Verify post-onboarding state
 

@@ -184,7 +184,8 @@ Then relaunch the app so it picks up the Reduce Motion setting. These persist ac
 - **Use `sim_type_in_field` to enter text** — pass the text field's accessibility identifier and the text to type. Do not manually tap then type.
 - **Use `sim_wait_for_element` after navigation or network actions** — it polls until the element appears, avoiding manual sleep + screenshot loops.
 - **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
-- If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout. Network-dependent actions (like messages arriving from the CLI) may take several seconds.
+- If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout.
+- **Maximum sleep/wait time: 2 seconds.** With animations disabled and XMTP on dev, messages sync fast and UI transitions are instant. Never use `sleep` longer than 2s between steps. Prefer `sim_wait_for_element` (which polls actively) over `sleep` (which wastes time). If something hasn't appeared after 2s, it's likely a real failure — investigate rather than waiting longer.
 
 ### Verifying Results: Accessibility Tree vs Screenshots
 

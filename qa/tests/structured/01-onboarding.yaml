@@ -52,12 +52,13 @@ steps:
     name: "Set quickname via profile editor"
     actions:
       - tap: { id: "setup-quickname-button" }
-      - wait_for_element: { id: "profile-display-name-field", timeout: 10 }
-      - type_in_field: { id: "profile-display-name-field", text: "QA Tester", clear_first: true }
-      - tap: { id: "profile-save-button" }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "QA Tester", clear_first: true }
+      - tap: { id: "quick-edit-done-button" }
     verify:
       - find_elements: { pattern: "QA Tester" }
     criteria: quickname_can_be_set
+    note: "Quick-edit uses quick-edit-display-name-field and quick-edit-done-button, not the full profile editor"
 
   - id: quickname_saved
     name: "Quickname saved confirmation appears"
@@ -66,20 +67,29 @@ steps:
     verify:
       - element_exists: { pattern: "new you in every convo" }
     criteria: quickname_saved_confirmation
-    note: "Ephemeral — may auto-dismiss"
+
+  - id: continue_after_quickname
+    name: "Tap Continue on quickname confirmation screen"
+    actions:
+      - tap: { label: "Continue" }
+      - wait: 2
+    note: "The quickname confirmation screen shows identity explanation and a Continue button. Must tap before notification prompt appears."
 
   - id: notification_permission
     name: "Notification permission step shown"
     actions:
-      - wait: 3
-      - find_elements: { pattern: "notification" }
+      - wait_for_element: { id: "notification-permission-button", timeout: 10 }
+      - tap: { id: "notification-permission-button" }
+      - wait: 2
+      - find_elements: { pattern: "Allow" }
     verify:
-      - any_element_matches: { patterns: ["Allow", "Don't Allow", "notification"] }
+      - element_exists: { id: "notification-permission-button" }
+      - any_element_matches: { patterns: ["Allow", "Don't Allow"] }
     criteria: notification_step_shown
-    on_system_dialog: "tap Allow or Don't Allow"
+    note: "App shows custom prompt (notification-permission-button) first, then system dialog"
 
   - id: dismiss_notification
-    name: "Dismiss notification prompt"
+    name: "Dismiss system notification dialog"
     actions:
       - tap: { label: "Allow", optional: true }
       - tap: { label: "Don't Allow", optional: true }
