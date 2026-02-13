@@ -106,6 +106,7 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
+    private var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
             if conversationsCount > 1 {
@@ -340,7 +341,9 @@ final class ConversationsViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
                 guard let self else { return }
-                self.conversations = conversations
+                self.conversations = hiddenConversationIds.isEmpty
+                    ? conversations
+                    : conversations.filter { !hiddenConversationIds.contains($0.id) }
 
                 // Clear selection if selected conversation no longer exists
                 if let selectedId = _selectedConversationId,
@@ -483,9 +486,8 @@ final class ConversationsViewModel {
         let inboxId = conversation.inboxId
         let memberInboxIds = conversation.members.map { $0.profile.inboxId }
 
-        if let index = conversations.firstIndex(of: conversation) {
-            conversations.remove(at: index)
-        }
+        hiddenConversationIds.insert(conversationId)
+        conversations.removeAll { $0.id == conversationId }
         if selectedConversation == conversation {
             selectedConversation = nil
         }
@@ -498,11 +500,13 @@ final class ConversationsViewModel {
                 let inboxReady = try await messagingService.inboxStateManager.waitForInboxReadyResult()
                 guard let xmtpConversation = try await inboxReady.client.conversationsProvider.findConversation(conversationId: conversationId) else {
                     Log.error("Conversation not found for explosion: \(conversationId)")
+                    self.hiddenConversationIds.remove(conversationId)
                     return
                 }
 
                 guard case .group(let group) = xmtpConversation else {
                     Log.error("Cannot explode non-group conversation: \(conversationId)")
+                    self.hiddenConversationIds.remove(conversationId)
                     return
                 }
 
@@ -538,9 +542,11 @@ final class ConversationsViewModel {
                     object: nil,
                     userInfo: ["conversationId": conversationId]
                 )
+                self.hiddenConversationIds.remove(conversationId)
                 conversation.postLeftConversationNotification()
                 Log.info("Exploded conversation from list: \(conversationId)")
             } catch {
+                self.hiddenConversationIds.remove(conversationId)
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
             }
         }
