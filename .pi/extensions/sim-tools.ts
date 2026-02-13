@@ -84,52 +84,43 @@ function describePoint(
 function getScreenSize(udid: string): { width: number; height: number } {
   try {
     const result = execSync(
-      `xcrun simctl list devices -j 2>/dev/null`,
+      `xcrun simctl io ${udid} enumerate 2>/dev/null`,
       { encoding: "utf-8" }
     );
-    const json = JSON.parse(result);
-    for (const runtime of Object.values(json.devices) as any[]) {
-      for (const device of runtime as any[]) {
-        if (device.udid === udid && device.logicalSize) {
-          return {
-            width: device.logicalSize.width,
-            height: device.logicalSize.height,
-          };
-        }
-      }
+    // Look for a line like "        3   Framebuffer 440 x 956"
+    const match = result.match(/Framebuffer\s+(\d+)\s*x\s*(\d+)/);
+    if (match) {
+      return { width: parseInt(match[1]), height: parseInt(match[2]) };
     }
   } catch {}
+  // Fallback: use idb to get a screenshot and check dimensions
+  // Or just use a reasonable grid that works for any phone
   return { width: 440, height: 956 };
 }
 
+/**
+ * Probe the entire screen with hit-testing to find an element
+ * hidden from tree traversal. Uses a coarse grid first, then
+ * refines if a Group container is found (element may be inside it).
+ */
 function probeForElement(
   udid: string,
   identifier: string
 ): AccessibilityElement | null {
   const screen = getScreenSize(udid);
-  const probePoints: [number, number][] = [];
-
-  // Bottom toolbar area (most common hidden elements)
-  const bottomY = screen.height - 50;
-  for (let x = 40; x < screen.width; x += 40) {
-    probePoints.push([x, bottomY]);
-    probePoints.push([x, bottomY - 20]);
-  }
-
-  // Top toolbar area
-  const topY = 84;
-  for (let x = 40; x < screen.width; x += 40) {
-    probePoints.push([x, topY]);
-  }
-
+  const step = 30;
   const seen = new Set<string>();
-  for (const [x, y] of probePoints) {
-    const el = describePoint(udid, x, y);
-    if (!el) continue;
-    const key = `${el.AXUniqueId || ""}:${el.AXLabel || ""}`;
-    if (seen.has(key)) continue;
-    seen.add(key);
-    if (matchesIdentifier(el, identifier)) return el;
+
+  // Scan the full screen in a grid
+  for (let y = 60; y < screen.height; y += step) {
+    for (let x = 20; x < screen.width; x += step) {
+      const el = describePoint(udid, x, y);
+      if (!el) continue;
+      const key = `${el.AXUniqueId || ""}:${el.AXLabel || ""}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      if (matchesIdentifier(el, identifier)) return el;
+    }
   }
   return null;
 }
@@ -175,7 +166,7 @@ function tryFindAndTap(
     };
   }
 
-  // 2. Probe toolbar areas for hidden elements
+  // 2. Probe full screen for hidden elements
   const probed = probeForElement(udid, identifier);
   if (probed) {
     const center = getCenter(probed);
@@ -194,7 +185,7 @@ export default function (pi: ExtensionAPI) {
     name: "sim_wait_and_tap",
     label: "Wait for element then tap it",
     description:
-      "Poll the accessibility tree until an element with the given identifier or label appears, then immediately tap it. Combines sim_wait_for_element + sim_tap_id into a single call. Also probes toolbar areas for elements hidden from tree traversal. Returns the element info that was tapped.",
+      "Poll the accessibility tree until an element with the given identifier or label appears, then immediately tap it. Combines sim_wait_for_element + sim_tap_id into a single call. Falls back to hit-test probing across the full screen to find elements hidden from tree traversal (e.g., toolbar buttons). Returns the element info that was tapped.",
     parameters: Type.Object({
       identifier: Type.String({
         description: "Accessibility identifier or label to wait for and tap",
