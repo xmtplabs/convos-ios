@@ -115,7 +115,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
                 let renewalManager = AssetRenewalManager(
                     databaseWriter: self.databaseWriter,
-                    apiClient: ConvosAPIClientFactory.client(environment: self.environment),
+                    apiClient: self.apiClient,
                     recoveryHandler: recoveryHandler
                 )
                 await renewalManager.performRenewalIfNeeded()
@@ -431,7 +431,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
         return AssetRenewalManager(
             databaseWriter: databaseWriter,
-            apiClient: ConvosAPIClientFactory.client(environment: environment),
+            apiClient: apiClient,
             recoveryHandler: recoveryHandler
         )
     }
