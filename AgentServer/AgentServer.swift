@@ -111,7 +111,7 @@ enum ElementMatch {
     ) -> XCUIElement? {
         // Use direct identifier lookup (fastest path - no full tree traversal)
         if let id = identifier {
-            let el = app.descendants(matching: .any)[id]
+            let el = app.descendants(matching: .any).matching(identifier: id).firstMatch
             if el.waitForExistence(timeout: 0) { return el }
         }
 

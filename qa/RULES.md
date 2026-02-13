@@ -4,12 +4,21 @@ General rules and conventions that apply to all QA test scenarios. Read this doc
 
 ## Read-Only Policy
 
-**The QA agent must never modify source code, project files, or configuration during testing.** The agent may read source files to gain context about what a test is exercising (e.g., understanding how a view is structured, what accessibility identifiers exist), but must not edit, create, or delete any project files.
+**The QA agent must never modify app business logic, views, or configuration during testing.** The agent may read source files to gain context about what a test is exercising (e.g., understanding how a view is structured, what accessibility identifiers exist), but must not edit app behavior.
+
+**Exception — accessibility attributes:** The agent **may** modify accessibility identifiers, accessibility labels, accessibility actions, and accessibility modifier ordering in SwiftUI views when doing so makes tests more reliable or efficient. Common fixes include:
+- Adding missing `.accessibilityIdentifier()` to elements the tests need to find
+- Reordering modifiers so `.accessibilityIdentifier()` is applied directly to the interactive element (not to a wrapper created by `.fullScreenCover`, `.sheet`, etc.)
+- Adding `.accessibilityAction(named:)` for gesture-based interactions (reactions, replies)
+- Fixing duplicate identifiers caused by SwiftUI modifier propagation
+
+These changes improve both automated testing and VoiceOver support, and must not alter app behavior.
 
 The only files the agent may create or modify are:
 - Test result reports (in `qa/reports/` or as directed by the user)
 - QA process files (`qa/RULES.md`, `qa/tests/*.md`, `qa/tests/structured/*.yaml`) — see **Continuous Improvement** below
 - CXDB database (`qa/cxdb/qa.sqlite`) — test execution state, results, and findings
+- Accessibility attributes in app source (identifiers, labels, actions, modifier ordering only)
 
 If a test reveals a bug, the agent should document it with detailed repro steps, screenshots, and log excerpts — not attempt to fix it.
 
