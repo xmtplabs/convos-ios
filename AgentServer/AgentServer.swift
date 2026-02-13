@@ -353,7 +353,16 @@ class CommandHandler {
         case "doubleTap":
             return doubleTap(request.params)
         case "chain":
-            return chain(request.steps)
+            // steps can come from top-level or from params.steps
+            var chainSteps = request.steps
+            if chainSteps == nil || chainSteps?.isEmpty == true {
+                if let paramsSteps = request.params?["steps"],
+                   let encoded = try? JSONEncoder().encode(paramsSteps),
+                   let decoded = try? JSONDecoder().decode([AgentRequest].self, from: encoded) {
+                    chainSteps = decoded
+                }
+            }
+            return chain(chainSteps)
         case "ping":
             return AgentResponse(success: true, message: "pong", screenState: nil, tappedElement: nil, error: nil)
         default:

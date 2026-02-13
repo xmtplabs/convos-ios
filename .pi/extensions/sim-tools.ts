@@ -30,6 +30,7 @@ interface AgentResponse {
   screenState?: ScreenState;
   tappedElement?: UIElementInfo;
   error?: string;
+  durationMs?: number;
 }
 
 async function agentAction(
@@ -37,12 +38,19 @@ async function agentAction(
   params?: Record<string, any>,
   observe: boolean = false
 ): Promise<AgentResponse> {
-  const resp = await fetch(`${AGENT_URL}/action`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ action, params, observe }),
-  });
-  return resp.json();
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  try {
+    const resp = await fetch(`${AGENT_URL}/action`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action, params, observe }),
+      signal: controller.signal,
+    });
+    return resp.json();
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 function formatElement(el: UIElementInfo): string {
@@ -173,6 +181,7 @@ export default function (pi: ExtensionAPI) {
         const el = resp.tappedElement;
         text = `Tapped: ${el.identifier || el.label || "element"}`;
       }
+      if (resp.durationMs) text += ` (${resp.durationMs}ms)`;
       return { content: [{ type: "text" as const, text }], details: {} };
     },
   });
@@ -211,7 +220,9 @@ export default function (pi: ExtensionAPI) {
         };
       }
 
-      return { content: [{ type: "text" as const, text: `Typed "${params.text}"` }], details: {} };
+      let fillText = `Typed "${params.text}"`;
+      if (resp.durationMs) fillText += ` (${resp.durationMs}ms)`;
+      return { content: [{ type: "text" as const, text: fillText }], details: {} };
     },
   });
 
@@ -233,11 +244,13 @@ export default function (pi: ExtensionAPI) {
           isError: true,
         };
       }
+      let obsText = formatScreenState(resp.screenState);
+      if (resp.durationMs) obsText += `\n(${resp.durationMs}ms)`;
       return {
         content: [
           {
             type: "text" as const,
-            text: formatScreenState(resp.screenState),
+            text: obsText,
           },
         ],
         details: {},
@@ -419,10 +432,25 @@ export default function (pi: ExtensionAPI) {
       ),
     }),
     async execute(_id, params) {
-      const resp = await agentAction("chain", { steps: params.steps });
+      // chain sends steps at top-level (not wrapped in params)
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120000);
+      let resp: AgentResponse;
+      try {
+        const r = await fetch(`${AGENT_URL}/action`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action: "chain", steps: params.steps, observe: true }),
+          signal: controller.signal,
+        });
+        resp = await r.json();
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       let text = "";
       if (resp.message) text += resp.message + "\n";
+      if (resp.durationMs) text += `Total: ${resp.durationMs}ms\n`;
       if (!resp.success && resp.error) text += `\nError: ${resp.error}\n`;
       if (resp.screenState) {
         text += `\nScreen:\n${formatScreenState(resp.screenState)}`;
