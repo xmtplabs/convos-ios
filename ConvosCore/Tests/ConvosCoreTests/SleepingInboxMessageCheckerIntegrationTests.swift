@@ -248,10 +248,16 @@ struct SleepingInboxMessageCheckerIntegrationTests {
         try await fixtures.saveConversation(id: group1.id, clientId: receiver1ClientId, inboxId: receiver1Client.inboxID)
         try await fixtures.saveConversation(id: group2.id, clientId: receiver2ClientId, inboxId: receiver2Client.inboxID)
 
-        // Mark both receivers as sleeping
-        let sleepTime = Date()
+        // Mark both receivers as sleeping with a future buffer to account for clock skew
+        // between test machine and XMTP backend (especially with ephemeral Fly.io backends in CI).
+        // The old message was already sent and propagated, so its XMTP timestamp is in the past.
+        // Adding a buffer ensures sleepTime is solidly after the old message's backend timestamp.
+        let sleepTime = Date().addingTimeInterval(3)
         let lifecycleManager = TestableInboxLifecycleManager()
         await lifecycleManager.setSleeping(clientIds: [receiver1ClientId, receiver2ClientId], at: sleepTime)
+
+        // Wait past the sleep time so the new message gets a timestamp after it
+        try await Task.sleep(for: .seconds(5))
 
         // Send NEW message only to group1 (AFTER sleep)
         try await group1.send(content: "New message to group 1 after sleep!")
