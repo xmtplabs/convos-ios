@@ -2,23 +2,6 @@ import SwiftUI
 
 // MARK: - View Extension
 
-extension View {
-    /// Presents a sheet that automatically sizes itself to fit its content
-    /// - Parameters:
-    ///   - isPresented: A binding to whether the sheet is shown
-    ///   - content: The content of the sheet
-    func selfSizingSheet<Content: View>(
-        isPresented: Binding<Bool>,
-        @ViewBuilder content: @escaping () -> Content
-    ) -> some View {
-        modifier(SelfSizingSheetModifier(
-            isPresented: isPresented,
-            onDismiss: nil,
-            sheetContent: content
-        ))
-    }
-}
-
 // MARK: - Self-Sizing Sheet Modifier
 
 /// A view modifier that presents a sheet that automatically sizes itself to its content
@@ -27,9 +10,8 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
     @State private var sheetHeight: CGFloat = 0
     @State private var presentationCount: Int = 0
     let onDismiss: (() -> Void)?
+    let showDragIndicator: Bool
     let sheetContent: () -> SheetContent
-
-    private static var sheetTopInset: CGFloat { 20.0 }
 
     func body(content: Content) -> some View {
         content
@@ -46,8 +28,8 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
                         .readHeight { height in
                             sheetHeight = height
                         }
-                        .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight + Self.sheetTopInset)] : [.medium])
-                        .presentationDragIndicator(.hidden)
+                        .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
+                        .presentationDragIndicator(showDragIndicator ? .visible : .hidden)
                         .presentationBackground(.ultraThinMaterial)
                         .id(presentationCount)
                 }
@@ -64,11 +46,13 @@ extension View {
     func selfSizingSheet<Content: View>(
         isPresented: Binding<Bool>,
         onDismiss: (() -> Void)? = nil,
+        showDragIndicator: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         modifier(SelfSizingSheetModifier(
             isPresented: isPresented,
             onDismiss: onDismiss,
+            showDragIndicator: showDragIndicator,
             sheetContent: content
         ))
     }
@@ -82,9 +66,8 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
     @State private var sheetHeight: CGFloat = 0
     @State private var presentationCount: Int = 0
     let onDismiss: (() -> Void)?
+    let showDragIndicator: Bool
     let sheetContent: (Item) -> SheetContent
-
-    private static var sheetTopInset: CGFloat { 20.0 }
 
     func body(content: Content) -> some View {
         content
@@ -100,8 +83,8 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
                         .readHeight { height in
                             sheetHeight = height
                         }
-                        .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight + Self.sheetTopInset)] : [.medium])
-                        .presentationDragIndicator(.hidden)
+                        .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
+                        .presentationDragIndicator(showDragIndicator ? .visible : .hidden)
                         .presentationBackground(.ultraThinMaterial)
                         .id(presentationCount)
                 }
@@ -118,11 +101,13 @@ extension View {
     func selfSizingSheet<Item: Identifiable, Content: View>(
         item: Binding<Item?>,
         onDismiss: (() -> Void)? = nil,
+        showDragIndicator: Bool = false,
         @ViewBuilder content: @escaping (Item) -> Content
     ) -> some View {
         modifier(ItemBasedSelfSizingSheetModifier(
             item: item,
             onDismiss: onDismiss,
+            showDragIndicator: showDragIndicator,
             sheetContent: content
         ))
     }

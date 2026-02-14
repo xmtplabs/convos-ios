@@ -38,18 +38,18 @@ struct FeatureInfoSheet: View {
             }
 
             Text(title)
-                .font(.system(.largeTitle))
-                .fontWeight(.bold)
+                .font(.convosTitle)
+                .tracking(Font.convosTitleTracking)
 
             if let subtitle {
                 Text(subtitle)
                     .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
+                    .foregroundStyle(.blue)
             }
 
             ForEach(paragraphs) { paragraph in
                 Text(paragraph.text)
-                    .font(.body)
+                    .font(paragraph.size.font)
                     .foregroundStyle(paragraph.style == .primary ? .colorTextPrimary : .colorTextSecondary)
             }
 
@@ -71,8 +71,11 @@ struct FeatureInfoSheet: View {
             }
             .padding(.top, DesignConstants.Spacing.step4x)
         }
-        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .background(.red.opacity(0.3))
+        .padding([.leading, .trailing], DesignConstants.Spacing.step10x)
+        .padding(.top, DesignConstants.Spacing.step8x)
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
+        .background(.red.opacity(0.15))
     }
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -82,16 +85,32 @@ struct FeatureInfoParagraph: Identifiable {
     let id: String
     let text: String
     let style: Style
+    let size: Size
 
     enum Style {
         case primary
         case secondary
     }
 
-    init(_ text: String, style: Style = .secondary) {
+    enum Size {
+        case body
+        case subheadline
+        case small
+
+        var font: Font {
+            switch self {
+            case .body: .body
+            case .subheadline: .subheadline
+            case .small: .caption
+            }
+        }
+    }
+
+    init(_ text: String, style: Style = .secondary, size: Size = .body) {
         self.id = text
         self.text = text
         self.style = style
+        self.size = size
     }
 }
 

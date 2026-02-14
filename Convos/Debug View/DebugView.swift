@@ -23,6 +23,7 @@ struct DebugViewSection: View {
     @State private var lastDeviceToken: String = ""
     @State private var debugFileURLs: [URL]?
     @State private var preparingLogs: Bool = false
+    @State private var presentingPhotosInfoSheet: Bool = false
 
     private var bundleIdentifier: String {
         Bundle.main.bundleIdentifier ?? "Unknown"
@@ -179,6 +180,15 @@ struct DebugViewSection: View {
                 }
             }
 
+            Section("Sheets") {
+                Button {
+                    presentingPhotosInfoSheet = true
+                } label: {
+                    Text("Show Photos Info Sheet")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+
             Section {
                 Button {
                     Task { await registerDeviceAgain() }
@@ -199,6 +209,9 @@ struct DebugViewSection: View {
                         .foregroundStyle(.colorTextPrimary)
                 }
             }
+        }
+        .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
+            PhotosInfoSheet()
         }
         .task {
             await refreshNotificationStatus()
