@@ -383,10 +383,10 @@ struct MessageContextMenuOverlay: View {
         .clipped()
         .offset(x: rect.minX, y: rect.minY)
         .shadow(
-            color: .black.opacity(appeared ? 0.18 : 0.0),
-            radius: appeared ? 20 : 0,
+            color: .black.opacity(appeared ? 0.25 : 0.0),
+            radius: appeared ? 32 : 0,
             x: 0,
-            y: appeared ? 8 : 0
+            y: appeared ? 12 : 0
         )
         .animation(.spring(response: 0.36, dampingFraction: 0.8), value: appeared)
     }
@@ -398,7 +398,7 @@ struct MessageContextMenuOverlay: View {
             isOutgoing: state.isOutgoing,
             profile: message.base.sender.profile,
             shouldBlur: shouldBlurPhoto,
-            cornerRadius: C.photoCornerRadius
+            cornerRadius: appeared ? C.photoCornerRadius : 0
         )
     }
 
@@ -458,7 +458,7 @@ struct MessageContextMenuOverlay: View {
                     }
                     menuRow(
                         icon: isBlurred ? "eye" : "eye.slash",
-                        title: isBlurred ? "Reveal" : "Hide",
+                        title: isBlurred ? "Reveal" : "Blur",
                         action: toggleAction
                     )
                 }
@@ -615,11 +615,16 @@ private struct ContextMenuPhotoPreview: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .blur(radius: shouldBlur ? 20 : 0)
-                        .opacity(shouldBlur ? 0.3 : 1.0)
+                        .scaleEffect(shouldBlur ? 1.65 : 1.0)
+                        .blur(radius: shouldBlur ? 96 : 0)
 
                     PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
                 }
+                .clipped()
+                .overlay(alignment: isOutgoing ? .bottom : .top) {
+                    PhotoEdgeGradient(isOutgoing: isOutgoing)
+                }
+                .compositingGroup()
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             } else {
                 RoundedRectangle(cornerRadius: cornerRadius)

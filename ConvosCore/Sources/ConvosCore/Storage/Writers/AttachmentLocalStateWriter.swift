@@ -111,7 +111,7 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 height: existing.height,
                 isHiddenByOwner: existing.isHiddenByOwner
             )
-            try migrated.insert(db)
+            try migrated.save(db)
 
             _ = try AttachmentLocalState
                 .filter(AttachmentLocalState.Columns.attachmentKey == oldKey)

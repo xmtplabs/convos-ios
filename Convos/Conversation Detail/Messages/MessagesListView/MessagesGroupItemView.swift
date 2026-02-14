@@ -235,7 +235,7 @@ struct MessagesGroupItemView: View {
             isOutgoing: message.base.sender.isCurrentUser,
             profile: message.base.sender.profile,
             shouldBlurPhotos: shouldBlurPhotos,
-            cornerRadius: DesignConstants.CornerRadius.photo,
+            cornerRadius: 0,
             onReveal: { onPhotoRevealed(attachment.key) },
             onHide: { onPhotoHidden(attachment.key) },
             onDoubleTap: { onDoubleTap(message) },
@@ -319,12 +319,11 @@ private struct AttachmentPlaceholder: View {
 
     private var blurRadius: CGFloat {
         guard showBlurOverlay else { return 0 }
-        return isPressed ? 15 : 20
+        return isPressed ? 80 : 96
     }
 
     private var blurOpacity: Double {
-        guard showBlurOverlay else { return 1.0 }
-        return isPressed ? 0.5 : 0.3
+        1.0
     }
 
     private var placeholderAspectRatio: CGFloat {
@@ -358,16 +357,22 @@ private struct AttachmentPlaceholder: View {
             Image(uiImage: image)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
+                .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
                 .blur(radius: showBlurOverlay ? blurRadius : 0)
                 .opacity(showBlurOverlay ? blurOpacity : 1.0)
 
-            if showBlurOverlay {
+            if showBlurOverlay, !isOutgoing {
                 PhotoBlurOverlayContent()
                     .transition(.opacity)
             }
 
             PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
         }
+        .clipped()
+        .overlay(alignment: isOutgoing ? .bottom : .top) {
+            PhotoEdgeGradient(isOutgoing: isOutgoing)
+        }
+        .compositingGroup()
         .contentShape(Rectangle())
         .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
         .animation(.easeOut(duration: 0.15), value: isPressed)
@@ -499,17 +504,11 @@ struct PhotoSenderLabel: View {
                 useSystemPlaceholder: false
             )
             .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
-            .overlay(
-                Circle()
-                    .strokeBorder(Color.colorVibrantQuaternary, lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
 
             if !isOutgoing {
                 Text(profile.displayName)
                     .font(.caption)
                     .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
             }
         }
         .padding(DesignConstants.Spacing.step4x)

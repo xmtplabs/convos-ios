@@ -44,8 +44,8 @@ struct AppSettingsView: View {
                 Section {
                     VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                         Text("Convos")
-                            .font(.system(size: 40, weight: .bold))
-                            .tracking(-1)
+                            .font(.convosTitle)
+                            .tracking(Font.convosTitleTracking)
                             .foregroundStyle(.colorTextPrimary)
                         Text("Private chat for the AI world")
                             .font(.subheadline)
@@ -219,7 +219,7 @@ struct AppSettingsView: View {
     }
 
     private func sendFeedback() {
-        let email = "convos@ephemerahq.com"
+        let email = "convos@xmtp.com"
         let subject = "Convos Feedback"
         let mailtoString = "mailto:\(email)?subject=\(subject.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? subject)"
 

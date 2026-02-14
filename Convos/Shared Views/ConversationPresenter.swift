@@ -85,6 +85,7 @@ private struct ConversationIndicatorWrapper: View {
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
             explodeState: viewModel.explodeState,
             onConversationInfoTapped: { viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator) },
+            onConversationInfoLongPressed: { viewModel.onConversationInfoLongPress(focusCoordinator: focusCoordinator) },
             onConversationNameEndedEditing: {
                 viewModel.onConversationNameEndedEditing(
                     focusCoordinator: focusCoordinator,

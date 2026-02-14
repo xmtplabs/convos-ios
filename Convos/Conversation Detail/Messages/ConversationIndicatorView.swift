@@ -174,6 +174,7 @@ struct ConversationIndicatorView<InfoView: View>: View {
             showsExplodeNowButton: false,
             explodeState: .ready,
             onConversationInfoTapped: {},
+            onConversationInfoLongPressed: {},
             onConversationNameEndedEditing: {},
             onConversationSettings: {},
             onExplodeNow: {},

@@ -31,28 +31,27 @@ struct RevealSettingsToast: View {
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: "eye.circle.fill")
-                .font(.system(size: 32.0))
-                .foregroundStyle(.colorOrange)
-                .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
-
             VStack(alignment: .leading, spacing: 2) {
-                Text("Reveal media")
+                Text("Reveal mode")
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.colorTextPrimary)
 
-                Text(isAutoReveal ? "Automatic" : "Tap to reveal")
+                Text("Blur incoming pics")
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
             }
 
             Spacer()
 
-            Toggle("", isOn: $isAutoReveal)
+            Toggle("", isOn: Binding(
+                get: { !isAutoReveal },
+                set: { isAutoReveal = !$0 }
+            ))
                 .labelsHidden()
                 .padding(.trailing, DesignConstants.Spacing.stepX)
         }
-        .padding(.horizontal, DesignConstants.Spacing.step2x)
+        .padding(.leading, DesignConstants.Spacing.step4x)
+        .padding(.trailing, DesignConstants.Spacing.step2x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
         .fixedSize()
         .clipShape(.capsule)

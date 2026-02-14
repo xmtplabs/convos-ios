@@ -76,7 +76,7 @@ public protocol PhotoAttachmentServiceProtocol: Sendable {
     ) async throws -> PreparedBackgroundUpload
 
     func generateFilename() -> String
-    func localCacheURL(for filename: String) -> URL
+    func localCacheURL(for filename: String) throws -> URL
 }
 
 public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Sendable {
@@ -86,9 +86,9 @@ public final class PhotoAttachmentService: PhotoAttachmentServiceProtocol, Senda
         "photo_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).jpg"
     }
 
-    public func localCacheURL(for filename: String) -> URL {
+    public func localCacheURL(for filename: String) throws -> URL {
         guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
-            fatalError("Unable to access cache directory")
+            throw PhotoAttachmentError.persistentStorageUnavailable
         }
         let photosDir = cacheDir.appendingPathComponent("SentPhotos", isDirectory: true)
         return photosDir.appendingPathComponent(filename)

@@ -16,6 +16,7 @@ struct ConversationIndicator<InfoView: View>: View {
     let showsExplodeNowButton: Bool
     let explodeState: ExplodeState
     let onConversationInfoTapped: () -> Void
+    let onConversationInfoLongPressed: () -> Void
     let onConversationNameEndedEditing: () -> Void
     let onConversationSettings: () -> Void
     let onExplodeNow: () -> Void
@@ -46,7 +47,8 @@ struct ConversationIndicator<InfoView: View>: View {
                         conversationName: conversationName,
                         placeholderName: untitledConversationPlaceholder,
                         subtitle: subtitle,
-                        action: onConversationInfoTapped
+                        action: onConversationInfoTapped,
+                        longPressAction: onConversationInfoLongPressed
                     )
                     .fixedSize(horizontal: false, vertical: true)
                     .clipShape(.capsule)
@@ -155,6 +157,9 @@ struct ConversationIndicator<InfoView: View>: View {
             showsExplodeNowButton: true,
             explodeState: .ready,
             onConversationInfoTapped: {
+                focusCoordinator?.moveFocus(to: .conversationName)
+            },
+            onConversationInfoLongPressed: {
                 focusCoordinator?.moveFocus(to: .conversationName)
             },
             onConversationNameEndedEditing: {

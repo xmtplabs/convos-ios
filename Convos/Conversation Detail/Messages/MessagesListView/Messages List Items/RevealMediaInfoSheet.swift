@@ -4,43 +4,24 @@ struct RevealMediaInfoSheet: View {
     @Environment(\.dismiss) var dismiss: DismissAction
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text("Real life is off the record.™")
-                .font(.caption)
-                .foregroundColor(.colorTextSecondary)
-            Text("Reveal")
-                .font(.system(.largeTitle))
-                .fontWeight(.bold)
-            Text("You control when, where and whether media can appear in your convos.")
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
-            Text("Revealing is a personal decision, and the sender will not know your choice.")
-                .font(.body)
-                .foregroundStyle(.colorTextSecondary)
-
-            VStack(spacing: DesignConstants.Spacing.step2x) {
-                Button {
-                    dismiss()
-                } label: {
-                    Text("Got it")
-                }
-                .convosButtonStyle(.rounded(fullWidth: true))
-            }
-            .padding(.top, DesignConstants.Spacing.step4x)
-        }
-        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        FeatureInfoSheet(
+            tagline: "Real life is off the record.™",
+            title: "Reveal",
+            subtitle: "View things when you choose to. Blur or reveal any pic, anytime.",
+            paragraphs: [
+                .init("Revealing is a personal preference, and no one else in the convo will know your choice."),
+            ],
+            primaryButtonAction: { dismiss() },
+            learnMoreURL: URL(string: "https://learn.convos.org/reveal")
+        )
     }
 }
 
 #Preview {
-    @Previewable @State var isPresented = true
+    @Previewable @State var isPresented: Bool = true
 
     VStack {
-        Button {
-            isPresented.toggle()
-        } label: {
-            Text("Show Sheet")
-        }
+        Button { isPresented.toggle() } label: { Text("Show") }
     }
     .selfSizingSheet(isPresented: $isPresented) {
         RevealMediaInfoSheet()

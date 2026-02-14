@@ -1,5 +1,28 @@
 import SwiftUI
 
+struct PhotoEdgeGradient: View {
+    let isOutgoing: Bool
+
+    var body: some View {
+        VStack(spacing: 0) {
+            if !isOutgoing {
+                Color(.colorBorderEdge).frame(height: 1)
+            }
+            LinearGradient(
+                colors: [.black, .clear],
+                startPoint: isOutgoing ? .bottom : .top,
+                endPoint: isOutgoing ? .top : .bottom
+            )
+            .frame(height: 56)
+            .opacity(0.15)
+            .blendMode(.multiply)
+            if isOutgoing {
+                Color(.colorBorderEdge).frame(height: 1)
+            }
+        }
+    }
+}
+
 struct PhotoBlurOverlayContent: View {
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -11,7 +34,7 @@ struct PhotoBlurOverlayContent: View {
                 .font(.system(size: 20))
                 .foregroundStyle(.white)
         }
-        .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+        .opacity(0.6)
         .padding(DesignConstants.Spacing.step4x)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
     }

@@ -51,7 +51,7 @@ struct MessagesGroupView: View {
                         .blur(radius: isAppearing ? 10.0 : 0.0)
                         .font(.footnote)
                         .foregroundColor(.secondary)
-                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x)
+                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
                         .padding(.bottom, DesignConstants.Spacing.stepHalf)
                 }
 
@@ -109,7 +109,7 @@ struct MessagesGroupView: View {
                         }
                     }
                 }
-                .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step2x : 0)
+                .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
 
                 if !message.base.reactions.isEmpty {
                     ReactionIndicatorView(
@@ -117,7 +117,7 @@ struct MessagesGroupView: View {
                         isOutgoing: message.base.sender.isCurrentUser,
                         onTap: { onTapReactions(message) }
                     )
-                    .padding(.leading, message.base.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step2x : avatarWidth + DesignConstants.Spacing.step2x))
+                    .padding(.leading, message.base.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step4x : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x))
                     .padding(.trailing, message.base.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
                     .padding(.bottom, DesignConstants.Spacing.stepX)
                     .transition(.identity)

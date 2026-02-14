@@ -272,7 +272,14 @@ class TestableMockMessageSender: MessageSender {
         ""
     }
 
+    func prepare(reply: Reply) async throws -> String {
+        ""
+    }
+
     func publish() async throws {
+    }
+
+    func publishMessage(messageId: String) async throws {
     }
 
     func consentState() throws -> ConsentState {

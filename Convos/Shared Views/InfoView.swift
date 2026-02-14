@@ -8,29 +8,19 @@ struct InfoView: View {
     @Environment(\.dismiss) var dismiss: DismissAction
 
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text(title)
-                .font(.system(.largeTitle))
-                .fontWeight(.bold)
-            Text(description)
-                .font(.body)
-                .foregroundStyle(.colorTextSecondary)
-
-            VStack(spacing: DesignConstants.Spacing.step2x) {
-                Button {
-                    if let onDismiss {
-                        onDismiss()
-                    } else {
-                        dismiss()
-                    }
-                } label: {
-                    Text("Got it")
+        FeatureInfoSheet(
+            title: title,
+            paragraphs: [
+                .init(description),
+            ],
+            primaryButtonAction: {
+                if let onDismiss {
+                    onDismiss()
+                } else {
+                    dismiss()
                 }
-                .convosButtonStyle(.rounded(fullWidth: true))
             }
-            .padding(.vertical, DesignConstants.Spacing.step4x)
-        }
-        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        )
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("info-view")
     }

@@ -150,7 +150,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     func send(image: ImageType) async throws {
         let clientMessageId = UUID().uuidString
         let filename = photoService.generateFilename()
-        let localCacheURL = photoService.localCacheURL(for: filename)
+        let localCacheURL = try photoService.localCacheURL(for: filename)
 
         ImageCacheContainer.shared.cacheImage(image, for: localCacheURL.absoluteString)
 
@@ -180,7 +180,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     func startEagerUpload(image: ImageType) async throws -> String {
         let clientMessageId = UUID().uuidString
         let filename = photoService.generateFilename()
-        let localCacheURL = photoService.localCacheURL(for: filename)
+        let localCacheURL = try photoService.localCacheURL(for: filename)
         let trackingKey = localCacheURL.absoluteString
 
         Log.info("Starting eager upload for trackingKey: \(trackingKey)")
@@ -299,6 +299,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             if let state = eagerUploads[trackingKey] {
                 try? await markMessageFailed(clientMessageId: state.clientMessageId)
             }
+            await markPhotoFailed(trackingKey: trackingKey)
             Log.error("Eager upload failed for: \(trackingKey)")
         }
     }
@@ -389,6 +390,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         PhotoUploadProgressTracker.shared.clear(key: trackingKey)
 
+        await markPhotoFailed(trackingKey: trackingKey)
         eagerUploads.removeValue(forKey: trackingKey)
     }
 
@@ -452,6 +454,14 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                     try await processEagerPhoto(trackingKey: queued.trackingKey)
                 }
             } catch {
+                switch message {
+                case .photo(let queued):
+                    await markPhotoFailed(trackingKey: queued.localCacheURL.absoluteString)
+                case .eagerPhoto(let queued):
+                    await markPhotoFailed(trackingKey: queued.trackingKey)
+                case .text:
+                    break
+                }
                 Log.error("Failed to publish message: \(error)")
             }
         }
@@ -597,14 +607,19 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         do {
             try await sender.publish()
-            try await markMessagePublished(messageId: xmtpMessageId)
-            sentMessageSubject.send(queued.text)
-            Log.info("Published text message with id: \(xmtpMessageId)")
         } catch {
             Log.error("Failed publishing text message: \(error)")
             try? await markMessageFailed(messageId: xmtpMessageId)
             throw error
         }
+
+        do {
+            try await markMessagePublished(messageId: xmtpMessageId)
+        } catch {
+            Log.error("Failed to update message status after successful publish: \(error)")
+        }
+        sentMessageSubject.send(queued.text)
+        Log.info("Published text message with id: \(xmtpMessageId)")
     }
 
     private func publishPhoto(_ queued: QueuedPhotoMessage) async throws {
@@ -702,6 +717,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             throw OutgoingMessageWriterError.missingClientProvider
         }
 
+        let publishResult: (xmtpMessageId: String, storedJSON: String)
+
         do {
             let remoteAttachment = try RemoteAttachment(
                 url: prepared.assetURL,
@@ -714,14 +731,14 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 filename: prepared.filename
             )
 
-            let xmtpMessageId: String
+            let messageId: String
             if let replyContext {
                 let reply = Reply(reference: replyContext.parentDbId, content: remoteAttachment, contentType: ContentTypeRemoteAttachment)
-                xmtpMessageId = try await sender.prepare(reply: reply)
+                messageId = try await sender.prepare(reply: reply)
             } else {
-                xmtpMessageId = try await sender.prepare(remoteAttachment: remoteAttachment)
+                messageId = try await sender.prepare(remoteAttachment: remoteAttachment)
             }
-            Log.info("Prepared photo message - XMTP id: \(xmtpMessageId), clientMessageId: \(queued.clientMessageId)")
+            Log.info("Prepared photo message - XMTP id: \(messageId), clientMessageId: \(queued.clientMessageId)")
 
             let storedAttachment = StoredRemoteAttachment(
                 url: remoteAttachment.url,
@@ -731,7 +748,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 nonce: remoteAttachment.nonce,
                 filename: remoteAttachment.filename
             )
-            guard let storedJSON = try? storedAttachment.toJSON() else {
+            guard let json = try? storedAttachment.toJSON() else {
                 tracker.setStage(.failed, for: trackingKey)
                 try await pendingUploadWriter.updateState(
                     taskId: prepared.taskId,
@@ -741,51 +758,37 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 throw PhotoAttachmentError.encryptionFailed
             }
 
-            ImageCacheContainer.shared.cacheImage(queued.image, for: storedJSON)
+            ImageCacheContainer.shared.cacheImage(queued.image, for: json)
 
-            // Encode attachmentUrls as JSON (matches GRDB's Codable encoding for [String])
-            let attachmentUrlsJSON = try JSONEncoder().encode([storedJSON])
+            let attachmentUrlsJSON = try JSONEncoder().encode([json])
             let attachmentUrlsString = String(data: attachmentUrlsJSON, encoding: .utf8) ?? "[]"
 
             let oldAttachmentKey = queued.localCacheURL.absoluteString
             Log.info("[OutgoingMessageWriter] About to update DB. Old key: \(oldAttachmentKey.prefix(60))...")
-            Log.info("[OutgoingMessageWriter] New key (storedJSON): \(storedJSON.prefix(80))...")
+            Log.info("[OutgoingMessageWriter] New key (storedJSON): \(json.prefix(80))...")
 
+            let clientMessageId = queued.clientMessageId
             try await databaseWriter.write { db in
-                // Atomic update - change primary key and attachment URL in one transaction
-                // This avoids the DELETE/INSERT pattern that causes message flash
                 try db.execute(
                     sql: """
                         UPDATE message
                         SET id = ?, attachmentUrls = ?
                         WHERE id = ?
                         """,
-                    arguments: [xmtpMessageId, attachmentUrlsString, queued.clientMessageId]
+                    arguments: [messageId, attachmentUrlsString, clientMessageId]
                 )
-                // Update any messages that reference this one via sourceMessageId
                 try db.execute(
                     sql: "UPDATE message SET sourceMessageId = ? WHERE sourceMessageId = ?",
-                    arguments: [xmtpMessageId, queued.clientMessageId]
+                    arguments: [messageId, clientMessageId]
                 )
-                Log.info("Updated photo message - id: \(xmtpMessageId), clientMessageId: \(queued.clientMessageId)")
+                Log.info("Updated photo message - id: \(messageId), clientMessageId: \(clientMessageId)")
             }
 
-            // Migrate the attachment local state (dimensions, reveal status) from the local file:// key
-            // to the new remote attachment JSON key so dimensions are preserved after upload
-            try await attachmentLocalStateWriter.migrateKey(from: oldAttachmentKey, to: storedJSON)
+            try await attachmentLocalStateWriter.migrateKey(from: oldAttachmentKey, to: json)
 
             try await sender.publish()
-            try await markMessagePublished(messageId: xmtpMessageId)
-            Log.info("Published photo message with id: \(xmtpMessageId)")
 
-            try await pendingUploadWriter.delete(taskId: prepared.taskId)
-            try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
-
-            tracker.setStage(.completed, for: trackingKey)
-            sentMessageSubject.send(storedJSON)
-
-            // Release any text messages that were waiting for this photo
-            markPhotoPublished(trackingKey: trackingKey)
+            publishResult = (xmtpMessageId: messageId, storedJSON: json)
         } catch {
             tracker.setStage(.failed, for: trackingKey)
             Log.error("Failed publishing photo message: \(error)")
@@ -797,6 +800,21 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             try? await markMessageFailed(clientMessageId: queued.clientMessageId)
             throw error
         }
+
+        do {
+            try await markMessagePublished(messageId: publishResult.xmtpMessageId)
+        } catch {
+            Log.error("Failed to update photo message status after successful publish: \(error)")
+        }
+        Log.info("Published photo message with id: \(publishResult.xmtpMessageId)")
+
+        try? await pendingUploadWriter.delete(taskId: prepared.taskId)
+        try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
+
+        tracker.setStage(.completed, for: trackingKey)
+        sentMessageSubject.send(publishResult.storedJSON)
+
+        markPhotoPublished(trackingKey: trackingKey)
     }
 
     // MARK: - Status Updates
@@ -848,6 +866,16 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         // Continue processing if we released any texts
         if !released.isEmpty {
             startProcessingIfNeeded()
+        }
+    }
+
+    private func markPhotoFailed(trackingKey: String) async {
+        let orphaned = pendingTexts.filter { $0.dependsOnPhotoKey == trackingKey }
+        pendingTexts.removeAll { $0.dependsOnPhotoKey == trackingKey }
+
+        for text in orphaned {
+            Log.error("Marking dependent text \(text.clientMessageId) as failed after photo \(trackingKey) failed")
+            try? await markMessageFailed(clientMessageId: text.clientMessageId)
         }
     }
 }

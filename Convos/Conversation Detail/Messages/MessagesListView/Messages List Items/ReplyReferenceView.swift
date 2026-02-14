@@ -77,8 +77,8 @@ struct ReplyReferenceView: View {
                     .font(DesignConstants.Fonts.caption3)
                     .foregroundStyle(.tertiary)
             }
-            .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step5x)
-            .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step5x : 0.0)
+            .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
+            .padding(.trailing, isOutgoing ? (DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x) : 0.0)
 
             if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
@@ -87,12 +87,10 @@ struct ReplyReferenceView: View {
                     onReveal: { onPhotoRevealed?(attachment.key) },
                     onHide: { onPhotoHidden?(attachment.key) }
                 )
-                .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                 .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let emoji = parentEmoji {
                 Text(emoji)
                     .font(.largeTitle)
-                    .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                     .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let invite = parentInvite {
                 if let onTapInvite {
@@ -101,11 +99,9 @@ struct ReplyReferenceView: View {
                         ReplyReferenceInvitePreview(invite: invite)
                     }
                     .buttonStyle(.plain)
-                    .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                     .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 } else {
                     ReplyReferenceInvitePreview(invite: invite)
-                        .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                         .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 }
             } else {
@@ -122,7 +118,6 @@ struct ReplyReferenceView: View {
                             .layoutPriority(-1)
                     }
                 }
-                .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
                 .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             }
         }
@@ -227,8 +222,9 @@ private struct ReplyReferencePhotoPreview: View {
                     .resizable()
                     .aspectRatio(contentMode: .fit)
                     .frame(maxHeight: Self.maxHeight)
-                    .blur(radius: shouldBlur ? 10 : 0)
-                    .opacity(shouldBlur ? 0.4 : 1.0)
+                    .scaleEffect(shouldBlur ? 1.65 : 1.0)
+                    .blur(radius: shouldBlur ? 96 : 0)
+                    .opacity(1.0)
                     .clipShape(RoundedRectangle(cornerRadius: 12.0))
                     .contentShape(RoundedRectangle(cornerRadius: 12.0))
                     .onTapGesture {
@@ -245,7 +241,7 @@ private struct ReplyReferencePhotoPreview: View {
                         } else {
                             let hideAction = { onHide() }
                             Button(action: hideAction) {
-                                Label("Hide", systemImage: "eye.slash")
+                                Label("Blur", systemImage: "eye.slash")
                             }
                         }
                     }

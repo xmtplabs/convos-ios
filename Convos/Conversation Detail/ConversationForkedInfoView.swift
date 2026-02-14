@@ -33,10 +33,7 @@ struct ConversationForkedInfoView: View {
                     Text("Delete convo")
                 }
                 .convosButtonStyle(.rounded(fullWidth: true, backgroundColor: .colorBackgroundInverted))
-            }
-            .padding(.top, DesignConstants.Spacing.step4x)
 
-            VStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {
                     // swiftlint:disable:next force_unwrapping
                     openURL(URL(string: "https://learn.convos.org/error-01")!)
@@ -46,11 +43,15 @@ struct ConversationForkedInfoView: View {
                 .convosButtonStyle(.text)
                 .frame(maxWidth: .infinity)
             }
+            .padding(.top, DesignConstants.Spacing.step4x)
         }
-        .padding(DesignConstants.Spacing.step10x)
+        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : 0)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("conversation-forked-info")
     }
+
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 }
 
 #Preview {

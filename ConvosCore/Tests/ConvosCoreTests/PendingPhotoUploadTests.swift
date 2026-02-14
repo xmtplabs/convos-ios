@@ -158,10 +158,14 @@ struct PendingPhotoUploadTests {
             description: nil,
             imageURLString: nil,
             publicImageURLString: nil,
-            includeImageInPublicPreview: false,
+            includeInfoInPublicPreview: false,
             expiresAt: nil,
             debugInfo: .empty,
-            isLocked: false
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            isUnused: false
         )
     }
 }
