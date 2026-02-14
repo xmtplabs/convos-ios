@@ -42,6 +42,9 @@ struct MessagesGroupItemView: View {
                     onPhotoRevealed: onPhotoRevealed,
                     onPhotoHidden: onPhotoHidden
                 )
+                .padding(.leading, !message.base.sender.isCurrentUser && message.base.content.isAttachment
+                    ? DesignConstants.Spacing.step4x
+                    : 0.0)
             }
             switch message.base.content {
             case .text(let text):
