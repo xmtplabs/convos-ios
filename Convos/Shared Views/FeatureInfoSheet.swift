@@ -74,11 +74,9 @@ struct FeatureInfoSheet: View {
             }
             .padding(.top, DesignConstants.Spacing.step4x)
         }
-        .background(.red.opacity(0.3))
         .padding([.leading, .trailing], DesignConstants.Spacing.step10x)
         .padding(.top, DesignConstants.Spacing.step8x)
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
-        .background(.red.opacity(0.15))
         .sheetDragIndicator(showDragIndicator ? .visible : .hidden)
     }
 
