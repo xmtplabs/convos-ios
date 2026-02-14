@@ -141,11 +141,27 @@ SIMULATOR_NAME=$sim_name
 EOF
 }
 
-launch_terminal() {
+create_task_session() {
+    local task_name="$1"
+    local dir="$2"
+    local session_name="convos_$task_name"
+
+    # Create tmux session on convos-tasks socket if it doesn't exist
+    if ! tmux -L convos-tasks has-session -t "$session_name" 2>/dev/null; then
+        tmux -L convos-tasks new-session -d -s "$session_name" -c "$dir" "claude"
+    fi
+}
+
+launch_claude_in_terminal() {
     local dir="$1"
     local task_name="$2"
+    local session_name="convos_$task_name"
 
-    local cd_cmd="cd '$dir'"
+    # Create the tmux session on convos-tasks socket (for monitoring)
+    create_task_session "$task_name" "$dir"
+
+    # Attach to the session via Terminal/iTerm
+    local attach_cmd="tmux -L convos-tasks attach -t $session_name"
 
     # Check if iTerm is available (installed)
     if [ -d "/Applications/iTerm.app" ]; then
@@ -158,7 +174,7 @@ tell application "iTerm"
                 create tab with default profile
                 tell current session
                     set name to "$task_name"
-                    write text "$cd_cmd"
+                    write text "$attach_cmd"
                 end tell
             end tell
         else
@@ -166,7 +182,7 @@ tell application "iTerm"
             tell current window
                 tell current session
                     set name to "$task_name"
-                    write text "$cd_cmd"
+                    write text "$attach_cmd"
                 end tell
             end tell
         end if
@@ -176,7 +192,7 @@ tell application "iTerm"
         tell current window
             tell current session
                 set name to "$task_name"
-                write text "$cd_cmd"
+                write text "$attach_cmd"
             end tell
         end tell
     end if
@@ -190,9 +206,9 @@ tell application "Terminal"
     if (count of windows) > 0 then
         tell application "System Events" to keystroke "t" using command down
         delay 0.3
-        do script "$title_cmd; $cd_cmd" in front window
+        do script "$title_cmd; $attach_cmd" in front window
     else
-        do script "$title_cmd; $cd_cmd"
+        do script "$title_cmd; $attach_cmd"
     end if
     activate
 end tell
@@ -315,7 +331,7 @@ cmd_new() {
                 if xcrun simctl clone "$base_sim" "$SIM_NAME" >"$sim_log" 2>&1; then
                     echo "✅ Simulator '$SIM_NAME' created successfully" >> "$sim_log"
                 else
-                    echo "❌ Failed to create simulator '$SIM_NAME' - run /setup to retry" >> "$sim_log"
+                    echo "❌ Failed to create simulator '$SIM_NAME' - run /setup in Claude to retry" >> "$sim_log"
                 fi
             else
                 echo "✅ Simulator '$SIM_NAME' already exists" >> "$sim_log"
@@ -323,10 +339,10 @@ cmd_new() {
         ) &
     fi
 
-    # Open a new terminal tab in the worktree
-    echo -e "\n${BLUE}Opening terminal...${NC}"
-    launch_terminal "$WORKTREE_DIR" "$TASK_NAME"
-    echo -e "${GREEN}✅ Terminal opened at $WORKTREE_DIR${NC}"
+    # Launch Claude in a new terminal tab
+    echo -e "\n${BLUE}Launching Claude Code...${NC}"
+    launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
+    echo -e "${GREEN}✅ Claude Code launched${NC}"
 }
 
 cmd_list() {
@@ -402,8 +418,8 @@ cmd_switch() {
     fi
 
     echo -e "${BLUE}Switching to task: $TASK_NAME${NC}"
-    launch_terminal "$WORKTREE_DIR" "$TASK_NAME"
-    echo -e "${GREEN}✅ Terminal opened at $WORKTREE_DIR${NC}"
+    launch_claude_in_terminal "$WORKTREE_DIR" "$TASK_NAME"
+    echo -e "${GREEN}✅ Claude Code launched${NC}"
 }
 
 cmd_submit() {
@@ -545,6 +561,9 @@ cmd_prune() {
 
             echo -e "\n${BLUE}Cleaning up: $task${NC}"
 
+            # Kill any tmux sessions for this task
+            tmux -L convos-tasks kill-session -t "convos_$task" 2>/dev/null || true
+
             # Remove worktree
             echo -e "  Removing worktree..."
             git worktree remove "$wt" --force 2>/dev/null || {
@@ -601,6 +620,9 @@ cmd_cleanup() {
 
     if [[ $REPLY =~ ^[Yy]$ ]]; then
         cd "$MAIN_REPO"
+
+        # Kill any tmux sessions for this task
+        tmux -L convos-tasks kill-session -t "convos_$TASK_NAME" 2>/dev/null || true
 
         # Remove worktree
         echo -e "${BLUE}Removing worktree...${NC}"
@@ -770,7 +792,7 @@ ${GREEN}Commands:${NC}                   ${YELLOW}Shortcuts:${NC}
   console                   Launch interactive TUI dashboard              ${YELLOW}con${NC}
   new <task-name> [parent]  Create new worktree and Graphite branch       ${YELLOW}n${NC}
   list                      List all active worktrees                     ${YELLOW}l, ls${NC}
-  switch <task-name>        Open terminal tab for task                    ${YELLOW}sw, o${NC}
+  switch <task-name>        Open Claude in terminal for task              ${YELLOW}sw, o${NC}
   submit [task-name]        Submit PR via Graphite (gt submit)            ${YELLOW}sub, pr${NC}
   sync [task-name]          Sync with Graphite stack (gt sync)            ${YELLOW}sy${NC}
   cleanup <task-name>       Remove worktree, branch, and simulator        ${YELLOW}c, rm${NC}
@@ -794,15 +816,15 @@ ${GREEN}Examples:${NC}
 ${GREEN}Workflow:${NC}
   1. ${BLUE}convos-task console${NC}              # Launch TUI to manage all tasks
   OR
-  1. ${BLUE}convos-task new my-feature${NC}       # Creates worktree + opens terminal
-  2. Run your preferred coding agent in the worktree...
+  1. ${BLUE}convos-task new my-feature${NC}       # Creates worktree + launches Claude
+  2. Work on feature in Claude Code...
   3. ${BLUE}convos-task submit my-feature${NC}    # Submit PR via Graphite
   4. ${BLUE}convos-task cleanup my-feature${NC}   # Remove when done
 
 ${GREEN}Console (TUI):${NC}
   The convos-task-console provides an interactive dashboard for managing tasks:
   - Visual overview of all worktrees with status indicators
-  - Split-pane layout with task list and terminal session
+  - Split-pane layout with task list and Claude session
   - Keyboard shortcuts for common operations
   - Status monitoring (waiting, running, idle, error)
 
@@ -812,7 +834,7 @@ ${GREEN}Session History:${NC}
   - Sessions are searchable across all worktrees via 'aichat search'
 
 ${YELLOW}Notes:${NC}
-  - Each worktree gets its own terminal tab
+  - Each worktree is a separate Claude Code session
   - Graphite branches are automatically stacked
   - Each task gets a dedicated iOS simulator (convos-<task-name>)
   - Base simulator is auto-detected (set CONVOS_BASE_SIMULATOR to override)

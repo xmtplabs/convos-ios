@@ -1,11 +1,16 @@
 import ConvosCore
+import ConvosLogging
+import Photos
 import SwiftUI
 
 struct MessageContextMenuOverlay: View {
     @Bindable var state: MessageContextMenuState
+    let shouldBlurPhotos: Bool
     let onReaction: (String, String) -> Void
     let onReply: (AnyMessage) -> Void
     let onCopy: (String) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
 
     @State private var appeared: Bool = false
     @State private var emojiAppeared: [Bool] = []
@@ -15,6 +20,7 @@ struct MessageContextMenuOverlay: View {
     @State private var customEmoji: String?
     @State private var selectedEmoji: String?
     @State private var popScale: CGFloat = 1.0
+    @State private var blurOverride: Bool?
 
     private var message: AnyMessage? { state.presentedMessage }
 
@@ -23,8 +29,27 @@ struct MessageContextMenuOverlay: View {
         switch message.base.content {
         case .text(let text): return text
         case .emoji(let text): return text
+        case .invite(let invite):
+            return "https://\(ConfigManager.shared.associatedDomain)/v2?i=\(invite.inviteSlug)"
         default: return nil
         }
+    }
+
+    private var photoAttachment: HydratedAttachment? {
+        guard let message else { return nil }
+        switch message.base.content {
+        case .attachment(let attachment): return attachment
+        case .attachments(let attachments): return attachments.first
+        default: return nil
+        }
+    }
+
+    private var shouldBlurPhoto: Bool {
+        if let blurOverride { return blurOverride }
+        guard let photoAttachment, let message else { return false }
+        if photoAttachment.isHiddenByOwner { return true }
+        if message.base.sender.isCurrentUser { return false }
+        return shouldBlurPhotos && !photoAttachment.isRevealed
     }
 
     var body: some View {
@@ -39,10 +64,12 @@ struct MessageContextMenuOverlay: View {
                     width: state.bubbleFrame.width,
                     height: state.bubbleFrame.height
                 )
+                let isPhoto = photoAttachment != nil
                 let endBubble = endBubbleRect(
                     source: localBubble,
                     screenSize: screenSize,
-                    safeTop: safeTop
+                    safeTop: safeTop,
+                    isPhoto: isPhoto
                 )
                 let activeBubble = appeared ? endBubble : localBubble
 
@@ -73,6 +100,7 @@ struct MessageContextMenuOverlay: View {
             }
             .ignoresSafeArea()
             .onAppear {
+                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                 emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
                 withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
                     appeared = true
@@ -270,14 +298,31 @@ struct MessageContextMenuOverlay: View {
     private func endBubbleRect(
         source: CGRect,
         screenSize: CGSize,
-        safeTop: CGFloat
+        safeTop: CGFloat,
+        isPhoto: Bool = false
     ) -> CGRect {
         let topInset: CGFloat = safeTop + C.topInset
         let minY: CGFloat = topInset + C.drawerHeight + C.sectionSpacing
-        let maxY: CGFloat = screenSize.height / 2 - min(C.maxPreviewHeight, source.height)
-        let desiredY: CGFloat = min(max(source.origin.y, minY), maxY < 0 ? minY : maxY)
-        let finalX: CGFloat = (screenSize.width - source.width) / 2
-        return CGRect(x: finalX, y: desiredY, width: source.width, height: source.height)
+        let photoInset: CGFloat = isPhoto ? C.photoHorizontalInset : 0
+        var endWidth: CGFloat = source.width - (photoInset * 2)
+        var endHeight: CGFloat = isPhoto ? endWidth * (source.height / max(source.width, 1)) : source.height
+
+        let menuHeight: CGFloat = isPhoto ? C.photoMenuEstimatedHeight : C.textMenuEstimatedHeight
+        let bottomPadding: CGFloat = C.sectionSpacing + menuHeight + C.verticalBreathingRoom
+        let maxContentHeight: CGFloat = screenSize.height - minY - bottomPadding - C.verticalBreathingRoom
+
+        if endHeight > maxContentHeight {
+            let scale: CGFloat = maxContentHeight / endHeight
+            endWidth *= scale
+            endHeight = maxContentHeight
+        }
+
+        let availableHeight: CGFloat = screenSize.height - minY - bottomPadding
+        let centeredY: CGFloat = minY + (availableHeight - endHeight) / 2
+        let desiredY: CGFloat = max(centeredY, minY)
+        let finalX: CGFloat = (screenSize.width - endWidth) / 2
+
+        return CGRect(x: finalX, y: desiredY, width: endWidth, height: endHeight)
     }
 
     // MARK: - Bubble Preview
@@ -289,6 +334,8 @@ struct MessageContextMenuOverlay: View {
         endBubble: CGRect
     ) -> some View {
         let rect = appeared ? endBubble : sourceBubble
+        let endScale: CGFloat = min(endBubble.width / max(sourceBubble.width, 1), 1.0)
+        let scale: CGFloat = appeared ? endScale : 1.0
         Group {
             switch message.base.content {
             case .text(let text):
@@ -306,12 +353,34 @@ struct MessageContextMenuOverlay: View {
                     profile: message.base.sender.profile
                 )
 
+            case .attachment(let attachment):
+                photoPreview(attachment: attachment, message: message)
+
+            case .attachments(let attachments):
+                if let attachment = attachments.first {
+                    photoPreview(attachment: attachment, message: message)
+                }
+
+            case .invite(let invite):
+                MessageInviteContainerView(
+                    invite: invite,
+                    style: state.bubbleStyle,
+                    isOutgoing: state.isOutgoing,
+                    profile: message.base.sender.profile,
+                    onTapInvite: { _ in },
+                    onTapAvatar: nil
+                )
+
             default:
                 EmptyView()
             }
         }
         .contentShape(Rectangle())
-        .frame(width: rect.width, height: rect.height)
+        .frame(width: sourceBubble.width)
+        .fixedSize(horizontal: false, vertical: true)
+        .scaleEffect(scale, anchor: .center)
+        .frame(width: rect.width, height: rect.height, alignment: .center)
+        .clipped()
         .offset(x: rect.minX, y: rect.minY)
         .shadow(
             color: .black.opacity(appeared ? 0.18 : 0.0),
@@ -320,6 +389,17 @@ struct MessageContextMenuOverlay: View {
             y: appeared ? 8 : 0
         )
         .animation(.spring(response: 0.36, dampingFraction: 0.8), value: appeared)
+    }
+
+    @ViewBuilder
+    private func photoPreview(attachment: HydratedAttachment, message: AnyMessage) -> some View {
+        ContextMenuPhotoPreview(
+            attachmentKey: attachment.key,
+            isOutgoing: state.isOutgoing,
+            profile: message.base.sender.profile,
+            shouldBlur: shouldBlurPhoto,
+            cornerRadius: C.photoCornerRadius
+        )
     }
 
     // MARK: - Action Menu
@@ -331,41 +411,58 @@ struct MessageContextMenuOverlay: View {
         return GlassEffectContainer {
             VStack(spacing: 0) {
                 let replyAction = {
+                    Log.info("[ContextMenu] Reply action fired")
                     let msg = message
                     dismissMenu()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
                         onReply(msg)
                     }
                 }
-                Button(action: replyAction) {
-                    Label("Reply", systemImage: "arrowshape.turn.up.left")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, C.actionPaddingH)
-                        .padding(.vertical, C.actionPaddingV)
-                        .contentShape(Rectangle())
-                }
-                .accessibilityLabel("Reply to message")
-                .accessibilityIdentifier("context-menu-reply")
+                menuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
 
                 if let text = copyableText {
-                    Divider()
-                        .padding(.horizontal, C.actionPaddingH)
+                    menuDivider
                     let copyAction = {
                         dismissMenu()
                         onCopy(text)
                     }
-                    Button(action: copyAction) {
-                        Label("Copy", systemImage: "doc.on.doc")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, C.actionPaddingH)
-                            .padding(.vertical, C.actionPaddingV)
-                            .contentShape(Rectangle())
+                    menuRow(icon: "doc.on.doc", title: "Copy", action: copyAction)
+                }
+
+                if let attachment = photoAttachment {
+                    menuDivider
+                    let saveAction = {
+                        Log.info("[ContextMenu] Save action fired")
+                        savePhoto(attachmentKey: attachment.key)
+                        dismissMenu()
                     }
-                    .accessibilityLabel("Copy message text")
-                    .accessibilityIdentifier("context-menu-copy")
+                    menuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
+
+                    menuDivider
+                    let isBlurred = shouldBlurPhoto
+                    let key = attachment.key
+                    let revealCallback = onPhotoRevealed
+                    let hideCallback = onPhotoHidden
+                    let toggleAction = {
+                        Log.info("[ContextMenu] Toggle action fired, isBlurred=\(isBlurred), key=\(key.prefix(30))...")
+                        if isBlurred {
+                            Log.info("[ContextMenu] Calling reveal")
+                            blurOverride = false
+                            revealCallback(key)
+                        } else {
+                            Log.info("[ContextMenu] Calling hide")
+                            blurOverride = true
+                            hideCallback(key)
+                        }
+                        dismissMenuAfterStateChange()
+                    }
+                    menuRow(
+                        icon: isBlurred ? "eye" : "eye.slash",
+                        title: isBlurred ? "Reveal" : "Hide",
+                        action: toggleAction
+                    )
                 }
             }
-            .font(.body)
             .foregroundStyle(.primary)
             .opacity(appeared ? 1.0 : 0.0)
             .animation(
@@ -391,6 +488,36 @@ struct MessageContextMenuOverlay: View {
 
     // MARK: - Helpers
 
+    private func savePhoto(attachmentKey: String) {
+        guard let image = ImageCache.shared.image(for: attachmentKey) else { return }
+        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+            guard status == .authorized || status == .limited else { return }
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            }
+        }
+    }
+
+    private func menuRow(icon: String, title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: C.menuIconSpacing) {
+                Image(systemName: icon)
+                    .frame(width: C.menuIconWidth)
+                Text(title)
+                Spacer()
+            }
+            .font(.body)
+            .padding(.horizontal, C.actionPaddingH)
+            .padding(.vertical, C.actionPaddingV)
+            .contentShape(Rectangle())
+        }
+    }
+
+    private var menuDivider: some View {
+        Divider()
+            .padding(.horizontal, C.actionPaddingH)
+    }
+
     private func dismissMenu() {
         showingEmojiPicker = false
         withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
@@ -404,6 +531,24 @@ struct MessageContextMenuOverlay: View {
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
             state.dismiss()
+            blurOverride = nil
+        }
+    }
+
+    private func dismissMenuAfterStateChange() {
+        showingEmojiPicker = false
+        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+            appeared = false
+            emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
+            showMoreAppeared = false
+            selectedEmoji = nil
+            customEmoji = nil
+            popScale = 1.0
+            drawerExpanded = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+            state.dismiss()
+            blurOverride = nil
         }
     }
 
@@ -426,12 +571,66 @@ struct MessageContextMenuOverlay: View {
         static let emojiAppearanceDelayStep: TimeInterval = 0.036
         static let menuWidth: CGFloat = 200
         static let menuCornerRadius: CGFloat = 14
-        static let actionPaddingH: CGFloat = 16
-        static let actionPaddingV: CGFloat = 12
+        static let actionPaddingH: CGFloat = 24
+        static let actionPaddingV: CGFloat = 16
+        static let menuIconWidth: CGFloat = 24
+        static let menuIconSpacing: CGFloat = 12
         static let topInset: CGFloat = 56
         static let maxPreviewHeight: CGFloat = 75
+        static let photoHorizontalInset: CGFloat = 16
+        static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
+        static let textMenuEstimatedHeight: CGFloat = 100
+        static let photoMenuEstimatedHeight: CGFloat = 220
+        static let verticalBreathingRoom: CGFloat = 80
 
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
     // swiftlint:enable type_name
+}
+
+// MARK: - Context Menu Photo Preview
+
+private struct ContextMenuPhotoPreview: View {
+    let attachmentKey: String
+    let isOutgoing: Bool
+    let profile: Profile
+    let shouldBlur: Bool
+    let cornerRadius: CGFloat
+
+    @State private var loadedImage: UIImage?
+
+    init(attachmentKey: String, isOutgoing: Bool, profile: Profile, shouldBlur: Bool, cornerRadius: CGFloat = DesignConstants.CornerRadius.photo) {
+        self.attachmentKey = attachmentKey
+        self.isOutgoing = isOutgoing
+        self.profile = profile
+        self.shouldBlur = shouldBlur
+        self.cornerRadius = cornerRadius
+        _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+    }
+
+    var body: some View {
+        Group {
+            if let image = loadedImage {
+                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .blur(radius: shouldBlur ? 20 : 0)
+                        .opacity(shouldBlur ? 0.3 : 1.0)
+
+                    PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                }
+                .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+            } else {
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(.quaternary)
+            }
+        }
+        .task {
+            guard loadedImage == nil else { return }
+            if let cachedImage = await ImageCache.shared.imageAsync(for: attachmentKey) {
+                loadedImage = cachedImage
+            }
+        }
+    }
 }

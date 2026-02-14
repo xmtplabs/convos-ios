@@ -42,7 +42,7 @@ public actor ConversationStateMachine {
     /// ConversationReadyResult, InviteJoinError, Error). The InboxReadyResult associated
     /// value is itself @unchecked Sendable with documented thread safety. Equatable
     /// implementation compares only Sendable identifiers.
-    public enum State: Equatable, @unchecked Sendable {
+    public enum State: @unchecked Sendable {
         case uninitialized
         case creating
         case validating(inviteCode: String)
@@ -66,28 +66,6 @@ public actor ConversationStateMachine {
                 return false
             }
         }
-
-        public static func == (lhs: State, rhs: State) -> Bool {
-            switch (lhs, rhs) {
-            case (.uninitialized, .uninitialized),
-                 (.creating, .creating),
-                 (.deleting, .deleting):
-                return true
-            case let (.joining(lhsInvite, _), .joining(rhsInvite, _)):
-                return lhsInvite.invitePayload.conversationToken == rhsInvite.invitePayload.conversationToken
-            case let (.joinFailed(lhsTag, _), .joinFailed(rhsTag, _)):
-                return lhsTag == rhsTag
-            case let (.validating(lhsCode), .validating(rhsCode)):
-                return lhsCode == rhsCode
-            case let (.validated(lhsInvite, _, lhsInbox, _), .validated(rhsInvite, _, rhsInbox, _)):
-                return (lhsInvite.invitePayload.conversationToken == rhsInvite.invitePayload.conversationToken &&
-                        lhsInbox.client.inboxId == rhsInbox.client.inboxId)
-            case let (.ready(lhsResult), .ready(rhsResult)):
-                return lhsResult.conversationId == rhsResult.conversationId
-            default:
-                return false
-            }
-        }
     }
 
     // MARK: - Properties
@@ -99,15 +77,20 @@ public actor ConversationStateMachine {
     private let environment: AppEnvironment
     private let streamProcessor: any StreamProcessorProtocol
     private let clientConversationId: String
+    private let backgroundUploadManager: any BackgroundUploadManagerProtocol
 
     private var currentTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
     private var isProcessing: Bool = false
 
     // Message stream for ordered message sending
-    private var messageStreamContinuation: AsyncStream<String>.Continuation?
+    // Tuple contains (text, afterPhotoTrackingKey)
+    private var messageStreamContinuation: AsyncStream<(String, String?)>.Continuation?
     private var messageProcessingTask: Task<Void, Never>?
     private var isMessageStreamSetup: Bool = false
+
+    // Cached message writer for the current conversation
+    private var cachedMessageWriter: OutgoingMessageWriter?
 
     // Database observation task for tracking conversation join
     private var observationTask: Task<String, Error>?
@@ -163,7 +146,8 @@ public actor ConversationStateMachine {
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment,
-        clientConversationId: String
+        clientConversationId: String,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
     ) {
         self.inboxStateManager = inboxStateManager
         self.identityStore = identityStore
@@ -171,6 +155,7 @@ public actor ConversationStateMachine {
         self.databaseWriter = databaseWriter
         self.environment = environment
         self.clientConversationId = clientConversationId
+        self.backgroundUploadManager = backgroundUploadManager
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
@@ -189,7 +174,7 @@ public actor ConversationStateMachine {
         guard !isMessageStreamSetup else { return }
         isMessageStreamSetup = true
 
-        let stream = AsyncStream<String> { continuation in
+        let stream = AsyncStream<(String, String?)> { continuation in
             self.messageStreamContinuation = continuation
             continuation.onTermination = { [weak self] _ in
                 Task { [weak self] in
@@ -200,9 +185,9 @@ public actor ConversationStateMachine {
 
         // Start a single task that processes messages in order
         messageProcessingTask = Task { [weak self] in
-            for await message in stream {
+            for await (text, afterPhotoKey) in stream {
                 guard let self else { break }
-                await self.processMessage(message)
+                await self.processMessage(text, afterPhoto: afterPhotoKey)
             }
             // Stream ended, reset so it can be recreated if needed
             await self?.resetMessageStream()
@@ -215,18 +200,29 @@ public actor ConversationStateMachine {
         messageProcessingTask = nil
     }
 
-    private func processMessage(_ text: String) async {
-        do {
-            // Wait for conversation to be ready if it's not
-            let result = try await waitForConversationReadyResult()
+    private func getOrCreateMessageWriter() async throws -> OutgoingMessageWriter {
+        if let existing = cachedMessageWriter {
+            return existing
+        }
 
-            // Send the message
-            let messageWriter = OutgoingMessageWriter(
-                inboxStateManager: inboxStateManager,
-                databaseWriter: databaseWriter,
-                conversationId: result.conversationId
-            )
-            try await messageWriter.send(text: text)
+        let result = try await waitForConversationReadyResult()
+        let writer = OutgoingMessageWriter(
+            inboxStateManager: inboxStateManager,
+            databaseWriter: databaseWriter,
+            conversationId: result.conversationId,
+            photoService: PhotoAttachmentService(),
+            pendingUploadWriter: PendingPhotoUploadWriter(databaseWriter: databaseWriter),
+            backgroundUploadManager: backgroundUploadManager,
+            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter)
+        )
+        cachedMessageWriter = writer
+        return writer
+    }
+
+    private func processMessage(_ text: String, afterPhoto trackingKey: String?) async {
+        do {
+            let messageWriter = try await getOrCreateMessageWriter()
+            try await messageWriter.send(text: text, afterPhoto: trackingKey)
         } catch {
             Log.error("Error sending queued message: \(error.localizedDescription)")
         }
@@ -246,9 +242,44 @@ public actor ConversationStateMachine {
         enqueueAction(.validate(inviteCode: inviteCode))
     }
 
-    func sendMessage(text: String) {
+    func sendMessage(text: String, afterPhoto trackingKey: String? = nil) {
         setupMessageStream()
-        messageStreamContinuation?.yield(text)
+        messageStreamContinuation?.yield((text, trackingKey))
+    }
+
+    func sendPhoto(image: ImageType) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.send(image: image)
+    }
+
+    func startEagerUpload(image: ImageType) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.startEagerUpload(image: image)
+    }
+
+    func sendEagerPhoto(trackingKey: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerPhoto(trackingKey: trackingKey)
+    }
+
+    func cancelEagerUpload(trackingKey: String) async {
+        guard let writer = cachedMessageWriter else { return }
+        await writer.cancelEagerUpload(trackingKey: trackingKey)
+    }
+
+    func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: parentClientMessageId)
+    }
+
+    func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
     }
 
     func delete() {
@@ -787,31 +818,30 @@ public actor ConversationStateMachine {
             Log.debug("Failed to clear invite join error handler: \(error)")
         }
     }
+}
 
-    private func subscribeToConversationTopics(
-        conversationId: String,
-        client: any XMTPClientProvider,
-        apiClient: any ConvosAPIClientProtocol,
-        context: String
-    ) async {
-        let conversationTopic = conversationId.xmtpGroupTopicFormat
-        let welcomeTopic = client.installationId.xmtpWelcomeTopicFormat
+// MARK: - State Equatable
 
-        guard let identity = try? await identityStore.identity(for: client.inboxId) else {
-            Log.warning("Identity not found, skipping push notification subscription")
-            return
-        }
-
-        do {
-            let deviceId = DeviceInfo.deviceIdentifier
-            try await apiClient.subscribeToTopics(
-                deviceId: deviceId,
-                clientId: identity.clientId,
-                topics: [conversationTopic, welcomeTopic]
-            )
-            Log.info("Subscribed to push topics \(context): \(conversationTopic), \(welcomeTopic)")
-        } catch {
-            Log.error("Failed subscribing to topics \(context): \(error)")
+extension ConversationStateMachine.State: Equatable {
+    public static func == (lhs: Self, rhs: Self) -> Bool {
+        switch (lhs, rhs) {
+        case (.uninitialized, .uninitialized),
+             (.creating, .creating),
+             (.deleting, .deleting):
+            return true
+        case let (.joining(lhsInvite, _), .joining(rhsInvite, _)):
+            return lhsInvite.invitePayload.conversationToken == rhsInvite.invitePayload.conversationToken
+        case let (.joinFailed(lhsTag, _), .joinFailed(rhsTag, _)):
+            return lhsTag == rhsTag
+        case let (.validating(lhsCode), .validating(rhsCode)):
+            return lhsCode == rhsCode
+        case let (.validated(lhsInvite, _, lhsInbox, _), .validated(rhsInvite, _, rhsInbox, _)):
+            return (lhsInvite.invitePayload.conversationToken == rhsInvite.invitePayload.conversationToken &&
+                    lhsInbox.client.inboxId == rhsInbox.client.inboxId)
+        case let (.ready(lhsResult), .ready(rhsResult)):
+            return lhsResult.conversationId == rhsResult.conversationId
+        default:
+            return false
         }
     }
 }

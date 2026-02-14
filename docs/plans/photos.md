@@ -70,19 +70,15 @@ Acceptance criteria:
 ### As a user sending photos, I want to quickly share images from my library so that I can enhance my conversations
 
 Acceptance criteria:
-- [ ] Photo Library button is always visible next to message input field
-- [ ] Tapping button opens iOS photo picker using selective permissions (no permission request needed)
-- [ ] User can select a single photo
-- [ ] Selected photo appears in an expanded composer area with upload progress indicator
-- [ ] Upload begins immediately when photo is picked (not when send is tapped)
-- [ ] User can remove photo from composer before sending (tap X to delete)
-- [ ] Background upload continues even if app is backgrounded
-- [ ] Tapping send button sends the message with the uploaded attachment
-- [ ] If upload still in progress when send tapped, message queues and sends when upload completes
-- [ ] Failed uploads show clear error message with retry option in composer
-- [ ] Photos appear edge-to-edge in my conversation view after sending
-- [ ] Photos are compressed to under 1MB while maintaining quality for large iPhone/iPad screens
-- [ ] Photos are converted to JPEG format for compatibility
+- [x] Photo Library button is always visible next to message input field
+- [x] Tapping button opens iOS photo picker using selective permissions (no permission request needed)
+- [x] User can select a single photo
+- [x] Selected photo appears in composer area as thumbnail preview
+- [x] User can remove photo from composer before sending (tap X to delete)
+- [x] Tapping send button uploads and sends the photo
+- [x] Photos appear edge-to-edge in my conversation view after sending
+- [x] Photos are compressed to under 1MB while maintaining quality for large iPhone/iPad screens
+- [x] Photos are converted to JPEG format for compatibility
 
 ### As a user viewing photos, I want an immersive viewing experience so that I can appreciate shared images
 
@@ -172,10 +168,10 @@ Acceptance criteria:
 **Views:**
 - `PhotoMessageView` - Full bleed (edge-to-edge) on iPhone, traditional bubble on iPad
 - `PhotoBlurOverlayView` - Tap-to-reveal blur effect
-- `PhotoPreferenceSheet` - Auto-reveal preference selection
+- `RevealMediaInfoSheet` - Info sheet shown on first photo reveal
 - `PhotoInputButton` - Photo library button for input bar
 - `ComposerAttachmentArea` - Generic container for pending attachments (extensible for future types)
-- `PhotoAttachmentView` - Photo thumbnail with upload progress and delete button
+- `PhotoAttachmentView` - Photo thumbnail with delete button
 
 **Protocols:**
 - `ComposerAttachment` - Protocol for attachment types in composer (photo, future: links, invites, etc.)
@@ -185,74 +181,35 @@ Acceptance criteria:
 
 ---
 
-### Background Upload Architecture
-
-#### iOS Background Modes
-
-**Configuration:**
-```xml
-<key>UIBackgroundModes</key>
-<array>
-    <string>fetch</string>
-    <string>processing</string>
-</array>
-```
-
-**Background Task Implementation:**
-- Use `BGProcessingTask` for photo uploads
-- Register task identifier: `com.convos.backgroundPhotoUpload`
-- Schedule upload task when photo is selected
-- Continue upload even if app is backgrounded
-
-**Upload Progress:**
-- URLSession with background configuration
-- Progress reported via delegate callbacks
-- Progress stored in database (`PhotoMetadata.uploadProgress`)
-- UI observes progress via GRDB publisher
-- Architecture supports future Live Activities integration for upload progress
-
-**Upload Queue:**
-- Failed uploads saved to database with retry count
-- Retry on next app launch
-- Exponential backoff for failures
-- Maximum 3 retry attempts
+### Upload Architecture
 
 #### Upload Flow
 
 ```
 User selects photo from PHPicker
     ↓
-Show photo in composer attachment area
+Show photo thumbnail in composer
+    ↓
+[User taps Send button]
     ↓
 Compress to JPEG (target: <1MB, max: 10MB, strip EXIF)
     ↓
 XMTP SDK encrypts photo data (generates secret, salt, nonce)
     ↓
-Create pending attachment record (uploadProgress: 0.0)
-    ↓
-Start background URLSession upload to S3
-    ↓
-Update uploadProgress in real-time (shown in composer)
-    ↓
-On completion: Store RemoteAttachment URL + metadata
-    ↓
-[User taps Send button]
+Upload encrypted data to S3
     ↓
 Send XMTP message with RemoteAttachment
     ↓
 Clear composer, show message in conversation
 ```
 
-**User Actions During Upload:**
-- **Delete attachment:** Tap X on thumbnail → Cancel upload, remove from composer
-- **Send while uploading:** Message queues, sends automatically when upload completes
-- **Background app:** Upload continues in background
+**User Actions:**
+- **Delete attachment:** Tap X on thumbnail → Remove from composer (no upload started yet)
+- **Send:** Triggers compress → encrypt → upload → send flow
 
-**Failure Handling:**
-- Upload fails → Show error state on thumbnail with retry button
-- Network unavailable → Queue for later, show pending state
-- App terminated → Resume upload on next launch
-- User can retry or delete failed attachment from composer
+**Stage Tracking:**
+- `PhotoUploadProgressTracker` tracks stages: preparing, uploading, publishing, completed, failed
+- `isSendingPhoto` flag on ConversationViewModel prevents duplicate sends
 
 ---
 
@@ -517,35 +474,23 @@ PhotoMessageView (NEW)
 
 ```
 MessagesInputView (existing, modified)
-    ├── ComposerAttachmentArea (NEW, conditional)
-    │   ├── ComposerAttachmentView (protocol-based, supports different types)
-    │   │   ├── PhotoAttachmentView (this phase)
-    │   │   │   ├── Image thumbnail
-    │   │   │   ├── UploadProgressView (circular progress, percentage)
-    │   │   │   └── DeleteButton (X in corner)
-    │   │   ├── (future: LinkPreviewAttachmentView)
-    │   │   ├── (future: InviteAttachmentView)
-    │   │   └── (future: other attachment types)
-    │   └── (future: multiple attachments in horizontal scroll)
+    ├── attachmentPreviewArea (conditional, shows when photo selected)
+    │   └── attachmentPreview
+    │       ├── Image thumbnail
+    │       └── DeleteButton (X in corner)
     │
     └── HStack
         ├── ProfileAvatarButton (existing)
-        ├── PhotoInputButton (NEW) ← Photo library icon
-        ├── TextField (existing, slightly narrower)
-        └── SendButton (existing, disabled if upload failed)
+        ├── MessagesMediaInputView (photo library button)
+        ├── TextField (existing)
+        └── SendButton (existing)
 ```
 
-**Composer Attachment Area (Extensible Design):**
-- Generic container that can hold different attachment types
-- Uses protocol-based design (`ComposerAttachment`) for extensibility
-- Future attachment types: URL previews, invite links, location, etc.
-
-**Photo Attachment View (This Phase):**
-- Shows thumbnail of selected photo
-- Upload progress displayed prominently (circular progress with percentage)
-- Delete button (X) in corner removes attachment and cancels upload
-- States: uploading (progress), completed (checkmark), failed (error + retry)
+**Composer Attachment Area:**
+- Shows thumbnail of selected photo above the input field
+- Delete button (X) removes the attachment
 - Collapses when attachment is removed or message is sent
+- Upload happens when user taps Send (not on selection)
 
 #### Photo Actions
 
@@ -565,8 +510,8 @@ Save to Photo Library is accessed via native iOS context menu:
 - Settings screen (storage management)
 
 **Navigation Flow:**
-1. **Sending:** User taps photo library button → Opens PHPicker → Select photo → Photo appears in composer with upload progress → User taps Send → Message sent
-2. **Canceling:** Photo in composer → User taps X on thumbnail → Upload canceled, attachment removed
+1. **Sending:** User taps photo library button → Opens PHPicker → Select photo → Photo appears in composer → User taps Send → Upload and send
+2. **Canceling:** Photo in composer → User taps X on thumbnail → Attachment removed
 3. **Receiving (new conversation):** Photo received → Blurred image displayed → User taps to reveal → Preference sheet appears → Select preference → Photo displays
 4. **Saving:** User long presses photo → Native iOS context menu → Select "Save to Photo Library"
 
@@ -578,49 +523,38 @@ Save to Photo Library is accessed via native iOS context menu:
 - Photo actions: Native iOS context menu on long press (familiar iOS pattern)
 - Photo library button: Icon next to message input, consistent with messaging patterns
 
-**Composer Upload Progress:**
-- Circular progress indicator overlaid on photo thumbnail
-- Shows percentage (0-100%) during upload
-- Completed state: Checkmark overlay
-- Failed state: Error icon with tap-to-retry
-- Progress updates in real-time via GRDB observation
-
 ---
 
 ## Implementation Phases
 
-### Phase 1: Foundation and Sending
-- [ ] Database migrations (photoMetadata, photoPreferences)
-- [ ] PhotoStorageManager (local cache management)
-- [ ] IOSPhotoCompressor (JPEG conversion, EXIF stripping, size optimization)
-- [ ] PHPickerViewController integration
-- [ ] BackgroundUploadManager
-- [ ] PhotoAttachmentService.prepareForSend()
-- [ ] ComposerAttachment protocol (extensible for future attachment types)
-- [ ] ComposerAttachmentArea (generic container above text input)
-- [ ] PhotoAttachmentView (thumbnail + upload progress + delete button)
-- [ ] Photo input button in MessagesInputView
-- [ ] Basic PhotoMessageView (edge-to-edge display)
+### Phase 1: Foundation and Sending ✅
+- [x] Database migrations (photoPreferences)
+- [x] IOSPhotoCompressor (JPEG conversion, EXIF stripping, size optimization)
+- [x] PHPicker integration (PhotosPicker in MessagesBottomBar)
+- [x] PhotoAttachmentService.prepareForSend()
+- [x] Composer attachment preview (attachmentPreviewArea in MessagesInputView)
+- [x] Photo input button (MessagesMediaInputView)
+- [x] Edge-to-edge photo display (AttachmentPlaceholder)
+- [x] PhotoUploadProgressTracker (stage tracking for UI feedback)
 
-### Phase 2: Receiving and Blur/Reveal
-- [ ] PhotoAttachmentService.processIncoming()
-- [ ] Download manager with caching
-- [ ] Thumbnail generation
-- [ ] PhotoBlurOverlayView
-- [ ] PhotoPreferenceSheet
-- [ ] PhotoPreferencesRepository
-- [ ] Reveal gesture handling
+### Phase 2: Receiving and Blur/Reveal ✅
+- [x] RemoteAttachmentLoader (download and decrypt)
+- [x] ImageCache (memory + disk caching)
+- [x] PhotoBlurOverlayView
+- [x] RevealMediaInfoSheet
+- [x] PhotoPreferencesRepository
+- [x] PhotoPreferencesWriter
+- [x] Reveal/hide gesture handling
 
-### Phase 3: Photo Actions and Save
-- [ ] Native iOS context menu on long press (`.contextMenu` modifier)
-- [ ] Save to Photo Library action via context menu
-- [ ] iPad-specific layout (photos in traditional bubbles with max-size)
+### Phase 3: Photo Actions and Save ✅
+- [x] Native iOS context menu on long press (`.contextMenu` modifier)
+- [x] Save to Photo Library action via context menu
+- [x] iPad-specific layout (rounded corners, centered with max-width)
 
 ### Phase 4: Cleanup and Polish
 - [ ] PhotoCleanupService (conversation deletion cleanup)
 - [ ] Storage monitoring and LRU eviction
 - [ ] Settings UI for storage usage
-- [ ] Manual retry for failed uploads (similar to message retry)
 - [ ] Conversation deletion cleanup
 - [ ] Performance optimizations
 - [ ] Accessibility labels
@@ -638,13 +572,6 @@ Save to Photo Library is accessed via native iOS context menu:
 - Quality preservation on large screens
 - Dimension constraints
 - Max size enforcement (10MB)
-
-**BackgroundUploadManager:**
-- Upload task creation
-- Progress tracking
-- Retry queue management
-- Upload cancellation
-- App backgrounding during upload
 
 **PhotoStorageManager:**
 - File storage and retrieval
@@ -690,10 +617,8 @@ Save to Photo Library is accessed via native iOS context menu:
 
 **Composer Flow:**
 - Select photo → Verify it appears in composer attachment area
-- Verify upload progress shows on thumbnail during upload
-- Delete attachment from composer (tap X) → Verify upload cancels
-- Send message while upload in progress → Verify it queues and sends when complete
-- Test failed upload shows error state with retry option
+- Delete attachment from composer (tap X) before sending
+- Verify send button is enabled when photo is selected
 
 **Sending:**
 - Send single photo from library in new conversation

@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosLogging
 import SwiftUI
 
 struct MessagesViewRepresentable: UIViewControllerRepresentable {
@@ -7,6 +8,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let invite: Invite
     let onUserInteraction: () -> Void
     let hasLoadedAllMessages: Bool
+    let shouldBlurPhotos: Bool
+    let focusCoordinator: FocusCoordinator
     let onTapAvatar: (ConversationMember) -> Void
     let onLoadPreviousMessages: () -> Void
     let onTapInvite: (MessageInvite) -> Void
@@ -14,23 +17,56 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
+    let onDoubleTap: (AnyMessage) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
+    let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let bottomBarHeight: CGFloat
+    let scrollToBottomTrigger: (@escaping () -> Void) -> Void
+
+    class Coordinator {
+        var scrollToBottomFunction: (() -> Void)?
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeUIViewController(context: Context) -> MessagesViewController {
-        let vc = MessagesViewController()
-        vc.contextMenuState = contextMenuState
-        return vc
+        let viewController = MessagesViewController()
+        viewController.contextMenuState = contextMenuState
+        context.coordinator.scrollToBottomFunction = { [weak viewController] in
+            viewController?.scrollToBottomForSend()
+        }
+        scrollToBottomTrigger { context.coordinator.scrollToBottomFunction?() }
+        return viewController
     }
 
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
+        Log.info("[Representable] updateUIViewController called, setting onPhotoRevealed and onPhotoHidden")
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.bottomBarHeight = bottomBarHeight
+        messagesViewController.focusCoordinator = focusCoordinator
+
         messagesViewController.onTapAvatar = onTapAvatar
         messagesViewController.onLoadPreviousMessages = onLoadPreviousMessages
         messagesViewController.onTapInvite = onTapInvite
         messagesViewController.onReaction = onReaction
         messagesViewController.onTapReactions = onTapReactions
         messagesViewController.onReply = onReply
+        messagesViewController.onDoubleTap = onDoubleTap
+        messagesViewController.shouldBlurPhotos = shouldBlurPhotos
+        messagesViewController.onPhotoRevealed = { key in
+            Log.info("[Representable] onPhotoRevealed wrapper called with key: \(key.prefix(50))...")
+            self.onPhotoRevealed(key)
+        }
+        messagesViewController.onPhotoHidden = { key in
+            Log.info("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
+            self.onPhotoHidden(key)
+        }
+        messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
+            self.onPhotoDimensionsLoaded(key, width, height)
+        }
         messagesViewController.state = .init(
             conversation: conversation,
             messages: messages,
@@ -51,6 +87,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         invite: invite,
         onUserInteraction: {},
         hasLoadedAllMessages: false,
+        shouldBlurPhotos: true,
+        focusCoordinator: FocusCoordinator(horizontalSizeClass: nil),
         onTapAvatar: { _ in },
         onLoadPreviousMessages: {},
         onTapInvite: { _ in },
@@ -58,7 +96,12 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onTapReactions: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),
-        bottomBarHeight: bottomBarHeight
+        onDoubleTap: { _ in },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in },
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        bottomBarHeight: bottomBarHeight,
+        scrollToBottomTrigger: { _ in }
     )
     .ignoresSafeArea()
 }

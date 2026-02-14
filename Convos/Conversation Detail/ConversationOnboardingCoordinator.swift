@@ -142,34 +142,46 @@ final class ConversationOnboardingCoordinator {
 
     // MARK: - Persistence
 
-    private let hasShownQuicknameEditorKey: String = "hasShownQuicknameEditor"
-    private let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
-    private let hasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
-    private let hasSeenAddAsQuicknameKey: String = "hasSeenAddAsQuickname"
+    private static let hasShownQuicknameEditorKey: String = "hasShownQuicknameEditor"
+    private static let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
+    private static let hasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
+    private static let hasSeenAddAsQuicknameKey: String = "hasSeenAddAsQuickname"
+
+    static func resetUserDefaults() {
+        UserDefaults.standard.removeObject(forKey: hasShownQuicknameEditorKey)
+        UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
+        UserDefaults.standard.removeObject(forKey: hasSeenAddAsQuicknameKey)
+
+        // Remove all keys with the hasSetQuickname prefix
+        let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
+        for key in allKeys where key.hasPrefix(hasSetQuicknamePrefix) {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+    }
 
     private(set) var shouldAnimateAvatarForQuicknameSetup: Bool = false
 
     private var hasShownQuicknameEditor: Bool {
-        get { UserDefaults.standard.bool(forKey: hasShownQuicknameEditorKey) }
-        set { UserDefaults.standard.set(newValue, forKey: hasShownQuicknameEditorKey) }
+        get { UserDefaults.standard.bool(forKey: Self.hasShownQuicknameEditorKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownQuicknameEditorKey) }
     }
 
     private var hasCompletedOnboarding: Bool {
-        get { UserDefaults.standard.bool(forKey: hasCompletedOnboardingKey) }
-        set { UserDefaults.standard.set(newValue, forKey: hasCompletedOnboardingKey) }
+        get { UserDefaults.standard.bool(forKey: Self.hasCompletedOnboardingKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasCompletedOnboardingKey) }
     }
 
     private func hasSetQuickname(for clientId: String) -> Bool {
-        UserDefaults.standard.bool(forKey: hasSetQuicknamePrefix + clientId)
+        UserDefaults.standard.bool(forKey: Self.hasSetQuicknamePrefix + clientId)
     }
 
     private func setHasSetQuickname(_ value: Bool, for clientId: String) {
-        UserDefaults.standard.set(value, forKey: hasSetQuicknamePrefix + clientId)
+        UserDefaults.standard.set(value, forKey: Self.hasSetQuicknamePrefix + clientId)
     }
 
     private var hasSeenAddAsQuickname: Bool {
-        get { UserDefaults.standard.bool(forKey: hasSeenAddAsQuicknameKey) }
-        set { UserDefaults.standard.set(newValue, forKey: hasSeenAddAsQuicknameKey)}
+        get { UserDefaults.standard.bool(forKey: Self.hasSeenAddAsQuicknameKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasSeenAddAsQuicknameKey) }
     }
 
     // Only used in Debug builds

@@ -6,10 +6,15 @@ struct MessagesListView: View {
     @Binding var messages: [MessagesListItemType]
     let invite: Invite
     let focusCoordinator: FocusCoordinator
+    let shouldBlurPhotos: Bool
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
+    let onDoubleTap: (AnyMessage) -> Void
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
+    let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -43,10 +48,15 @@ struct MessagesListView: View {
                             case .messages(let group):
                                 MessagesGroupView(
                                     group: group,
+                                    shouldBlurPhotos: shouldBlurPhotos,
                                     onTapAvatar: onTapAvatar,
                                     onTapInvite: onTapInvite,
                                     onTapReactions: onTapReactions,
-                                    onReply: onReply
+                                    onReply: onReply,
+                                    onDoubleTap: onDoubleTap,
+                                    onPhotoRevealed: onPhotoRevealed,
+                                    onPhotoHidden: onPhotoHidden,
+                                    onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
                                 )
 
                             case .invite(let invite):
@@ -69,23 +79,6 @@ struct MessagesListView: View {
                                 lastItemIndex = index
                             }
                         }
-                    }
-                }
-            }
-            .onChange(of: focusCoordinator.currentFocus) { _, newValue in
-                if newValue == .message {
-                    scrollPosition.scrollTo(edge: .bottom)
-                }
-            }
-            .onChange(of: messages) {
-                if let last = messages.last {
-                    switch last {
-                    case .messages(let group):
-                        if group.isLastGroupSentByCurrentUser {
-                            scrollPosition.scrollTo(edge: .bottom)
-                        }
-                    default:
-                        break
                     }
                 }
             }

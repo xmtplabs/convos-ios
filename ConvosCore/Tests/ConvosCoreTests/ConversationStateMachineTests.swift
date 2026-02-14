@@ -1483,7 +1483,8 @@ struct ConversationStateMachineTests {
             databaseWriter: inviterFixtures.databaseManager.dbWriter,
             databaseReader: inviterFixtures.databaseManager.dbReader,
             identityStore: inviterFixtures.identityStore,
-            environment: testEnvironment
+            environment: testEnvironment,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
 
         let inviterStateMachine = ConversationStateMachine(
@@ -1559,7 +1560,8 @@ struct ConversationStateMachineTests {
             databaseWriter: joinerFixtures.databaseManager.dbWriter,
             databaseReader: joinerFixtures.databaseManager.dbReader,
             identityStore: joinerFixtures.identityStore,
-            environment: testEnvironment
+            environment: testEnvironment,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
 
         let joinerStateMachine = ConversationStateMachine(

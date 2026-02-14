@@ -188,6 +188,9 @@ final class FocusCoordinator {
             // User manually changed focus (tapped a different field)
             Log.info("User initiated focus change to: \(String(describing: newFocus))")
             beginSwiftUIInitiatedTransition(to: newFocus)
+            // SwiftUI's @FocusState has already reached the target (that's why syncFocusState was called)
+            // Immediately confirm the transition is complete
+            confirmFocusTransition(to: newFocus)
         }
     }
 
@@ -211,6 +214,12 @@ final class FocusCoordinator {
                 // Common case: view was replaced/destroyed during transition
                 Log.info("Programmatic transition interrupted by view change - will retry")
                 // Keep transition active, view will retry on appear
+            } else if actualFocus != nil && transitionTarget == nil {
+                // User took control: we were transitioning to nil but user focused a field
+                // Abort the transition and accept the user's choice
+                Log.info("Programmatic transition aborted - user focused \(String(describing: actualFocus)) instead of dismissing")
+                endProgrammaticTransition()
+                currentFocus = actualFocus
             } else {
                 Log.info("Programmatic transition in progress - actual: \(String(describing: actualFocus)) vs target: \(String(describing: transitionTarget))")
             }

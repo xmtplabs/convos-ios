@@ -161,13 +161,18 @@ final class ConversationsViewModel {
         activeFilter != .all && unpinnedConversations.isEmpty && hasUnpinnedConversations
     }
 
+    private static let hasCreatedMoreThanOneConvoKey: String = "hasCreatedMoreThanOneConvo"
     private(set) var hasCreatedMoreThanOneConvo: Bool {
         get {
-            UserDefaults.standard.bool(forKey: "hasCreatedMoreThanOneConvo")
+            UserDefaults.standard.bool(forKey: Self.hasCreatedMoreThanOneConvoKey)
         }
         set {
-            UserDefaults.standard.set(newValue, forKey: "hasCreatedMoreThanOneConvo")
+            UserDefaults.standard.set(newValue, forKey: Self.hasCreatedMoreThanOneConvoKey)
         }
+    }
+
+    static func resetUserDefaults() {
+        UserDefaults.standard.removeObject(forKey: hasCreatedMoreThanOneConvoKey)
     }
 
     // MARK: - Private

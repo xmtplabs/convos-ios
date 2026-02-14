@@ -18,6 +18,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var conversationImage: UIImage?
     @Binding var displayName: String
     @Binding var messageText: String
+    @Binding var selectedAttachmentImage: UIImage?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -33,15 +34,22 @@ struct MessagesView<BottomBarContent: View>: View {
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
+    let onDoubleTap: (AnyMessage) -> Void
     let replyingToMessage: AnyMessage?
     let onCancelReply: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
+    let shouldBlurPhotos: Bool
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
+    let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var contextMenuState: MessageContextMenuState = .init()
+    @State private var isPhotoPickerPresented: Bool = false
+    @State private var scrollToBottom: (() -> Void)?
 
     var body: some View {
         ZStack {
@@ -51,6 +59,8 @@ struct MessagesView<BottomBarContent: View>: View {
                 invite: invite,
                 onUserInteraction: onUserInteraction,
                 hasLoadedAllMessages: hasLoadedAllMessages,
+                shouldBlurPhotos: shouldBlurPhotos,
+                focusCoordinator: focusCoordinator,
                 onTapAvatar: onTapAvatar,
                 onLoadPreviousMessages: onLoadPreviousMessages,
                 onTapInvite: onTapInvite,
@@ -58,52 +68,67 @@ struct MessagesView<BottomBarContent: View>: View {
                 onTapReactions: onTapReactions,
                 onReply: onReply,
                 contextMenuState: contextMenuState,
-                bottomBarHeight: bottomBarHeight
+                onDoubleTap: onDoubleTap,
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoHidden: onPhotoHidden,
+                onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                bottomBarHeight: bottomBarHeight,
+                scrollToBottomTrigger: { scrollFn in
+                    scrollToBottom = scrollFn
+                }
             )
             .ignoresSafeArea()
 
             MessageContextMenuOverlay(
                 state: contextMenuState,
+                shouldBlurPhotos: shouldBlurPhotos,
                 onReaction: onReaction,
                 onReply: { message in
                     onReply(message)
                 },
                 onCopy: { text in
                     UIPasteboard.general.string = text
-                }
+                },
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoHidden: onPhotoHidden
             )
         }
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: 0.0) {
-                bottomBarContent()
-                if let replyingToMessage {
-                    ReplyComposerBar(
-                        message: replyingToMessage,
-                        onDismiss: onCancelReply
-                    )
+            MessagesBottomBar(
+                profile: profile,
+                displayName: $displayName,
+                messageText: $messageText,
+                selectedAttachmentImage: $selectedAttachmentImage,
+                sendButtonEnabled: sendButtonEnabled,
+                profileImage: $profileImage,
+                isPhotoPickerPresented: $isPhotoPickerPresented,
+                focusState: $focusState,
+                focusCoordinator: focusCoordinator,
+                onboardingCoordinator: onboardingCoordinator,
+                messagesTextFieldEnabled: messagesTextFieldEnabled,
+                onProfilePhotoTap: onProfilePhotoTap,
+                onSendMessage: {
+                    scrollToBottom?()
+                    onSendMessage()
+                },
+                onDisplayNameEndedEditing: onDisplayNameEndedEditing,
+                onProfileSettings: onProfileSettings,
+                onBaseHeightChanged: { height in
+                    bottomBarHeight = height
+                },
+                bottomBarContent: {
+                    bottomBarContent()
+                    if let replyingToMessage {
+                        ReplyComposerBar(
+                            message: replyingToMessage,
+                            shouldBlurPhotos: shouldBlurPhotos,
+                            onDismiss: onCancelReply
+                        )
+                    }
                 }
-                MessagesBottomBar(
-                    profile: profile,
-                    displayName: $displayName,
-                    messageText: $messageText,
-                    sendButtonEnabled: sendButtonEnabled,
-                    profileImage: $profileImage,
-                    focusState: $focusState,
-                    focusCoordinator: focusCoordinator,
-                    onboardingCoordinator: onboardingCoordinator,
-                    messagesTextFieldEnabled: messagesTextFieldEnabled,
-                    onProfilePhotoTap: onProfilePhotoTap,
-                    onSendMessage: onSendMessage,
-                    onDisplayNameEndedEditing: onDisplayNameEndedEditing,
-                    onProfileSettings: onProfileSettings
-                )
-            }
+            )
             .opacity(contextMenuState.isPresented ? 0.0 : 1.0)
             .animation(.easeOut(duration: 0.2), value: contextMenuState.isPresented)
-            .background(HeightReader())
-            .onPreferenceChange(HeightPreferenceKey.self) { height in
-                bottomBarHeight = height
-            }
         }
         .onAppear {
             contextMenuState.onReaction = onReaction

@@ -135,6 +135,70 @@ public extension Message {
             reactions: reactions
         )
     }
+
+    static func mock(
+        content: MessageContent,
+        sender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date(),
+        reactions: [MessageReaction] = []
+    ) -> Message {
+        let mockSender = sender ?? .mock(isCurrentUser: false)
+        let id = "mock-message-\(UUID().uuidString)"
+
+        return Message(
+            id: id,
+            conversation: .mock(),
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: content,
+            date: date,
+            reactions: reactions
+        )
+    }
+
+    static func mockWithAttachment(
+        url: URL,
+        sender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date()
+    ) -> Message {
+        let mockSender = sender ?? .mock(isCurrentUser: false)
+        let id = "mock-message-\(UUID().uuidString)"
+
+        return Message(
+            id: id,
+            conversation: .mock(),
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: .attachment(HydratedAttachment(key: url.absoluteString)),
+            date: date,
+            reactions: []
+        )
+    }
+
+    static func mockWithAttachments(
+        urls: [URL],
+        sender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date()
+    ) -> Message {
+        let mockSender = sender ?? .mock(isCurrentUser: false)
+        let id = "mock-message-\(UUID().uuidString)"
+
+        return Message(
+            id: id,
+            conversation: .mock(),
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: .attachments(urls.map { HydratedAttachment(key: $0.absoluteString) }),
+            date: date,
+            reactions: []
+        )
+    }
 }
 
 public extension ConversationUpdate {
@@ -202,10 +266,13 @@ public extension MessageReply {
     static func mock(
         text: String = "This is a reply",
         sender: ConversationMember? = nil,
+        replyContent: MessageContent? = nil,
         parentText: String = "Original message that was replied to",
+        parentContent: MessageContent? = nil,
         parentSender: ConversationMember? = nil,
         status: MessageStatus = .published,
-        date: Date = Date()
+        date: Date = Date(),
+        reactions: [MessageReaction] = []
     ) -> MessageReply {
         let mockSender = sender ?? .mock(isCurrentUser: true)
         let mockParentSender = parentSender ?? .mock(isCurrentUser: false, name: "Jane")
@@ -217,7 +284,7 @@ public extension MessageReply {
             sender: mockParentSender,
             source: mockParentSender.isCurrentUser ? .outgoing : .incoming,
             status: .published,
-            content: .text(parentText),
+            content: parentContent ?? .text(parentText),
             date: date.addingTimeInterval(-60),
             reactions: []
         )
@@ -228,10 +295,10 @@ public extension MessageReply {
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: status,
-            content: .text(text),
+            content: replyContent ?? .text(text),
             date: date,
             parentMessage: parentMessage,
-            reactions: []
+            reactions: reactions
         )
     }
 }

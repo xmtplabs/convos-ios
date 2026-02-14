@@ -1,6 +1,4 @@
 import Foundation
-#if canImport(UIKit)
-import UIKit
 
 /// Protocol for image compression and resizing operations.
 ///
@@ -12,12 +10,12 @@ public protocol ImageCompressionProviding: Sendable {
 
     /// Resizes and compresses image to JPEG data in a single pass for optimal performance
     /// - Parameters:
-    ///   - image: The original UIImage to resize and compress
+    ///   - image: The original image to resize and compress
     ///   - maxSize: Maximum dimensions in points
     ///   - compressionQuality: JPEG compression quality (0.0-1.0)
     /// - Returns: JPEG data of the resized and compressed image, or nil if compression fails
     func resizeAndCompressToJPEG(
-        _ image: UIImage,
+        _ image: ImageType,
         maxSize: CGSize,
         compressionQuality: CGFloat
     ) -> Data?
@@ -25,12 +23,28 @@ public protocol ImageCompressionProviding: Sendable {
     /// Resizes and compresses image to PNG data in a single pass for optimal performance
     /// This preserves alpha channel and is lossless, making it ideal for images with transparency
     /// - Parameters:
-    ///   - image: The original UIImage to resize and compress
+    ///   - image: The original image to resize and compress
     ///   - maxSize: Maximum dimensions in points
     /// - Returns: PNG data of the resized and compressed image, or nil if compression fails
     func resizeAndCompressToPNG(
-        _ image: UIImage,
+        _ image: ImageType,
         maxSize: CGSize
+    ) -> Data?
+
+    /// Compresses an image for photo attachment sending with target file size.
+    /// Uses iterative quality reduction to achieve target size while maintaining quality.
+    /// EXIF metadata is automatically stripped since UIImage doesn't preserve it.
+    /// - Parameters:
+    ///   - image: The original image to compress
+    ///   - targetBytes: Target file size in bytes (default: 1MB)
+    ///   - maxBytes: Maximum allowed input size (default: 10MB). Returns nil if exceeded.
+    ///   - maxDimension: Maximum dimension for resizing (default: 2048px for large screens)
+    /// - Returns: JPEG data under target size, or nil if compression fails or input too large
+    func compressForPhotoAttachment(
+        _ image: ImageType,
+        targetBytes: Int,
+        maxBytes: Int,
+        maxDimension: CGFloat
     ) -> Data?
 }
 
@@ -83,7 +97,7 @@ public enum ImageCompression {
 
     /// Resizes and compresses image to JPEG data using default cache-optimized size
     public static func resizeAndCompressToJPEG(
-        _ image: UIImage,
+        _ image: ImageType,
         compressionQuality: CGFloat = 0.8
     ) -> Data? {
         shared.resizeAndCompressToJPEG(
@@ -94,10 +108,22 @@ public enum ImageCompression {
     }
 
     /// Resizes and compresses image to PNG data using default cache-optimized size
-    public static func resizeAndCompressToPNG(_ image: UIImage) -> Data? {
+    public static func resizeAndCompressToPNG(_ image: ImageType) -> Data? {
         shared.resizeAndCompressToPNG(
             image,
             maxSize: CGSize(width: cacheOptimizedSize, height: cacheOptimizedSize)
+        )
+    }
+
+    /// Compresses an image for photo attachment sending with target file size of 1MB.
+    /// - Parameter image: The image to compress
+    /// - Returns: JPEG data under 1MB, or nil if compression fails or input exceeds 10MB
+    public static func compressForPhotoAttachment(_ image: ImageType) -> Data? {
+        shared.compressForPhotoAttachment(
+            image,
+            targetBytes: 1_000_000,
+            maxBytes: 10_000_000,
+            maxDimension: 2048
         )
     }
 
@@ -110,5 +136,3 @@ public enum ImageCompression {
         isConfigured = false
     }
 }
-
-#endif

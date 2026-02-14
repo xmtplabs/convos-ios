@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosCoreiOS
 import UIKit
 import UserNotifications
 
@@ -31,6 +32,21 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
     func application(_ application: UIApplication,
                      didFailToRegisterForRemoteNotificationsWithError error: Error) {
         Log.error("Failed to register for remote notifications: \(error)")
+    }
+
+    // MARK: - Background URLSession
+
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping @Sendable () -> Void
+    ) {
+        Task {
+            await BackgroundUploadManager.shared.handleEventsForBackgroundURLSession(
+                identifier: identifier,
+                completionHandler: completionHandler
+            )
+        }
     }
 
     // MARK: - UNUserNotificationCenterDelegate

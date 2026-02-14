@@ -84,25 +84,62 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             // @jarodl temporary, this should happen somewhere else more explicitly
             let wasRemovedFromConversation = message.update?.removedInboxIds.contains(conversation.inboxId) ?? false
 
-            Log.info("Storing incoming message \(message.id) localId \(message.clientMessageId)")
+            Log.info("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")
+            if !message.attachmentUrls.isEmpty {
+                Log.info("[IncomingMessageWriter] Incoming attachmentUrls: \(message.attachmentUrls.map { $0.prefix(80) })")
+            }
             // see if this message has a local version
             if let localMessage = try DBMessage
                 .filter(DBMessage.Columns.id == message.id)
                 .filter(DBMessage.Columns.clientMessageId != message.id)
                 .fetchOne(db) {
-                // keep using the same local id
-                Log.info("Found local message \(localMessage.clientMessageId) for incoming message \(message.id)")
-                let updatedMessage = message.with(
-                    clientMessageId: localMessage.clientMessageId
-                )
+                // Keep using the same local clientMessageId, sortId, and attachmentUrls
+                // Preserving attachmentUrls is critical for maintaining AttachmentLocalState lookup
+                Log.info("BRANCH 1: Found local message \(localMessage.clientMessageId) for incoming message \(message.id)")
+                let updatedMessage = message
+                    .with(clientMessageId: localMessage.clientMessageId)
+                    .with(sortId: localMessage.sortId)
+                    .with(attachmentUrls: localMessage.attachmentUrls)
                 try updatedMessage.save(db)
-                Log.info(
-                    "Updated incoming message with local message \(localMessage.clientMessageId)"
-                )
+                Log.info("BRANCH 1: Updated with clientMessageId=\(localMessage.clientMessageId), sortId=\(localMessage.sortId ?? -1)")
+            } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id),
+                      existingMessage.hasLocalAttachments {
+                // Message exists with local attachment URLs (outgoing photo) - preserve them and sortId
+                Log.info("BRANCH 2: Preserving local attachments for message \(message.id)")
+                let updatedMessage = message
+                    .with(attachmentUrls: existingMessage.attachmentUrls)
+                    .with(sortId: existingMessage.sortId)
+                try updatedMessage.save(db)
+                Log.info("BRANCH 2: Saved with local attachments, sortId=\(existingMessage.sortId ?? -1)")
+            } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id) {
+                // Message exists but BRANCH 1 and BRANCH 2 didn't match
+                // Keep clientMessageId, sortId, and attachmentUrls for stable UI identity
+                // Preserving attachmentUrls is critical: we've migrated AttachmentLocalState
+                // to match our local key, so using the incoming key would break the lookup
+                Log.info("BRANCH 3: Found existing message \(message.id)")
+                if !existingMessage.attachmentUrls.isEmpty || !message.attachmentUrls.isEmpty {
+                    Log.info("[BRANCH 3] Existing attachmentUrls: \(existingMessage.attachmentUrls.map { $0.prefix(80) })")
+                    Log.info("[BRANCH 3] Incoming attachmentUrls: \(message.attachmentUrls.map { $0.prefix(80) })")
+                    let keysMatch = existingMessage.attachmentUrls == message.attachmentUrls
+                    Log.info("[BRANCH 3] Keys match: \(keysMatch), preserving existing")
+                }
+                let updatedMessage = message
+                    .with(clientMessageId: existingMessage.clientMessageId)
+                    .with(sortId: existingMessage.sortId)
+                    .with(attachmentUrls: existingMessage.attachmentUrls)
+                try updatedMessage.save(db)
+                Log.info("BRANCH 3: Saved with clientMessageId=\(existingMessage.clientMessageId), sortId=\(existingMessage.sortId ?? -1)")
             } else {
+                // Truly new incoming message from another user - assign a new sortId
+                let maxSortId = try Int64.fetchOne(db, sql: """
+                    SELECT COALESCE(MAX(sortId), 0) FROM message WHERE conversationId = ?
+                """, arguments: [conversation.id]) ?? 0
+                let newSortId = maxSortId + 1
+                let messageWithSortId = message.with(sortId: newSortId)
+
                 do {
-                    try message.save(db)
-                    Log.info("Saved incoming message: \(message.id)")
+                    try messageWithSortId.save(db)
+                    Log.info("BRANCH 4 (new): Saved incoming message: \(message.id) with sortId=\(newSortId)")
                 } catch {
                     Log.error("Failed saving incoming message \(message.id): \(error)")
                     throw error

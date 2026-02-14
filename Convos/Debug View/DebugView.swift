@@ -192,6 +192,12 @@ struct DebugViewSection: View {
                     Text("Reset Onboarding")
                         .foregroundStyle(.colorTextPrimary)
                 }
+                Button {
+                    resetAllSettings()
+                } label: {
+                    Text("Reset All Settings")
+                        .foregroundStyle(.colorTextPrimary)
+                }
             }
         }
         .task {
@@ -260,6 +266,12 @@ extension DebugViewSection {
 
     private func resetOnboarding() {
         ConversationOnboardingCoordinator().reset()
+    }
+
+    private func resetAllSettings() {
+        ConversationViewModel.resetUserDefaults()
+        ConversationsViewModel.resetUserDefaults()
+        ConversationOnboardingCoordinator.resetUserDefaults()
     }
 
     func testSentryMessage() {
