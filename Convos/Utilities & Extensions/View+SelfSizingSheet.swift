@@ -1,6 +1,19 @@
 import SwiftUI
 
-// MARK: - View Extension
+// MARK: - Drag Indicator Preference
+
+private struct DragIndicatorPreferenceKey: PreferenceKey {
+    nonisolated(unsafe) static var defaultValue: Visibility = .hidden
+    static func reduce(value: inout Visibility, nextValue: () -> Visibility) {
+        value = nextValue()
+    }
+}
+
+extension View {
+    func sheetDragIndicator(_ visibility: Visibility) -> some View {
+        preference(key: DragIndicatorPreferenceKey.self, value: visibility)
+    }
+}
 
 // MARK: - Self-Sizing Sheet Modifier
 
@@ -9,8 +22,8 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
     @Binding var isPresented: Bool
     @State private var sheetHeight: CGFloat = 0
     @State private var presentationCount: Int = 0
+    @State private var dragIndicatorVisibility: Visibility = .hidden
     let onDismiss: (() -> Void)?
-    let showDragIndicator: Bool
     let sheetContent: () -> SheetContent
 
     func body(content: Content) -> some View {
@@ -25,11 +38,14 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
                 content: {
                     sheetContent()
                         .fixedSize(horizontal: false, vertical: true)
+                        .onPreferenceChange(DragIndicatorPreferenceKey.self) { value in
+                            dragIndicatorVisibility = value
+                        }
                         .readHeight { height in
                             sheetHeight = height
                         }
                         .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
-                        .presentationDragIndicator(showDragIndicator ? .visible : .hidden)
+                        .presentationDragIndicator(dragIndicatorVisibility)
                         .presentationBackground(.ultraThinMaterial)
                         .id(presentationCount)
                 }
@@ -38,21 +54,14 @@ private struct SelfSizingSheetModifier<SheetContent: View>: ViewModifier {
 }
 
 extension View {
-    /// Presents a sheet that automatically sizes itself to fit its content, with an optional onDismiss callback
-    /// - Parameters:
-    ///   - isPresented: A binding to whether the sheet is shown
-    ///   - onDismiss: Optional closure to execute when the sheet is dismissed
-    ///   - content: The content of the sheet
     func selfSizingSheet<Content: View>(
         isPresented: Binding<Bool>,
         onDismiss: (() -> Void)? = nil,
-        showDragIndicator: Bool = false,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         modifier(SelfSizingSheetModifier(
             isPresented: isPresented,
             onDismiss: onDismiss,
-            showDragIndicator: showDragIndicator,
             sheetContent: content
         ))
     }
@@ -65,8 +74,8 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
     @Binding var item: Item?
     @State private var sheetHeight: CGFloat = 0
     @State private var presentationCount: Int = 0
+    @State private var dragIndicatorVisibility: Visibility = .hidden
     let onDismiss: (() -> Void)?
-    let showDragIndicator: Bool
     let sheetContent: (Item) -> SheetContent
 
     func body(content: Content) -> some View {
@@ -80,11 +89,14 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
                 }, content: { item in
                     sheetContent(item)
                         .fixedSize(horizontal: false, vertical: true)
+                        .onPreferenceChange(DragIndicatorPreferenceKey.self) { value in
+                            dragIndicatorVisibility = value
+                        }
                         .readHeight { height in
                             sheetHeight = height
                         }
                         .presentationDetents(sheetHeight > 0.0 ? [.height(sheetHeight)] : [.medium])
-                        .presentationDragIndicator(showDragIndicator ? .visible : .hidden)
+                        .presentationDragIndicator(dragIndicatorVisibility)
                         .presentationBackground(.ultraThinMaterial)
                         .id(presentationCount)
                 }
@@ -93,21 +105,14 @@ private struct ItemBasedSelfSizingSheetModifier<Item: Identifiable, SheetContent
 }
 
 extension View {
-    /// Presents a sheet that automatically sizes itself based on an identifiable item
-    /// - Parameters:
-    ///   - item: A binding to an optional identifiable item
-    ///   - onDismiss: Optional closure to execute when the sheet is dismissed
-    ///   - content: The content of the sheet, which receives the item
     func selfSizingSheet<Item: Identifiable, Content: View>(
         item: Binding<Item?>,
         onDismiss: (() -> Void)? = nil,
-        showDragIndicator: Bool = false,
         @ViewBuilder content: @escaping (Item) -> Content
     ) -> some View {
         modifier(ItemBasedSelfSizingSheetModifier(
             item: item,
             onDismiss: onDismiss,
-            showDragIndicator: showDragIndicator,
             sheetContent: content
         ))
     }

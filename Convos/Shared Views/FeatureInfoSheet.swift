@@ -8,6 +8,7 @@ struct FeatureInfoSheet: View {
     let primaryButtonTitle: String
     let primaryButtonAction: () -> Void
     let learnMoreURL: URL?
+    let showDragIndicator: Bool
 
     @Environment(\.openURL) private var openURL: OpenURLAction
 
@@ -18,7 +19,8 @@ struct FeatureInfoSheet: View {
         paragraphs: [FeatureInfoParagraph] = [],
         primaryButtonTitle: String = "Got it",
         primaryButtonAction: @escaping () -> Void,
-        learnMoreURL: URL? = nil
+        learnMoreURL: URL? = nil,
+        showDragIndicator: Bool = false
     ) {
         self.tagline = tagline
         self.title = title
@@ -27,6 +29,7 @@ struct FeatureInfoSheet: View {
         self.primaryButtonTitle = primaryButtonTitle
         self.primaryButtonAction = primaryButtonAction
         self.learnMoreURL = learnMoreURL
+        self.showDragIndicator = showDragIndicator
     }
 
     var body: some View {
@@ -44,7 +47,7 @@ struct FeatureInfoSheet: View {
             if let subtitle {
                 Text(subtitle)
                     .font(.body)
-                    .foregroundStyle(.blue)
+                    .foregroundStyle(.colorTextPrimary)
             }
 
             ForEach(paragraphs) { paragraph in
@@ -76,6 +79,7 @@ struct FeatureInfoSheet: View {
         .padding(.top, DesignConstants.Spacing.step8x)
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
         .background(.red.opacity(0.15))
+        .sheetDragIndicator(showDragIndicator ? .visible : .hidden)
     }
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?

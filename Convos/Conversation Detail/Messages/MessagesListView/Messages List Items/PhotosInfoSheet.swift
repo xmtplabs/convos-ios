@@ -7,13 +7,14 @@ struct PhotosInfoSheet: View {
         FeatureInfoSheet(
             tagline: "Real life is off the record.™",
             title: "Pics are personal",
-            subtitle: "Share faces, places, spicy and confidential info with total privacy.",
+            subtitle: "Share faces, places, sensitive or spicy pics with total privacy.",
             paragraphs: [
-                .init("When you send a pic, Convos removes its metadata, encrypts it, and deletes it from the network once it's delivered.", size: .subheadline),
-                .init("Convos never asks to see your Camera Roll and never saves anything to your device.", size: .small),
+                .init("Pics are encrypted on send and deleted from temp storage after delivery.", size: .subheadline),
+                .init("Convos never sees or saves to your Camera Roll. Image metadata is never shared.", size: .small),
             ],
             primaryButtonAction: { dismiss() },
-            learnMoreURL: URL(string: "https://learn.convos.org/photos")
+            learnMoreURL: URL(string: "https://learn.convos.org/pics"),
+            showDragIndicator: true
         )
     }
 }

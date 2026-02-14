@@ -188,6 +188,9 @@ struct DebugViewSection: View {
                         .foregroundStyle(.colorTextPrimary)
                 }
             }
+            .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
+                PhotosInfoSheet()
+            }
 
             Section {
                 Button {
@@ -209,9 +212,6 @@ struct DebugViewSection: View {
                         .foregroundStyle(.colorTextPrimary)
                 }
             }
-        }
-        .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
-            PhotosInfoSheet()
         }
         .task {
             await refreshNotificationStatus()
