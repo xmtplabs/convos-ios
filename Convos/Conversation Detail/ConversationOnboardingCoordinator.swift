@@ -196,13 +196,18 @@ final class ConversationOnboardingCoordinator {
     // MARK: - Dependencies
 
     private let notificationCenter: NotificationCenterProtocol
+    private let autodismissDurationOverride: CGFloat?
     @ObservationIgnored
     private var appLifecycleTask: Task<Void, Never>?
     @ObservationIgnored
     private var autodismissTask: Task<Void, Never>?
 
-    init(notificationCenter: NotificationCenterProtocol = SystemNotificationCenter()) {
+    init(
+        notificationCenter: NotificationCenterProtocol = SystemNotificationCenter(),
+        autodismissDurationOverride: CGFloat? = nil
+    ) {
         self.notificationCenter = notificationCenter
+        self.autodismissDurationOverride = autodismissDurationOverride
         observeAppLifecycle()
     }
 
@@ -233,10 +238,10 @@ final class ConversationOnboardingCoordinator {
     }
 
     private func startAutodismissIfNeeded() {
-        // Get autodismiss duration from state
-        guard let duration = state.autodismissDuration else {
+        guard let stateDuration = state.autodismissDuration else {
             return
         }
+        let duration = autodismissDurationOverride ?? stateDuration
 
         // Capture the current state to verify we're still in it after sleep
         let expectedState = state
