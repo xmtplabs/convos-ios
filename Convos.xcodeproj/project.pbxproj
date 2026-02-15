@@ -7,6 +7,8 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		24C99088CD367D4008A9F0C2 /* AgentServerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07C257C387FC51B8BB93D4F0 /* AgentServerTest.swift */; };
+		464BE38BF2716A7102CB8A42 /* AgentServerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F8A01968F96A821BA6CCE7 /* AgentServerTest.swift */; };
 		7A15D61C2EEBB0CF00627BC5 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7A15D61B2EEBB0CF00627BC5 /* ConvosCoreiOS */; };
 		7A15D61E2EECD7B700627BC5 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7A15D61D2EECD7B700627BC5 /* ConvosCoreiOS */; };
 		7A5579B02E7B4C0800882661 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7A5579AF2E7B4C0800882661 /* DifferenceKit */; };
@@ -17,8 +19,10 @@
 		7AD545902E4EA8BE00500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
 		7AD545942E4EA8F300500ADF /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD545932E4EA8F300500ADF /* ConvosCore */; };
 		7AD978712EC2741100566BD5 /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
+		9EF2E6E7DC003AB13567E66A /* AgentServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E728EA0560F72E412B83E45 /* AgentServer.swift */; };
 		D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D8084BA82DC9193A00E708B0 /* DifferenceKit */; };
 		D808503C2DC94F4C00E708B0 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D80850342DC94F4C00E708B0 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		E2A888849D41387DB99FBFE5 /* AgentServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AF7B0709D3785D7AEF4DA4 /* AgentServer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -49,6 +53,20 @@
 			proxyType = 1;
 			remoteGlobalIDString = 7ADC0C6D2E2977800053978A;
 			remoteInfo = ConvosAppClip;
+		};
+		80B7F83B4F5D8C3A908DB9F2 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D8A2B6892DA4BA4B00EF8577 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D8A2B6902DA4BA4B00EF8577;
+			remoteInfo = Convos;
+		};
+		A0794EDC5D478F4F918B0E29 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = D8A2B6892DA4BA4B00EF8577 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = D8A2B6902DA4BA4B00EF8577;
+			remoteInfo = Convos;
 		};
 		D80850392DC94F4C00E708B0 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -104,6 +122,9 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		07C257C387FC51B8BB93D4F0 /* AgentServerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentServerTest.swift; sourceTree = "<group>"; };
+		36AF7B0709D3785D7AEF4DA4 /* AgentServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentServer.swift; sourceTree = "<group>"; };
+		5E728EA0560F72E412B83E45 /* AgentServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentServer.swift; sourceTree = "<group>"; };
 		7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7AC599312E5592F900D65D07 /* KeychainIdentityStoreExample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeychainIdentityStoreExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -113,10 +134,16 @@
 		7ADC0C6E2E2977800053978A /* ConvosAppClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConvosAppClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C7C2E2977810053978A /* ConvosAppClipTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		9C8D28BAC891D4F758D75C7B /* AgentServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AgentServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF84D6D930CB5CAFCFC28127 /* AgentServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = AgentServer.xctest; path = AgentServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4F8A01968F96A821BA6CCE7 /* AgentServerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentServerTest.swift; sourceTree = "<group>"; };
 		D80850342DC94F4C00E708B0 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D8477AD42DCBA52F00E31E54 /* .env */ = {isa = PBXFileReference; lastKnownFileType = text; path = .env; sourceTree = "<group>"; };
 		D8477AD52DCBA52F00E31E54 /* .env.example */ = {isa = PBXFileReference; lastKnownFileType = text; path = .env.example; sourceTree = "<group>"; };
 		D8A2B6912DA4BA4B00EF8577 /* Convos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Convos.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		E2BAB42D28E2775319A9E2C8 /* AgentServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; name = AgentServer.xctest; path = AgentServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F1ECE0E13304632905605A04 /* AgentServer */ = {isa = PBXFileReference; includeInIndex = 0; path = AgentServer; sourceTree = BUILT_PRODUCTS_DIR; };
+		F674D719A434DEB7A1875508 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -283,11 +310,15 @@
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		7AC599322E5592F900D65D07 /* KeychainIdentityStoreExample */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = KeychainIdentityStoreExample;
 			sourceTree = "<group>";
 		};
 		7AC599402E5592FA00D65D07 /* KeychainIdentityStoreTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = KeychainIdentityStoreTests;
 			sourceTree = "<group>";
 		};
@@ -309,11 +340,15 @@
 		};
 		7ADC0C7F2E2977810053978A /* ConvosAppClipTests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = ConvosAppClipTests;
 			sourceTree = "<group>";
 		};
 		7ADC0C892E2977810053978A /* ConvosAppClipUITests */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+			);
 			path = ConvosAppClipUITests;
 			sourceTree = "<group>";
 		};
@@ -405,9 +440,26 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E0890C267C16E7A3C01635AA /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		1ED22F8D2CD49B78948B9250 /* AgentServer */ = {
+			isa = PBXGroup;
+			children = (
+				36AF7B0709D3785D7AEF4DA4 /* AgentServer.swift */,
+				D4F8A01968F96A821BA6CCE7 /* AgentServerTest.swift */,
+			);
+			name = AgentServer;
+			path = AgentServer;
+			sourceTree = "<group>";
+		};
 		7A1C3C552DB6F75000B723C0 /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -425,8 +477,17 @@
 		7ACA8BC42DE17F2E00848799 /* Frameworks */ = {
 			isa = PBXGroup;
 			children = (
+				D3E1690BA991457B8E3BE529 /* iOS */,
 			);
 			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		D3E1690BA991457B8E3BE529 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				F674D719A434DEB7A1875508 /* Foundation.framework */,
+			);
+			name = iOS;
 			sourceTree = "<group>";
 		};
 		D8A2B6882DA4BA4B00EF8577 = {
@@ -445,6 +506,7 @@
 				7AC599402E5592FA00D65D07 /* KeychainIdentityStoreTests */,
 				7ACA8BC42DE17F2E00848799 /* Frameworks */,
 				D8A2B6922DA4BA4B00EF8577 /* Products */,
+				1ED22F8D2CD49B78948B9250 /* AgentServer */,
 			);
 			sourceTree = "<group>";
 		};
@@ -459,6 +521,10 @@
 				7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */,
 				7AC599312E5592F900D65D07 /* KeychainIdentityStoreExample.app */,
 				7AC5993D2E5592FA00D65D07 /* KeychainIdentityStoreTests.xctest */,
+				F1ECE0E13304632905605A04 /* AgentServer */,
+				9C8D28BAC891D4F758D75C7B /* AgentServer.xctest */,
+				E2BAB42D28E2775319A9E2C8 /* AgentServer.xctest */,
+				AF84D6D930CB5CAFCFC28127 /* AgentServer.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -507,8 +573,6 @@
 				7AC599402E5592FA00D65D07 /* KeychainIdentityStoreTests */,
 			);
 			name = KeychainIdentityStoreTests;
-			packageProductDependencies = (
-			);
 			productName = KeychainIdentityStoreExampleTests;
 			productReference = 7AC5993D2E5592FA00D65D07 /* KeychainIdentityStoreTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -531,8 +595,6 @@
 				7ACA8BA42DE16DE200848799 /* ConvosTests */,
 			);
 			name = ConvosTests;
-			packageProductDependencies = (
-			);
 			productName = ConvosTests;
 			productReference = 7ACA8BA32DE16DE200848799 /* ConvosTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -580,8 +642,6 @@
 				7ADC0C7F2E2977810053978A /* ConvosAppClipTests */,
 			);
 			name = ConvosAppClipTests;
-			packageProductDependencies = (
-			);
 			productName = ConvosAppClipTests;
 			productReference = 7ADC0C7C2E2977810053978A /* ConvosAppClipTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -603,10 +663,26 @@
 				7ADC0C892E2977810053978A /* ConvosAppClipUITests */,
 			);
 			name = ConvosAppClipUITests;
-			packageProductDependencies = (
-			);
 			productName = ConvosAppClipUITests;
 			productReference = 7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		B5D554182AD0E789F650E446 /* AgentServer */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7D955CE5FF782753EB0625D9 /* Build configuration list for PBXNativeTarget "AgentServer" */;
+			buildPhases = (
+				B43D4E697DFD43372F02334E /* Sources */,
+				E0890C267C16E7A3C01635AA /* Frameworks */,
+				BCE21FF71A10F9ACABFB1533 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3EF1E2CCAC16A5F4C89B35DE /* PBXTargetDependency */,
+			);
+			name = AgentServer;
+			productName = AgentServer;
+			productReference = AF84D6D930CB5CAFCFC28127 /* AgentServer.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		D80850332DC94F4C00E708B0 /* NotificationService */ = {
@@ -741,6 +817,7 @@
 				7ADC0C852E2977810053978A /* ConvosAppClipUITests */,
 				7AC599302E5592F900D65D07 /* KeychainIdentityStoreExample */,
 				7AC5993C2E5592FA00D65D07 /* KeychainIdentityStoreTests */,
+				B5D554182AD0E789F650E446 /* AgentServer */,
 			);
 		};
 /* End PBXProject section */
@@ -782,6 +859,13 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		7ADC0C842E2977810053978A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		BCE21FF71A10F9ACABFB1533 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -915,6 +999,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		B43D4E697DFD43372F02334E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				E2A888849D41387DB99FBFE5 /* AgentServer.swift in Sources */,
+				464BE38BF2716A7102CB8A42 /* AgentServerTest.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		D80850302DC94F4C00E708B0 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -932,6 +1025,12 @@
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		3EF1E2CCAC16A5F4C89B35DE /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Convos;
+			target = D8A2B6902DA4BA4B00EF8577 /* Convos */;
+			targetProxy = A0794EDC5D478F4F918B0E29 /* PBXContainerItemProxy */;
+		};
 		7AC5993F2E5592FA00D65D07 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 7AC599302E5592F900D65D07 /* KeychainIdentityStoreExample */;
@@ -960,6 +1059,75 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		0969CD329C9ABD072FE226A0 /* Dev */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.convos.agent-server";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Convos;
+			};
+			name = Dev;
+		};
+		2C9EF7BA2A3E3C4C92051BF2 /* Local */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.convos.agent-server";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Convos;
+			};
+			name = Local;
+		};
+		31923242027B026268BBB695 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.convos.agent-server";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Convos;
+			};
+			name = Release;
+		};
+		611BC3295416E3D3EBEAC974 /* Dev */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.convos.agent-server";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Convos;
+			};
+			name = Dev;
+		};
 		7AC5994F2E5592FA00D65D07 /* Dev */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -1490,6 +1658,42 @@
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				TEST_TARGET_NAME = ConvosAppClip;
+			};
+			name = Release;
+		};
+		815036F765B03999E8C6DC27 /* Local */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.convos.agent-server";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Convos;
+			};
+			name = Local;
+		};
+		C52C8F3A627FD960214FBA80 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FY4NZR34Z3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				PRODUCT_BUNDLE_IDENTIFIER = "org.convos.agent-server";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_EMIT_LOC_STRINGS = NO;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = Convos;
 			};
 			name = Release;
 		};
@@ -2092,6 +2296,16 @@
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
+		};
+		7D955CE5FF782753EB0625D9 /* Build configuration list for PBXNativeTarget "AgentServer" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0969CD329C9ABD072FE226A0 /* Dev */,
+				815036F765B03999E8C6DC27 /* Local */,
+				C52C8F3A627FD960214FBA80 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Dev;
 		};
 		D808503D2DC94F4C00E708B0 /* Build configuration list for PBXNativeTarget "NotificationService" */ = {
 			isa = XCConfigurationList;

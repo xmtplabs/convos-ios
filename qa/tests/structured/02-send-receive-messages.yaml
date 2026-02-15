@@ -1,0 +1,109 @@
+id: "02"
+name: "Send and Receive Messages"
+description: >
+  Verify that the app can send and receive text messages, emoji messages,
+  and attachments with another participant via CLI.
+tags: [messaging, core]
+depends_on: ["01"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+
+state:
+  conversation_id: null
+  cli_identity_id: null
+  cli_text_msg_id: null
+  cli_emoji_msg_id: null
+  cli_attachment_msg_id: null
+  app_text_msg_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    note: >
+      If run_state has a shared conversation from a prior test, reuse it.
+      Otherwise: CLI creates conversation, generates invite, app joins via
+      deep link, CLI processes join request.
+    save:
+      conversation_id: run_state.shared_conversation_id
+      cli_identity_id: run_state.cli_identity_id
+  - action: navigate_to_conversation
+    args: { id: "$conversation_id" }
+
+steps:
+  - id: receive_text
+    name: "Text message from CLI appears in app"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Hello from the CLI"
+      - wait_for_element: { label_contains: "Hello from the CLI", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Hello from the CLI" }
+    criteria: cli_text_visible
+
+  - id: receive_emoji
+    name: "Emoji message from CLI appears in app"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "🎉"
+      - wait_for_element: { label_contains: "🎉", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "🎉" }
+    criteria: cli_emoji_visible
+
+  - id: send_text
+    name: "Text message from app appears in conversation"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Hello from the app" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - find_elements: { label_contains: "Hello from the app" }
+    verify:
+      - element_exists: { label_contains: "Hello from the app" }
+    criteria: app_text_visible
+
+  - id: verify_via_cli
+    name: "App's message visible via CLI"
+    actions:
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "Hello from the app"
+    verify:
+      - cli_output_contains: "Hello from the app"
+    criteria: app_text_in_cli
+
+  - id: receive_attachment
+    name: "Attachment from CLI appears in app"
+    actions:
+      - download_test_photo: { url: "https://picsum.photos/850/650", path: "/tmp/test-photo.jpg" }
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/test-photo.jpg"
+      - wait: 10
+      - find_elements: { label_contains: "Attachment" }
+    verify:
+      - element_exists: { label_contains: "Attachment" }
+    criteria: cli_attachment_visible
+    known_issue: "DecodedMessageDBRepresentationError — app may not decode CLI-sent attachments"
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  cli_text_visible:
+    description: "Text message sent from CLI appears in the app"
+  cli_emoji_visible:
+    description: "Emoji message sent from CLI appears in the app"
+  app_text_visible:
+    description: "Text message sent from the app appears in the conversation view"
+  app_text_in_cli:
+    description: "Text message sent from the app is visible via CLI"
+  cli_attachment_visible:
+    description: "Attachment sent from CLI appears in the app"

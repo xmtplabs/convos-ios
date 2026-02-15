@@ -88,10 +88,12 @@ struct MyInfoView: View {
                                 symbolName: "photo.fill"
                             )
                             .frame(width: 32.0, height: 32.0)
+                            .accessibilityIdentifier("quickname-image-picker")
 
                             TextField("Somebody", text: $quicknameViewModel.editingDisplayName)
                                 .scrollDismissesKeyboard(.interactively)
                                 .submitLabel(.done)
+                                .accessibilityIdentifier("quickname-display-name-field")
                         } else {
                             ProfileAvatarView(
                                 profile: quicknameViewModel.profile,

@@ -57,6 +57,12 @@ struct MessageInteractionModifier: ViewModifier {
                     )
                 }
             }
+            .accessibilityAction(named: "React") {
+                contextMenuState.onToggleReaction?("❤️", message.base.id)
+            }
+            .accessibilityAction(named: "Reply") {
+                onSwipeEnded?(true)
+            }
     }
 }
 
