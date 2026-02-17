@@ -17,23 +17,24 @@ struct CustomizeSettingsView: View {
                 customizeToggleRow(
                     symbolName: "lanyardcard.fill",
                     title: "Include info with invites",
-                    subtitle: "When enabled, anyone with your convo code can see its pic, name and description",
+                    subtitle: "When enabled, anyone with your convo code can see its pic, name and descriptions",
                     isOn: $includeInfoWithInvites
                 )
-
-                FeatureRowItem(
-                    imageName: nil,
-                    symbolName: "paintpalette.fill",
-                    title: "Colors",
-                    subtitle: nil
-                ) {
-                    SoonLabel()
-                }
             } header: {
                 Text("Your new convos")
                     .font(.footnote.weight(.medium))
                     .foregroundStyle(.colorTextSecondary)
             }
+
+            Section {
+                HStack {
+                    Text("Colors")
+                        .foregroundStyle(.colorTextTertiary)
+                    Spacer()
+                    SoonLabel()
+                }
+            }
+            .disabled(true)
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
@@ -59,11 +60,11 @@ struct CustomizeSettingsView: View {
                 .font(.headline)
                 .padding(.horizontal, DesignConstants.Spacing.step2x)
                 .padding(.vertical, 10.0)
-                .foregroundStyle(.white)
+                .foregroundStyle(.colorTextPrimary)
                 .frame(width: 40.0, height: 40.0)
                 .background(
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                        .fill(.colorOrange)
+                        .fill(Color.colorFillMinimal)
                         .aspectRatio(1.0, contentMode: .fit)
                 )
 
