@@ -1,12 +1,5 @@
 {
   "mcpServers": {
-    "XcodeBuildMCP": {
-      "command": "npx",
-      "args": ["-y", "xcodebuildmcp@latest"],
-      "env": {
-        "XCODE_PROJECT_PATH": "Convos.xcodeproj"
-      }
-    },
     "ios-simulator": {
       "command": "npx",
       "args": ["-y", "ios-simulator-mcp@latest"]
