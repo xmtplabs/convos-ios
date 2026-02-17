@@ -144,6 +144,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                             Image(systemName: "square.and.arrow.up")
                                 .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
                         }
+                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
+                        .accessibilityIdentifier("share-invite-button")
                         .fullScreenCover(isPresented: $presentingShareView) {
                             ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
                                 .presentationBackground(.clear)
@@ -152,8 +154,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         .transaction { transaction in
                             transaction.disablesAnimations = true
                         }
-                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
-                        .accessibilityIdentifier("share-invite-button")
                     case .scan:
                         Button {
                             onScanInviteCode()

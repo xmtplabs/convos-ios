@@ -1,0 +1,114 @@
+id: "12"
+name: "Create Conversation from App"
+description: >
+  Verify that a conversation can be created from the app, an invite
+  shared, and another participant can join and exchange messages.
+tags: [conversations, invites, core]
+depends_on: ["01"]
+estimated_duration_s: 150
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+
+state:
+  conversation_id: null
+  invite_url: null
+  cli_identity_id: null
+
+steps:
+  - id: create_conversation
+    name: "New conversation created from app"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+    verify:
+      - element_exists: { id: "invite-qr-code" }
+      - element_exists: { id: "message-text-field" }
+    criteria: conversation_created
+    save:
+      conversation_id: "extract from conversation-info-button or navigation state"
+
+  - id: share_invite
+    name: "Share button opens invite view with QR code"
+    actions:
+      - tap: { id: "share-invite-button" }
+      - wait: 3
+      - screenshot: {}
+    verify:
+      - visual_check: "Share sheet shows QR code and 'Pop into this convo'"
+    criteria: invite_view_shows_qr
+
+  - id: copy_invite
+    name: "Copy invite URL from share sheet"
+    actions:
+      - tap: { label: "Copy", coordinates_fallback: { x: 110, y: 885 } }
+      - wait: 1
+      - read_clipboard: {}
+    save:
+      invite_url: clipboard
+    verify:
+      - clipboard_contains: "dev.convos.org"
+
+  - id: dismiss_share
+    name: "Dismiss share sheet"
+    actions:
+      - tap: { label: "Close", optional: true }
+      - key: { code: 41 }
+      - wait: 1
+
+  - id: cli_join
+    name: "CLI joins via invite URL"
+    actions:
+      - cli_start_join_watcher:
+          note: "Not needed — app auto-processes as creator"
+      - cli_join_conversation:
+          invite_url: "$invite_url"
+          profile_name: "CLI Joiner"
+          no_wait: true
+      - wait: 10
+    save:
+      cli_identity_id: "from join output"
+
+  - id: verify_member_count
+    name: "Member count increases after join"
+    actions:
+      - find_elements: { label_contains: "2 members" }
+    verify:
+      - element_exists: { label_contains: "2 members" }
+    criteria: cli_joined
+
+  - id: exchange_messages
+    name: "Messages exchanged between app and CLI"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Hello from CLI joiner"
+      - wait_for_element: { label_contains: "Hello from CLI joiner", timeout: 15 }
+      - type_in_field: { id: "message-text-field", text: "Welcome!" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "Welcome!"
+    verify:
+      - element_exists: { label_contains: "Hello from CLI joiner" }
+      - cli_output_contains: "Welcome!"
+    criteria: messages_exchanged
+
+teardown:
+  - action: navigate_back
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  conversation_created:
+    description: "New conversation can be created from the app"
+  invite_view_shows_qr:
+    description: "Share/invite button opens the invite share view with QR code"
+  cli_joined:
+    description: "CLI can join using the invite URL"
+  messages_exchanged:
+    description: "Messages can be exchanged between app and CLI after joining"

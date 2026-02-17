@@ -141,6 +141,8 @@ struct MessagesInputView: View {
                 .scaleEffect(isPoofing ? 1.3 : 1.0)
                 .blur(radius: isPoofing ? 12.0 : 0.0)
                 .opacity(isPoofing ? 0.0 : 1.0)
+                .accessibilityLabel("Attachment preview")
+                .accessibilityIdentifier("attachment-preview-image")
 
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -162,6 +164,8 @@ struct MessagesInputView: View {
             .opacity(isPoofing ? 0.0 : 1.0)
             .padding(.top, DesignConstants.Spacing.step2x)
             .padding(.trailing, DesignConstants.Spacing.step2x)
+            .accessibilityLabel("Remove attachment")
+            .accessibilityIdentifier("remove-attachment-button")
         }
     }
 }

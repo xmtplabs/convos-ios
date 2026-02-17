@@ -306,6 +306,7 @@ class ConversationViewModel {
         messagingService: any MessagingServiceProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
     ) {
+        let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
@@ -345,6 +346,12 @@ class ConversationViewModel {
 
         presentingConversationForked = self.conversation.isForked
 
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        let individualMessageCount = messages.reduce(0) { count, item in
+            if case .messages(let group) = item { return count + group.messages.count }
+            return count
+        }
+        Log.info("[PERF] ConversationViewModel.init: \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(messages.count) list items)")
         Log.info("Created for conversation: \(conversation.id)")
 
         observe()
