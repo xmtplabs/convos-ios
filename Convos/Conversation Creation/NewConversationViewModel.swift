@@ -196,7 +196,8 @@ class NewConversationViewModel: Identifiable {
             conversation: draftConversation,
             session: session,
             messagingService: messagingService,
-            conversationStateManager: stateManager
+            conversationStateManager: stateManager,
+            applyGlobalDefaultsForNewConversation: autoCreateConversation
         )
         if startedWithFullscreenScanner {
             convoVM.showsInfoView = false

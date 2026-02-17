@@ -45,9 +45,12 @@ class ConversationViewModel {
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
+    private let applyGlobalDefaultsForNewConversation: Bool
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored
+    private var suppressAutoRevealPersistence: Bool = false
     @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
@@ -64,6 +67,7 @@ class ConversationViewModel {
             if oldValue.isDraft, !conversation.isDraft {
                 applyPendingDraftEdits()
                 _editingIncludeInfoInPublicPreview = nil
+                seedRevealPreferenceIfNeeded(for: conversation.id)
             }
             if !isEditingConversationName { editingConversationName = conversation.name ?? "" }
             if !isEditingDescription { editingDescription = conversation.description ?? "" }
@@ -207,6 +211,7 @@ class ConversationViewModel {
     var autoRevealPhotos: Bool = false {
         didSet {
             guard oldValue != autoRevealPhotos else { return }
+            guard !suppressAutoRevealPersistence else { return }
             persistAutoReveal(autoRevealPhotos)
         }
     }
@@ -304,12 +309,14 @@ class ConversationViewModel {
         conversation: Conversation,
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
+        applyGlobalDefaultsForNewConversation: Bool = false
     ) {
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
+        self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -347,6 +354,7 @@ class ConversationViewModel {
 
         Log.info("Created for conversation: \(conversation.id)")
 
+        applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
 
@@ -359,12 +367,14 @@ class ConversationViewModel {
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
         conversationStateManager: any ConversationStateManagerProtocol,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
+        applyGlobalDefaultsForNewConversation: Bool = false
     ) {
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
+        self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
 
         // Extract dependencies from conversation state manager
         self.conversationStateManager = conversationStateManager
@@ -398,6 +408,7 @@ class ConversationViewModel {
 
         Log.info("Created for draft conversation: \(conversation.id)")
 
+        applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
 
@@ -412,7 +423,8 @@ class ConversationViewModel {
             guard let self else { return }
             do {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
-                self.autoRevealPhotos = prefs?.autoReveal ?? false
+                let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? !GlobalConvoDefaults.shared.revealModeEnabled : false
+                setAutoRevealPhotos(prefs?.autoReveal ?? defaultAutoReveal, persist: false)
             } catch {
                 Log.error("Error loading photo preferences: \(error)")
             }
@@ -439,6 +451,7 @@ class ConversationViewModel {
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
+                    self.seedRevealPreferenceIfNeeded(for: conversation.id)
                 }
             }
             .store(in: &cancellables)
@@ -468,8 +481,38 @@ class ConversationViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                self.autoRevealPhotos = prefs?.autoReveal ?? false
+                let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? !GlobalConvoDefaults.shared.revealModeEnabled : false
+                setAutoRevealPhotos(prefs?.autoReveal ?? defaultAutoReveal, persist: false)
             }
+    }
+
+    private func applyGlobalDefaultsForDraftConversationIfNeeded() {
+        guard applyGlobalDefaultsForNewConversation else { return }
+        guard conversation.isDraft else { return }
+        _editingIncludeInfoInPublicPreview = GlobalConvoDefaults.shared.includeInfoWithInvites
+    }
+
+    private func seedRevealPreferenceIfNeeded(for conversationId: String) {
+        guard applyGlobalDefaultsForNewConversation else { return }
+        guard !conversationId.hasPrefix("draft-") else { return }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let existing = try await photoPreferencesRepository.preferences(for: conversationId)
+                guard existing == nil else { return }
+                let defaultAutoReveal = !GlobalConvoDefaults.shared.revealModeEnabled
+                try await photoPreferencesWriter.setAutoReveal(defaultAutoReveal, for: conversationId)
+            } catch {
+                Log.error("Error seeding global reveal preference: \(error)")
+            }
+        }
+    }
+
+    private func setAutoRevealPhotos(_ autoReveal: Bool, persist: Bool) {
+        suppressAutoRevealPersistence = !persist
+        autoRevealPhotos = autoReveal
+        suppressAutoRevealPersistence = false
     }
 
     private func loadConversationImage(for conversation: Conversation) {
@@ -951,6 +994,8 @@ extension ConversationViewModel {
             }
         }
 
+        guard GlobalConvoDefaults.shared.revealModeEnabled else { return }
+
         if !hasShownRevealInfoSheet {
             hasShownRevealInfoSheet = true
             hasShownRevealToast = true
@@ -994,7 +1039,7 @@ extension ConversationViewModel {
     }
 
     func setAutoReveal(_ autoReveal: Bool) {
-        autoRevealPhotos = autoReveal
+        setAutoRevealPhotos(autoReveal, persist: true)
     }
 
     private func persistAutoReveal(_ autoReveal: Bool) {

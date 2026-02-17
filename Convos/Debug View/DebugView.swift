@@ -285,6 +285,7 @@ extension DebugViewSection {
         ConversationViewModel.resetUserDefaults()
         ConversationsViewModel.resetUserDefaults()
         ConversationOnboardingCoordinator.resetUserDefaults()
+        GlobalConvoDefaults.shared.reset()
     }
 
     func testSentryMessage() {

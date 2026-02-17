@@ -101,23 +101,15 @@ struct AppSettingsView: View {
                 }
 
                 Section {
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text("Customize new convos")
-                            .foregroundStyle(.colorTextTertiary)
+                    NavigationLink {
+                        CustomizeSettingsView()
+                    } label: {
+                        HStack(spacing: DesignConstants.Spacing.step2x) {
+                            Text("Customize new convos")
+                                .foregroundStyle(.colorTextPrimary)
 
-                        Spacer()
-
-                        SoonLabel()
-                    }
-                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
-
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text("Notifications")
-                            .foregroundStyle(.colorTextTertiary)
-
-                        Spacer()
-
-                        SoonLabel()
+                            Spacer()
+                        }
                     }
                     .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
                 }
