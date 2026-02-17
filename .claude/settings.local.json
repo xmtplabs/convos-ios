@@ -9,7 +9,8 @@
       "Bash(git merge:*)",
       "Bash(gt add:*)",
       "Bash(gt continue:*)",
-      "Bash(gt log:*)"
+      "Bash(gt log:*)",
+      "mcp__figma__get_design_context"
     ]
   },
   "enableAllProjectMcpServers": true,
@@ -19,6 +20,7 @@
     "xmtp-docs",
     "graphite",
     "notion",
-    "linear"
+    "linear",
+    "figma"
   ]
 }
