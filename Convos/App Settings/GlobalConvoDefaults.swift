@@ -1,6 +1,6 @@
 import Foundation
 
-final class GlobalConvoDefaults {
+final class GlobalConvoDefaults: @unchecked Sendable {
     static let shared: GlobalConvoDefaults = .init()
 
     var revealModeEnabled: Bool {
