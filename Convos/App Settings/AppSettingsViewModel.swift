@@ -31,6 +31,7 @@ final class AppSettingsViewModel {
         ConversationViewModel.resetUserDefaults()
         ConversationsViewModel.resetUserDefaults()
         ConversationOnboardingCoordinator.resetUserDefaults()
+        GlobalConvoDefaults.shared.reset()
 
         Task {
             do {
