@@ -26,6 +26,7 @@ struct DebugViewSection: View {
     @State private var isRenewingAssets: Bool = false
     @State private var renewalAlertMessage: String?
     @State private var showingRenewalAlert: Bool = false
+    @State private var presentingPhotosInfoSheet: Bool = false
 
     private var bundleIdentifier: String {
         Bundle.main.bundleIdentifier ?? "Unknown"
@@ -203,6 +204,18 @@ struct DebugViewSection: View {
                 .disabled(isRenewingAssets)
             }
 
+            Section("Sheets") {
+                Button {
+                    presentingPhotosInfoSheet = true
+                } label: {
+                    Text("Show Photos Info Sheet")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+            .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
+                PhotosInfoSheet()
+            }
+
             Section {
                 Button {
                     Task { await registerDeviceAgain() }
@@ -214,6 +227,12 @@ struct DebugViewSection: View {
                     resetOnboarding()
                 } label: {
                     Text("Reset Onboarding")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                Button {
+                    resetAllSettings()
+                } label: {
+                    Text("Reset All Settings")
                         .foregroundStyle(.colorTextPrimary)
                 }
             }
@@ -313,6 +332,12 @@ extension DebugViewSection {
             renewalAlertMessage = "Renewal failed. Check logs for details."
         }
         showingRenewalAlert = true
+    }
+
+    private func resetAllSettings() {
+        ConversationViewModel.resetUserDefaults()
+        ConversationsViewModel.resetUserDefaults()
+        ConversationOnboardingCoordinator.resetUserDefaults()
     }
 
     func testSentryMessage() {

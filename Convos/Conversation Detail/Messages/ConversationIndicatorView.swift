@@ -107,7 +107,7 @@ struct ConversationIndicatorView<InfoView: View>: View {
     }
 }
 
-#Preview {
+#Preview("Button") {
     @Previewable @State var conversationName: String = ""
     @Previewable @State var conversationImage: UIImage?
     @Previewable @State var focusCoordinator: FocusCoordinator? = FocusCoordinator(horizontalSizeClass: nil)
@@ -144,4 +144,47 @@ struct ConversationIndicatorView<InfoView: View>: View {
             EmptyView()
         }
     )
+}
+
+#Preview("Reveal Toast") {
+    @Previewable @State var conversationName: String = ""
+    @Previewable @State var conversationImage: UIImage?
+    @Previewable @State var focusCoordinator: FocusCoordinator? = FocusCoordinator(horizontalSizeClass: nil)
+    @Previewable @State var presentingConversationSettings: Bool = false
+    @Previewable @State var activeToast: IndicatorToastStyle?
+    @Previewable @State var autoRevealPhotos: Bool = false
+    @Previewable @FocusState var focusState: MessagesViewInputFocus?
+
+    let conversation: Conversation = .mock()
+    let placeholderName: String = conversation.name ?? "Convo name"
+
+    VStack(spacing: DesignConstants.Spacing.step6x) {
+        ConversationIndicator(
+            conversation: conversation,
+            placeholderName: placeholderName,
+            untitledConversationPlaceholder: "Untitled",
+            subtitle: "Customize",
+            conversationName: $conversationName,
+            conversationImage: $conversationImage,
+            presentingConversationSettings: $presentingConversationSettings,
+            activeToast: $activeToast,
+            autoRevealPhotos: $autoRevealPhotos,
+            focusState: $focusState,
+            focusCoordinator: focusCoordinator,
+            showsExplodeNowButton: false,
+            explodeState: .ready,
+            onConversationInfoTapped: {},
+            onConversationInfoLongPressed: {},
+            onConversationNameEndedEditing: {},
+            onConversationSettings: {},
+            onExplodeNow: {},
+            infoView: { EmptyView() }
+        )
+
+        Button("Show Reveal Toast") {
+            activeToast = .revealSettings(isAutoReveal: autoRevealPhotos)
+        }
+        .buttonStyle(.borderedProminent)
+    }
+    .padding()
 }

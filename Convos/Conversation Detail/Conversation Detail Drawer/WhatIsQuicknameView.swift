@@ -72,6 +72,5 @@ struct WhatIsQuicknameView: View {
     }
     .selfSizingSheet(isPresented: $presentingLearnMore) {
         WhatIsQuicknameView {}
-            .background(.colorBackgroundRaised)
     }
 }

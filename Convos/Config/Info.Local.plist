@@ -13,6 +13,8 @@
 	</array>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Convos needs local network access to connect to development backend and XMTP node</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Convos needs access to your Photo Library to save photos from conversations.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>

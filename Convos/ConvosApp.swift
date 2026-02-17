@@ -57,6 +57,7 @@ struct ConvosApp: App {
                 viewModel: conversationsViewModel,
                 quicknameViewModel: quicknameViewModel
             )
+            .additionalTopSafeArea(DesignConstants.Spacing.stepX)
             .withSafeAreaEnvironment()
         }
     }

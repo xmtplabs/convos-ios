@@ -1,3 +1,6 @@
+#if canImport(UIKit)
+import UIKit
+#endif
 import Combine
 import Foundation
 @preconcurrency import XMTPiOS
@@ -76,7 +79,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationConsentWriter
     }
 
-    public func messageWriter(for conversationId: String) -> any OutgoingMessageWriterProtocol {
+    public func messageWriter(
+        for conversationId: String,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol
+    ) -> any OutgoingMessageWriterProtocol {
         _outgoingMessageWriter
     }
 

@@ -40,6 +40,11 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String
 
+    func getPresignedUploadURL(
+        filename: String,
+        contentType: String
+    ) async throws -> (uploadURL: String, assetURL: String)
+
     // Push notifications
     func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws
@@ -457,6 +462,30 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         Log.info("Post-upload action completed successfully")
 
         return uploadedURL
+    }
+
+    func getPresignedUploadURL(
+        filename: String,
+        contentType: String
+    ) async throws -> (uploadURL: String, assetURL: String) {
+        Log.info("Getting presigned URL for file: \(filename)")
+
+        let presignedRequest = try authenticatedRequest(
+            for: "v2/attachments/presigned",
+            method: "GET",
+            queryParameters: ["contentType": contentType, "filename": filename]
+        )
+
+        struct PresignedResponse: Codable {
+            let objectKey: String
+            let uploadUrl: String
+            let assetUrl: String
+        }
+
+        let response: PresignedResponse = try await performRequest(presignedRequest)
+        Log.info("Received presigned URL for objectKey: \(response.objectKey)")
+
+        return (uploadURL: response.uploadUrl, assetURL: response.assetUrl)
     }
 
     // MARK: - Push Notification Management (JWT-authenticated, inbox-level)

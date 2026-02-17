@@ -21,6 +21,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
     internal let databaseReader: any DatabaseReader
     internal let databaseWriter: any DatabaseWriter
     private let environment: AppEnvironment
+    private let backgroundUploadManager: any BackgroundUploadManagerProtocol
     private var cancellables: Set<AnyCancellable> = []
 
     // swiftlint:disable:next function_parameter_count
@@ -55,7 +56,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             identityStore: identityStore,
-            environment: environment
+            environment: environment,
+            backgroundUploadManager: platformProviders.backgroundUploadManager
         )
     }
 
@@ -63,13 +65,15 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                   databaseWriter: any DatabaseWriter,
                   databaseReader: any DatabaseReader,
                   identityStore: any KeychainIdentityStoreProtocol,
-                  environment: AppEnvironment) {
+                  environment: AppEnvironment,
+                  backgroundUploadManager: any BackgroundUploadManagerProtocol) {
         self.identityStore = identityStore
         self.authorizationOperation = authorizationOperation
         self.inboxStateManager = InboxStateManager(stateMachine: authorizationOperation.stateMachine)
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment
+        self.backgroundUploadManager = backgroundUploadManager
     }
 
     deinit {
@@ -112,7 +116,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             identityStore: identityStore,
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
-            environment: environment
+            environment: environment,
+            backgroundUploadManager: backgroundUploadManager
         )
     }
 
@@ -125,7 +130,8 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
             databaseReader: databaseReader,
             databaseWriter: databaseWriter,
             environment: environment,
-            conversationId: conversationId
+            conversationId: conversationId,
+            backgroundUploadManager: backgroundUploadManager
         )
     }
 
@@ -144,10 +150,19 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
     // MARK: Getting/Sending Messages
 
-    func messageWriter(for conversationId: String) -> any OutgoingMessageWriterProtocol {
-        OutgoingMessageWriter(inboxStateManager: inboxStateManager,
-                              databaseWriter: databaseWriter,
-                              conversationId: conversationId)
+    func messageWriter(
+        for conversationId: String,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol
+    ) -> any OutgoingMessageWriterProtocol {
+        OutgoingMessageWriter(
+            inboxStateManager: inboxStateManager,
+            databaseWriter: databaseWriter,
+            conversationId: conversationId,
+            photoService: PhotoAttachmentService(),
+            pendingUploadWriter: PendingPhotoUploadWriter(databaseWriter: databaseWriter),
+            backgroundUploadManager: backgroundUploadManager,
+            attachmentLocalStateWriter: AttachmentLocalStateWriter(databaseWriter: databaseWriter)
+        )
     }
 
     func reactionWriter() -> any ReactionWriterProtocol {

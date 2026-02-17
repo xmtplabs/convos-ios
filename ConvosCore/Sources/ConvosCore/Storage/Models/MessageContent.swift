@@ -6,8 +6,8 @@ public enum MessageContent: Hashable, Codable, Sendable {
     case text(String),
          invite(MessageInvite),
          emoji(String), // all emoji, not a reaction
-         attachment(URL),
-         attachments([URL]),
+         attachment(HydratedAttachment),
+         attachments([HydratedAttachment]),
          update(ConversationUpdate)
 
     public var showsInMessagesList: Bool {
@@ -43,6 +43,15 @@ public enum MessageContent: Hashable, Codable, Sendable {
             false
         default:
             true
+        }
+    }
+
+    public var isAttachment: Bool {
+        switch self {
+        case .attachment, .attachments:
+            true
+        default:
+            false
         }
     }
 }

@@ -352,7 +352,8 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                     databaseWriter: databaseWriter,
                     databaseReader: databaseReader,
                     identityStore: identityStore,
-                    environment: environment
+                    environment: environment,
+                    backgroundUploadManager: UnavailableBackgroundUploadManager()
                 )
 
                 _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
@@ -531,7 +532,8 @@ extension UnusedConversationCache {
                 databaseWriter: databaseWriter,
                 databaseReader: databaseReader,
                 identityStore: identityStore,
-                environment: environment
+                environment: environment,
+                backgroundUploadManager: UnavailableBackgroundUploadManager()
             )
 
             _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
@@ -664,7 +666,8 @@ extension UnusedConversationCache {
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             identityStore: identityStore,
-            environment: environment
+            environment: environment,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
     }
 
@@ -718,7 +721,8 @@ extension UnusedConversationCache {
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             identityStore: identityStore,
-            environment: environment
+            environment: environment,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
 
         do {
@@ -773,7 +777,8 @@ extension UnusedConversationCache {
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             identityStore: identityStore,
-            environment: environment
+            environment: environment,
+            backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
 
         do {

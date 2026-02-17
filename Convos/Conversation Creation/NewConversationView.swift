@@ -82,14 +82,12 @@ struct NewConversationView: View {
                             onRetry: { viewModel.retryAction(retryAction) },
                             onCancel: { viewModel.dismissWithDeletion() }
                         )
-                        .background(.colorBackgroundRaised)
                     } else {
                         InfoView(
                             title: error.title,
                             description: error.description,
                             onDismiss: { viewModel.dismissWithDeletion() }
                         )
-                        .background(.colorBackgroundRaised)
                     }
                 }
             }

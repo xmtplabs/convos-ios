@@ -27,6 +27,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
         static let senderId: Column = Column(CodingKeys.senderId)
         static let date: Column = Column(CodingKeys.date)
         static let dateNs: Column = Column(CodingKeys.dateNs)
+        static let sortId: Column = Column(CodingKeys.sortId)
         static let status: Column = Column(CodingKeys.status)
         static let messageType: Column = Column(CodingKeys.messageType)
         static let contentType: Column = Column(CodingKeys.contentType)
@@ -43,6 +44,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
     let senderId: String
     let dateNs: Int64
     let date: Date
+    let sortId: Int64? // Insertion order for stable sorting (Signal-style)
     let status: MessageStatus
 
     let messageType: DBMessageType
@@ -119,6 +121,7 @@ extension DBMessage {
             senderId: senderId,
             dateNs: dateNs,
             date: date,
+            sortId: sortId,
             status: status,
             messageType: messageType,
             contentType: contentType,
@@ -139,6 +142,7 @@ extension DBMessage {
             senderId: senderId,
             dateNs: dateNs,
             date: date,
+            sortId: sortId,
             status: status,
             messageType: messageType,
             contentType: contentType,
@@ -159,6 +163,7 @@ extension DBMessage {
             senderId: senderId,
             dateNs: dateNs,
             date: date,
+            sortId: sortId,
             status: status,
             messageType: messageType,
             contentType: contentType,
@@ -179,6 +184,7 @@ extension DBMessage {
             senderId: senderId,
             dateNs: dateNs,
             date: date,
+            sortId: sortId,
             status: status,
             messageType: messageType,
             contentType: contentType,
@@ -199,6 +205,7 @@ extension DBMessage {
             senderId: senderId,
             dateNs: dateNs,
             date: date,
+            sortId: sortId,
             status: status,
             messageType: messageType,
             contentType: contentType,
@@ -209,5 +216,72 @@ extension DBMessage {
             attachmentUrls: attachmentUrls,
             update: update
         )
+    }
+
+    func with(attachmentUrls: [String]) -> DBMessage {
+        .init(
+            id: id,
+            clientMessageId: clientMessageId,
+            conversationId: conversationId,
+            senderId: senderId,
+            dateNs: dateNs,
+            date: date,
+            sortId: sortId,
+            status: status,
+            messageType: messageType,
+            contentType: contentType,
+            text: text,
+            emoji: emoji,
+            invite: invite,
+            sourceMessageId: sourceMessageId,
+            attachmentUrls: attachmentUrls,
+            update: update
+        )
+    }
+
+    func with(dateNs: Int64, date: Date) -> DBMessage {
+        .init(
+            id: id,
+            clientMessageId: clientMessageId,
+            conversationId: conversationId,
+            senderId: senderId,
+            dateNs: dateNs,
+            date: date,
+            sortId: sortId,
+            status: status,
+            messageType: messageType,
+            contentType: contentType,
+            text: text,
+            emoji: emoji,
+            invite: invite,
+            sourceMessageId: sourceMessageId,
+            attachmentUrls: attachmentUrls,
+            update: update
+        )
+    }
+
+    func with(sortId: Int64?) -> DBMessage {
+        .init(
+            id: id,
+            clientMessageId: clientMessageId,
+            conversationId: conversationId,
+            senderId: senderId,
+            dateNs: dateNs,
+            date: date,
+            sortId: sortId,
+            status: status,
+            messageType: messageType,
+            contentType: contentType,
+            text: text,
+            emoji: emoji,
+            invite: invite,
+            sourceMessageId: sourceMessageId,
+            attachmentUrls: attachmentUrls,
+            update: update
+        )
+    }
+
+    var hasLocalAttachments: Bool {
+        attachmentUrls.contains { $0.hasPrefix("file://") }
     }
 }

@@ -31,6 +31,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             conversationImage: $viewModel.conversationImage,
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
+            selectedAttachmentImage: $viewModel.selectedAttachmentImage,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -51,9 +52,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onReaction: viewModel.onReaction(emoji:messageId:),
-            onToggleReaction: viewModel.onToggleReaction(emoji:messageId:),
+            onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
-            onReply: viewModel.onReply(_:),
+            onReply: { message in
+                viewModel.onReply(message)
+                focusCoordinator.moveFocus(to: .message)
+            },
+            onDoubleTap: viewModel.onDoubleTap(_:),
             replyingToMessage: viewModel.replyingToMessage,
             onCancelReply: viewModel.cancelReply,
             onDisplayNameEndedEditing: {
@@ -61,6 +66,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             onProfileSettings: viewModel.onProfileSettings,
             onLoadPreviousMessages: viewModel.loadPreviousMessages,
+            shouldBlurPhotos: viewModel.shouldBlurPhotos,
+            onPhotoRevealed: viewModel.onPhotoRevealed(_:),
+            onPhotoHidden: viewModel.onPhotoHidden(_:),
+            onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
@@ -79,13 +88,19 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         )
+        .onChange(of: viewModel.selectedAttachmentImage) { oldValue, newValue in
+            if let image = newValue {
+                viewModel.onPhotoSelected(image)
+            } else if oldValue != nil {
+                viewModel.onPhotoRemoved()
+            }
+        }
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
             ConversationForkedInfoView {
                 viewModel.leaveConvo()
             }
-            .background(.colorBackgroundRaised)
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
             MyInfoView(
@@ -190,14 +205,26 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     showingLockedInfo = false
                 }
             )
-            .background(.colorBackgroundRaised)
         }
         .selfSizingSheet(isPresented: $showingFullInfo) {
             FullConvoInfoView(onDismiss: {
                 showingFullInfo = false
             })
-            .background(.colorBackgroundRaised)
         }
+        .selfSizingSheet(
+            isPresented: $viewModel.presentingRevealMediaInfoSheet,
+            onDismiss: { viewModel.showRevealSettingsToast() },
+            content: {
+                RevealMediaInfoSheet()
+            }
+        )
+        .selfSizingSheet(
+            isPresented: $viewModel.presentingPhotosInfoSheet,
+            onDismiss: { focusCoordinator.moveFocus(to: .message) },
+            content: {
+                PhotosInfoSheet()
+            }
+        )
     }
 }
 

@@ -30,7 +30,9 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
         let inboxId = client.inboxId
 
         let parentMessage = try await databaseWriter.read { db in
-            try DBMessage.fetchOne(db, key: parentMessageId)
+            try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == parentMessageId)
+                .fetchOne(db)
         }
 
         guard let parentMessage, parentMessage.status == .published else {
@@ -47,6 +49,10 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
 
         try await databaseWriter.write { db in
+            let maxSortId: Int64 = try DBMessage
+                .filter(DBMessage.Columns.conversationId == conversationId)
+                .select(max(DBMessage.Columns.sortId))
+                .fetchOne(db) ?? 0
             let localReply = DBMessage(
                 id: clientMessageId,
                 clientMessageId: clientMessageId,
@@ -54,13 +60,14 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
                 senderId: inboxId,
                 dateNs: date.nanosecondsSince1970,
                 date: date,
+                sortId: maxSortId + 1,
                 status: .unpublished,
                 messageType: .reply,
                 contentType: isContentEmoji ? .emoji : .text,
                 text: isContentEmoji ? nil : text,
                 emoji: isContentEmoji ? trimmedText : nil,
                 invite: nil,
-                sourceMessageId: parentMessageId,
+                sourceMessageId: parentMessage.id,
                 attachmentUrls: [],
                 update: nil
             )

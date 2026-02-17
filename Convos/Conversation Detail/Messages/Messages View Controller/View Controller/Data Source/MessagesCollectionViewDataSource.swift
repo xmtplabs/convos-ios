@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosLogging
 import Foundation
 import SwiftUI
 import UIKit
@@ -12,11 +13,16 @@ final class MessagesCollectionViewDataSource: NSObject {
         }
     }
 
+    var shouldBlurPhotos: Bool = true
     var onTapAvatar: ((ConversationMember) -> Void)?
     var onTapInvite: ((MessageInvite) -> Void)?
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState?
+    var onDoubleTap: ((AnyMessage) -> Void)?
+    var onPhotoRevealed: ((String) -> Void)?
+    var onPhotoHidden: ((String) -> Void)?
+    var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -48,7 +54,8 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
     func collectionView(_ collectionView: UICollectionView,
                         cellForItemAt indexPath: IndexPath) -> UICollectionViewCell {
         let item = sections[indexPath.section].cells[indexPath.item]
-        let actions = MessageCellActions(
+        let config = CellConfig(
+            shouldBlurPhotos: shouldBlurPhotos,
             onTapInvite: { [weak self] invite in
                 Log.info("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
@@ -62,13 +69,27 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onReply: { [weak self] message in
                 self?.onReply?(message)
             },
-            contextMenuState: contextMenuState ?? .init()
+            contextMenuState: contextMenuState ?? .init(),
+            onDoubleTap: { [weak self] message in
+                self?.onDoubleTap?(message)
+            },
+            onPhotoRevealed: { [weak self] attachmentData in
+                Log.info("[DataSource] onPhotoRevealed called with: \(attachmentData.prefix(50))...")
+                self?.onPhotoRevealed?(attachmentData)
+            },
+            onPhotoHidden: { [weak self] attachmentData in
+                Log.info("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
+                self?.onPhotoHidden?(attachmentData)
+            },
+            onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
+                self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
+            }
         )
         return CellFactory.createCell(
             in: collectionView,
             for: indexPath,
             with: item,
-            actions: actions
+            config: config
         )
     }
 }

@@ -268,7 +268,18 @@ class TestableMockMessageSender: MessageSender {
         ""
     }
 
+    func prepare(remoteAttachment: RemoteAttachment) async throws -> String {
+        ""
+    }
+
+    func prepare(reply: Reply) async throws -> String {
+        ""
+    }
+
     func publish() async throws {
+    }
+
+    func publishMessage(messageId: String) async throws {
     }
 
     func consentState() throws -> ConsentState {
@@ -316,6 +327,10 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
 
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
         AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
+    }
+
+    func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
+        ("https://mock-api.example.com/upload/\(filename)", "https://mock-api.example.com/assets/\(filename)")
     }
 }
 

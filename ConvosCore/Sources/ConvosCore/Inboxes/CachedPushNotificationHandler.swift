@@ -97,8 +97,16 @@ public actor CachedPushNotificationHandler {
 
         Log.info("Processing v2 notification for clientId: \(clientId)")
         let inboxesRepository = InboxesRepository(databaseReader: databaseReader)
-        guard let inbox = try? inboxesRepository.inbox(byClientId: clientId) else {
-            Log.warning("No inbox found in database for clientId: \(clientId) - dropping notification")
+        let inbox: Inbox?
+        do {
+            inbox = try inboxesRepository.inbox(byClientId: clientId)
+        } catch {
+            Log.error("Database error looking up clientId \(clientId): \(error) - dropping notification")
+            return nil
+        }
+        guard let inbox else {
+            Log.warning("No inbox found in database for clientId: \(clientId) - unregistering and dropping notification")
+            await unregisterOrphanedClient(clientId: clientId, apiJWT: payload.apiJWT)
             return nil
         }
         let inboxId = inbox.inboxId
@@ -168,5 +176,20 @@ public actor CachedPushNotificationHandler {
         )
         messagingServices[inboxId] = messagingService
         return messagingService
+    }
+
+    private func unregisterOrphanedClient(clientId: String, apiJWT: String?) async {
+        guard let apiJWT, !apiJWT.isEmpty else {
+            Log.warning("No API JWT available to unregister orphaned clientId: \(clientId)")
+            return
+        }
+
+        let apiClient = ConvosAPIClientFactory.client(environment: environment, overrideJWTToken: apiJWT)
+        do {
+            try await apiClient.unregisterInstallation(clientId: clientId)
+            Log.info("Unregistered orphaned clientId: \(clientId)")
+        } catch {
+            Log.error("Failed to unregister orphaned clientId \(clientId): \(error)")
+        }
     }
 }
