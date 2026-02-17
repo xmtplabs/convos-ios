@@ -485,14 +485,19 @@ class ConversationViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? !GlobalConvoDefaults.shared.revealModeEnabled : false
-                setAutoRevealPhotos(prefs?.autoReveal ?? defaultAutoReveal, persist: false)
+                setAutoRevealPhotos(prefs?.autoReveal ?? defaultAutoRevealForNewConversation, persist: false)
             }
+    }
+
+    private var defaultAutoRevealForNewConversation: Bool {
+        applyGlobalDefaultsForNewConversation ? !GlobalConvoDefaults.shared.revealModeEnabled : false
     }
 
     private func applyGlobalDefaultsForDraftConversationIfNeeded() {
         guard applyGlobalDefaultsForNewConversation else { return }
         guard conversation.isDraft else { return }
+        // Include-info can be seeded on the draft model, while reveal preference is persisted
+        // once a real (non-draft) conversation id exists.
         _editingIncludeInfoInPublicPreview = GlobalConvoDefaults.shared.includeInfoWithInvites
     }
 
@@ -500,9 +505,7 @@ class ConversationViewModel {
         guard applyGlobalDefaultsForNewConversation else { return }
         guard !conversationId.hasPrefix("draft-") else { return }
         guard !seededRevealPreferenceConversationIds.contains(conversationId) else { return }
-        guard !seedingRevealPreferenceConversationIds.contains(conversationId) else { return }
-
-        seedingRevealPreferenceConversationIds.insert(conversationId)
+        guard seedingRevealPreferenceConversationIds.insert(conversationId).inserted else { return }
 
         Task { @MainActor [weak self] in
             guard let self else { return }
@@ -510,8 +513,7 @@ class ConversationViewModel {
             do {
                 let existing = try await photoPreferencesRepository.preferences(for: conversationId)
                 if existing == nil {
-                    let defaultAutoReveal = !GlobalConvoDefaults.shared.revealModeEnabled
-                    try await photoPreferencesWriter.setAutoReveal(defaultAutoReveal, for: conversationId)
+                    try await photoPreferencesWriter.setAutoReveal(defaultAutoRevealForNewConversation, for: conversationId)
                 }
                 seededRevealPreferenceConversationIds.insert(conversationId)
             } catch {
