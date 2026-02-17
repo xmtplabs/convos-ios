@@ -34,7 +34,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
     let replyingToMessage: AnyMessage?
     let onCancelReply: () -> Void
     let onDisplayNameEndedEditing: () -> Void
@@ -52,47 +51,30 @@ struct MessagesView<BottomBarContent: View>: View {
     @State private var scrollToBottom: (() -> Void)?
 
     var body: some View {
-        ZStack {
-            MessagesViewRepresentable(
-                conversation: conversation,
-                messages: messages,
-                invite: invite,
-                onUserInteraction: onUserInteraction,
-                hasLoadedAllMessages: hasLoadedAllMessages,
-                shouldBlurPhotos: shouldBlurPhotos,
-                focusCoordinator: focusCoordinator,
-                onTapAvatar: onTapAvatar,
-                onLoadPreviousMessages: onLoadPreviousMessages,
-                onTapInvite: onTapInvite,
-                onReaction: onReaction,
-                onTapReactions: onTapReactions,
-                onReply: onReply,
-                contextMenuState: contextMenuState,
-                onDoubleTap: onDoubleTap,
-                onPhotoRevealed: onPhotoRevealed,
-                onPhotoHidden: onPhotoHidden,
-                onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-                bottomBarHeight: bottomBarHeight,
-                scrollToBottomTrigger: { scrollFn in
-                    scrollToBottom = scrollFn
-                }
-            )
-            .ignoresSafeArea()
-
-            MessageContextMenuOverlay(
-                state: contextMenuState,
-                shouldBlurPhotos: shouldBlurPhotos,
-                onReaction: onReaction,
-                onReply: { message in
-                    onReply(message)
-                },
-                onCopy: { text in
-                    UIPasteboard.general.string = text
-                },
-                onPhotoRevealed: onPhotoRevealed,
-                onPhotoHidden: onPhotoHidden
-            )
-        }
+        MessagesViewRepresentable(
+            conversation: conversation,
+            messages: messages,
+            invite: invite,
+            onUserInteraction: onUserInteraction,
+            hasLoadedAllMessages: hasLoadedAllMessages,
+            shouldBlurPhotos: shouldBlurPhotos,
+            focusCoordinator: focusCoordinator,
+            onTapAvatar: onTapAvatar,
+            onLoadPreviousMessages: onLoadPreviousMessages,
+            onTapInvite: onTapInvite,
+            onReaction: onReaction,
+            onTapReactions: onTapReactions,
+            onReply: onReply,
+            contextMenuState: contextMenuState,
+            onPhotoRevealed: onPhotoRevealed,
+            onPhotoHidden: onPhotoHidden,
+            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+            bottomBarHeight: bottomBarHeight,
+            scrollToBottomTrigger: { scrollFn in
+                scrollToBottom = scrollFn
+            }
+        )
+        .ignoresSafeArea()
         .safeAreaBar(edge: .bottom) {
             MessagesBottomBar(
                 profile: profile,
@@ -128,7 +110,23 @@ struct MessagesView<BottomBarContent: View>: View {
                 }
             )
             .opacity(contextMenuState.isPresented ? 0.0 : 1.0)
-            .animation(.easeOut(duration: 0.2), value: contextMenuState.isPresented)
+            .allowsHitTesting(!contextMenuState.isPresented)
+            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: contextMenuState.isPresented)
+        }
+        .overlay {
+            MessageContextMenuOverlay(
+                state: contextMenuState,
+                shouldBlurPhotos: shouldBlurPhotos,
+                onReaction: onReaction,
+                onReply: { message in
+                    onReply(message)
+                },
+                onCopy: { text in
+                    UIPasteboard.general.string = text
+                },
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoHidden: onPhotoHidden
+            )
         }
         .onAppear {
             contextMenuState.onReaction = onReaction

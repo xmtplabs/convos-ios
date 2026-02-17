@@ -17,12 +17,15 @@ struct MessageBubble: View {
 
     var body: some View {
         MessageContainer(style: style, isOutgoing: isOutgoing) {
-            LinkDetectingTextView(message, linkColor: textColor)
-                .foregroundStyle(textColor)
-                .font(.callout)
-                .padding(.horizontal, DesignConstants.Spacing.step3x)
-                .padding(.vertical, 10.0)
-                .fixedSize(horizontal: false, vertical: true)
+            LinkDetectingTextView(
+                message,
+                linkColor: textColor,
+                foregroundColor: textColor,
+                font: .preferredFont(forTextStyle: .callout)
+            )
+            .fixedSize(horizontal: false, vertical: true)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, 10.0)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(profile.displayName): \(message)")

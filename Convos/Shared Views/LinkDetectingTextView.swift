@@ -1,75 +1,145 @@
 import SwiftUI
+import UIKit
 
-// MARK: - Link Detecting Text View
 struct LinkDetectingTextView: View {
-    let linkColor: Color?
-    let isSelectable: Bool
-    private let attributedText: AttributedString
+    private let text: String
+    private let linkColor: Color?
+    private let foregroundColor: Color
+    private let font: UIFont
 
-    private static let linkDetector: NSDataDetector? = {
-        try? NSDataDetector(types: NSTextCheckingResult.CheckingType.link.rawValue)
-    }()
-
-    init(_ text: String, linkColor: Color? = nil, isSelectable: Bool = false) {
+    init(
+        _ text: String,
+        linkColor: Color? = nil,
+        foregroundColor: Color = .primary,
+        font: UIFont = .preferredFont(forTextStyle: .callout)
+    ) {
+        self.text = text
         self.linkColor = linkColor
-        self.isSelectable = isSelectable
-        self.attributedText = Self.makeAttributedString(from: text)
+        self.foregroundColor = foregroundColor
+        self.font = font
     }
 
-    @ViewBuilder
     var body: some View {
-        if isSelectable {
-            Text(attributedText)
-                .tint(linkColor)
-                .textSelection(.enabled)
+        LinkTextViewRepresentable(
+            text: text,
+            font: font,
+            textColor: UIColor(foregroundColor),
+            linkColor: linkColor.map { UIColor($0) }
+        )
+    }
+}
+
+private struct LinkTextViewRepresentable: UIViewRepresentable {
+    let text: String
+    let font: UIFont
+    let textColor: UIColor
+    let linkColor: UIColor?
+
+    func makeUIView(context: Context) -> LinkTextView {
+        let view = LinkTextView()
+        view.isEditable = false
+        view.isScrollEnabled = false
+        view.backgroundColor = .clear
+        view.textContainerInset = .zero
+        view.dataDetectorTypes = .link
+        view.delegate = context.coordinator
+        return view
+    }
+
+    func updateUIView(_ uiView: LinkTextView, context: Context) {
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.lineSpacing = 0
+
+        let attributed = NSMutableAttributedString(string: text, attributes: [
+            .font: font,
+            .foregroundColor: textColor,
+            .paragraphStyle: paragraphStyle,
+        ])
+
+        uiView.attributedText = attributed
+        uiView.isSelectable = true
+
+        if let linkColor {
+            uiView.linkTextAttributes = [
+                .foregroundColor: linkColor,
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ]
         } else {
-            Text(attributedText)
-                .tint(linkColor)
-                .textSelection(.disabled)
+            uiView.linkTextAttributes = [
+                .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ]
         }
     }
 
-    private static func makeAttributedString(from text: String) -> AttributedString {
-        var result = AttributedString()
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: LinkTextView, context: Context) -> CGSize? {
+        let maxWidth = proposal.width ?? UIView.layoutFittingExpandedSize.width
+        let size = uiView.sizeThatFits(CGSize(width: maxWidth, height: UIView.layoutFittingExpandedSize.height))
+        return size
+    }
 
-        guard let detector = linkDetector else {
-            return AttributedString(text)
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        func textView(
+            _ textView: UITextView,
+            shouldInteractWith url: URL,
+            in characterRange: NSRange,
+            interaction: UITextItemInteraction
+        ) -> Bool {
+            UIApplication.shared.open(url)
+            return false
+        }
+    }
+}
+
+protocol LinkHitTestable: UIView {
+    func containsLink(at point: CGPoint) -> Bool
+}
+
+final class LinkTextView: UITextView, LinkHitTestable {
+    convenience init() {
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        layoutManager.usesFontLeading = false
+        let textContainer = NSTextContainer()
+        textContainer.lineFragmentPadding = 0
+        textContainer.widthTracksTextView = true
+        layoutManager.addTextContainer(textContainer)
+        textStorage.addLayoutManager(layoutManager)
+        self.init(frame: .zero, textContainer: textContainer)
+    }
+
+    override var canBecomeFirstResponder: Bool { false }
+
+    func containsLink(at point: CGPoint) -> Bool {
+        urlAtPoint(point) != nil
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard super.point(inside: point, with: event) else { return false }
+        return containsLink(at: point)
+    }
+
+    private func urlAtPoint(_ point: CGPoint) -> URL? {
+        guard let position = closestPosition(to: point) else { return nil }
+        let charIndex = offset(from: beginningOfDocument, to: position)
+        guard let attributed = attributedText as? NSAttributedString,
+              charIndex >= 0, charIndex < attributed.length else {
+            return nil
         }
 
-        let nsString = text as NSString
-        let matches = detector.matches(in: text, options: [], range: NSRange(location: 0, length: nsString.length))
+        var effectiveRange = NSRange(location: 0, length: 0)
+        let attributes = attributed.attributes(at: charIndex, effectiveRange: &effectiveRange)
 
-        var lastRangeEnd = 0
-
-        for match in matches {
-            guard let url = match.url else { continue }
-
-            if match.range.location > lastRangeEnd {
-                let plainRange = NSRange(location: lastRangeEnd, length: match.range.location - lastRangeEnd)
-                let plainText = nsString.substring(with: plainRange)
-                result.append(AttributedString(plainText))
-            }
-
-            let urlText = nsString.substring(with: match.range)
-            var linkString = AttributedString(urlText)
-            linkString.link = url
-            linkString.underlineStyle = .single
-            result.append(linkString)
-
-            lastRangeEnd = match.range.location + match.range.length
+        if let url = attributes[NSAttributedString.Key.link] as? URL {
+            return url
         }
-
-        if lastRangeEnd < nsString.length {
-            let remainingRange = NSRange(location: lastRangeEnd, length: nsString.length - lastRangeEnd)
-            let remainingText = nsString.substring(with: remainingRange)
-            result.append(AttributedString(remainingText))
+        if let urlString = attributes[NSAttributedString.Key.link] as? String {
+            return URL(string: urlString)
         }
-
-        if matches.isEmpty {
-            return AttributedString(text)
-        }
-
-        return result
+        return nil
     }
 }
 

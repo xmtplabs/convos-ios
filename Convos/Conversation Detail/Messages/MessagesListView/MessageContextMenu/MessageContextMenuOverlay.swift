@@ -21,6 +21,9 @@ struct MessageContextMenuOverlay: View {
     @State private var selectedEmoji: String?
     @State private var popScale: CGFloat = 1.0
     @State private var blurOverride: Bool?
+    @State private var dragOffset: CGFloat = 0
+    @State private var isDragDismissing: Bool = false
+    @State private var isPoofDismissing: Bool = false
 
     private var message: AnyMessage? { state.presentedMessage }
 
@@ -69,7 +72,7 @@ struct MessageContextMenuOverlay: View {
                     source: localBubble,
                     screenSize: screenSize,
                     safeTop: safeTop,
-                    isPhoto: isPhoto
+                    isPhoto: isPhoto && !state.isReplyParent
                 )
                 let activeBubble = appeared ? endBubble : localBubble
 
@@ -102,7 +105,7 @@ struct MessageContextMenuOverlay: View {
             .onAppear {
                 UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
                 emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
-                withAnimation(.spring(response: 0.36, dampingFraction: 0.78)) {
+                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
                     appeared = true
                 }
                 let totalDelay = C.emojiAppearanceDelayStep * Double(C.defaultReactions.count)
@@ -124,11 +127,21 @@ struct MessageContextMenuOverlay: View {
 
     // MARK: - Background
 
+    private var dragDismissProgress: CGFloat {
+        min(max(dragOffset / C.dragDismissThreshold, 0), 1.0)
+    }
+
+    private var backgroundDimmingOpacity: CGFloat {
+        guard appeared else { return 0.0 }
+        if isDragDismissing { return 0.0 }
+        return 1.0 - dragDismissProgress
+    }
+
     private var backgroundDimming: some View {
-        Color.clear
-            .background(.ultraThinMaterial)
-            .opacity(appeared ? 1.0 : 0.0)
-            .animation(.easeOut(duration: 0.18), value: appeared)
+        Color.black.opacity(0.15)
+            .background(.ultraThinMaterial.opacity(0.4))
+            .opacity(backgroundDimmingOpacity)
+            .animation(.easeOut(duration: 0.14), value: appeared)
             .onTapGesture { dismissMenu() }
             .accessibilityLabel("Dismiss menu")
             .accessibilityAddTraits(.isButton)
@@ -259,7 +272,7 @@ struct MessageContextMenuOverlay: View {
         }
         .frame(width: currentWidth, height: currentHeight)
         .offset(x: barX, y: barY)
-        .animation(.spring(response: 0.36, dampingFraction: 0.78), value: appeared)
+        .animation(.spring(response: 0.28, dampingFraction: 0.78), value: appeared)
         .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
         .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
         .emojiPicker(
@@ -317,12 +330,21 @@ struct MessageContextMenuOverlay: View {
             endHeight = maxContentHeight
         }
 
-        let availableHeight: CGFloat = screenSize.height - minY - bottomPadding
-        let centeredY: CGFloat = minY + (availableHeight - endHeight) / 2
-        let desiredY: CGFloat = max(centeredY, minY)
-        let finalX: CGFloat = (screenSize.width - endWidth) / 2
+        let finalX: CGFloat
+        let finalY: CGFloat
 
-        return CGRect(x: finalX, y: desiredY, width: endWidth, height: endHeight)
+        if isPhoto {
+            let availableHeight: CGFloat = screenSize.height - minY - bottomPadding
+            let centeredY: CGFloat = minY + (availableHeight - endHeight) / 2
+            finalX = (screenSize.width - endWidth) / 2
+            finalY = max(centeredY, minY)
+        } else {
+            finalX = state.isOutgoing ? source.maxX - endWidth : source.minX
+            let maxY: CGFloat = screenSize.height - bottomPadding - endHeight
+            finalY = max(min(source.minY, maxY), minY)
+        }
+
+        return CGRect(x: finalX, y: finalY, width: endWidth, height: endHeight)
     }
 
     // MARK: - Bubble Preview
@@ -333,9 +355,11 @@ struct MessageContextMenuOverlay: View {
         sourceBubble: CGRect,
         endBubble: CGRect
     ) -> some View {
-        let rect = appeared ? endBubble : sourceBubble
+        let dismissToSource = !isPoofDismissing
+        let rect = appeared ? endBubble : (dismissToSource ? sourceBubble : endBubble)
         let endScale: CGFloat = min(endBubble.width / max(sourceBubble.width, 1), 1.0)
-        let scale: CGFloat = appeared ? endScale : 1.0
+        let poofScale: CGFloat = endScale * 1.15
+        let scale: CGFloat = appeared ? endScale : (dismissToSource ? 1.0 : poofScale)
         Group {
             switch message.base.content {
             case .text(let text):
@@ -381,14 +405,37 @@ struct MessageContextMenuOverlay: View {
         .scaleEffect(scale, anchor: .center)
         .frame(width: rect.width, height: rect.height, alignment: .center)
         .clipped()
-        .offset(x: rect.minX, y: rect.minY)
+        .blur(radius: !appeared && isPoofDismissing ? 8 : 0)
+        .opacity(!appeared && isPoofDismissing ? 0 : 1)
+        .offset(x: rect.minX, y: rect.minY + dragOffset)
         .shadow(
-            color: .black.opacity(appeared ? 0.25 : 0.0),
-            radius: appeared ? 32 : 0,
+            color: .black.opacity(appeared ? 0.25 * (1.0 - dragDismissProgress) : 0.0),
+            radius: appeared ? 32 * (1.0 - dragDismissProgress) : 0,
             x: 0,
-            y: appeared ? 12 : 0
+            y: appeared ? 12 * (1.0 - dragDismissProgress) : 0
         )
-        .animation(.spring(response: 0.36, dampingFraction: 0.8), value: appeared)
+        .animation(.spring(response: 0.28, dampingFraction: 0.8), value: appeared)
+        .onTapGesture {
+            dismissMenu()
+        }
+        .gesture(
+            DragGesture(minimumDistance: 10)
+                .onChanged { value in
+                    dragOffset = value.translation.height
+                }
+                .onEnded { value in
+                    if value.translation.height > C.dragDismissThreshold ||
+                        value.predictedEndTranslation.height > C.dragDismissThreshold * 2 {
+                        isDragDismissing = true
+                        dismissMenu()
+                    } else {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                            dragOffset = 0
+                        }
+                    }
+                }
+        )
+        .animation(.interactiveSpring(response: 0.3, dampingFraction: 0.8), value: dragOffset)
     }
 
     @ViewBuilder
@@ -398,7 +445,9 @@ struct MessageContextMenuOverlay: View {
             isOutgoing: state.isOutgoing,
             profile: message.base.sender.profile,
             shouldBlur: shouldBlurPhoto,
-            cornerRadius: appeared ? C.photoCornerRadius : 0
+            cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
+            showSenderLabel: !state.isReplyParent,
+            isReplyParent: state.isReplyParent
         )
     }
 
@@ -421,7 +470,6 @@ struct MessageContextMenuOverlay: View {
                 menuRow(icon: "arrowshape.turn.up.left", title: "Reply", action: replyAction)
 
                 if let text = copyableText {
-                    menuDivider
                     let copyAction = {
                         dismissMenu()
                         onCopy(text)
@@ -430,7 +478,6 @@ struct MessageContextMenuOverlay: View {
                 }
 
                 if let attachment = photoAttachment {
-                    menuDivider
                     let saveAction = {
                         Log.info("[ContextMenu] Save action fired")
                         savePhoto(attachmentKey: attachment.key)
@@ -438,7 +485,6 @@ struct MessageContextMenuOverlay: View {
                     }
                     menuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
 
-                    menuDivider
                     let isBlurred = shouldBlurPhoto
                     let key = attachment.key
                     let revealCallback = onPhotoRevealed
@@ -463,10 +509,11 @@ struct MessageContextMenuOverlay: View {
                     )
                 }
             }
+            .padding(.vertical, 10)
             .foregroundStyle(.primary)
             .opacity(appeared ? 1.0 : 0.0)
             .animation(
-                .spring(response: 0.29, dampingFraction: 0.8).delay(0.087),
+                .spring(response: 0.29, dampingFraction: 0.8).delay(0.05),
                 value: appeared
             )
             .frame(width: C.menuWidth)
@@ -475,15 +522,16 @@ struct MessageContextMenuOverlay: View {
         }
         .fixedSize()
         .scaleEffect(
-            appeared ? 1.0 : 0.01,
+            (appeared ? 1.0 : 0.01) * (1.0 - dragDismissProgress * 0.5),
             anchor: state.isOutgoing ? .topTrailing : .topLeading
         )
         .offset(
             x: state.isOutgoing ? anchorX - C.menuWidth : anchorX,
-            y: appeared ? finalY : bubbleRect.midY
+            y: (appeared ? finalY : bubbleRect.midY) + dragOffset * C.menuDragFollowRatio
         )
-        .opacity(appeared ? 1.0 : 0.0)
-        .animation(.spring(response: 0.36, dampingFraction: 0.78).delay(0.022), value: appeared)
+        .opacity(isDragDismissing ? 0.0 : (appeared ? 1.0 : 0.0) * (1.0 - dragDismissProgress))
+        .animation(.spring(response: 0.28, dampingFraction: 0.78).delay(0.012), value: appeared)
+        .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.7), value: dragOffset)
     }
 
     // MARK: - Helpers
@@ -502,26 +550,33 @@ struct MessageContextMenuOverlay: View {
         Button(action: action) {
             HStack(spacing: C.menuIconSpacing) {
                 Image(systemName: icon)
+                    .font(.system(size: 17, weight: .regular))
                     .frame(width: C.menuIconWidth)
                 Text(title)
+                    .font(.body)
                 Spacer()
             }
-            .font(.body)
             .padding(.horizontal, C.actionPaddingH)
             .padding(.vertical, C.actionPaddingV)
             .contentShape(Rectangle())
         }
     }
 
-    private var menuDivider: some View {
-        Divider()
-            .padding(.horizontal, C.actionPaddingH)
-    }
-
     private func dismissMenu() {
         showingEmojiPicker = false
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+        let wasDragDismiss = isDragDismissing
+        let shouldPoof = state.sourceFrameMoved
+
+        if shouldPoof {
+            isPoofDismissing = true
+        }
+
+        let animation: Animation = wasDragDismiss
+            ? .spring(response: 0.25, dampingFraction: 0.85)
+            : .spring(response: 0.18, dampingFraction: 0.9)
+        withAnimation(animation) {
             appeared = false
+            dragOffset = 0
             emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
             showMoreAppeared = false
             selectedEmoji = nil
@@ -529,15 +584,21 @@ struct MessageContextMenuOverlay: View {
             popScale = 1.0
             drawerExpanded = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+        let delay: TimeInterval = wasDragDismiss ? 0.28 : 0.2
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
             state.dismiss()
             blurOverride = nil
+            isDragDismissing = false
+            isPoofDismissing = false
         }
     }
 
     private func dismissMenuAfterStateChange() {
         showingEmojiPicker = false
-        withAnimation(.spring(response: 0.22, dampingFraction: 0.9)) {
+        if state.sourceFrameMoved {
+            isPoofDismissing = true
+        }
+        withAnimation(.spring(response: 0.18, dampingFraction: 0.9)) {
             appeared = false
             emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
             showMoreAppeared = false
@@ -546,9 +607,10 @@ struct MessageContextMenuOverlay: View {
             popScale = 1.0
             drawerExpanded = true
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             state.dismiss()
             blurOverride = nil
+            isPoofDismissing = false
         }
     }
 
@@ -568,20 +630,23 @@ struct MessageContextMenuOverlay: View {
         static let plusTrailingPadding: CGFloat = 8
         static let blurRadius: CGFloat = 10
         static let emojiRotation: Double = -15
-        static let emojiAppearanceDelayStep: TimeInterval = 0.036
-        static let menuWidth: CGFloat = 200
-        static let menuCornerRadius: CGFloat = 14
-        static let actionPaddingH: CGFloat = 24
-        static let actionPaddingV: CGFloat = 16
-        static let menuIconWidth: CGFloat = 24
-        static let menuIconSpacing: CGFloat = 12
+        static let emojiAppearanceDelayStep: TimeInterval = 0.025
+        static let menuWidth: CGFloat = 250
+        static let menuCornerRadius: CGFloat = 32
+        static let actionPaddingH: CGFloat = 28
+        static let actionPaddingV: CGFloat = 11
+        static let menuIconWidth: CGFloat = 18
+        static let menuIconSpacing: CGFloat = 14
         static let topInset: CGFloat = 56
         static let maxPreviewHeight: CGFloat = 75
         static let photoHorizontalInset: CGFloat = 16
         static let photoCornerRadius: CGFloat = DesignConstants.CornerRadius.photo
-        static let textMenuEstimatedHeight: CGFloat = 100
-        static let photoMenuEstimatedHeight: CGFloat = 220
+        static let textMenuEstimatedHeight: CGFloat = 80
+        static let photoMenuEstimatedHeight: CGFloat = 160
         static let verticalBreathingRoom: CGFloat = 80
+
+        static let dragDismissThreshold: CGFloat = 150
+        static let menuDragFollowRatio: CGFloat = 0.6
 
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
@@ -596,15 +661,27 @@ private struct ContextMenuPhotoPreview: View {
     let profile: Profile
     let shouldBlur: Bool
     let cornerRadius: CGFloat
+    let showSenderLabel: Bool
+    let isReplyParent: Bool
 
     @State private var loadedImage: UIImage?
 
-    init(attachmentKey: String, isOutgoing: Bool, profile: Profile, shouldBlur: Bool, cornerRadius: CGFloat = DesignConstants.CornerRadius.photo) {
+    init(
+        attachmentKey: String,
+        isOutgoing: Bool,
+        profile: Profile,
+        shouldBlur: Bool,
+        cornerRadius: CGFloat = DesignConstants.CornerRadius.photo,
+        showSenderLabel: Bool = true,
+        isReplyParent: Bool = false
+    ) {
         self.attachmentKey = attachmentKey
         self.isOutgoing = isOutgoing
         self.profile = profile
         self.shouldBlur = shouldBlur
         self.cornerRadius = cornerRadius
+        self.showSenderLabel = showSenderLabel
+        self.isReplyParent = isReplyParent
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
     }
 
@@ -614,16 +691,16 @@ private struct ContextMenuPhotoPreview: View {
                 ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
                     Image(uiImage: image)
                         .resizable()
-                        .aspectRatio(contentMode: .fill)
+                        .aspectRatio(contentMode: shouldBlur && !isReplyParent ? .fill : .fit)
                         .scaleEffect(shouldBlur ? 1.65 : 1.0)
                         .blur(radius: shouldBlur ? 96 : 0)
+                        .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
 
-                    PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                    if showSenderLabel {
+                        PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                    }
                 }
                 .clipped()
-                .overlay(alignment: isOutgoing ? .bottom : .top) {
-                    PhotoEdgeGradient(isOutgoing: isOutgoing)
-                }
                 .compositingGroup()
                 .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             } else {

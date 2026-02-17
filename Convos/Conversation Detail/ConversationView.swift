@@ -58,7 +58,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.onReply(message)
                 focusCoordinator.moveFocus(to: .message)
             },
-            onDoubleTap: viewModel.onDoubleTap(_:),
             replyingToMessage: viewModel.replyingToMessage,
             onCancelReply: viewModel.cancelReply,
             onDisplayNameEndedEditing: {

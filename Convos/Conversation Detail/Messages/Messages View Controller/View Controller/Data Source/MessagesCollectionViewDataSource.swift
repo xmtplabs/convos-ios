@@ -19,7 +19,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onTapReactions: ((AnyMessage) -> Void)?
     var onReply: ((AnyMessage) -> Void)?
     var contextMenuState: MessageContextMenuState?
-    var onDoubleTap: ((AnyMessage) -> Void)?
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
@@ -70,9 +69,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 self?.onReply?(message)
             },
             contextMenuState: contextMenuState ?? .init(),
-            onDoubleTap: { [weak self] message in
-                self?.onDoubleTap?(message)
-            },
             onPhotoRevealed: { [weak self] attachmentData in
                 Log.info("[DataSource] onPhotoRevealed called with: \(attachmentData.prefix(50))...")
                 self?.onPhotoRevealed?(attachmentData)

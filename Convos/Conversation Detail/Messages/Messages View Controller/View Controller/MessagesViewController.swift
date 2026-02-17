@@ -176,7 +176,6 @@ final class MessagesViewController: UIViewController {
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
-    var onDoubleTap: ((AnyMessage) -> Void)?
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
@@ -635,6 +634,22 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
         }
     }
 
+    func applyDeferredBottomInset() {
+        let targetInset: CGFloat
+        if let lastKeyboardFrameChange {
+            targetInset = calculateNewBottomInset(for: lastKeyboardFrameChange)
+        } else {
+            targetInset = bottomBarHeight
+        }
+        guard collectionView.contentInset.bottom != targetInset else { return }
+        let offset = collectionView.contentOffset
+        UIView.performWithoutAnimation {
+            collectionView.contentInset.bottom = targetInset
+            collectionView.verticalScrollIndicatorInsets.bottom = targetInset
+            collectionView.contentOffset = offset
+        }
+    }
+
     private func updateBottomInsetForBottomBarHeight() {
         guard isViewLoaded else { return }
 
@@ -663,6 +678,7 @@ extension MessagesViewController: KeyboardListenerDelegate {
     }
 
     private func updateBottomInset(inset: CGFloat, info: KeyboardInfo?) {
+        guard !contextMenuState.isPresented else { return }
         guard collectionView.contentInset.bottom != inset else { return }
         updateCollectionViewInsets(to: inset, with: info)
     }

@@ -906,21 +906,6 @@ extension ConversationViewModel {
         }
     }
 
-    func onDoubleTap(_ message: AnyMessage) {
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                try await reactionWriter.toggleReaction(
-                    emoji: "❤️",
-                    to: message.base.id,
-                    in: conversation.id
-                )
-            } catch {
-                Log.error("Error toggling reaction: \(error)")
-            }
-        }
-    }
-
     func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
         Task { [weak self] in
             guard let self else { return }
