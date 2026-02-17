@@ -7,23 +7,38 @@ struct CustomizeSettingsView: View {
     var body: some View {
         List {
             Section {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                    Text("Customize")
+                        .font(.convosTitle)
+                        .tracking(Font.convosTitleTracking)
+                        .foregroundStyle(.colorTextPrimary)
+                    Text("Your new convos")
+                        .font(.subheadline)
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .padding(.horizontal, DesignConstants.Spacing.step2x)
+                .listRowBackground(Color.clear)
+            }
+            .listRowSeparator(.hidden)
+            .listRowSpacing(0.0)
+            .listRowInsets(.all, DesignConstants.Spacing.step2x)
+            .listSectionMargins(.top, 0.0)
+            .listSectionSeparator(.hidden)
+
+            Section {
                 customizeToggleRow(
-                    symbolName: "eye.circle.fill",
+                    symbolName: "eye.slash",
                     title: "Reveal mode",
                     subtitle: "Blur incoming pics",
                     isOn: $revealModeEnabled
                 )
 
                 customizeToggleRow(
-                    symbolName: "lanyardcard.fill",
+                    symbolName: "qrcode",
                     title: "Include info with invites",
-                    subtitle: "When enabled, anyone with your convo code can see its pic, name and descriptions",
+                    subtitle: "When enabled, anyone with your convo code can see its pic, name and description",
                     isOn: $includeInfoWithInvites
                 )
-            } header: {
-                Text("Your new convos")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(.colorTextSecondary)
             }
 
             Section {
@@ -38,7 +53,6 @@ struct CustomizeSettingsView: View {
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
-        .navigationTitle("Customize")
         .navigationBarTitleDisplayMode(.inline)
         .onChange(of: revealModeEnabled) { _, value in
             GlobalConvoDefaults.shared.revealModeEnabled = value
