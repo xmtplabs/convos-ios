@@ -55,6 +55,10 @@ class ConversationViewModel {
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedPhotoPreferencesConversationId: String?
+    @ObservationIgnored
+    private var seedingRevealPreferenceConversationIds: Set<String> = []
+    @ObservationIgnored
+    private var seededRevealPreferenceConversationIds: Set<String> = []
 
     // MARK: - Public
 
@@ -495,14 +499,21 @@ class ConversationViewModel {
     private func seedRevealPreferenceIfNeeded(for conversationId: String) {
         guard applyGlobalDefaultsForNewConversation else { return }
         guard !conversationId.hasPrefix("draft-") else { return }
+        guard !seededRevealPreferenceConversationIds.contains(conversationId) else { return }
+        guard !seedingRevealPreferenceConversationIds.contains(conversationId) else { return }
 
-        Task { [weak self] in
+        seedingRevealPreferenceConversationIds.insert(conversationId)
+
+        Task { @MainActor [weak self] in
             guard let self else { return }
+            defer { seedingRevealPreferenceConversationIds.remove(conversationId) }
             do {
                 let existing = try await photoPreferencesRepository.preferences(for: conversationId)
-                guard existing == nil else { return }
-                let defaultAutoReveal = !GlobalConvoDefaults.shared.revealModeEnabled
-                try await photoPreferencesWriter.setAutoReveal(defaultAutoReveal, for: conversationId)
+                if existing == nil {
+                    let defaultAutoReveal = !GlobalConvoDefaults.shared.revealModeEnabled
+                    try await photoPreferencesWriter.setAutoReveal(defaultAutoReveal, for: conversationId)
+                }
+                seededRevealPreferenceConversationIds.insert(conversationId)
             } catch {
                 Log.error("Error seeding global reveal preference: \(error)")
             }
