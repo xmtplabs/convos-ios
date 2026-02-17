@@ -33,7 +33,7 @@ IOS-236 adds app-level defaults and uses existing per-conversation mechanisms wi
 3. "Include info with invites" = the conversation's pic, name, and description are visible to anyone holding the convo code before joining.
 4. Copy from Figma node `18709:46747`:
    - "Reveal mode" / "Blur incoming pics" (global default: ON)
-   - "Include info with invites" / "When enabled, anyone with your convo code can see its pic, name and descriptions" (global default: OFF)
+   - "Include info with invites" / "When enabled, anyone with your convo code can see its pic, name and description" (global default: OFF)
 5. Per Andrew's IOS-314 comment: when global Reveal is ON, per-convo toast/info sheet still shows; when global Reveal is OFF, suppress it.
 
 ## Behavior rules
@@ -147,7 +147,7 @@ Also update debug reset flow (`DebugView.resetAllSettings()`) to reset global de
 | Row | Title | Subtitle |
 |-----|-------|----------|
 | 1 | Reveal mode | Blur incoming pics |
-| 2 | Include info with invites | When enabled, anyone with your convo code can see its pic, name and descriptions |
+| 2 | Include info with invites | When enabled, anyone with your convo code can see its pic, name and description |
 
 Customize screen title: "Customize"  
 Customize screen subtitle: "Your new convos"
