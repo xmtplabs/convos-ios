@@ -54,6 +54,10 @@ struct CustomizeSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
         .navigationBarTitleDisplayMode(.inline)
+        .onAppear {
+            revealModeEnabled = GlobalConvoDefaults.shared.revealModeEnabled
+            includeInfoWithInvites = GlobalConvoDefaults.shared.includeInfoWithInvites
+        }
         .onChange(of: revealModeEnabled) { _, value in
             GlobalConvoDefaults.shared.revealModeEnabled = value
         }
