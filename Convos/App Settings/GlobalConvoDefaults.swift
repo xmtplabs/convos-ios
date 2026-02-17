@@ -1,5 +1,6 @@
 import Foundation
 
+// Safe because this type is a thin wrapper around UserDefaults.standard accessors.
 final class GlobalConvoDefaults: @unchecked Sendable {
     static let shared: GlobalConvoDefaults = .init()
 

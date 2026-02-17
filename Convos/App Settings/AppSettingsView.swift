@@ -28,8 +28,6 @@ struct ConvosToolbarButton: View {
     }
 }
 
-// swiftlint:disable force_unwrapping
-
 struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
@@ -117,7 +115,7 @@ struct AppSettingsView: View {
 
                 Section {
                     Button {
-                        openURL(URL(string: "https://xmtp.org")!)
+                        openExternalURL("https://xmtp.org")
                     } label: {
                         NavigationLink {
                             EmptyView()
@@ -136,7 +134,7 @@ struct AppSettingsView: View {
                     .foregroundStyle(.colorTextPrimary)
 
                     Button {
-                        openURL(URL(string: "https://hq.convos.org/privacy-and-terms")!)
+                        openExternalURL("https://hq.convos.org/privacy-and-terms")
                     } label: {
                         NavigationLink("Privacy & Terms", destination: EmptyView())
                     }
@@ -219,9 +217,12 @@ struct AppSettingsView: View {
             openURL(mailtoURL)
         }
     }
-}
 
-// swiftlint:enable force_unwrapping
+    private func openExternalURL(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        openURL(url)
+    }
+}
 
 #Preview {
     let quicknameViewModel = QuicknameSettingsViewModel.shared
