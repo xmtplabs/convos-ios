@@ -105,7 +105,7 @@ struct AppSettingsView: View {
                         CustomizeSettingsView()
                     } label: {
                         HStack(spacing: DesignConstants.Spacing.step2x) {
-                            Text("Customize new convos")
+                            Text("Customize")
                                 .foregroundStyle(.colorTextPrimary)
 
                             Spacer()
