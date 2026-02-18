@@ -6,6 +6,7 @@ struct ConversationIndicator<InfoView: View>: View {
     let placeholderName: String
     let untitledConversationPlaceholder: String
     let subtitle: String
+    let scheduledExplosionDate: Date?
     @Binding var conversationName: String
     @Binding var conversationImage: UIImage?
     @Binding var presentingConversationSettings: Bool
@@ -47,6 +48,7 @@ struct ConversationIndicator<InfoView: View>: View {
                         conversationName: conversationName,
                         placeholderName: untitledConversationPlaceholder,
                         subtitle: subtitle,
+                        scheduledExplosionDate: scheduledExplosionDate,
                         action: onConversationInfoTapped,
                         longPressAction: onConversationInfoLongPressed
                     )
@@ -147,6 +149,7 @@ struct ConversationIndicator<InfoView: View>: View {
             placeholderName: placeholderName,
             untitledConversationPlaceholder: "Untitled",
             subtitle: "Customize",
+            scheduledExplosionDate: nil,
             conversationName: $conversationName,
             conversationImage: $conversationImage,
             presentingConversationSettings: $presentingConversationSettings,
