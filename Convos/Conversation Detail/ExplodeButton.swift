@@ -1,3 +1,4 @@
+import ConvosCore
 import SwiftUI
 import UIKit
 
@@ -5,6 +6,7 @@ import UIKit
 
 enum ExplodeState: Equatable {
     case ready
+    case scheduled(Date)
     case exploding
     case exploded
     case error(String)
@@ -24,6 +26,15 @@ enum ExplodeState: Equatable {
     var isError: Bool {
         if case .error = self { return true }
         return false
+    }
+    var isScheduled: Bool {
+        if case .scheduled = self { return true }
+        return false
+    }
+
+    var scheduledDate: Date? {
+        if case .scheduled(let date) = self { return date }
+        return nil
     }
 
     static let explodedAnimationDelay: CGFloat = 0.7
@@ -76,7 +87,7 @@ struct ExplodeButton: View {
 
     // MARK: - Private State
 
-    @State private var iconRotation: Double = 0
+    @State private var isBouncing: Bool = false
     @State private var buttonScale: CGFloat = 1.0
 
     // MARK: - Computed Properties
@@ -85,6 +96,8 @@ struct ExplodeButton: View {
         switch state {
         case .ready:
             return readyText
+        case .scheduled:
+            return "Scheduled"
         case .exploding, .exploded:
             return explodingText
         case .error(let message):
@@ -109,6 +122,8 @@ struct ExplodeButton: View {
         switch state {
         case .ready:
             return readyText
+        case .scheduled:
+            return "Scheduled to explode"
         case .exploding:
             return explodingText
         case .exploded:
@@ -121,13 +136,19 @@ struct ExplodeButton: View {
     // MARK: - Body
 
     var body: some View {
-        Button {
-            onExplode()
-        } label: {
-            buttonContent
+        Group {
+            if case .scheduled(let date) = state {
+                scheduledContent(expiresAt: date)
+            } else {
+                Button {
+                    onExplode()
+                } label: {
+                    buttonContent
+                }
+                .disabled(!state.isReady)
+                .buttonStyle(HoldToConfirmPrimitiveStyle(config: config.buttonStyle))
+            }
         }
-        .disabled(!state.isReady)
-        .buttonStyle(HoldToConfirmPrimitiveStyle(config: config.buttonStyle))
         .scaleEffect(buttonScale)
         .onChange(of: state) { _, newValue in
             handleStateChange(newValue)
@@ -135,6 +156,24 @@ struct ExplodeButton: View {
         .accessibilityLabel(explodeAccessibilityLabel)
         .accessibilityHint(state.isReady ? "Hold to confirm" : "")
         .accessibilityIdentifier("explode-button")
+    }
+
+    @ViewBuilder
+    private func scheduledContent(expiresAt: Date) -> some View {
+        TimelineView(.periodic(from: .now, by: 1.0)) { context in
+            let isExpired = context.date >= expiresAt
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Image(systemName: "burst")
+                Text(isExpired ? "Exploding..." : "Explodes in \(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))")
+            }
+            .foregroundStyle(.colorOrange)
+            .font(.subheadline.weight(.medium))
+            .padding(.vertical, DesignConstants.Spacing.step3x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .frame(maxWidth: .infinity)
+            .background(Color.colorOrange.opacity(0.1))
+            .clipShape(Capsule())
+        }
     }
 
     // MARK: - Subviews
@@ -151,9 +190,8 @@ struct ExplodeButton: View {
     }
 
     private var iconView: some View {
-        // Main icon
-        Image("explodeIcon")
-            .rotationEffect(.degrees(iconRotation))
+        Image(systemName: "burst")
+            .symbolEffect(.bounce.up.byLayer, options: .repeat(.periodic(delay: 0.0)), value: isBouncing)
             .scaleEffect(iconScale)
             .blur(radius: state.isExploded ? config.iconExplodeBlur : 0)
             .opacity(state.isExploded ? 0 : 1)
@@ -171,6 +209,8 @@ struct ExplodeButton: View {
             case .ready:
                 Text(readyText)
                     .transition(.scale.combined(with: .opacity))
+            case .scheduled:
+                EmptyView()
             case .exploding, .exploded:
                 ShatteringText(
                     text: explodingText,
@@ -207,6 +247,8 @@ struct ExplodeButton: View {
             handleExplodedState()
         case .ready:
             handleReadyState()
+        case .scheduled:
+            handleReadyState()
         case .error:
             handleErrorState()
         }
@@ -214,16 +256,12 @@ struct ExplodeButton: View {
 
     private func handleExplodingState() {
         UIImpactFeedbackGenerator(style: config.explodingHapticStyle).impactOccurred()
-        // Sync icon spin with hold duration
-        let spinDuration = config.iconSpinDuration > 0 ? config.iconSpinDuration : config.buttonStyle.duration
-        withAnimation(.linear(duration: spinDuration)) {
-            iconRotation = 360
-        }
+        isBouncing = true
     }
 
     private func handleExplodedState() {
         UIImpactFeedbackGenerator(style: config.explodedHapticStyle).impactOccurred()
-        iconRotation = 0
+        isBouncing = false
 
         // Ripple effect
         withAnimation(.spring(response: config.rippleResponse, dampingFraction: config.rippleDamping)) {
@@ -239,9 +277,7 @@ struct ExplodeButton: View {
     }
 
     private func handleReadyState() {
-        withAnimation(.easeOut(duration: 0.3)) {
-            iconRotation = 0
-        }
+        isBouncing = false
         buttonScale = 1.0
     }
 

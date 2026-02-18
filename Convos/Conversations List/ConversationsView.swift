@@ -11,8 +11,10 @@ struct ConversationsView: View {
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @State private var conversationPendingDeletion: Conversation?
+    @State private var conversationPendingExplosion: Conversation?
     @State private var scrollOffset: CGFloat = 0
     @State private var pinnedSectionHeight: CGFloat = 0
+    @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
 
     private var pinnedSectionOffset: CGFloat {
         guard pinnedSectionHeight > 0 else { return 0 }
@@ -110,10 +112,19 @@ struct ConversationsView: View {
     @ViewBuilder
     func conversationListItem(_ conversation: Conversation) -> some View {
         ConversationsListItem(conversation: conversation)
+            .background(
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                    .fill(.colorBackgroundSurfaceless)
+            )
+            .contentShape(
+                .contextMenuPreview,
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+            )
             .contextMenu {
                 conversationContextMenuContent(
                     conversation: conversation,
                     viewModel: viewModel,
+                    onExplode: { conversationPendingExplosion = conversation },
                     onDelete: { conversationPendingDeletion = conversation }
                 )
             }
@@ -124,6 +135,15 @@ struct ConversationsView: View {
                 }
                 .tint(.colorCaution)
                 .accessibilityLabel("Delete conversation")
+
+                if conversation.creator.isCurrentUser {
+                    let explodeAction = { conversationPendingExplosion = conversation }
+                    Button(action: explodeAction) {
+                        Image(systemName: "burst")
+                    }
+                    .tint(.colorBackgroundInverted)
+                    .accessibilityLabel("Explode conversation")
+                }
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
@@ -183,7 +203,7 @@ struct ConversationsView: View {
             insetsTopSafeArea: true,
             sidebarColumnWidth: $sidebarWidth
         ) { focusState, coordinator in
-            NavigationSplitView {
+            NavigationSplitView(preferredCompactColumn: $preferredColumn) {
                 ZStack(alignment: .top) {
                     Group {
                         if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
@@ -202,6 +222,7 @@ struct ConversationsView: View {
                             pinnedConversations: viewModel.pinnedConversations,
                             viewModel: viewModel,
                             conversationPendingDeletion: $conversationPendingDeletion,
+                            conversationPendingExplosion: $conversationPendingExplosion,
                             onSelectConversation: { conversation in
                                 viewModel.selectedConversationId = conversation.id
                             }
@@ -264,14 +285,25 @@ struct ConversationsView: View {
                                     Text("Unread")
                                 }
                             }
+
+                            let explodingAction = {
+                                viewModel.activeFilter = viewModel.activeFilter == .exploding ? .all : .exploding
+                            }
+                            Button(action: explodingAction) {
+                                if viewModel.activeFilter == .exploding {
+                                    Label("Exploding", systemImage: "checkmark")
+                                } else {
+                                    Text("Exploding")
+                                }
+                            }
                         } label: {
                             Image(systemName: "line.3.horizontal.decrease")
-                                .foregroundStyle(viewModel.activeFilter == .unread ? .colorTextPrimaryInverted : .colorFillPrimary)
+                                .foregroundStyle(viewModel.activeFilter != .all ? .colorTextPrimaryInverted : .colorFillPrimary)
                                 .frame(width: 32, height: 32)
-                                .background(viewModel.activeFilter == .unread ? .colorFillPrimary : .clear)
+                                .background(viewModel.activeFilter != .all ? .colorFillPrimary : .clear)
                                 .mask(Circle())
-                                .overlay(Circle().stroke(viewModel.activeFilter == .unread ? .colorFillPrimary : .clear, lineWidth: 2))
-                                .accessibilityLabel(viewModel.activeFilter == .unread ? "Filter, showing unread" : "Filter conversations")
+                                .overlay(Circle().stroke(viewModel.activeFilter != .all ? .colorFillPrimary : .clear, lineWidth: 2))
+                                .accessibilityLabel(viewModel.activeFilter != .all ? "Filter active" : "Filter conversations")
                                 .accessibilityIdentifier("filter-button")
                         }
                         .disabled(!viewModel.hasUnpinnedConversations)
@@ -330,6 +362,19 @@ struct ConversationsView: View {
                     EmptyView()
                 }
             }
+            .onAppear {
+                if viewModel.selectedConversationViewModel != nil {
+                    preferredColumn = .detail
+                }
+            }
+            .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
+                preferredColumn = isNil ? .sidebar : .detail
+            }
+            .onChange(of: viewModel.selectedConversationViewModel?.explodeState) { _, newState in
+                guard let newState, case .exploded = newState else { return }
+                viewModel.selectedConversationId = nil
+                preferredColumn = .sidebar
+            }
         }
         .focusable(false)
         .focusEffectDisabled()
@@ -366,6 +411,29 @@ struct ConversationsView: View {
         }
         .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
             PinLimitInfoView()
+        }
+        .background {
+            Color.clear
+                .fullScreenCover(item: $conversationPendingExplosion) { conversation in
+                    ExplodeConvoSheet(
+                        isScheduled: conversation.scheduledExplosionDate != nil,
+                        onSchedule: { date in
+                            viewModel.scheduleConversationExplosion(conversation, at: date)
+                            conversationPendingExplosion = nil
+                        },
+                        onExplodeNow: {
+                            viewModel.explodeConversation(conversation)
+                            conversationPendingExplosion = nil
+                        },
+                        onDismiss: {
+                            conversationPendingExplosion = nil
+                        }
+                    )
+                    .presentationBackground(.clear)
+                }
+                .transaction { transaction in
+                    transaction.disablesAnimations = true
+                }
         }
         .onContinueUserActivity(NSUserActivityTypeBrowsingWeb) { activity in
             if let url = activity.webpageURL {

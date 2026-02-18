@@ -367,7 +367,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -401,7 +402,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -440,7 +442,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing (streams start first, then syncAllConversations is called)
@@ -474,7 +477,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -511,7 +515,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing (streams start first, then syncAllConversations is called)
@@ -552,7 +557,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -585,7 +591,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -616,7 +623,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -655,7 +663,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing with first client
@@ -693,7 +702,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -729,7 +739,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing - this will be in starting state
@@ -768,7 +779,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing - this will be in starting state
@@ -807,7 +819,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -837,7 +850,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -867,7 +881,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -902,7 +917,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing
@@ -930,7 +946,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing

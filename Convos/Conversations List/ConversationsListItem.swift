@@ -40,6 +40,8 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 
+            accessoryContent()
+
             if isMuted {
                 Image(systemName: "bell.slash.fill")
                     .font(.callout)
@@ -53,10 +55,8 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
                     .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
             }
-
-            accessoryContent()
         }
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -101,7 +101,11 @@ struct ConversationsListItem: View {
                     }
                 }
             },
-            accessoryContent: {}
+            accessoryContent: {
+                if let expiresAt = conversation.scheduledExplosionDate {
+                    ExplosionCountdownBadge(expiresAt: expiresAt)
+                }
+            }
         )
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)

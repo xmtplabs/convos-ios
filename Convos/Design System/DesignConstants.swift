@@ -36,6 +36,7 @@ enum DesignConstants {
 
     enum CornerRadius {
         static let large: CGFloat = 40.0
+        static let mediumLargest: CGFloat = 34.0
         static let mediumLarger: CGFloat = 32.0 // lol
         static let mediumLarge: CGFloat = 24.0
         static let photo: CGFloat = 18.0

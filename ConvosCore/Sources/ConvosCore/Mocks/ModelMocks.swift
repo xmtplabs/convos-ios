@@ -241,6 +241,13 @@ public extension ConversationUpdate {
                   metadataChange.field == .description,
                   let newValue = metadataChange.newValue {
             return "\(creatorDisplayName) changed the convo description to \"\(newValue)\""
+        } else if let metadataChange = metadataChanges.first,
+                  metadataChange.field == .expiresAt,
+                  metadataChange.newValue != nil {
+            if let duration = metadataChange.oldValue {
+                return "\(creatorDisplayName) set this convo to explode in \(duration)"
+            }
+            return "\(creatorDisplayName) set this convo to explode"
         } else if !removedMembers.isEmpty {
             return ""
         } else {

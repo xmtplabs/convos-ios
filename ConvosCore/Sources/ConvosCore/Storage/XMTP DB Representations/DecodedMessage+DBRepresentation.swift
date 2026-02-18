@@ -357,13 +357,12 @@ extension XMTPiOS.DecodedMessage {
                     }
 
                     let expiresAtChanged = oldExpiresAt != newExpiresAt
-                    // Determine what to report based on what actually changed
+                    // Skip expiresAt changes - these are handled by ExplodeSettings content type
                     if expiresAtChanged {
-                        // expiresAt changed, prioritize it
                         return .init(
-                            field: ConversationUpdate.MetadataChange.Field.expiresAt.rawValue,
-                            oldValue: oldExpiresAt?.ISO8601Format(),
-                            newValue: newExpiresAt?.ISO8601Format()
+                            field: ConversationUpdate.MetadataChange.Field.unknown.rawValue,
+                            oldValue: nil,
+                            newValue: nil
                         )
                     } else {
                         // some other custom field changed (tag, profiles, etc.)

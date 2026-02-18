@@ -75,6 +75,7 @@ private struct ConversationIndicatorWrapper: View {
             placeholderName: viewModel.conversationNamePlaceholder,
             untitledConversationPlaceholder: viewModel.untitledConversationPlaceholder,
             subtitle: viewModel.conversationInfoSubtitle,
+            scheduledExplosionDate: viewModel.scheduledExplosionDate,
             conversationName: $viewModel.editingConversationName,
             conversationImage: $viewModel.conversationImage,
             presentingConversationSettings: $viewModel.presentingConversationSettings,

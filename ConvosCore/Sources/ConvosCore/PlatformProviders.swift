@@ -37,6 +37,9 @@ public struct PlatformProviders: Sendable {
     /// Provider for push notification token management
     public let pushNotificationRegistrar: any PushNotificationRegistrarProtocol
 
+    /// Provider for user notification center (local notifications)
+    public let notificationCenter: any UserNotificationCenterProtocol
+
     /// Provider for background photo uploads
     public let backgroundUploadManager: any BackgroundUploadManagerProtocol
 
@@ -44,11 +47,13 @@ public struct PlatformProviders: Sendable {
         appLifecycle: any AppLifecycleProviding,
         deviceInfo: any DeviceInfoProviding,
         pushNotificationRegistrar: any PushNotificationRegistrarProtocol,
+        notificationCenter: any UserNotificationCenterProtocol,
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
     ) {
         self.appLifecycle = appLifecycle
         self.deviceInfo = deviceInfo
         self.pushNotificationRegistrar = pushNotificationRegistrar
+        self.notificationCenter = notificationCenter
         self.backgroundUploadManager = backgroundUploadManager
     }
 }
@@ -135,6 +140,7 @@ extension PlatformProviders {
             appLifecycle: MockAppLifecycleProvider(),
             deviceInfo: MockDeviceInfoProvider(),
             pushNotificationRegistrar: MockPushNotificationRegistrarProvider(),
+            notificationCenter: MockUserNotificationCenter(),
             backgroundUploadManager: MockBackgroundUploadManager()
         )
     }

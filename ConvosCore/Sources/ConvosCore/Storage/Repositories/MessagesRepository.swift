@@ -363,19 +363,31 @@ extension Array where Element == DBMessage {
                                 isCurrentUser: inboxId == conversation.inboxId
                             )
                     }
+                    var metadataChanges: [ConversationUpdate.MetadataChange] = update.metadataChanges
+                        .map {
+                            .init(
+                                field: .init(rawValue: $0.field) ?? .unknown,
+                                oldValue: $0.oldValue,
+                                newValue: $0.newValue
+                            )
+                        }
+                    if let expiresAt = update.expiresAt {
+                        let originalDuration = ExplosionDurationFormatter.format(
+                            from: dbMessage.date,
+                            until: expiresAt
+                        )
+                        metadataChanges.append(.init(
+                            field: .expiresAt,
+                            oldValue: originalDuration,
+                            newValue: expiresAt.ISO8601Format()
+                        ))
+                    }
                     messageContent = .update(
                         .init(
                             creator: initiatedByMember,
                             addedMembers: addedMembers,
                             removedMembers: removedMembers,
-                            metadataChanges: update.metadataChanges
-                                .map {
-                                    .init(
-                                        field: .init(rawValue: $0.field) ?? .unknown,
-                                        oldValue: $0.oldValue,
-                                        newValue: $0.newValue
-                                    )
-                                }
+                            metadataChanges: metadataChanges
                         )
                     )
                 }
