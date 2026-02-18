@@ -167,6 +167,7 @@ struct ConversationIndicatorView<InfoView: View>: View {
             placeholderName: placeholderName,
             untitledConversationPlaceholder: "Untitled",
             subtitle: "Customize",
+            scheduledExplosionDate: nil,
             conversationName: $conversationName,
             conversationImage: $conversationImage,
             presentingConversationSettings: $presentingConversationSettings,
