@@ -41,6 +41,8 @@ struct ConversationMembersListView: View {
     }
 }
 
-#Preview {
-    ConversationMembersListView(viewModel: .mock)
+private struct ConversationMembersListView_Previews: PreviewProvider {
+    static var previews: some View {
+        ConversationMembersListView(viewModel: .mock)
+    }
 }

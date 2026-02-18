@@ -1131,63 +1131,6 @@ extension ConversationViewModel {
     }
 }
 
-// MARK: - Pagination Support
-
-extension ConversationViewModel {
-    func loadPreviousMessages() {
-        guard hasMoreMessages else { return }
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            do {
-                try messagesListRepository.fetchPrevious()
-                Log.info("Fetching previous messages")
-            } catch {
-                Log.error("Error loading previous messages: \(error.localizedDescription)")
-            }
-        }
-    }
-
-    var hasMoreMessages: Bool {
-        messagesListRepository.hasMoreMessages
-    }
-
-    var hasLoadedAllMessages: Bool {
-        !messagesListRepository.hasMoreMessages
-    }
-
-    @MainActor
-    func exportDebugLogs() async throws -> URL {
-        let messagingService = try await session.messagingService(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
-
-        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-        let client = inboxResult.client
-
-        guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
-            throw NSError(
-                domain: "ConversationViewModel",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Conversation not found"]
-            )
-        }
-
-        return try await xmtpConversation.exportDebugLogs()
-    }
-}
-
-extension ConversationViewModel {
-    static var mock: ConversationViewModel {
-        return .init(
-            conversation: .mock(),
-            session: MockInboxesService(),
-            messagingService: MockMessagingService()
-        )
-    }
-}
-
 extension UNUserNotificationCenter {
     func addExplosionNotification(conversationId: String, displayName: String) async {
         let content = UNMutableNotificationContent()
