@@ -73,8 +73,8 @@ if ! command -v brew &> /dev/null; then
     exit 1
 fi
 
-# Check and install SwiftLint (pinned to 0.62.2 for compatibility with project)
-SWIFTLINT_VERSION="0.62.2"
+# Check and install SwiftLint (pinned to 0.63.2 for compatibility with project)
+SWIFTLINT_VERSION="0.63.2"
 install_swiftlint() {
     echo "Installing SwiftLint ${SWIFTLINT_VERSION}..."
     local tmp_dir=$(mktemp -d)
