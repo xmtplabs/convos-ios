@@ -1,0 +1,153 @@
+id: "09"
+name: "Explode Conversation"
+description: >
+  Verify that exploding a conversation removes it for all participants and 
+  destroys the conversation data. Tests super admin permissions, explosion 
+  UI flow, confirmation dialog, and complete cleanup.
+tags: [conversation-management, admin, destruction, core]
+depends_on: ["12"]  # depends on conversation creation test
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  app_as_super_admin: true
+
+state:
+  conversation_id: null
+  cli_identity_id: null
+  app_super_admin: true
+
+setup:
+  - action: create_conversation_from_app
+    args:
+      conversation_name: "Test Explode Conv"
+      profile_name: "App Creator"
+    note: "App creates conversation so user is super admin with explode permissions"
+    save:
+      conversation_id: "extract from app UI"
+  - action: generate_invite_from_app
+    args:
+      conversation_id: "$conversation_id"
+    save:
+      invite_url: "extract from app share sheet"
+  - action: cli_join_via_invite
+    args:
+      invite_url: "$invite_url"
+      profile_name: "CLI Joiner"
+    save:
+      cli_identity_id: "extract from CLI output"
+  - action: exchange_test_messages
+    note: "Create conversation content before explosion"
+
+steps:
+  - id: send_messages_for_content
+    name: "Exchange messages to create conversation content"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "This will be destroyed" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "CLI message before explosion"
+      - wait: 3
+      - wait_for_element: { label_contains: "CLI message before explosion", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "This will be destroyed" }
+      - element_exists: { label_contains: "CLI message before explosion" }
+    criteria: conversation_has_content
+    note: "Need content to verify complete destruction"
+
+  - id: open_conversation_info
+    name: "Open conversation info view"
+    actions:
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "explode-now-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "explode-now-button" }
+      - element_exists: { label_contains: "Test Explode Conv" }
+    criteria: explode_option_visible_to_super_admin
+    note: "Explode now option should be visible to super admins"
+
+  - id: trigger_explode
+    name: "Tap explode now button"
+    actions:
+      - scroll_to: { id: "explode-now-button" }
+      - tap: { id: "explode-now-button" }
+      - wait: 2
+      - wait_for_element: { label_contains: "Are you sure", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Are you sure" }
+      - element_exists: { label: "Explode", button: true }
+      - element_exists: { label: "Cancel", button: true }
+    criteria: confirmation_dialog_appears
+    note: "Confirmation dialog should appear before destructive action"
+
+  - id: confirm_explosion
+    name: "Confirm the explosion"
+    actions:
+      - tap: { label: "Explode" }
+      - wait: 5
+    verify:
+      - element_exists: { pattern: "explosion-animation" }
+      - wait_for_navigation: { timeout: 10 }
+    criteria: explosion_confirmed
+    note: "Explosion animation should play and navigate back to conversation list"
+
+  - id: verify_conversation_removed_from_app
+    name: "Verify conversation no longer in app conversations list"
+    actions:
+      - wait_for_element: { id: "conversations-list", timeout: 15 }
+      - find_elements: { label_contains: "Test Explode Conv" }
+    verify:
+      - element_not_exists: { label_contains: "Test Explode Conv" }
+    criteria: conversation_removed_from_app
+    note: "Exploded conversation should not appear in conversations list"
+
+  - id: verify_explosion_via_cli
+    name: "CLI can no longer access the exploded conversation"
+    actions:
+      - cli_list_conversations:
+          grep: "Test Explode Conv"
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "This should fail"
+          expect_failure: true
+    verify:
+      - cli_output_not_contains: "Test Explode Conv"
+      - cli_command_failed: true
+    criteria: conversation_inaccessible_via_cli
+    note: "CLI should not list exploded conversation and sending messages should fail"
+
+  - id: verify_complete_destruction
+    name: "Verify conversation data is completely destroyed"
+    actions:
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          expect_failure: true
+      - cli_check_profiles:
+          conversation: "$conversation_id"
+          expect_failure: true
+    verify:
+      - cli_command_failed: true
+    criteria: conversation_data_destroyed
+    note: "All conversation data including messages and profiles should be inaccessible"
+
+teardown:
+  # No cleanup needed - conversation is already destroyed
+
+criteria:
+  conversation_has_content:
+    description: "Conversation contains messages from both app and CLI before explosion"
+  explode_option_visible_to_super_admin:
+    description: "Explode now option is visible in conversation info for super admins"
+  confirmation_dialog_appears:
+    description: "Confirmation dialog appears before exploding"
+  explosion_confirmed:
+    description: "Explosion animation plays after confirming"
+  conversation_removed_from_app:
+    description: "Conversation is removed from the app's conversations list"
+  conversation_inaccessible_via_cli:
+    description: "Conversation is no longer accessible via CLI"
+  conversation_data_destroyed:
+    description: "All conversation data including messages is completely destroyed"
