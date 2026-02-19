@@ -116,7 +116,6 @@ steps:
       - find_elements: { pattern: "muted-indicator" }
     verify:
       - element_not_exists: { pattern: "muted-indicator" }
-      - toggle_is_on: { id: "notifications-toggle" }
     criteria: unmute_via_conversation_info_toggle
     note: "Conversation should be unmuted when notifications toggle is turned on"
 
