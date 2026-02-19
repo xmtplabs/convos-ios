@@ -90,7 +90,7 @@ steps:
       - wait: 5
     verify:
       - element_exists: { pattern: "explosion-animation" }
-      - wait_for_navigation: { timeout: 10 }
+      - element_exists: { pattern: "conversations-list" }
     criteria: explosion_confirmed
     note: "Explosion animation should play and navigate back to conversation list"
 
