@@ -103,10 +103,10 @@ steps:
         args:
           url: "https://picsum.photos/850/650"
           path: "/tmp/cli-photo.jpg"
-      - action: send_attachment_via_cli
+      - action: cli_send_attachment
         args:
-          conversation_id: "$conversation_id"
-          file_path: "/tmp/cli-photo.jpg"
+          conversation: "$conversation_id"
+          path: "/tmp/cli-photo.jpg"
       - wait: 5
       - find_elements: { pattern: "image" }
     verify:
