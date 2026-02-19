@@ -166,9 +166,21 @@ steps:
 teardown:
   - action: unpin_all_conversations
     optional: true
-  - action: explode_test_conversations
+  - action: explode_conversation
     args:
-      conversations: ["$conversation_a_id", "$conversation_b_id", "$conversation_c_id", "$long_name_conversation_id"]
+      id: "$conversation_a_id"
+    optional: true
+  - action: explode_conversation
+    args:
+      id: "$conversation_b_id"
+    optional: true
+  - action: explode_conversation
+    args:
+      id: "$conversation_c_id"
+    optional: true
+  - action: explode_conversation
+    args:
+      id: "$long_name_conversation_id"
     optional: true
 
 criteria:

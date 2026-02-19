@@ -117,8 +117,8 @@ steps:
     actions:
       - long_press: { label_contains: "Swipe Unread" }
       - wait: 2
-      - wait_for_element: { id: "context-menu-toggle-read", timeout: 5 }
-      - tap: { id: "context-menu-toggle-read" }
+      - wait_for_element: { label: "Read", timeout: 5 }
+      - tap: { label: "Read" }
       - wait: 3
       - find_elements: { pattern: "unread-indicator" }
     verify:
@@ -131,8 +131,8 @@ steps:
     actions:
       - long_press: { label_contains: "Swipe Unread" }
       - wait: 2
-      - wait_for_element: { id: "context-menu-toggle-read", timeout: 5 }
-      - tap: { id: "context-menu-toggle-read" }
+      - wait_for_element: { label: "Unread", timeout: 5 }
+      - tap: { label: "Unread" }
       - wait: 3
       - find_elements: { pattern: "unread-indicator" }
     verify:
