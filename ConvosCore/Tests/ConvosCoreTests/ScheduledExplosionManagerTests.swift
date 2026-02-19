@@ -245,7 +245,7 @@ private class ScheduledExplosionTestFixtures {
     let appLifecycle: MockAppLifecycleProvider
     let notificationCenter: MockUserNotificationCenter
     let manager: ScheduledExplosionManager
-    let conversationId: String = "test-conversation-id"
+    let conversationId: String = "explosion-test-\(UUID().uuidString)"
     let inboxId: String = "test-inbox-id"
     let clientId: String = "test-client-id"
 
