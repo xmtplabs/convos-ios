@@ -1,0 +1,225 @@
+name: "Send and Receive Photos"
+description: "Verify end-to-end photo messaging: sending photos from app, receiving from CLI, blur/reveal privacy flow, photo context menu actions, and first-time education sheets"
+
+environment:
+  test_conversations: []
+  conversation_id: ""
+  conversation_name: "Photo Test"
+  cli_profile_name: "CLI Tester"
+
+setup:
+  - action: create_conversation_via_cli
+    args:
+      name: "$conversation_name"
+      profile_name: "$cli_profile_name" 
+    assign: conversation_id
+
+  - action: generate_invite_from_cli
+    args:
+      conversation_id: "$conversation_id"
+    assign: invite_url
+
+  - action: open_deep_link
+    args:
+      url: "$invite_url"
+
+  - action: start_cli_watch
+    args:
+      conversation_id: "$conversation_id"
+    assign: watch_pid
+
+  - action: process_join_from_cli
+    args:
+      conversation_id: "$conversation_id"
+
+  - action: wait_for_element
+    args:
+      id: "$conversation_id"
+      timeout: 10
+
+steps:
+  - id: send_photo_from_app
+    name: "Send a photo from the app"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait: 2
+      - tap: { id: "photo-thumbnail", optional: true }
+      # Handle first-time education sheet if it appears
+      - tap: { label: "Got it", optional: true }
+      - wait: 2
+      - find_elements: { pattern: "attachment-preview-image" }
+    verify:
+      - element_exists: { id: "attachment-preview-image" }
+      - element_exists: { id: "remove-attachment-button" }
+    criteria: photo_attachment_preview_appears
+    note: "Photo picker opens, photo selected, preview appears with remove button"
+
+  - id: send_photo_message
+    name: "Send the photo message"
+    actions:
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - find_elements: { pattern: "sent" }
+    verify:
+      - element_exists: { label_contains: "sent" }
+    criteria: photo_message_sent_successfully
+    note: "Photo sends and shows sent indicator"
+
+  - id: remove_attachment_before_sending
+    name: "Remove attachment before sending"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait: 2
+      - tap: { id: "photo-thumbnail", optional: true }
+      - wait: 1
+      - tap: { id: "remove-attachment-button" }
+      - wait: 1
+      - find_elements: { pattern: "attachment-preview-image" }
+    verify:
+      - element_not_exists: { id: "attachment-preview-image" }
+    criteria: attachment_removal_works
+    note: "Remove button clears attachment preview successfully"
+
+  - id: send_photo_with_text
+    name: "Send photo with text message"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait: 2
+      - tap: { id: "photo-thumbnail", optional: true }
+      - wait: 1
+      - tap: { id: "message-input-field" }
+      - type_text: "Check out this photo"
+      - tap: { id: "send-message-button" }
+      - wait: 3
+    verify:
+      - element_exists: { label_contains: "Check out this photo" }
+    criteria: photo_with_text_sent
+    note: "Both photo and text message sent together"
+
+  - id: receive_photo_from_cli
+    name: "Receive photo from CLI"
+    actions:
+      - action: download_test_photo
+        args:
+          url: "https://picsum.photos/850/650"
+          path: "/tmp/cli-photo.jpg"
+      - action: send_attachment_via_cli
+        args:
+          conversation_id: "$conversation_id"
+          file_path: "/tmp/cli-photo.jpg"
+      - wait: 5
+      - find_elements: { pattern: "image" }
+    verify:
+      - element_exists: { pattern: "image" }
+    criteria: cli_photo_received_and_rendered
+    note: "Incoming photo from CLI renders as full-width image"
+
+  - id: verify_incoming_photo_blurred
+    name: "Verify incoming photo is blurred by default"
+    actions:
+      - find_elements: { pattern: "Tap pic to reveal" }
+    verify:
+      - element_exists: { pattern: "Tap pic to reveal" }
+    criteria: incoming_photo_blurred_by_default
+    note: "Incoming photos are blurred with reveal overlay"
+
+  - id: reveal_blurred_photo
+    name: "Tap blurred photo to reveal"
+    actions:
+      - tap: { pattern: "Tap pic to reveal" }
+      # Handle first-time education sheet if it appears
+      - tap: { label: "Got it", optional: true }
+      - wait: 2
+      - find_elements: { pattern: "Tap pic to reveal" }
+    verify:
+      - element_not_exists: { pattern: "Tap pic to reveal" }
+    criteria: photo_reveal_works
+    note: "Tapping blurred photo reveals it, blur overlay disappears"
+
+  - id: incoming_photo_context_menu
+    name: "Test incoming photo context menu"
+    actions:
+      - long_press: { pattern: "image", duration: 0.5 }
+      - wait: 1
+      - find_elements: { pattern: "Reply" }
+      - find_elements: { pattern: "Save" }
+      - find_elements: { pattern: "Blur" }
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Save" }
+      - element_exists: { label: "Blur" }
+    criteria: incoming_photo_context_menu_correct
+    note: "Context menu shows Reply, Save, and Blur options"
+
+  - id: blur_photo_via_context_menu
+    name: "Blur photo via context menu"
+    actions:
+      - tap: { label: "Blur" }
+      - wait: 2
+      - find_elements: { pattern: "Tap pic to reveal" }
+    verify:
+      - element_exists: { pattern: "Tap pic to reveal" }
+    criteria: context_menu_blur_works
+    note: "Blur option in context menu re-blurs the photo"
+
+  - id: reveal_photo_via_context_menu
+    name: "Reveal photo via context menu"
+    actions:
+      - long_press: { pattern: "Tap pic to reveal", duration: 0.5 }
+      - wait: 1
+      - tap: { label: "Reveal" }
+      - wait: 2
+      - find_elements: { pattern: "Tap pic to reveal" }
+    verify:
+      - element_not_exists: { pattern: "Tap pic to reveal" }
+    criteria: context_menu_reveal_works
+    note: "Reveal option in context menu unblurs the photo"
+
+  - id: own_photo_context_menu
+    name: "Test own photo context menu"
+    actions:
+      # Long press on one of our sent photos
+      - scroll_to: { pattern: "sent" }
+      - long_press: { pattern: "image", duration: 0.5 }
+      - wait: 1
+      - find_elements: { pattern: "Reply" }
+      - find_elements: { pattern: "Save" }
+      - find_elements: { pattern: "Blur" }
+      # Dismiss context menu
+      - tap: { x: 200, y: 400 }
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Save" }
+      - element_exists: { label: "Blur" }
+    criteria: own_photo_context_menu_correct
+    note: "Own photos show Reply, Save, and Blur (not auto-blurred)"
+
+teardown:
+  - action: stop_cli_process
+    args:
+      pids: ["$watch_pid"]
+    optional: true
+  - action: explode_conversation
+    args:
+      id: "$conversation_id"
+    optional: true
+
+criteria:
+  photo_attachment_preview_appears: "Photo picker opens, photo can be selected, attachment preview appears with remove button"
+  photo_message_sent_successfully: "Photo sends successfully and shows sent indicator"
+  attachment_removal_works: "Remove button clears attachment preview, returns to text-only input state"
+  photo_with_text_sent: "Both photo and text content are sent together in combined message"
+  cli_photo_received_and_rendered: "Incoming photo from CLI renders as full-width image, not stuck loading or error"
+  incoming_photo_blurred_by_default: "Incoming photos are blurred with 'Tap pic to reveal' overlay for privacy"
+  photo_reveal_works: "Tapping blurred photo reveals it, blur overlay animates away"
+  incoming_photo_context_menu_correct: "Incoming photo context menu shows Reply, Save, and Blur/Reveal options"
+  context_menu_blur_works: "Blur option in context menu successfully re-blurs revealed photo"
+  context_menu_reveal_works: "Reveal option in context menu successfully unblurs blurred photo"
+  own_photo_context_menu_correct: "Own sent photos show Reply, Save, and Blur (not auto-blurred but can be manually blurred)"
+
+notes:
+  - "This test covers comprehensive photo messaging functionality including privacy features"
+  - "First-time education sheets ('Pics are personal' and 'Reveal') appear only once per install"
+  - "Blur/reveal system is core to Convos privacy-focused messaging approach"
+  - "Own photos are never auto-blurred but owners can manually blur via context menu"
+  - "Requires simulator photo library to have at least one image for picker testing"
