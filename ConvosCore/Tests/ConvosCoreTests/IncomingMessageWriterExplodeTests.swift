@@ -305,7 +305,8 @@ private class ExplodeTestFixtures {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             )
             try conversation.insert(db)
 

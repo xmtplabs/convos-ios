@@ -15,6 +15,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     private let taskLock: NSLock = NSLock()
     private var _schedulingTasks: [String: Task<Void, Never>] = [:]
+    private var _expirationTasks: [String: Task<Void, Never>] = [:]
 
     private enum Constant {
         static let reminderIdentifierPrefix: String = "explosion-reminder-"
@@ -37,6 +38,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     deinit {
         Log.warning("ScheduledExplosionManager deinit - removing observers")
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+        cancelAllTasks()
     }
 
     private func setupObservers() {
@@ -83,12 +85,51 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
             self.removeSchedulingTask(for: conversationId)
         }
         taskLock.unlock()
+
+        scheduleExpirationTask(conversationId: conversationId, expiresAt: expiresAt)
     }
 
     private nonisolated func removeSchedulingTask(for conversationId: String) {
         taskLock.lock()
         _schedulingTasks[conversationId] = nil
         taskLock.unlock()
+    }
+
+    private nonisolated func removeExpirationTask(for conversationId: String) {
+        taskLock.lock()
+        _expirationTasks[conversationId] = nil
+        taskLock.unlock()
+    }
+
+    private func scheduleExpirationTask(conversationId: String, expiresAt: Date) {
+        taskLock.lock()
+        _expirationTasks[conversationId]?.cancel()
+        _expirationTasks[conversationId] = Task { [weak self] in
+            guard let self else { return }
+
+            let interval = expiresAt.timeIntervalSinceNow
+            guard interval > 0 else {
+                await self.postConversationExpired(conversationId: conversationId)
+                self.removeExpirationTask(for: conversationId)
+                return
+            }
+
+            try? await Task.sleep(for: .seconds(interval))
+            guard !Task.isCancelled else { return }
+
+            await self.postConversationExpired(conversationId: conversationId)
+            self.removeExpirationTask(for: conversationId)
+        }
+        taskLock.unlock()
+    }
+
+    @MainActor
+    private func postConversationExpired(conversationId: String) {
+        NotificationCenter.default.post(
+            name: .conversationExpired,
+            object: nil,
+            userInfo: ["conversationId": conversationId]
+        )
     }
 
     private func scheduleNotifications(
@@ -134,6 +175,10 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
                     conversationId: conversation.conversationId,
                     expiresAt: conversation.expiresAt,
                     conversationName: conversation.name
+                )
+                scheduleExpirationTask(
+                    conversationId: conversation.conversationId,
+                    expiresAt: conversation.expiresAt
                 )
             }
         } catch {
@@ -241,10 +286,21 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         return "Untitled"
     }
 
+    private func cancelAllTasks() {
+        taskLock.lock()
+        _schedulingTasks.values.forEach { $0.cancel() }
+        _expirationTasks.values.forEach { $0.cancel() }
+        _schedulingTasks.removeAll()
+        _expirationTasks.removeAll()
+        taskLock.unlock()
+    }
+
     private func cancelNotifications(for conversationId: String) {
         taskLock.lock()
         _schedulingTasks[conversationId]?.cancel()
         _schedulingTasks[conversationId] = nil
+        _expirationTasks[conversationId]?.cancel()
+        _expirationTasks[conversationId] = nil
         taskLock.unlock()
         let reminderIdentifier = "\(Constant.reminderIdentifierPrefix)\(conversationId)"
         let explosionIdentifier = "\(Constant.explosionIdentifierPrefix)\(conversationId)"
