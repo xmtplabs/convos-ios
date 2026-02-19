@@ -34,7 +34,7 @@ setup:
           cli_message: "CLI setup message"
           app_message: "App setup message"
     save:
-      test_conversation_id: "extract conversation ID"
+      test_conversation_id: "run_state.shared_conversation_id"
     verify:
       - shared_conversation_ready: { participants: 2 }
       - messages_exchanged: true
@@ -53,7 +53,7 @@ steps:
       - wait_for_photo_load: { timeout: 10 }
       - save_profile_changes: {}
     save:
-      first_profile_photo_url: "extract photo URL from save operation"
+      first_profile_photo_url: "run_state.profile_photo_url"
     verify:
       - photo_picker_appeared: true
       - photo_loaded_successfully: true
@@ -102,7 +102,7 @@ steps:
       - wait_for_photo_load: { timeout: 10 }
       - save_group_photo_changes: {}
     save:
-      group_photo_url: "extract group photo URL"
+      group_photo_url: "run_state.group_photo_url"
     verify:
       - group_photo_picker_appeared: true
       - group_photo_loaded: true
@@ -152,7 +152,7 @@ steps:
       - wait_for_photo_load: { timeout: 10 }
       - save_profile_changes: {}
     save:
-      updated_profile_photo_url: "extract new photo URL"
+      updated_profile_photo_url: "run_state.updated_profile_photo_url"
     verify:
       - different_photo_selected: true
       - photo_update_saved: true

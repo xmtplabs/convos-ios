@@ -35,9 +35,9 @@ setup:
       - generate_second_invite: { same_conversation: true }
       - navigate_to_conversations_list: {}
     save:
-      test_conversation_id: "extract conversation ID"
-      original_invite_url: "first invite URL"
-      second_invite_url: "second invite URL for rejoin testing"
+      test_conversation_id: "extract from CLI output"
+      original_invite_url: "extract from CLI output"
+      second_invite_url: "extract from CLI output"
     verify:
       - conversation_appears_in_list: true
       - app_user_is_member: true

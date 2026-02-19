@@ -20,7 +20,7 @@ setup:
   - action: verify_conversation_count
     note: "Ensure at least 2 conversations exist to verify complete deletion"
     save:
-      pre_deletion_conversations: "extract conversation names for verification"
+      pre_deletion_conversations: "run_state.conversation_names"
     requirements:
       min_conversations: 2
 
