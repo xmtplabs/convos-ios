@@ -1,0 +1,186 @@
+id: "17"
+name: "Swipe Actions (Mark Read/Unread)"
+description: >
+  Verify that conversations can be marked as read or unread via swipe actions
+  and context menu on the conversations list, with proper unread indicator 
+  state management.
+tags: [conversations-list, swipe-actions, read-state, context-menu, ui]
+depends_on: ["02"]  # needs shared conversation
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+
+state:
+  read_conversation_id: null
+  unread_conversation_id: null
+
+setup:
+  - action: cli_create_conversation
+    args:
+      name: "Swipe Read"
+      profile_name: "Swipe Test User"
+    save:
+      read_conversation_id: "extract from CLI output"
+  - action: cli_create_conversation
+    args:
+      name: "Swipe Unread"
+      profile_name: "Swipe Test User"
+    save:
+      unread_conversation_id: "extract from CLI output"
+  - action: join_conversations_from_app
+    args:
+      conversations: ["$read_conversation_id", "$unread_conversation_id"]
+    note: "App joins both conversations via invite deep links"
+  - action: setup_read_unread_states
+    note: "Setup initial read/unread states for testing"
+
+steps:
+  - id: setup_conversation_states
+    name: "Setup read and unread conversation states"
+    actions:
+      - tap: { label_contains: "Swipe Read" }
+      - wait_for_element: { id: "message-text-field", timeout: 15 }
+      - navigate_back: {}
+      - wait_for_element: { id: "conversations-list", timeout: 10 }
+      - cli_send_text:
+          conversation: "$unread_conversation_id"
+          text: "Unread message for testing"
+      - wait: 5
+      - find_elements: { pattern: "unread-indicator" }
+    verify:
+      - element_exists: { label_contains: "Swipe Read" }
+      - element_exists: { label_contains: "Swipe Unread" }
+      - element_exists: { pattern: "unread-indicator" }
+    criteria: conversation_states_setup
+    note: "Swipe Read should be read, Swipe Unread should have unread indicator"
+
+  - id: mark_as_read_via_swipe
+    name: "Mark unread conversation as read via swipe action"
+    actions:
+      - swipe: { direction: "left", identifier_contains: "Swipe Unread" }
+      - wait: 2
+      - wait_for_element: { label: "Mark as read", timeout: 5 }
+      - tap: { label: "Mark as read" }
+      - wait: 3
+      - find_elements: { pattern: "unread-indicator" }
+    verify:
+      - element_not_exists: { pattern: "unread-indicator", near_conversation: "Swipe Unread" }
+    criteria: mark_as_read_via_swipe
+    note: "Unread indicator should disappear after marking as read"
+
+  - id: mark_as_unread_via_swipe
+    name: "Mark read conversation as unread via swipe action"
+    actions:
+      - swipe: { direction: "left", identifier_contains: "Swipe Read" }
+      - wait: 2
+      - wait_for_element: { label: "Mark as unread", timeout: 5 }
+      - tap: { label: "Mark as unread" }
+      - wait: 3
+      - find_elements: { pattern: "unread-indicator" }
+    verify:
+      - element_exists: { pattern: "unread-indicator", near_conversation: "Swipe Read" }
+    criteria: mark_as_unread_via_swipe
+    note: "Unread indicator should appear after marking as unread"
+
+  - id: toggle_back_to_read
+    name: "Toggle conversation back to read state"
+    actions:
+      - swipe: { direction: "left", identifier_contains: "Swipe Read" }
+      - wait: 2
+      - wait_for_element: { label: "Mark as read", timeout: 5 }
+      - tap: { label: "Mark as read" }
+      - wait: 3
+      - find_elements: { pattern: "unread-indicator" }
+    verify:
+      - element_not_exists: { pattern: "unread-indicator", near_conversation: "Swipe Read" }
+      - swipe_action_text_correct: { conversation: "Swipe Read", expected: "Mark as unread" }
+    criteria: toggle_read_state_works
+    note: "Should be able to toggle back and forth between read/unread states"
+
+  - id: create_new_unread_message
+    name: "Create new unread message for context menu testing"
+    actions:
+      - cli_send_text:
+          conversation: "$unread_conversation_id"
+          text: "New unread for context menu test"
+      - wait: 5
+      - find_elements: { pattern: "unread-indicator" }
+    verify:
+      - element_exists: { pattern: "unread-indicator", near_conversation: "Swipe Unread" }
+    criteria: new_unread_message_created
+    note: "New unread indicator should appear for context menu testing"
+
+  - id: mark_as_read_via_context_menu
+    name: "Mark as read via context menu"
+    actions:
+      - long_press: { label_contains: "Swipe Unread" }
+      - wait: 2
+      - wait_for_element: { id: "context-menu-toggle-read", timeout: 5 }
+      - tap: { id: "context-menu-toggle-read" }
+      - wait: 3
+      - find_elements: { pattern: "unread-indicator" }
+    verify:
+      - element_not_exists: { pattern: "unread-indicator", near_conversation: "Swipe Unread" }
+    criteria: mark_as_read_via_context_menu
+    note: "Context menu Mark as Read should remove unread indicator"
+
+  - id: mark_as_unread_via_context_menu
+    name: "Mark as unread via context menu"
+    actions:
+      - long_press: { label_contains: "Swipe Unread" }
+      - wait: 2
+      - wait_for_element: { id: "context-menu-toggle-read", timeout: 5 }
+      - tap: { id: "context-menu-toggle-read" }
+      - wait: 3
+      - find_elements: { pattern: "unread-indicator" }
+    verify:
+      - element_exists: { pattern: "unread-indicator", near_conversation: "Swipe Unread" }
+    criteria: mark_as_unread_via_context_menu
+    note: "Context menu Mark as Unread should add unread indicator"
+
+  - id: verify_swipe_context_consistency
+    name: "Verify swipe actions and context menu show consistent options"
+    actions:
+      - swipe: { direction: "left", identifier_contains: "Swipe Unread" }
+      - wait: 2
+      - verify_swipe_action: { expected: "Mark as read" }
+      - tap: { label: "Cancel", optional: true }
+      - wait: 1
+      - long_press: { label_contains: "Swipe Unread" }
+      - wait: 2
+      - verify_context_menu: { contains: "Mark as Read" }
+      - tap: { label: "Cancel", optional: true }
+    verify:
+      - swipe_and_context_menu_consistent: true
+    criteria: swipe_context_consistency
+    note: "Swipe actions and context menu should show consistent read/unread options"
+
+teardown:
+  - action: cli_explode_conversation
+    args:
+      conversation: "$read_conversation_id"
+    optional: true
+  - action: cli_explode_conversation
+    args:
+      conversation: "$unread_conversation_id"
+    optional: true
+
+criteria:
+  conversation_states_setup:
+    description: "Initial read and unread states are properly established"
+  mark_as_read_via_swipe:
+    description: "Swiping left reveals Mark as read button for unread conversations and removes unread indicator"
+  mark_as_unread_via_swipe:
+    description: "Swiping left reveals Mark as unread button for read conversations and adds unread indicator"
+  toggle_read_state_works:
+    description: "Read/unread state can be toggled back and forth consistently"
+  new_unread_message_created:
+    description: "New unread message creates proper unread indicator for testing"
+  mark_as_read_via_context_menu:
+    description: "Mark as Read is available via context menu and functions correctly"
+  mark_as_unread_via_context_menu:
+    description: "Mark as Unread is available via context menu and functions correctly"
+  swipe_context_consistency:
+    description: "Swipe actions and context menu show consistent read/unread options"
