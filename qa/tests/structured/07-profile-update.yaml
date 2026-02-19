@@ -79,8 +79,8 @@ steps:
     name: "Edit display name via profile editor"
     actions:
       - tap: { id: "edit-info-button" }
-      - wait_for_element: { id: "display-name-field", timeout: 10 }
-      - type_in_field: { id: "display-name-field", text: "Updated QA Name", clear_first: true }
+      - wait_for_element: { id: "conversation-name-field", timeout: 10 }
+      - type_in_field: { id: "conversation-name-field", text: "Updated QA Name", clear_first: true }
       - tap: { id: "save-profile-button" }
       - wait: 3
     verify:
