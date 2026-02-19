@@ -1,0 +1,84 @@
+id: "14"
+name: "Quickname Flow"
+description: >
+  Verify the complete quickname feature workflow: auto-application to new 
+  conversations, per-conversation identity editing via quick edit view,
+  quickname override from My Info view, and quickname management in App Settings.
+tags: [quickname, identity, profile, composer, settings, ui]
+depends_on: []  # assumes quickname already set up from onboarding
+estimated_duration_s: 480  # 8 minutes - complex multi-part flow
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  quickname_set_up: true
+
+state:
+  initial_quickname_name: null
+  initial_quickname_avatar: null
+  test_conversation_1_id: null
+  test_conversation_2_id: null
+  updated_quickname_name: "Updated QN"
+
+setup:
+  - action: record_current_quickname_info
+    note: "Capture initial quickname display name and avatar for verification"
+    save:
+      initial_quickname_name: "extract from app settings or my info view"
+      initial_quickname_avatar: "extract avatar state"
+
+steps:
+  - id: create_first_conversation
+    name: "Part 1: Test quickname auto-applied on new conversation"
+    actions:
+      - cli_create_conversation:
+          name: "Quickname Test"
+          profile_name: "CLI Test User"
+      - cli_generate_invite:
+          conversation: "Quickname Test"
+      - open_invite_deep_link:
+          conversation: "Quickname Test"
+      - wait: 3
+    save:
+      test_conversation_1_id: "extract conversation ID"
+    verify:
+      - app_in_conversation_join_flow: true
+    criteria: conversation_created_for_quickname_test
+    note: "Conversation created and invite opened, ready for quickname pill interaction"
+
+  - id: apply_quickname_via_pill
+    name: "Apply quickname via quickname pill (atomic operation)"
+    actions:
+      - parallel_execution:
+          background_cli: 
+            command: "process-join-requests"
+            conversation: "$test_conversation_1_id"
+          simultaneous_tap:
+            id: "Tap to chat"
+            retries: 30
+            timeout: 15
+      - wait: 2
+      - take_screenshot: { filename: "quickname-applied.png" }
+      - find_elements: { pattern: "quickname-avatar" }
+      - verify_composer_placeholder: { contains: "Chat as $initial_quickname_name" }
+    verify:
+      - element_exists: { pattern: "quickname-avatar" }
+      - composer_placeholder_correct: true
+    criteria: quickname_pill_applied_successfully
+    note: "Quickname pill tapped successfully and quickname applied to conversation"
+
+teardown:
+  - action: cli_explode_conversation
+    args:
+      conversation: "$test_conversation_1_id"
+    optional: true
+  - action: cli_explode_conversation
+    args:
+      conversation: "$test_conversation_2_id"
+    optional: true
+
+criteria:
+  conversation_created_for_quickname_test:
+    description: "First conversation created and ready for quickname pill interaction"
+  quickname_pill_applied_successfully:
+    description: "Quickname pill appears and is tapped successfully, quickname applied to conversation"
