@@ -1,0 +1,223 @@
+id: "07"
+name: "Update Profile in Conversation"
+description: >
+  Verify that a user can update their display name and profile photo within a 
+  conversation, that changes are reflected for other participants, and that 
+  per-conversation profile isolation works.
+tags: [profile, conversation-info, isolation, core]
+depends_on: ["02"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  multiple_conversations: true
+
+state:
+  conversation_a_id: null
+  conversation_b_id: null
+  cli_identity_id: null
+  original_display_name: null
+
+setup:
+  - action: cli_create_conversation
+    args:
+      name: "Profile Test A"
+      profile_name: "CLI Tester A"
+    save:
+      conversation_a_id: "extract from CLI output"
+      cli_identity_id: "extract from CLI output"
+  - action: cli_create_conversation
+    args:
+      name: "Profile Test B"  
+      profile_name: "CLI Tester B"
+    save:
+      conversation_b_id: "extract from CLI output"
+  - action: join_conversations_via_app
+    args:
+      conversations: ["$conversation_a_id", "$conversation_b_id"]
+    note: "App joins both conversations to test profile isolation"
+  - action: send_initial_messages
+    note: "Send messages in both conversations to establish baseline profile state"
+
+steps:
+  - id: navigate_to_conversation_a
+    name: "Open Profile Test A conversation"
+    actions:
+      - navigate_to_conversation: { name: "Profile Test A" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Profile Test A" }
+      - element_exists: { id: "message-text-field" }
+    criteria: conversation_a_opens
+
+  - id: check_current_profile
+    name: "Note current display name from existing messages"
+    actions:
+      - find_elements: { pattern: "message-from-app" }
+      - screenshot: {}
+    verify:
+      - element_count_gte: { pattern: "message-from-app", min: 1 }
+    criteria: current_profile_visible
+    note: "Document current display name for comparison"
+    save:
+      original_display_name: "extract from message element"
+
+  - id: open_conversation_info
+    name: "Open conversation info view"
+    actions:
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "edit-info-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "edit-info-button" }
+      - element_exists: { label_contains: "Profile Test A" }
+    criteria: conversation_info_opens
+    note: "Info view should show conversation details and members"
+
+  - id: edit_display_name
+    name: "Edit display name via profile editor"
+    actions:
+      - tap: { id: "edit-info-button" }
+      - wait_for_element: { id: "display-name-field", timeout: 10 }
+      - type_in_field: { id: "display-name-field", text: "Updated QA Name", clear_first: true }
+      - tap: { id: "save-profile-button" }
+      - wait: 3
+    verify:
+      - element_exists: { label_contains: "Updated QA Name" }
+    criteria: display_name_updated
+    note: "Profile editor should save name change"
+
+  - id: return_to_conversation
+    name: "Return to conversation view"
+    actions:
+      - tap: { id: "BackButton", optional: true }
+      - tap: { label: "Done", optional: true }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: back_in_conversation
+
+  - id: verify_name_in_new_message
+    name: "Send new message and verify updated name appears"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Testing updated name" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - wait_for_element: { label_contains: "Updated QA Name", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Testing updated name" }
+      - element_exists: { label_contains: "Updated QA Name" }
+    criteria: updated_name_in_app
+    note: "New message should show Updated QA Name as sender"
+
+  - id: verify_name_via_cli
+    name: "CLI sees updated profile name"
+    actions:
+      - cli_check_profiles:
+          conversation: "$conversation_a_id"
+          grep: "Updated QA Name"
+    verify:
+      - cli_output_contains: "Updated QA Name"
+    criteria: updated_name_in_cli
+    note: "CLI should see the updated display name in member profiles"
+
+  - id: set_profile_photo
+    name: "Set profile photo via conversation info"
+    actions:
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "edit-info-button", timeout: 10 }
+      - tap: { id: "edit-info-button" }
+      - wait_for_element: { id: "profile-photo-button", timeout: 10 }
+      - tap: { id: "profile-photo-button" }
+      - wait: 2
+    verify:
+      - any_element_matches: { patterns: ["Photo Library", "Camera", "Choose Photo"] }
+    criteria: photo_picker_opens
+    note: "Should open photo picker or photo options"
+    on_system_dialog: "select test photo"
+
+  - id: save_photo_change
+    name: "Save profile photo change"
+    actions:
+      - download_test_photo: { url: "https://picsum.photos/400/400", path: "/tmp/profile-photo.jpg" }
+      - tap: { label: "Photo Library", optional: true }
+      - wait: 2
+      - tap: { id: "save-profile-button", optional: true }
+      - tap: { label: "Done", optional: true }
+      - wait: 3
+    verify:
+      - element_exists: { id: "profile-avatar" }
+    criteria: profile_photo_set
+    note: "Profile photo should appear on user avatar"
+
+  - id: verify_photo_via_cli
+    name: "CLI sees profile photo URL"
+    actions:
+      - cli_check_profiles:
+          conversation: "$conversation_a_id"
+          grep: "image"
+    verify:
+      - cli_output_contains: "image"
+    criteria: profile_photo_synced
+    note: "CLI should show image URL indicating photo was uploaded"
+
+  - id: test_profile_isolation_navigation
+    name: "Navigate to Profile Test B to test isolation"
+    actions:
+      - tap: { id: "BackButton", optional: true }
+      - tap: { label: "Conversations", optional: true }
+      - wait: 2
+      - navigate_to_conversation: { name: "Profile Test B" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Profile Test B" }
+    criteria: conversation_b_navigation
+
+  - id: verify_profile_isolation
+    name: "Verify original name still used in conversation B"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Testing profile isolation" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - find_elements: { label_contains: "$original_display_name" }
+    verify:
+      - element_exists: { label_contains: "Testing profile isolation" }
+      - element_exists: { label_contains: "$original_display_name" }
+      - element_not_exists: { label_contains: "Updated QA Name" }
+    criteria: profile_isolation_works
+    note: "Conversation B should still show original name, not Updated QA Name"
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_a_id" }
+    optional: true
+  - action: explode_conversation
+    args: { id: "$conversation_b_id" }
+    optional: true
+
+criteria:
+  conversation_a_opens:
+    description: "Profile Test A conversation opens successfully"
+  current_profile_visible:
+    description: "Current profile/display name is visible in existing messages"
+  conversation_info_opens:
+    description: "Conversation info view can be opened"
+  display_name_updated:
+    description: "Display name can be edited and saved"
+  back_in_conversation:
+    description: "Can navigate back to conversation from profile editor"
+  updated_name_in_app:
+    description: "Updated name appears on new messages in the app"
+  updated_name_in_cli:
+    description: "Updated name is visible to other participants via CLI"
+  photo_picker_opens:
+    description: "Profile photo picker/options can be opened"
+  profile_photo_set:
+    description: "Profile photo can be set and appears on user's avatar"
+  profile_photo_synced:
+    description: "Profile photo syncs to other participants via CLI"
+  conversation_b_navigation:
+    description: "Can navigate to second conversation"
+  profile_isolation_works:
+    description: "Per-conversation isolation: changing profile in one conversation does not affect another"
