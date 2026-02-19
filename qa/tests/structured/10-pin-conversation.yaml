@@ -132,7 +132,7 @@ steps:
     actions:
       - long_press: { pattern: "pinned-conversation-*", contains: "Pin Test A" }
       - wait: 2
-      - tap: { id: "context-menu-unpin" }
+      - tap: { id: "context-menu-pin" }
       - wait: 3
       - find_elements: { pattern: "pinned-conversation-*" }
     verify:
@@ -146,15 +146,15 @@ steps:
     actions:
       - long_press: { pattern: "pinned-conversation-*", contains: "Pin Test B" }
       - wait: 2
-      - tap: { id: "context-menu-unpin" }
+      - tap: { id: "context-menu-pin" }
       - wait: 2
       - long_press: { pattern: "pinned-conversation-*", contains: "Pin Test C" }
       - wait: 2
-      - tap: { id: "context-menu-unpin" }
+      - tap: { id: "context-menu-pin" }
       - wait: 2
       - long_press: { pattern: "pinned-conversation-*", contains: "Pin Test With" }
       - wait: 2
-      - tap: { id: "context-menu-unpin" }
+      - tap: { id: "context-menu-pin" }
       - wait: 3
       - find_elements: { id: "pinned-section" }
     verify:

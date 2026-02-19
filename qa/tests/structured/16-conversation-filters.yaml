@@ -59,7 +59,7 @@ steps:
     name: "Apply unread filter and verify only unread conversations shown"
     actions:
       - tap: { id: "filter-button" }
-      - wait_for_element: { pattern: "filter-menu", timeout: 5 }
+      - wait: 1  # Wait for menu to appear
       - tap: { label: "Unread" }
       - wait_for_filter_application: { timeout: 5 }
       - verify_filtered_conversations:
