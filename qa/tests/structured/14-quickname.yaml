@@ -1,0 +1,334 @@
+id: "14"
+name: "Quickname Flow"
+description: >
+  Verify the complete quickname feature workflow: auto-application to new 
+  conversations, per-conversation identity editing via quick edit view,
+  quickname override from My Info view, and quickname management in App Settings.
+tags: [quickname, identity, profile, composer, settings, ui]
+depends_on: []  # assumes quickname already set up from onboarding
+estimated_duration_s: 480  # 8 minutes - complex multi-part flow
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  quickname_set_up: true
+
+state:
+  initial_quickname_name: null
+  initial_quickname_avatar: null
+  test_conversation_1_id: null
+  test_conversation_2_id: null
+  updated_quickname_name: "Updated QN"
+
+setup:
+  - action: record_current_quickname_info
+    note: "Capture initial quickname display name and avatar for verification"
+    save:
+      initial_quickname_name: "extract from app settings or my info view"
+      initial_quickname_avatar: "extract avatar state"
+
+steps:
+  - id: create_first_conversation
+    name: "Part 1: Test quickname auto-applied on new conversation"
+    actions:
+      - cli_create_conversation:
+          name: "Quickname Test"
+          profile_name: "CLI Test User"
+      - cli_generate_invite:
+          conversation: "Quickname Test"
+      - open_invite_deep_link:
+          conversation: "Quickname Test"
+      - wait: 3
+    save:
+      test_conversation_1_id: "extract conversation ID"
+    verify:
+      - app_in_conversation_join_flow: true
+    criteria: conversation_created_for_quickname_test
+    note: "Conversation created and invite opened, ready for quickname pill interaction"
+
+  - id: apply_quickname_via_pill
+    name: "Apply quickname via quickname pill (atomic operation)"
+    actions:
+      - parallel_execution:
+          background_cli: 
+            command: "process-join-requests"
+            conversation: "$test_conversation_1_id"
+          simultaneous_tap:
+            id: "Tap to chat"
+            retries: 30
+            timeout: 15
+      - wait: 2
+      - take_screenshot: { filename: "quickname-applied.png" }
+      - find_elements: { pattern: "quickname-avatar" }
+      - verify_composer_placeholder: { contains: "Chat as $initial_quickname_name" }
+    verify:
+      - element_exists: { pattern: "quickname-avatar" }
+      - composer_placeholder_correct: true
+    criteria: quickname_pill_applied_successfully
+    note: "Quickname pill tapped successfully and quickname applied to conversation"
+
+  - id: send_message_with_quickname
+    name: "Send message and verify quickname display"
+    actions:
+      - type_in_field:
+          id: "message-text-field"
+          text: "Testing quickname message"
+      - tap: { id: "send-button" }
+      - wait: 3
+      - find_elements: { label_contains: "$initial_quickname_name" }
+      - cli_verify_member_profiles:
+          conversation: "$test_conversation_1_id"
+          expected_app_user_name: "$initial_quickname_name"
+    verify:
+      - message_sent_with_quickname: true
+      - cli_profile_matches_quickname: true
+    criteria: quickname_message_sent_successfully
+    note: "Message sent with quickname and verified via CLI profiles"
+
+  - id: open_quick_edit_view
+    name: "Part 2: Edit display name via quick edit"
+    actions:
+      - tap: { id: "composer-avatar-button" }
+      - wait: 2
+      - wait_for_element: { id: "quick-edit-view", timeout: 5 }
+      - verify_quick_edit_components:
+          photo_picker: true
+          text_field: true
+          lanyard_button: true
+          done_button: true
+    verify:
+      - element_exists: { id: "quick-edit-view" }
+      - element_exists: { id: "quick-edit-display-name-field" }
+      - text_field_value: { id: "quick-edit-display-name-field", expected: "$initial_quickname_name" }
+    criteria: quick_edit_view_opened
+    note: "Quick edit view opened and shows current quickname display name"
+
+  - id: edit_display_name
+    name: "Change display name to custom name"
+    actions:
+      - clear_field: { id: "quick-edit-display-name-field" }
+      - type_in_field:
+          id: "quick-edit-display-name-field"
+          text: "Custom Name"
+      - tap: { id: "quick-edit-done-button" }
+      - wait: 2
+      - verify_composer_placeholder: { contains: "Chat as Custom Name" }
+    verify:
+      - composer_placeholder_updated: true
+      - element_not_exists: { id: "quick-edit-view" }
+    criteria: display_name_edited_successfully
+    note: "Display name changed to 'Custom Name' via quick edit"
+
+  - id: send_message_with_custom_name
+    name: "Send message with custom name"
+    actions:
+      - type_in_field:
+          id: "message-text-field"
+          text: "Testing custom name message"
+      - tap: { id: "send-button" }
+      - wait: 3
+      - find_elements: { label_contains: "Custom Name" }
+      - cli_verify_member_profiles:
+          conversation: "$test_conversation_1_id"
+          expected_app_user_name: "Custom Name"
+    verify:
+      - message_sent_with_custom_name: true
+      - cli_profile_updated: true
+    criteria: custom_name_message_sent_successfully
+    note: "Message sent with custom name and CLI profile updated"
+
+  - id: access_my_info_from_quick_edit
+    name: "Part 3: Override with quickname from My Info view"
+    actions:
+      - tap: { id: "composer-avatar-button" }
+      - wait: 2
+      - wait_for_element: { id: "quick-edit-lanyard-button", timeout: 5 }
+      - tap: { id: "quick-edit-lanyard-button" }
+      - wait: 3
+      - wait_for_element: { id: "my-info-sheet", timeout: 10 }
+    verify:
+      - element_exists: { id: "my-info-sheet" }
+      - element_exists: { id: "current-convo-identity-section" }
+      - element_exists: { id: "quickname-section" }
+    criteria: my_info_view_opened_from_quick_edit
+    note: "My Info view opened from quick edit lanyard button"
+
+  - id: verify_my_info_sections
+    name: "Verify My Info view sections"
+    actions:
+      - find_elements: { label_contains: "Custom Name" }
+      - find_elements: { label_contains: "$initial_quickname_name" }
+      - wait_for_element: { id: "quickname-use-button", timeout: 5 }
+    verify:
+      - current_convo_shows_custom_name: true
+      - quickname_section_shows_original: true
+      - element_exists: { id: "quickname-use-button" }
+    criteria: my_info_sections_verified
+    note: "My Info view shows current conversation identity and quickname section"
+
+  - id: apply_quickname_override
+    name: "Apply quickname override via Use button"
+    actions:
+      - tap: { id: "quickname-use-button" }
+      - wait: 2
+      - verify_button_state: { id: "quickname-use-button", state: "checkmark" }
+      - dismiss_sheet: { id: "my-info-sheet" }
+      - wait: 2
+      - verify_composer_placeholder: { contains: "Chat as $initial_quickname_name" }
+    verify:
+      - quickname_use_button_shows_checkmark: true
+      - composer_placeholder_reverted: true
+    criteria: quickname_override_applied
+    note: "Quickname applied via Use button, composer placeholder reverted"
+
+  - id: send_message_with_quickname_override
+    name: "Send message with quickname override"
+    actions:
+      - type_in_field:
+          id: "message-text-field"
+          text: "Testing quickname override message"
+      - tap: { id: "send-button" }
+      - wait: 3
+      - find_elements: { label_contains: "$initial_quickname_name" }
+      - cli_verify_member_profiles:
+          conversation: "$test_conversation_1_id"
+          expected_app_user_name: "$initial_quickname_name"
+    verify:
+      - message_sent_with_quickname_override: true
+      - cli_profile_reverted_to_quickname: true
+    criteria: quickname_override_message_sent
+    note: "Message sent with quickname override and CLI profile updated back"
+
+  - id: navigate_to_app_settings
+    name: "Part 4: Edit quickname from App Settings"
+    actions:
+      - navigate_back: {}
+      - wait_for_element: { id: "conversations-list", timeout: 10 }
+      - tap: { id: "convos-settings-button" }
+      - wait_for_element: { id: "app-settings", timeout: 10 }
+      - find_elements: { id: "my-info-row" }
+    verify:
+      - element_exists: { id: "app-settings" }
+      - element_exists: { id: "my-info-row" }
+      - my_info_row_shows_quickname: true
+    criteria: app_settings_opened
+    note: "App Settings opened and My Info row shows current quickname"
+
+  - id: edit_quickname_from_settings
+    name: "Edit quickname from App Settings"
+    actions:
+      - tap: { id: "my-info-row" }
+      - wait_for_element: { id: "my-info-view", timeout: 10 }
+      - wait_for_element: { id: "quickname-display-name-field", timeout: 5 }
+      - clear_field: { id: "quickname-display-name-field" }
+      - type_in_field:
+          id: "quickname-display-name-field"
+          text: "$updated_quickname_name"
+      - save_changes: { method: "navigate_back" }
+      - wait: 2
+      - verify_my_info_row_updated: { expected_name: "$updated_quickname_name" }
+    verify:
+      - quickname_updated_in_settings: true
+      - my_info_row_reflects_changes: true
+    criteria: quickname_edited_from_settings
+    note: "Quickname updated from App Settings and changes reflected"
+
+  - id: dismiss_settings_and_create_new_conversation
+    name: "Part 5: Verify updated quickname in new conversation"
+    actions:
+      - dismiss_settings: {}
+      - wait_for_element: { id: "conversations-list", timeout: 10 }
+      - cli_create_conversation:
+          name: "Quickname Persist Test"
+          profile_name: "CLI Test User"
+      - cli_generate_invite:
+          conversation: "Quickname Persist Test"
+      - open_invite_deep_link:
+          conversation: "Quickname Persist Test"
+      - wait: 3
+    save:
+      test_conversation_2_id: "extract conversation ID"
+    verify:
+      - app_in_conversation_join_flow: true
+    criteria: second_conversation_created
+    note: "Second conversation created to test quickname persistence"
+
+  - id: apply_updated_quickname_via_pill
+    name: "Apply updated quickname via pill in new conversation"
+    actions:
+      - parallel_execution:
+          background_cli:
+            command: "process-join-requests"
+            conversation: "$test_conversation_2_id"
+          simultaneous_tap:
+            id: "Tap to chat"
+            retries: 30
+            timeout: 15
+      - wait: 2
+      - verify_quickname_pill_content: { expected_name: "$updated_quickname_name" }
+      - verify_composer_placeholder: { contains: "Chat as $updated_quickname_name" }
+    verify:
+      - quickname_pill_shows_updated_name: true
+      - composer_shows_updated_name: true
+    criteria: updated_quickname_pill_applied
+    note: "Updated quickname pill applied successfully in new conversation"
+
+  - id: send_message_with_updated_quickname
+    name: "Send message with updated quickname"
+    actions:
+      - type_in_field:
+          id: "message-text-field"
+          text: "Testing updated quickname message"
+      - tap: { id: "send-button" }
+      - wait: 3
+      - find_elements: { label_contains: "$updated_quickname_name" }
+      - cli_verify_member_profiles:
+          conversation: "$test_conversation_2_id"
+          expected_app_user_name: "$updated_quickname_name"
+    verify:
+      - message_sent_with_updated_quickname: true
+      - cli_profile_shows_updated_quickname: true
+    criteria: updated_quickname_message_sent
+    note: "Message sent with updated quickname and verified via CLI"
+
+teardown:
+  - action: cli_explode_conversation
+    args:
+      conversation: "$test_conversation_1_id"
+    optional: true
+  - action: cli_explode_conversation
+    args:
+      conversation: "$test_conversation_2_id"
+    optional: true
+
+criteria:
+  conversation_created_for_quickname_test:
+    description: "First conversation created and ready for quickname pill interaction"
+  quickname_pill_applied_successfully:
+    description: "Quickname pill appears and is tapped successfully, quickname applied to conversation"
+  quickname_message_sent_successfully:
+    description: "Messages sent with quickname show correct display name and CLI profile matches"
+  quick_edit_view_opened:
+    description: "Quick edit view opens when tapping composer avatar with all expected components"
+  display_name_edited_successfully:
+    description: "Display name can be changed via quick edit view and composer updates"
+  custom_name_message_sent_successfully:
+    description: "Messages sent with custom name show correct display name and CLI profile updates"
+  my_info_view_opened_from_quick_edit:
+    description: "My Info view opens from quick edit lanyard button"
+  my_info_sections_verified:
+    description: "My Info view shows current conversation identity and quickname section correctly"
+  quickname_override_applied:
+    description: "Quickname override via Use button works and composer updates"
+  quickname_override_message_sent:
+    description: "Messages sent after quickname override show original quickname display name"
+  app_settings_opened:
+    description: "App Settings opens and My Info row shows current quickname"
+  quickname_edited_from_settings:
+    description: "Quickname can be edited from App Settings and changes are reflected"
+  second_conversation_created:
+    description: "Second conversation created to test quickname persistence"
+  updated_quickname_pill_applied:
+    description: "Updated quickname pill appears in new conversation with correct name"
+  updated_quickname_message_sent:
+    description: "Messages sent in new conversation use updated quickname display name"
