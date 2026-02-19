@@ -57,15 +57,15 @@ steps:
   - id: test_double_tap_heart_reactions
     name: "Test double-tap heart reaction toggle on various message types"
     actions:
-      - double_tap: { labelContains: "Hello from the CLI" }
+      - double_tap_element: { label_contains: "Hello from the CLI" }
       - wait_for_reaction_indicator: { emoji: "❤️", timeout: 5 }
       - verify_heart_reaction_added: { message: "Hello from the CLI" }
-      - double_tap: { labelContains: "Hello from the CLI" }
+      - double_tap_element: { label_contains: "Hello from the CLI" }
       - wait_for_reaction_disappear: { timeout: 5 }
       - verify_heart_reaction_removed: { message: "Hello from the CLI" }
-      - double_tap: { labelContains: "🎉" }
+      - double_tap_element: { label_contains: "🎉" }
       - verify_heart_reaction_on_emoji: { message: "🎉" }
-      - double_tap: { labelContains: "Hello from the app" }
+      - double_tap_element: { label_contains: "Hello from the app" }
       - verify_heart_reaction_on_own_message: { message: "Hello from the app" }
     verify:
       - heart_reaction_toggle_works: true
@@ -78,7 +78,7 @@ steps:
     name: "Test swipe right to open reply composer with proper context"
     actions:
       - swipe_right_on_message: 
-          labelContains: "Hello from the CLI"
+          label_contains: "Hello from the CLI"
           distance: 60
       - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
       - verify_reply_composer_context:
@@ -99,7 +99,7 @@ steps:
     name: "Test swipe reply on emoji message and cancel functionality"
     actions:
       - swipe_right_on_message:
-          labelContains: "🎉"
+          label_contains: "🎉"
           distance: 60
       - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
       - verify_emoji_reply_context: { emoji: "🎉" }
@@ -141,7 +141,7 @@ steps:
     name: "Test long press context menu on text message with copy action"
     actions:
       - long_press: 
-          labelContains: "Hello from the CLI"
+          label_contains: "Hello from the CLI"
           duration: 0.5
       - wait_for_element: { pattern: "context-menu", timeout: 5 }
       - verify_context_menu_options:
@@ -182,7 +182,7 @@ steps:
     name: "Test long press context menu on emoji message"
     actions:
       - long_press:
-          labelContains: "🎉"
+          label_contains: "🎉"
           duration: 0.5
       - wait_for_element: { pattern: "context-menu", timeout: 5 }
       - verify_context_menu_options:
@@ -199,7 +199,7 @@ steps:
     name: "Test Reply action from context menu"
     actions:
       - long_press:
-          labelContains: "Hello from the CLI"
+          label_contains: "Hello from the CLI"
           duration: 0.5
       - tap_context_menu_option: { option: "Reply" }
       - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
@@ -283,7 +283,7 @@ steps:
     name: "Test long press context menu on own outgoing message"
     actions:
       - long_press:
-          labelContains: "Hello from the app"
+          label_contains: "Hello from the app"
           duration: 0.5
       - wait_for_element: { pattern: "context-menu", timeout: 5 }
       - verify_context_menu_options:
@@ -318,7 +318,7 @@ steps:
     actions:
       - ensure_heart_reaction_on_cli_message:
           message: "Hello from the CLI"
-          method: "double_tap"
+          method: "double_tap_element"
       - add_cli_reaction:
           message_id: "$cli_text_message_id"
           emoji: "👍"
