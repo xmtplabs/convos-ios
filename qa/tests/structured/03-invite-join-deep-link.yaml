@@ -1,0 +1,125 @@
+id: "03"
+name: "Join Conversation via Deep Link"
+description: >
+  Verify that the app can join a conversation by opening an invite URL as a deep link.
+tags: [joining, deep-link, core]
+depends_on: ["01"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  past_onboarding: true
+  cli_initialized: true
+
+state:
+  conversation_id: null
+  invite_url: null
+  cli_identity_id: null
+
+setup:
+  - action: cli_create_conversation
+    args:
+      name: "Deep Link Test"
+      profile_name: "CLI Tester"
+    save:
+      conversation_id: "extract from CLI output"
+      cli_identity_id: "extract from CLI output"
+  - action: cli_generate_invite
+    args:
+      conversation: "$conversation_id"
+    save:
+      invite_url: "extract from CLI output"
+
+steps:
+  - id: open_deep_link
+    name: "Open the invite deep link"
+    actions:
+      - open_url: { url: "$invite_url" }
+      - wait_for_element: { id: "join-conversation-button", timeout: 15 }
+    verify:
+      - element_exists: { id: "join-conversation-button" }
+    criteria: deep_link_opens_join_flow
+    note: "Deep link should intercept and show join flow"
+
+  - id: request_join
+    name: "Tap join button to request access"
+    actions:
+      - tap: { id: "join-conversation-button" }
+      - wait: 3
+    note: "App sends join request that CLI will need to process"
+
+  - id: process_join_request
+    name: "Process the join request via CLI"
+    actions:
+      - cli_process_joins:
+          conversation: "$conversation_id"
+          watch: true
+          timeout: 30
+      - wait: 5
+    verify:
+      - cli_output_contains: "processed"
+    criteria: join_request_processed
+    note: "CLI processes the join in watch mode with timeout"
+
+  - id: verify_in_conversation
+    name: "App transitions into the conversation view"
+    actions:
+      - wait_for_element: { label_contains: "Deep Link Test", timeout: 15 }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Deep Link Test" }
+      - element_exists: { id: "message-text-field" }
+    criteria: app_enters_conversation
+
+  - id: cli_sends_welcome
+    name: "CLI sends welcome message"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Welcome via deep link!"
+      - wait: 5
+      - wait_for_element: { label_contains: "Welcome via deep link!", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Welcome via deep link!" }
+    criteria: cli_message_received
+
+  - id: app_replies
+    name: "App sends reply to confirm two-way communication"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Thanks! Deep link join worked." }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - find_elements: { label_contains: "Thanks! Deep link join worked." }
+    verify:
+      - element_exists: { label_contains: "Thanks! Deep link join worked." }
+    criteria: app_can_send_reply
+
+  - id: verify_reply_via_cli
+    name: "App's reply visible via CLI"
+    actions:
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "Thanks! Deep link join worked."
+    verify:
+      - cli_output_contains: "Thanks! Deep link join worked."
+    criteria: app_reply_in_cli
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  deep_link_opens_join_flow:
+    description: "Deep link URL opens the app and triggers the join flow"
+  join_request_processed:
+    description: "App sends a join request that the CLI can process"
+  app_enters_conversation:
+    description: "App enters the conversation after the join is processed"
+  cli_message_received:
+    description: "Messages from CLI appear in the app after joining"
+  app_can_send_reply:
+    description: "App can send messages in the joined conversation"
+  app_reply_in_cli:
+    description: "App's reply appears via CLI, confirming two-way communication"
