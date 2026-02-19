@@ -14,7 +14,7 @@ prerequisites:
   min_conversations: 3
 
 state:
-  filter_conversations: {}
+  filter_conversations: []
   filter_active: false
   original_unread_count: 0
 
@@ -31,7 +31,7 @@ setup:
         message: "This message also stays unread initially"
         should_read: false
     save:
-      filter_conversations: "extract conversation IDs and names"
+      filter_conversations: ["Filter Read", "Filter Unread A", "Filter Unread B"]
     verify:
       - conversation_count: { expected: 3 }
       - unread_conversations: { count: 2 }

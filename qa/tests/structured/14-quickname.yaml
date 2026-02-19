@@ -142,8 +142,8 @@ steps:
     actions:
       - tap: { id: "composer-avatar-button" }
       - wait: 2
-      - wait_for_element: { id: "quick-edit-lanyard-button", timeout: 5 }
-      - tap: { id: "quick-edit-lanyard-button" }
+      - wait_for_element: { id: "quick-edit-settings-button", timeout: 5 }
+      - tap: { id: "quick-edit-settings-button" }
       - wait: 3
       - wait_for_element: { id: "my-info-sheet", timeout: 10 }
     verify:
@@ -158,20 +158,20 @@ steps:
     actions:
       - find_elements: { label_contains: "Custom Name" }
       - find_elements: { label_contains: "$initial_quickname_name" }
-      - wait_for_element: { id: "quickname-use-button", timeout: 5 }
+      - wait_for_element: { id: "use-quickname-button", timeout: 5 }
     verify:
       - current_convo_shows_custom_name: true
       - quickname_section_shows_original: true
-      - element_exists: { id: "quickname-use-button" }
+      - element_exists: { id: "use-quickname-button" }
     criteria: my_info_sections_verified
     note: "My Info view shows current conversation identity and quickname section"
 
   - id: apply_quickname_override
     name: "Apply quickname override via Use button"
     actions:
-      - tap: { id: "quickname-use-button" }
+      - tap: { id: "use-quickname-button" }
       - wait: 2
-      - verify_button_state: { id: "quickname-use-button", state: "checkmark" }
+      - verify_button_state: { id: "use-quickname-button", state: "checkmark" }
       - dismiss_sheet: { id: "my-info-sheet" }
       - wait: 2
       - verify_composer_placeholder: { contains: "Chat as $initial_quickname_name" }
