@@ -21,7 +21,7 @@ setup:
   - action: ensure_shared_conversation
     save:
       conversation_id: run_state.shared_conversation_id
-      conversation_name: "Mute Test"
+      conversation_name: run_state.shared_conversation_name
   - action: ensure_conversation_unmuted
     args:
       conversation_id: "$conversation_id"

@@ -318,7 +318,7 @@ steps:
     actions:
       - ensure_heart_reaction_on_cli_message:
           message: "Hello from the CLI"
-          method: "double_tap"
+          method: "double_tap_element"
       - add_cli_reaction:
           message_id: "$cli_text_message_id"
           emoji: "👍"
