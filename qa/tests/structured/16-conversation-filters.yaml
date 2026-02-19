@@ -1,0 +1,199 @@
+id: "16"
+name: "Conversation Filters"
+description: >
+  Verify the unread filter in the conversations list - filtering, clearing,
+  empty state, and behavior when new messages arrive while filtered.
+tags: [filters, unread, ui-state, navigation, message-status]
+depends_on: []  # independent test
+estimated_duration_s: 300  # 5 minutes - multi-conversation filter testing
+
+prerequisites:
+  app_running: true
+  past_onboarding: true
+  cli_initialized: true
+  min_conversations: 3
+
+state:
+  filter_conversations: {}
+  filter_active: false
+  original_unread_count: 0
+
+setup:
+  - action: create_test_conversations_with_read_states
+    conversations:
+      - name: "Filter Read"
+        message: "This message will be read"
+        should_read: true
+      - name: "Filter Unread A" 
+        message: "This message stays unread initially"
+        should_read: false
+      - name: "Filter Unread B"
+        message: "This message also stays unread initially"
+        should_read: false
+    save:
+      filter_conversations: "extract conversation IDs and names"
+    verify:
+      - conversation_count: { expected: 3 }
+      - unread_conversations: { count: 2 }
+      - read_conversations: { count: 1 }
+    note: "Three conversations created with mixed read/unread states"
+
+steps:
+  - id: verify_initial_state
+    name: "Verify all conversations visible before filtering"
+    actions:
+      - navigate_to_conversations_list: {}
+      - verify_all_conversations_visible:
+          expected_names: ["Filter Read", "Filter Unread A", "Filter Unread B"]
+      - verify_unread_indicators:
+          conversations_with_unread: ["Filter Unread A", "Filter Unread B"]
+    verify:
+      - element_exists: { pattern: "Filter Read" }
+      - element_exists: { pattern: "Filter Unread A" }
+      - element_exists: { pattern: "Filter Unread B" }
+      - unread_indicators_present: { count: 2 }
+    criteria: initial_state_verified
+    note: "All 3 conversations visible with correct unread indicators"
+
+  - id: apply_unread_filter
+    name: "Apply unread filter and verify only unread conversations shown"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { pattern: "filter-menu", timeout: 5 }
+      - tap: { label: "Unread" }
+      - wait_for_filter_application: { timeout: 5 }
+      - verify_filtered_conversations:
+          visible: ["Filter Unread A", "Filter Unread B"]
+          hidden: ["Filter Read"]
+      - verify_filter_button_active_state: { highlighted: true }
+    save:
+      filter_active: true
+    verify:
+      - element_exists: { pattern: "Filter Unread A" }
+      - element_exists: { pattern: "Filter Unread B" }
+      - element_not_exists: { pattern: "Filter Read" }
+      - filter_button_highlighted: true
+    criteria: unread_filter_applied
+    note: "Only unread conversations visible with filter button highlighted"
+
+  - id: read_conversation_while_filtered
+    name: "Mark conversation as read while filtered - should disappear"
+    actions:
+      - tap: { pattern: "Filter Unread A" }
+      - wait_for_conversation_load: { timeout: 10 }
+      - navigate_back: {}
+      - wait_for_conversations_list: { timeout: 5 }
+      - verify_filtered_update:
+          still_visible: ["Filter Unread B"]
+          now_hidden: ["Filter Unread A", "Filter Read"]
+    verify:
+      - element_exists: { pattern: "Filter Unread B" }
+      - element_not_exists: { pattern: "Filter Unread A" }
+      - element_not_exists: { pattern: "Filter Read" }
+    criteria: read_conversation_filtered_out
+    note: "Reading a conversation while filtered removes it from filtered list"
+
+  - id: new_message_while_filtered
+    name: "Send new message to read conversation - should appear in filter"
+    actions:
+      - send_cli_message:
+          conversation: "Filter Read"
+          message: "New unread message while filter active"
+      - wait_for_message_sync: { duration: 5 }
+      - verify_conversation_appears_in_filter:
+          newly_visible: ["Filter Read"]
+          still_visible: ["Filter Unread B"]
+    verify:
+      - element_exists: { pattern: "Filter Read" }
+      - element_exists: { pattern: "Filter Unread B" }
+      - unread_indicator_on_filter_read: true
+    criteria: new_message_appears_in_filter
+    note: "New message makes previously read conversation appear in unread filter"
+
+  - id: test_empty_filter_state
+    name: "Mark all conversations as read to test empty filter state"
+    actions:
+      - read_conversation: { name: "Filter Unread B" }
+      - read_conversation: { name: "Filter Read" }
+      - navigate_to_conversations_list: {}
+      - wait_for_empty_state: { timeout: 5 }
+      - verify_empty_filter_message:
+          pattern: "No unread convos"
+          or_pattern: "empty-filter-state"
+    verify:
+      - empty_state_message_visible: true
+      - no_conversations_in_filtered_list: true
+    criteria: empty_filter_state_shown
+    note: "Empty state message appears when no conversations match unread filter"
+
+  - id: clear_filter
+    name: "Clear filter to show all conversations again"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { pattern: "filter-menu", timeout: 5 }
+      - tap: { label: "All" }
+      - wait_for_filter_clear: { timeout: 5 }
+      - verify_all_conversations_restored:
+          visible: ["Filter Read", "Filter Unread A", "Filter Unread B"]
+      - verify_filter_button_inactive_state: { highlighted: false }
+    save:
+      filter_active: false
+    verify:
+      - element_exists: { pattern: "Filter Read" }
+      - element_exists: { pattern: "Filter Unread A" }
+      - element_exists: { pattern: "Filter Unread B" }
+      - filter_button_highlighted: false
+    criteria: filter_cleared
+    note: "All conversations visible again with filter button in default state"
+
+  - id: test_filter_persistence
+    name: "Test filter state persists during navigation"
+    actions:
+      - apply_unread_filter_again:
+          button_id: "filter-button"
+          option: "Unread"
+      - navigate_to_app_settings: { button_id: "app-settings-button" }
+      - wait_for_settings_view: { timeout: 5 }
+      - navigate_back_to_conversations: {}
+      - verify_filter_still_active:
+          button_highlighted: true
+          filtered_view: true
+    verify:
+      - filter_button_highlighted: true
+      - filtered_conversations_still_active: true
+    criteria: filter_persistence_verified
+    note: "Unread filter state persists during navigation to settings and back"
+
+teardown:
+  - action: clear_any_active_filter
+    steps:
+      - tap: { id: "filter-button" }
+      - tap: { label: "All" }
+    optional: true
+  - action: explode_conversations
+    args:
+      conversations: "$filter_conversations"
+    optional: true
+
+criteria:
+  initial_state_verified:
+    description: "All 3 conversations visible with correct unread indicators"
+  unread_filter_applied:
+    description: "Filter button opens menu, selecting 'Unread' shows only unread conversations"
+  read_conversation_filtered_out:
+    description: "Reading a conversation while filtered removes it from filtered list"
+  new_message_appears_in_filter:
+    description: "New unread message causes conversation to appear in filtered list"
+  empty_filter_state_shown:
+    description: "Empty state message appears when no conversations match filter"
+  filter_cleared:
+    description: "Clearing filter restores all conversations with default button state"
+  filter_persistence_verified:
+    description: "Filter state persists during session navigation"
+
+notes:
+  - Tests the primary conversation filter feature (unread filter)
+  - Verifies dynamic filter updates as read states change
+  - Tests edge cases like empty filter state
+  - Confirms filter persistence across navigation
+  - Essential for conversation list UX and message management
