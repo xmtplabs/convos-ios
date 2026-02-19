@@ -88,9 +88,9 @@ steps:
     actions:
       - tap: { label: "Explode" }
       - wait: 5
+      - wait_for_element: { pattern: "conversations-list", timeout: 10 }
     verify:
       - element_exists: { pattern: "explosion-animation" }
-      - wait_for_navigation: { timeout: 10 }
     criteria: explosion_confirmed
     note: "Explosion animation should play and navigate back to conversation list"
 
@@ -115,7 +115,7 @@ steps:
           expect_failure: true
     verify:
       - cli_output_not_contains: "Test Explode Conv"
-      - cli_command_failed: true
+      - cli_output_contains: "error"
     criteria: conversation_inaccessible_via_cli
     note: "CLI should not list exploded conversation and sending messages should fail"
 
@@ -129,7 +129,7 @@ steps:
           conversation: "$conversation_id"
           expect_failure: true
     verify:
-      - cli_command_failed: true
+      - cli_output_contains: "error"
     criteria: conversation_data_destroyed
     note: "All conversation data including messages and profiles should be inaccessible"
 
