@@ -158,9 +158,9 @@ struct IncomingMessageWriterExplodeTests {
     @Test("Already has expiresAt returns alreadyExpired (idempotency)")
     func testAlreadyHasExpiresAtReturnsAlreadyExpired() async throws {
         let fixtures = ExplodeTestFixtures()
-        try await fixtures.setupConversation(expiresAt: Date().addingTimeInterval(7200))
+        try await fixtures.setupConversation(expiresAt: Date().addingTimeInterval(3600))
 
-        let settings = ExplodeSettings(expiresAt: Date().addingTimeInterval(3600))
+        let settings = ExplodeSettings(expiresAt: Date().addingTimeInterval(7200))
         let result = await fixtures.writer.processExplodeSettings(
             settings,
             conversationId: fixtures.conversationId,
@@ -305,7 +305,8 @@ private class ExplodeTestFixtures {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             )
             try conversation.insert(db)
 
