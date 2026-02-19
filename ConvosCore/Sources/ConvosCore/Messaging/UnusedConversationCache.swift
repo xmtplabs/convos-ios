@@ -291,13 +291,6 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             Log.info("Consuming cached inbox only, discarding pre-created conversation")
             unusedMessagingService = nil
 
-            if let unusedConversationId = getUnusedConversationFromKeychain() {
-                await cleanupOrphanedConversation(
-                    conversationId: unusedConversationId,
-                    databaseWriter: databaseWriter
-                )
-            }
-
             clearUnusedFromKeychain()
 
             do {
@@ -322,13 +315,6 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
 
         if let unusedInboxId = getUnusedInboxFromKeychain() {
             Log.info("Consuming keychain inbox only: \(unusedInboxId)")
-
-            if let unusedConversationId = getUnusedConversationFromKeychain() {
-                await cleanupOrphanedConversation(
-                    conversationId: unusedConversationId,
-                    databaseWriter: databaseWriter
-                )
-            }
 
             clearUnusedFromKeychain()
 
