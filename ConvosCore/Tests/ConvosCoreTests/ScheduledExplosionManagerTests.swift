@@ -167,7 +167,7 @@ struct ScheduledExplosionManagerTests {
     @Test("Posts conversationExpired at expiresAt after scheduling")
     func testPostsConversationExpiredAtExpiry() async throws {
         let fixtures = ScheduledExplosionTestFixtures()
-        let expiresAt = Date().addingTimeInterval(0.4)
+        let expiresAt = Date().addingTimeInterval(1.0)
 
         let capture = NotificationCapture()
         capture.startCapturing(.conversationExpired)
@@ -200,7 +200,7 @@ struct ScheduledExplosionManagerTests {
     @Test("App active rescan schedules deterministic expiry cleanup")
     func testRescanSchedulesExpiryCleanup() async throws {
         let fixtures = ScheduledExplosionTestFixtures()
-        let expiresAt = Date().addingTimeInterval(0.4)
+        let expiresAt = Date().addingTimeInterval(1.0)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
         let capture = NotificationCapture()
