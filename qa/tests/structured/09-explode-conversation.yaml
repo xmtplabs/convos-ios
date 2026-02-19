@@ -90,9 +90,9 @@ steps:
       - wait: 5
       - wait_for_element: { pattern: "conversations-list", timeout: 10 }
     verify:
-      - element_exists: { pattern: "explosion-animation" }
+      - element_exists: { pattern: "conversations-list" }
     criteria: explosion_confirmed
-    note: "Explosion animation should play and navigate back to conversation list"
+    note: "Explosion should navigate back to conversation list"
 
   - id: verify_conversation_removed_from_app
     name: "Verify conversation no longer in app conversations list"

@@ -140,10 +140,11 @@ steps:
   - id: save_photo_change
     name: "Save profile photo change"
     actions:
-      - download_test_photo: { url: "https://picsum.photos/400/400", path: "/tmp/profile-photo.jpg" }
-      - simctl_add_media: { path: "/tmp/profile-photo.jpg" }
       - tap: { label: "Photo Library", optional: true }
-      - tap_photo_in_picker: { timeout: 5 }
+      - wait_for_element: { pattern: "photo-picker", timeout: 10 }
+      - tap: { pattern: "first-photo", optional: true }
+      - wait: 2
+      - tap: { label: "Choose", optional: true }
       - wait: 2
       - tap: { id: "save-profile-button", optional: true }
       - tap: { label: "Done", optional: true }
@@ -151,7 +152,7 @@ steps:
     verify:
       - element_exists: { id: "profile-avatar" }
     criteria: profile_photo_set
-    note: "Profile photo should appear on user avatar"
+    note: "Profile photo should appear on user avatar (requires at least one photo in simulator)"
 
   - id: verify_photo_via_cli
     name: "CLI sees profile photo URL"
