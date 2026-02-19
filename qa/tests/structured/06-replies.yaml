@@ -1,0 +1,154 @@
+id: "06"
+name: "Reply to Messages"
+description: >
+  Verify that replies work correctly — both sending replies from the app and 
+  receiving replies from the CLI, with the reply reference displayed properly.
+tags: [messaging, replies, core]
+depends_on: ["02"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+
+state:
+  conversation_id: null
+  cli_identity_id: null
+  cli_original_msg_id: null
+  app_original_msg_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    note: >
+      If run_state has a shared conversation from a prior test, reuse it.
+      Otherwise: CLI creates conversation, generates invite, app joins via
+      deep link, CLI processes join request.
+    save:
+      conversation_id: run_state.shared_conversation_id
+      cli_identity_id: run_state.cli_identity_id
+  - action: navigate_to_conversation
+    args: { id: "$conversation_id" }
+  - action: setup_messages_for_replies
+    note: "Create original messages to reply to"
+
+steps:
+  - id: cli_sends_original
+    name: "CLI sends original message to reply to"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Original message from CLI"
+      - wait: 3
+      - wait_for_element: { label_contains: "Original message from CLI", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Original message from CLI" }
+    criteria: cli_original_message_sent
+    save:
+      cli_original_msg_id: "extract from CLI output"
+
+  - id: app_sends_original
+    name: "App sends original message to reply to"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Original message from app" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - find_elements: { label_contains: "Original message from app" }
+    verify:
+      - element_exists: { label_contains: "Original message from app" }
+    criteria: app_original_message_sent
+    save:
+      app_original_msg_id: "extract from message element ID"
+
+  - id: cli_replies_to_app
+    name: "CLI replies to app's message"
+    actions:
+      - cli_send_reply:
+          conversation: "$conversation_id"
+          reply_to: "$app_original_msg_id"
+          text: "CLI replying to your message"
+      - wait: 5
+      - wait_for_element: { label_contains: "CLI replying to your message", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "CLI replying to your message" }
+      - element_exists: { label_contains: "Original message from app" }
+    criteria: cli_reply_appears_with_reference
+    note: "Reply should show visual reference to original message"
+
+  - id: app_initiates_reply
+    name: "App initiates reply to CLI's message"
+    actions:
+      - long_press: { label_contains: "Original message from CLI" }
+      - wait: 2
+      - tap: { label: "Reply", optional: true }
+      - wait: 2
+      - find_elements: { id: "reply-composer-bar" }
+    verify:
+      - element_exists: { id: "reply-composer-bar" }
+      - element_exists: { label_contains: "Original message from CLI" }
+    criteria: app_reply_composer_appears
+    gesture: "Long press message to open context menu, then tap Reply"
+    note: "Reply composer bar should appear showing the original message"
+
+  - id: app_sends_reply
+    name: "App sends reply message"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "App replying to your message" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - find_elements: { label_contains: "App replying to your message" }
+    verify:
+      - element_exists: { label_contains: "App replying to your message" }
+      - element_exists: { label_contains: "Original message from CLI" }
+    criteria: app_reply_sent_with_reference
+    note: "Reply should appear in conversation with reply reference visible"
+
+  - id: verify_app_reply_via_cli
+    name: "App's reply visible via CLI with reference"
+    actions:
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "App replying to your message"
+    verify:
+      - cli_output_contains: "App replying to your message"
+      - cli_output_contains: "reply"
+    criteria: app_reply_in_cli_with_reference
+    note: "CLI should show the reply with reference to original message"
+
+  - id: test_reply_cancellation
+    name: "Test cancelling a reply before sending"
+    actions:
+      - long_press: { label_contains: "Original message from CLI" }
+      - wait: 2
+      - tap: { label: "Reply", optional: true }
+      - wait: 2
+      - find_elements: { id: "cancel-reply-button" }
+      - tap: { id: "cancel-reply-button" }
+      - wait: 2
+    verify:
+      - element_not_exists: { id: "reply-composer-bar" }
+      - element_exists: { id: "message-text-field" }
+    criteria: reply_cancellation_works
+    note: "Reply composer should disappear and input should return to normal"
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  cli_original_message_sent:
+    description: "CLI sends original message that appears in app"
+  app_original_message_sent:
+    description: "App sends original message that appears in conversation"
+  cli_reply_appears_with_reference:
+    description: "CLI reply appears in the app with a visible reference to the original message"
+  app_reply_composer_appears:
+    description: "App can initiate a reply to a message (reply composer bar appears)"
+  app_reply_sent_with_reference:
+    description: "App reply is sent with the correct reply reference and appears in conversation"
+  app_reply_in_cli_with_reference:
+    description: "App reply is visible via CLI with the original message reference"
+  reply_cancellation_works:
+    description: "Reply can be cancelled before sending and UI returns to normal state"
