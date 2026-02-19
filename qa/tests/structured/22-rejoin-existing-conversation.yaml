@@ -1,0 +1,145 @@
+id: "22"
+name: "Rejoin Existing Conversation via Invite"
+description: >
+  Verify that scanning or pasting an invite code for a conversation the user is
+  already a member of navigates to that existing conversation instead of getting stuck.
+tags: [rejoin, deep-link, scanner, paste, navigation, membership]
+depends_on: []  # independent test
+estimated_duration_s: 180  # 3 minutes - rejoin flow testing
+
+prerequisites:
+  app_running: true
+  past_onboarding: true
+  cli_initialized: true
+  existing_conversation: true
+
+state:
+  test_conversation_id: null
+  original_invite_url: null
+  second_invite_url: null
+  conversation_name: "Rejoin Test"
+
+setup:
+  - action: create_conversation_with_existing_membership
+    steps:
+      - create_conversation:
+          name: "$conversation_name"
+          profile_name: "RejoinBot"
+      - generate_invite: {}
+      - background_join_processing: true
+      - join_from_app_via_deeplink: {}
+      - verify_conversation_joined: { participants: 2 }
+      - exchange_test_message:
+          cli_message: "Initial membership confirmed"
+          app_message: "App joined successfully"
+      - generate_second_invite: { same_conversation: true }
+      - navigate_to_conversations_list: {}
+    save:
+      test_conversation_id: "extract conversation ID"
+      original_invite_url: "first invite URL"
+      second_invite_url: "second invite URL for rejoin testing"
+    verify:
+      - conversation_appears_in_list: true
+      - app_user_is_member: true
+      - test_messages_exchanged: true
+    note: "Existing conversation with confirmed membership ready for rejoin tests"
+
+steps:
+  - id: test_rejoin_via_deep_link
+    name: "Test rejoining existing conversation via deep link"
+    actions:
+      - open_deep_link: 
+          url: "$second_invite_url"
+      - wait_for_conversation_recognition: { timeout: 10 }
+      - verify_conversation_view_appears:
+          not_stuck_on: ["loading_screen", "scanner_screen", "blank_screen"]
+      - verify_conversation_name_visible:
+          expected_name: "$conversation_name"
+      - verify_existing_messages_visible:
+          messages: ["Initial membership confirmed", "App joined successfully"]
+      - dismiss_or_navigate_back: {}
+    verify:
+      - deep_link_recognizes_membership: true
+      - conversation_view_appears: true
+      - correct_conversation_loaded: true
+      - not_stuck_or_loading: true
+    criteria: deep_link_rejoin_works
+    note: "Deep link for existing conversation shows conversation view immediately"
+
+  - id: test_rejoin_via_scanner_paste
+    name: "Test rejoining existing conversation via paste in scanner"
+    actions:
+      - copy_to_clipboard: { text: "$second_invite_url" }
+      - navigate_to_conversations_list: {}
+      - tap: { id: "scan-button" }
+      - wait_for_element: { id: "scanner-view", timeout: 5 }
+      - tap: { id: "paste-invite-button" }
+      - wait_for_membership_recognition: { timeout: 10 }
+      - verify_scanner_dismisses: { timeout: 5 }
+      - verify_conversation_view_appears:
+          transition_from: "scanner"
+      - verify_conversation_name_visible:
+          expected_name: "$conversation_name"
+      - verify_existing_messages_visible:
+          messages: ["Initial membership confirmed", "App joined successfully"]
+    verify:
+      - paste_in_scanner_works: true
+      - scanner_dismisses_on_recognition: true
+      - existing_conversation_loads: true
+      - correct_conversation_content: true
+    criteria: scanner_paste_rejoin_works
+    note: "Paste in scanner for existing conversation dismisses scanner and shows conversation"
+
+  - id: verify_no_duplicate_conversations
+    name: "Verify no duplicate conversations created by rejoin attempts"
+    actions:
+      - navigate_to_conversations_list: {}
+      - count_conversations_with_name:
+          name: "$conversation_name"
+      - verify_single_conversation_instance:
+          expected_count: 1
+    verify:
+      - no_duplicate_conversations: true
+      - single_conversation_maintained: true
+    criteria: no_duplicates_created
+    note: "Rejoin attempts don't create duplicate conversations in the list"
+
+  - id: verify_conversation_functionality_after_rejoin
+    name: "Verify conversation remains fully functional after rejoin"
+    actions:
+      - open_conversation: { name: "$conversation_name" }
+      - send_message: { text: "Testing functionality after rejoin" }
+      - wait_for_message_send: { timeout: 10 }
+      - verify_message_appears: { text: "Testing functionality after rejoin" }
+      - verify_cli_receives_message:
+          conversation_id: "$test_conversation_id"
+          expected_text: "Testing functionality after rejoin"
+    verify:
+      - post_rejoin_messaging_works: true
+      - conversation_fully_functional: true
+    criteria: functionality_preserved_after_rejoin
+    note: "Conversation messaging works normally after rejoin attempts"
+
+teardown:
+  - action: explode_conversation
+    args:
+      id: "$test_conversation_id"
+    optional: true
+
+criteria:
+  deep_link_rejoin_works:
+    description: "Deep link for existing conversation shows conversation view immediately, not stuck screens"
+  scanner_paste_rejoin_works:
+    description: "Paste in scanner for existing conversation dismisses scanner and shows conversation view"
+  no_duplicates_created:
+    description: "Rejoin attempts don't create duplicate conversations in the conversations list"
+  functionality_preserved_after_rejoin:
+    description: "Conversation remains fully functional for messaging after rejoin attempts"
+
+notes:
+  - Tests edge case of trying to join a conversation already joined
+  - Verifies proper navigation and recognition of existing membership
+  - Ensures no duplicate conversations or stuck states
+  - Tests both deep link and scanner paste rejoin flows
+  - Critical for preventing user confusion and duplicate conversation states
+  - Validates membership detection and conversation loading logic

@@ -1,0 +1,405 @@
+id: "21"
+name: "Message Gestures and Interactions"
+description: >
+  Verify all gesture-based interactions in the messages list including single tap,
+  double tap, long press, swipe to reply, link tapping, avatar tapping, reaction
+  indicators, and context menus across all message content types.
+tags: [gestures, interactions, context-menu, reactions, reply, swipe, photos]
+depends_on: []  # independent test
+estimated_duration_s: 420  # 7 minutes - comprehensive gesture testing
+
+prerequisites:
+  app_running: true
+  past_onboarding: true
+  cli_initialized: true
+  simulator_has_photos: true
+
+state:
+  test_conversation_id: null
+  cli_text_message_id: null
+  cli_emoji_message_id: null
+  cli_url_message_id: null
+  cli_photo_message_id: null
+  app_text_message_id: null
+  app_group_messages: []
+
+setup:
+  - action: create_shared_conversation_with_mixed_content
+    steps:
+      - create_conversation:
+          name: "Gesture Test"
+          profile_name: "GestureBot"
+      - generate_invite: {}
+      - background_join_processing: true
+      - join_from_app: {}
+      - send_cli_messages:
+          - text: "Hello from the CLI"
+          - text: "Check out https://example.com for details"
+          - text: "🎉"
+      - send_app_message: { text: "Hello from the app" }
+      - send_cli_photo:
+          url: "https://picsum.photos/400/400"
+          path: "/tmp/gesture-test-photo.jpg"
+      - wait_for_all_messages_sync: { timeout: 15 }
+    save:
+      test_conversation_id: "extract conversation ID"
+      cli_text_message_id: "extract message ID for 'Hello from the CLI'"
+      cli_emoji_message_id: "extract message ID for '🎉'"
+      cli_url_message_id: "extract message ID for URL message"
+      cli_photo_message_id: "extract photo message ID"
+      app_text_message_id: "extract app message ID"
+    verify:
+      - shared_conversation_ready: { participants: 2 }
+      - mixed_content_messages_present: { count: 5 }
+    note: "Shared conversation with text, emoji, URL, and photo messages ready"
+
+steps:
+  - id: test_double_tap_heart_reactions
+    name: "Test double-tap heart reaction toggle on various message types"
+    actions:
+      - double_tap: { labelContains: "Hello from the CLI" }
+      - wait_for_reaction_indicator: { emoji: "❤️", timeout: 5 }
+      - verify_heart_reaction_added: { message: "Hello from the CLI" }
+      - double_tap: { labelContains: "Hello from the CLI" }
+      - wait_for_reaction_disappear: { timeout: 5 }
+      - verify_heart_reaction_removed: { message: "Hello from the CLI" }
+      - double_tap: { labelContains: "🎉" }
+      - verify_heart_reaction_on_emoji: { message: "🎉" }
+      - double_tap: { labelContains: "Hello from the app" }
+      - verify_heart_reaction_on_own_message: { message: "Hello from the app" }
+    verify:
+      - heart_reaction_toggle_works: true
+      - emoji_messages_support_reactions: true
+      - own_messages_support_reactions: true
+    criteria: double_tap_reactions_work
+    note: "Double-tap toggles heart reactions on incoming, emoji, and own messages"
+
+  - id: test_swipe_right_reply_composer
+    name: "Test swipe right to open reply composer with proper context"
+    actions:
+      - swipe_right_on_message: 
+          labelContains: "Hello from the CLI"
+          distance: 60
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+      - verify_reply_composer_context:
+          expected_text: "Replying to GestureBot: Hello from the CLI"
+      - verify_cancel_reply_button: { id: "cancel-reply-button" }
+      - type_in_reply: { text: "This is a reply" }
+      - tap: { id: "send-message-button" }
+      - wait_for_reply_message: { timeout: 10 }
+      - verify_reply_reference: { originalMessage: "Hello from the CLI" }
+    verify:
+      - reply_composer_appeared: true
+      - reply_context_correct: true
+      - reply_sent_with_reference: true
+    criteria: swipe_reply_composer_works
+    note: "Swipe right opens reply composer with correct context and sends reply"
+
+  - id: test_swipe_reply_emoji_and_cancel
+    name: "Test swipe reply on emoji message and cancel functionality"
+    actions:
+      - swipe_right_on_message:
+          labelContains: "🎉"
+          distance: 60
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+      - verify_emoji_reply_context: { emoji: "🎉" }
+      - tap: { id: "cancel-reply-button" }
+      - wait_for_element_disappear: { id: "reply-composer-bar", timeout: 3 }
+    verify:
+      - emoji_reply_composer_works: true
+      - cancel_reply_works: true
+    criteria: emoji_swipe_reply_and_cancel
+    note: "Swipe reply works on emoji messages and cancel dismisses composer"
+
+  - id: test_grouped_message_swipe_isolation
+    name: "Test swipe on grouped messages - only swiped message moves"
+    actions:
+      - send_app_group_messages:
+          messages: ["Group msg A", "Group msg B"]
+          rapid_succession: true
+      - wait_for_message_grouping: { timeout: 5 }
+      - perform_slow_swipe_on_middle_message:
+          target: "Group msg A"
+          distance: 60
+          duration: 1.5
+          screenshot_during_swipe: true
+      - verify_only_swiped_message_moved:
+          moved_message: "Group msg A"
+          stationary_messages: ["Hello from the app", "Group msg B"]
+      - complete_or_cancel_swipe: {}
+      - dismiss_reply_composer: { optional: true }
+    save:
+      app_group_messages: ["Hello from the app", "Group msg A", "Group msg B"]
+    verify:
+      - only_swiped_message_offset: true
+      - other_group_messages_stationary: true
+      - reply_arrow_visible_during_swipe: true
+    criteria: grouped_message_swipe_isolation
+    note: "Only the swiped message moves in a group, others remain in place"
+
+  - id: test_long_press_context_menu_text
+    name: "Test long press context menu on text message with copy action"
+    actions:
+      - long_press: 
+          labelContains: "Hello from the CLI"
+          duration: 0.5
+      - wait_for_element: { pattern: "context-menu", timeout: 5 }
+      - verify_context_menu_options:
+          expected: ["Reply", "Copy"]
+      - tap_context_menu_option: { option: "Copy" }
+      - verify_pasteboard_content: { expected: "Hello from the CLI" }
+      - verify_context_menu_dismissed: true
+    verify:
+      - context_menu_appeared: true
+      - copy_action_works: true
+      - pasteboard_correct: true
+    criteria: long_press_text_context_menu
+    note: "Long press on text opens context menu and Copy puts text on pasteboard"
+
+  - id: test_long_press_every_message_in_group
+    name: "Test long press works on every message in a grouped sequence"
+    actions:
+      - long_press_first_group_message:
+          target: "Hello from the app"
+          verify_source: "Hello from the app"
+      - dismiss_context_menu: {}
+      - long_press_middle_group_message:
+          target: "Group msg A"
+          verify_source: "Group msg A"
+      - dismiss_context_menu: {}
+      - long_press_last_group_message:
+          target: "Group msg B"
+          verify_source: "Group msg B"
+      - dismiss_context_menu: {}
+    verify:
+      - first_message_context_menu_works: true
+      - middle_message_context_menu_works: true
+      - last_message_context_menu_works: true
+    criteria: long_press_works_on_all_group_messages
+    note: "Long press works independently on first, middle, and last messages in group"
+
+  - id: test_long_press_emoji_context_menu
+    name: "Test long press context menu on emoji message"
+    actions:
+      - long_press:
+          labelContains: "🎉"
+          duration: 0.5
+      - wait_for_element: { pattern: "context-menu", timeout: 5 }
+      - verify_context_menu_options:
+          expected: ["Reply", "Copy"]
+      - tap_context_menu_option: { option: "Copy" }
+      - verify_pasteboard_content: { expected: "🎉" }
+    verify:
+      - emoji_context_menu_works: true
+      - emoji_copy_works: true
+    criteria: long_press_emoji_context_menu
+    note: "Long press on emoji opens context menu and Copy puts emoji on pasteboard"
+
+  - id: test_context_menu_reply_action
+    name: "Test Reply action from context menu"
+    actions:
+      - long_press:
+          labelContains: "Hello from the CLI"
+          duration: 0.5
+      - tap_context_menu_option: { option: "Reply" }
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+      - verify_reply_composer_context:
+          message: "Hello from the CLI"
+      - tap: { id: "cancel-reply-button" }
+    verify:
+      - context_menu_reply_opens_composer: true
+      - reply_context_correct: true
+    criteria: context_menu_reply_action
+    note: "Reply action from context menu opens reply composer with correct context"
+
+  - id: test_link_tap_in_message
+    name: "Test single tap on URL link in text message"
+    actions:
+      - find_url_in_message: { 
+          message: "Check out https://example.com for details",
+          url: "https://example.com"
+        }
+      - tap_url_link: { url: "https://example.com" }
+      - wait_for_browser_or_safari: { timeout: 10 }
+      - verify_link_opened: { domain: "example.com" }
+      - navigate_back_to_conversation: {}
+    verify:
+      - url_link_tappable: true
+      - link_opens_browser: true
+      - navigation_back_works: true
+    criteria: link_tap_opens_browser
+    note: "Single tap on URL in message opens link in Safari or in-app browser"
+
+  - id: test_blurred_photo_single_tap_reveal
+    name: "Test single tap on blurred incoming photo to reveal"
+    actions:
+      - scroll_to_cli_photo: {}
+      - verify_photo_blurred_initially:
+          blur_overlay: "Tap pic to reveal"
+      - single_tap_blurred_photo: {}
+      - handle_reveal_education_sheet:
+          dismiss_button: "Got it"
+          optional: true
+      - wait_for_blur_animation: { duration: 2 }
+      - verify_photo_revealed: { no_blur_overlay: true }
+    verify:
+      - photo_initially_blurred: true
+      - single_tap_reveals_photo: true
+      - photo_becomes_sharp: true
+    criteria: blurred_photo_single_tap_reveal
+    note: "Single tap on blurred incoming photo reveals it with animation"
+
+  - id: test_revealed_photo_single_tap_noop
+    name: "Test single tap on revealed photo does nothing"
+    actions:
+      - single_tap_revealed_photo: {}
+      - wait: 2
+      - verify_no_navigation_or_context_menu: {}
+      - verify_photo_stays_revealed: true
+    verify:
+      - revealed_photo_tap_is_noop: true
+      - no_unintended_actions: true
+    criteria: revealed_photo_single_tap_noop
+    note: "Single tap on revealed photo is a no-op - no navigation or menus"
+
+  - id: test_long_press_photo_context_menu
+    name: "Test long press context menu on photo message"
+    actions:
+      - long_press_revealed_photo: { duration: 0.5 }
+      - wait_for_element: { pattern: "context-menu", timeout: 5 }
+      - verify_context_menu_options:
+          expected: ["Reply", "Save", "Blur"]
+      - dismiss_context_menu:
+          method: "tap_dimmed_background"
+          accessibility_label: "Dismiss menu"
+    verify:
+      - photo_context_menu_works: true
+      - photo_menu_has_correct_options: true
+      - dimmed_background_dismisses: true
+    criteria: photo_long_press_context_menu
+    note: "Long press on photo opens context menu with Reply, Save, Blur options"
+
+  - id: test_own_message_context_menu
+    name: "Test long press context menu on own outgoing message"
+    actions:
+      - long_press:
+          labelContains: "Hello from the app"
+          duration: 0.5
+      - wait_for_element: { pattern: "context-menu", timeout: 5 }
+      - verify_context_menu_options:
+          expected: ["Reply", "Copy"]
+          not_expected: ["Save", "Blur"]
+      - dismiss_context_menu: {}
+    verify:
+      - own_message_context_menu_works: true
+      - own_message_options_correct: true
+    criteria: own_message_context_menu
+    note: "Own outgoing messages have Reply and Copy options in context menu"
+
+  - id: test_avatar_tap_profile_view
+    name: "Test tapping sender avatar opens profile view"
+    actions:
+      - find_cli_message_avatar:
+          accessibility_label: "View GestureBot's profile"
+          location: "bottom-left of message group"
+      - tap_sender_avatar: {}
+      - wait_for_profile_view: { timeout: 5 }
+      - verify_profile_information_displayed:
+          sender: "GestureBot"
+      - dismiss_profile_view: {}
+    verify:
+      - avatar_tap_opens_profile: true
+      - profile_view_shows_sender_info: true
+    criteria: avatar_tap_profile_view
+    note: "Tapping sender avatar opens profile view with sender information"
+
+  - id: test_reaction_indicator_tap_drawer
+    name: "Test tapping reaction indicator opens reactions drawer"
+    actions:
+      - ensure_heart_reaction_on_cli_message:
+          message: "Hello from the CLI"
+          method: "double_tap"
+      - add_cli_reaction:
+          message_id: "$cli_text_message_id"
+          emoji: "👍"
+      - wait_for_reaction_sync: { timeout: 5 }
+      - tap_reaction_indicator:
+          accessibility_label_contains: "reactions"
+      - wait_for_reactions_drawer: { timeout: 5 }
+      - verify_reactions_with_attribution:
+          expected_reactions: ["❤️", "👍"]
+          with_senders: true
+      - dismiss_reactions_drawer: {}
+    verify:
+      - reaction_indicator_tappable: true
+      - reactions_drawer_opens: true
+      - sender_attribution_shown: true
+    criteria: reaction_indicator_tap_drawer
+    note: "Tapping reaction indicator opens drawer showing all reactions with senders"
+
+  - id: test_visual_press_feedback
+    name: "Test brief press provides visual feedback on photo"
+    actions:
+      - brief_press_photo:
+          duration: 0.2
+          screenshot_during_press: true
+      - verify_visual_press_effect:
+          expected: ["slight_blur", "dimming", "visual_feedback"]
+      - release_press: {}
+      - verify_normal_appearance_restored: true
+    verify:
+      - visual_press_feedback_present: true
+      - press_effect_temporary: true
+    criteria: visual_press_feedback
+    note: "Brief press on photo shows visual feedback without triggering actions"
+
+teardown:
+  - action: explode_conversation
+    args:
+      id: "$test_conversation_id"
+    optional: true
+  - action: cleanup_test_photos
+    paths: ["/tmp/gesture-test-photo.jpg"]
+    optional: true
+
+criteria:
+  double_tap_reactions_work:
+    description: "Double-tap toggles heart reactions on incoming, emoji, and own messages"
+  swipe_reply_composer_works:
+    description: "Swipe right opens reply composer with correct context and sends replies"
+  emoji_swipe_reply_and_cancel:
+    description: "Swipe reply works on emoji messages and cancel button dismisses composer"
+  grouped_message_swipe_isolation:
+    description: "Only the swiped message moves in a group, others remain stationary"
+  long_press_text_context_menu:
+    description: "Long press on text opens context menu with Reply/Copy, Copy works correctly"
+  long_press_works_on_all_group_messages:
+    description: "Long press works independently on first, middle, and last messages in groups"
+  long_press_emoji_context_menu:
+    description: "Long press on emoji opens context menu and Copy puts emoji on pasteboard"
+  context_menu_reply_action:
+    description: "Reply action from context menu opens reply composer with correct context"
+  link_tap_opens_browser:
+    description: "Single tap on URL in message opens link in Safari or in-app browser"
+  blurred_photo_single_tap_reveal:
+    description: "Single tap on blurred incoming photo reveals it with animation"
+  revealed_photo_single_tap_noop:
+    description: "Single tap on revealed photo is a no-op with no unintended actions"
+  photo_long_press_context_menu:
+    description: "Long press on photo opens context menu with Reply/Save/Blur options"
+  own_message_context_menu:
+    description: "Own outgoing messages have correct context menu options (Reply/Copy)"
+  avatar_tap_profile_view:
+    description: "Tapping sender avatar opens profile view with sender information"
+  reaction_indicator_tap_drawer:
+    description: "Tapping reaction indicator opens drawer with all reactions and sender attribution"
+  visual_press_feedback:
+    description: "Brief press on messages provides visual feedback without triggering actions"
+
+notes:
+  - Comprehensive test of all message gesture interactions
+  - Tests across multiple content types (text, emoji, URL, photo)
+  - Verifies proper isolation of gestures in message groups
+  - Tests both incoming and outgoing message behaviors
+  - Includes accessibility and visual feedback verification
+  - Critical for message interaction UX and gesture recognition
