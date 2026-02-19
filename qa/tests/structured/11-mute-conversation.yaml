@@ -1,0 +1,159 @@
+id: "11"
+name: "Mute and Unmute Conversation"
+description: >
+  Verify that conversations can be muted and unmuted via swipe actions and
+  conversation info, and that the mute state is properly reflected in the UI
+  while still allowing messages to arrive.
+tags: [conversations-list, mute, notifications, swipe-actions, ui]
+depends_on: ["02"]  # needs shared conversation
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+
+state:
+  conversation_id: null
+  conversation_name: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+      conversation_name: "extract from conversation title"
+  - action: ensure_conversation_unmuted
+    args:
+      conversation_id: "$conversation_id"
+    note: "Ensure clean starting state - conversation not muted"
+  - action: navigate_to_conversations_list
+    verify:
+      - element_exists: { id: "conversations-list" }
+
+steps:
+  - id: mute_via_swipe_action
+    name: "Mute conversation via swipe left action"
+    actions:
+      - swipe: { direction: "left", identifier_contains: "$conversation_name" }
+      - wait: 2
+      - wait_for_element: { id: "swipe-mute-button", timeout: 5 }
+      - tap: { id: "swipe-mute-button" }
+      - wait: 3
+      - find_elements: { pattern: "muted-indicator" }
+    verify:
+      - element_exists: { pattern: "muted-indicator" }
+      - element_exists: { pattern: "bell-slash-icon" }
+    criteria: conversation_muted_via_swipe
+    note: "Conversation should show muted indicator after swipe mute action"
+
+  - id: verify_mute_in_conversation_info
+    name: "Verify mute state in conversation info"
+    actions:
+      - tap: { label_contains: "$conversation_name" }
+      - wait_for_element: { id: "conversation-info-button", timeout: 10 }
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "notifications-toggle", timeout: 10 }
+    verify:
+      - toggle_is_off: { id: "notifications-toggle" }
+    criteria: mute_state_in_conversation_info
+    note: "Notifications toggle should be off in conversation info for muted conversation"
+
+  - id: receive_message_while_muted
+    name: "Receive message while conversation is muted"
+    actions:
+      - navigate_back: {}
+      - navigate_back: {}
+      - wait_for_element: { id: "conversations-list", timeout: 10 }
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Message while muted"
+      - wait: 5
+      - find_elements: { label_contains: "Message while muted" }
+      - find_elements: { pattern: "muted-indicator" }
+    verify:
+      - element_exists: { label_contains: "Message while muted" }
+      - element_exists: { pattern: "muted-indicator" }
+    criteria: messages_arrive_while_muted
+    note: "Messages should still arrive and update conversation but mute indicator remains"
+
+  - id: unmute_via_swipe_action
+    name: "Unmute conversation via swipe left action"
+    actions:
+      - swipe: { direction: "left", identifier_contains: "$conversation_name" }
+      - wait: 2
+      - wait_for_element: { id: "swipe-unmute-button", timeout: 5 }
+      - tap: { id: "swipe-unmute-button" }
+      - wait: 3
+      - find_elements: { pattern: "muted-indicator" }
+    verify:
+      - element_not_exists: { pattern: "muted-indicator" }
+      - element_not_exists: { pattern: "bell-slash-icon" }
+    criteria: conversation_unmuted_via_swipe
+    note: "Muted indicator should disappear after unmute action"
+
+  - id: verify_mute_toggle_alternative
+    name: "Alternative: Mute/unmute via conversation info toggle"
+    actions:
+      - tap: { label_contains: "$conversation_name" }
+      - wait_for_element: { id: "conversation-info-button", timeout: 10 }
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "notifications-toggle", timeout: 10 }
+      - tap: { id: "notifications-toggle" }
+      - wait: 2
+    verify:
+      - toggle_is_off: { id: "notifications-toggle" }
+    criteria: mute_via_conversation_info_toggle
+    note: "Notifications toggle should allow muting from conversation info"
+
+  - id: verify_unmute_toggle
+    name: "Unmute via conversation info toggle"
+    actions:
+      - tap: { id: "notifications-toggle" }
+      - wait: 2
+      - navigate_back: {}
+      - navigate_back: {}
+      - wait_for_element: { id: "conversations-list", timeout: 10 }
+      - find_elements: { pattern: "muted-indicator" }
+    verify:
+      - element_not_exists: { pattern: "muted-indicator" }
+      - toggle_is_on: { id: "notifications-toggle" }
+    criteria: unmute_via_conversation_info_toggle
+    note: "Conversation should be unmuted when notifications toggle is turned on"
+
+  - id: test_mute_state_persistence
+    name: "Test mute state persistence across app restart"
+    actions:
+      - swipe: { direction: "left", identifier_contains: "$conversation_name" }
+      - tap: { id: "swipe-mute-button" }
+      - wait: 3
+      - terminate_app: {}
+      - wait: 5
+      - launch_app: {}
+      - wait_for_element: { id: "conversations-list", timeout: 20 }
+      - find_elements: { pattern: "muted-indicator" }
+    verify:
+      - element_exists: { pattern: "muted-indicator" }
+    criteria: mute_state_persists
+    note: "Muted state should persist across app kill and relaunch"
+
+teardown:
+  - action: ensure_conversation_unmuted
+    args:
+      conversation_id: "$conversation_id"
+    note: "Restore default unmuted state"
+
+criteria:
+  conversation_muted_via_swipe:
+    description: "Conversation can be muted via swipe action and muted indicator appears"
+  mute_state_in_conversation_info:
+    description: "Muted state is reflected in conversation info (notifications toggle off)"
+  messages_arrive_while_muted:
+    description: "Messages still arrive in a muted conversation but muted indicator remains"
+  conversation_unmuted_via_swipe:
+    description: "Conversation can be unmuted via swipe action"
+  mute_via_conversation_info_toggle:
+    description: "Conversation can be muted via conversation info notifications toggle"
+  unmute_via_conversation_info_toggle:
+    description: "Conversation can be unmuted via conversation info notifications toggle"
+  mute_state_persists:
+    description: "Muted state persists across app kill and relaunch"
