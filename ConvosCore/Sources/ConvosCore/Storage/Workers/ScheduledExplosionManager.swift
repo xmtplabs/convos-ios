@@ -280,6 +280,8 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
             if let name, !name.isEmpty {
                 return name
             }
+        } catch is CancellationError {
+            return "Untitled"
         } catch {
             Log.error("Failed to fetch conversation name: \(error)")
         }
