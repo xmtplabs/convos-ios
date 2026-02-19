@@ -88,7 +88,7 @@ steps:
   - id: mute_pinned_conversation
     name: "Mute a pinned conversation and verify muted icon"
     actions:
-      - swipe: { direction: "right", identifier_contains: "Pin Test B" }
+      - swipe: { direction: "left", identifier_contains: "Pin Test B" }
       - wait: 2
       - tap: { label: "Mute", optional: true }
       - wait: 3
