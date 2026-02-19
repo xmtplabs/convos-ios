@@ -91,6 +91,12 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         taskLock.unlock()
     }
 
+    func hasSchedulingTask(for conversationId: String) -> Bool {
+        taskLock.lock()
+        defer { taskLock.unlock() }
+        return _schedulingTasks[conversationId] != nil
+    }
+
     private func scheduleNotifications(
         conversationId: String,
         expiresAt: Date,
