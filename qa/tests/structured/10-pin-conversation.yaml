@@ -1,0 +1,190 @@
+id: "10"
+name: "Pin and Unpin Conversations"
+description: >
+  Verify pinning, unpinning, pin persistence, multiple pins, muted icon on 
+  pinned tiles, empty pinned section behavior, and title truncation in the 
+  conversations list.
+tags: [conversations-list, pinning, ui, persistence]
+depends_on: ["12"]  # needs conversation creation
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  multiple_conversations: true
+  min_conversations: 3
+
+state:
+  conversation_a_id: null
+  conversation_b_id: null
+  conversation_c_id: null
+  long_name_conversation_id: null
+
+setup:
+  - action: create_test_conversations
+    args:
+      conversations:
+        - name: "Pin Test A"
+        - name: "Pin Test B" 
+        - name: "Pin Test C"
+        - name: "Pin Test With An Extremely Long Conversation Name That Should Truncate"
+    save:
+      conversation_a_id: "Pin Test A conversation ID"
+      conversation_b_id: "Pin Test B conversation ID"
+      conversation_c_id: "Pin Test C conversation ID"
+      long_name_conversation_id: "long name conversation ID"
+  - action: unpin_all_conversations
+    note: "Ensure clean state - no conversations pinned at start"
+  - action: navigate_to_conversations_list
+    verify:
+      - element_exists: { id: "conversations-list" }
+
+steps:
+  - id: pin_first_conversation
+    name: "Pin Test A conversation"
+    actions:
+      - long_press: { label_contains: "Pin Test A" }
+      - wait: 2
+      - tap: { id: "context-menu-pin" }
+      - wait: 3
+      - find_elements: { pattern: "pinned-conversation-*" }
+    verify:
+      - element_exists: { pattern: "pinned-conversation-*" }
+      - element_exists: { label_contains: "Pin Test A" }
+      - element_exists: { id: "pinned-section" }
+    criteria: single_conversation_pinned
+    note: "Conversation should move to pinned section at top as compact tile"
+
+  - id: pin_multiple_conversations
+    name: "Pin Test B and Test C conversations"
+    actions:
+      - long_press: { label_contains: "Pin Test B" }
+      - wait: 2
+      - tap: { id: "context-menu-pin" }
+      - wait: 3
+      - long_press: { label_contains: "Pin Test C" }
+      - wait: 2
+      - tap: { id: "context-menu-pin" }
+      - wait: 3
+      - find_elements: { pattern: "pinned-conversation-*" }
+    verify:
+      - element_count_eq: { pattern: "pinned-conversation-*", count: 3 }
+      - element_exists: { label_contains: "Pin Test B" }
+      - element_exists: { label_contains: "Pin Test C" }
+    criteria: multiple_conversations_pinned
+    note: "All 3 conversations should appear in pinned section"
+
+  - id: verify_removed_from_unpinned
+    name: "Verify pinned conversations removed from unpinned list"
+    actions:
+      - scroll_to: { id: "unpinned-conversations-section" }
+      - find_elements: { label_contains: "Pin Test", exclude_pinned: true }
+    verify:
+      - element_not_exists: { label_contains: "Pin Test A", exclude_pinned: true }
+      - element_not_exists: { label_contains: "Pin Test B", exclude_pinned: true }
+      - element_not_exists: { label_contains: "Pin Test C", exclude_pinned: true }
+    criteria: removed_from_unpinned_list
+    note: "Pinned conversations should not appear in unpinned section"
+
+  - id: mute_pinned_conversation
+    name: "Mute a pinned conversation and verify muted icon"
+    actions:
+      - swipe: { direction: "right", identifier_contains: "Pin Test B" }
+      - wait: 2
+      - tap: { label: "Mute", optional: true }
+      - wait: 3
+      - find_elements: { pattern: "muted-icon" }
+    verify:
+      - element_exists: { pattern: "muted-icon" }
+    criteria: muted_icon_on_pinned_tile
+    note: "Muted icon should appear on pinned tile for muted conversation"
+
+  - id: pin_long_name_conversation
+    name: "Pin conversation with very long name"
+    actions:
+      - scroll_to: { label_contains: "Pin Test With An Extremely" }
+      - long_press: { label_contains: "Pin Test With An Extremely" }
+      - wait: 2
+      - tap: { id: "context-menu-pin" }
+      - wait: 3
+      - find_elements: { pattern: "pinned-conversation-*" }
+    verify:
+      - element_count_eq: { pattern: "pinned-conversation-*", count: 4 }
+      - text_is_truncated: { contains: "Pin Test With An Extremely", max_lines: 1 }
+    criteria: title_truncation_works
+    note: "Long conversation name should be truncated with ellipsis on pinned tile"
+
+  - id: test_pin_persistence
+    name: "Kill and relaunch app to test pin persistence"
+    actions:
+      - terminate_app: {}
+      - wait: 5
+      - launch_app: {}
+      - wait_for_element: { id: "conversations-list", timeout: 20 }
+      - find_elements: { pattern: "pinned-conversation-*" }
+    verify:
+      - element_count_eq: { pattern: "pinned-conversation-*", count: 4 }
+      - element_exists: { id: "pinned-section" }
+    criteria: pins_persist_across_restart
+    note: "All pinned conversations should remain pinned after app restart"
+
+  - id: unpin_conversation
+    name: "Unpin Test A conversation"
+    actions:
+      - long_press: { pattern: "pinned-conversation-*", contains: "Pin Test A" }
+      - wait: 2
+      - tap: { id: "context-menu-unpin" }
+      - wait: 3
+      - find_elements: { pattern: "pinned-conversation-*" }
+    verify:
+      - element_count_eq: { pattern: "pinned-conversation-*", count: 3 }
+      - element_exists: { label_contains: "Pin Test A", exclude_pinned: true }
+    criteria: conversation_unpinned
+    note: "Unpinned conversation should return to unpinned list, others remain pinned"
+
+  - id: unpin_all_remaining
+    name: "Unpin all remaining conversations to test empty state"
+    actions:
+      - long_press: { pattern: "pinned-conversation-*", contains: "Pin Test B" }
+      - wait: 2
+      - tap: { id: "context-menu-unpin" }
+      - wait: 2
+      - long_press: { pattern: "pinned-conversation-*", contains: "Pin Test C" }
+      - wait: 2
+      - tap: { id: "context-menu-unpin" }
+      - wait: 2
+      - long_press: { pattern: "pinned-conversation-*", contains: "Pin Test With" }
+      - wait: 2
+      - tap: { id: "context-menu-unpin" }
+      - wait: 3
+      - find_elements: { id: "pinned-section" }
+    verify:
+      - element_not_exists: { id: "pinned-section" }
+      - element_count_eq: { pattern: "pinned-conversation-*", count: 0 }
+    criteria: empty_pinned_section_disappears
+    note: "Pinned section should disappear entirely when no conversations are pinned"
+
+teardown:
+  - action: unpin_all_conversations
+    optional: true
+  - action: explode_test_conversations
+    args:
+      conversations: ["$conversation_a_id", "$conversation_b_id", "$conversation_c_id", "$long_name_conversation_id"]
+    optional: true
+
+criteria:
+  single_conversation_pinned:
+    description: "Conversation can be pinned from the context menu and appears in pinned section"
+  multiple_conversations_pinned:
+    description: "Multiple conversations can be pinned simultaneously"
+  removed_from_unpinned_list:
+    description: "Pinned conversations are removed from the unpinned list"
+  muted_icon_on_pinned_tile:
+    description: "Muted icon shows on a pinned tile for a muted conversation"
+  title_truncation_works:
+    description: "Long conversation name truncates on the pinned tile"
+  pins_persist_across_restart:
+    description: "Pins persist across app kill and relaunch"
+  conversation_unpinned:
+    description: "Conversation can be unpinned from the context menu and returns to unpinned list"
+  empty_pinned_section_disappears:
+    description: "Pinned section disappears when all conversations are unpinned"
