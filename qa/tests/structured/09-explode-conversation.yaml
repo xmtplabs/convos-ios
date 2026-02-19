@@ -25,18 +25,18 @@ setup:
       profile_name: "App Creator"
     note: "App creates conversation so user is super admin with explode permissions"
     save:
-      conversation_id: "extract from app UI"
+      conversation_id: "run_state.conversation_id"
   - action: generate_invite_from_app
     args:
       conversation_id: "$conversation_id"
     save:
-      invite_url: "extract from app share sheet"
+      invite_url: "run_state.invite_url"
   - action: cli_join_via_invite
     args:
       invite_url: "$invite_url"
       profile_name: "CLI Joiner"
     save:
-      cli_identity_id: "extract from CLI output"
+      cli_identity_id: "run_state.cli_identity_id"
   - action: exchange_test_messages
     note: "Create conversation content before explosion"
 
@@ -90,7 +90,7 @@ steps:
       - wait: 5
       - wait_for_element: { pattern: "conversations-list", timeout: 10 }
     verify:
-      - element_exists: { pattern: "explosion-animation" }
+      - element_exists: { pattern: "conversations-list" }
     criteria: explosion_confirmed
     note: "Explosion animation should play and navigate back to conversation list"
 

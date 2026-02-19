@@ -31,7 +31,7 @@ setup:
         message: "This message also stays unread initially"
         should_read: false
     save:
-      filter_conversations: "extract conversation IDs and names"
+      filter_conversations: "run_state.conversation_list"
     verify:
       - conversation_count: { expected: 3 }
       - unread_conversations: { count: 2 }
@@ -170,7 +170,7 @@ teardown:
       - tap: { id: "filter-button" }
       - tap: { label: "All" }
     optional: true
-  - action: explode_conversations
+  - action: cleanup_conversations
     args:
       conversations: "$filter_conversations"
     optional: true

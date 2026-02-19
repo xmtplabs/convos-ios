@@ -62,7 +62,7 @@ steps:
     criteria: current_profile_visible
     note: "Document current display name for comparison"
     save:
-      original_display_name: "extract from message element"
+      original_display_name: "extract from app UI"
 
   - id: open_conversation_info
     name: "Open conversation info view"

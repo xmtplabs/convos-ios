@@ -24,8 +24,8 @@ setup:
   - action: record_current_quickname_info
     note: "Capture initial quickname display name and avatar for verification"
     save:
-      initial_quickname_name: "extract from app settings or my info view"
-      initial_quickname_avatar: "extract avatar state"
+      initial_quickname_name: "run_state.quickname_display_name"
+      initial_quickname_avatar: "run_state.quickname_avatar_state"
 
 steps:
   - id: create_first_conversation
@@ -40,7 +40,7 @@ steps:
           conversation: "Quickname Test"
       - wait: 3
     save:
-      test_conversation_1_id: "extract conversation ID"
+      test_conversation_1_id: "run_state.conversation_id"
     verify:
       - app_in_conversation_join_flow: true
     criteria: conversation_created_for_quickname_test
@@ -247,7 +247,7 @@ steps:
           conversation: "Quickname Persist Test"
       - wait: 3
     save:
-      test_conversation_2_id: "extract conversation ID"
+      test_conversation_2_id: "run_state.second_conversation_id"
     verify:
       - app_in_conversation_join_flow: true
     criteria: second_conversation_created

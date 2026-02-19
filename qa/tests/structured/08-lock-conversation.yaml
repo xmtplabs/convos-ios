@@ -136,7 +136,7 @@ steps:
           invite_url: "$pre_lock_invite_url"
           expect_failure: true
     verify:
-      - cli_output_contains: ["rejected", "failed", "locked"]
+      - cli_output_contains: "rejected"
     criteria: pre_lock_invite_invalid
     note: "Join should fail because conversation is locked"
 
@@ -194,7 +194,7 @@ steps:
           invite_url: "$pre_lock_invite_url"
           expect_failure: true
     verify:
-      - cli_output_contains: ["rejected", "failed", "invalid"]
+      - cli_output_contains: "rejected"
     criteria: old_invite_still_invalid
     note: "Pre-lock invite should remain invalid even after unlock"
 
@@ -228,7 +228,7 @@ steps:
           invite_url: "$post_unlock_invite_url"
           expect_success: true
     verify:
-      - cli_output_contains: ["joined", "success"]
+      - cli_output_contains: "joined"
     criteria: new_invite_works
     note: "New post-unlock invite should successfully join"
 
