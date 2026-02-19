@@ -1,0 +1,234 @@
+id: "20"
+name: "Send and Receive Photos"
+description: >
+  Verify end-to-end photo messaging: sending photos from app, receiving from CLI,
+  blur/reveal privacy flow, photo context menu actions, and education sheets.
+tags: [photos, messaging, privacy, blur-reveal, attachments, context-menu]
+depends_on: []  # independent test
+estimated_duration_s: 360  # 6 minutes - comprehensive photo messaging test
+
+prerequisites:
+  app_running: true
+  past_onboarding: true
+  cli_initialized: true
+  simulator_has_photos: true
+  shared_conversation_with_cli: true
+
+state:
+  test_conversation_id: null
+  first_photo_education_seen: false
+  reveal_education_seen: false
+  sent_photo_messages: []
+  received_photo_messages: []
+
+setup:
+  - action: ensure_simulator_has_photos
+    steps:
+      - download_test_photo:
+          url: "https://picsum.photos/850/650"
+          path: "/tmp/test-photo.jpg"
+      - add_to_simulator_photos: { path: "/tmp/test-photo.jpg" }
+    note: "Ensure simulator photo library has test images"
+  - action: create_shared_conversation
+    steps:
+      - create_conversation:
+          name: "Photo Test"
+          profile_name: "Photo CLI User"
+      - generate_invite: {}
+      - background_join_processing: true
+      - join_from_app: {}
+      - verify_conversation_ready: { participants: 2 }
+    save:
+      test_conversation_id: "extract conversation ID"
+    verify:
+      - shared_conversation_established: true
+    note: "Shared conversation ready for photo messaging tests"
+
+steps:
+  - id: send_photo_from_app
+    name: "Send photo from app with education sheet handling"
+    actions:
+      - open_conversation: { id: "$test_conversation_id" }
+      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { pattern: "system-photo-picker", timeout: 10 }
+      - select_photo_from_picker: { index: 0 }
+      - handle_first_time_education:
+          sheet_title: "Pics are personal"
+          dismiss_button: "Got it"
+          save_seen_state: "first_photo_education_seen"
+      - wait_for_element: { id: "attachment-preview-image", timeout: 10 }
+      - verify_remove_button_visible: { id: "remove-attachment-button" }
+      - tap: { id: "send-message-button" }
+      - wait_for_photo_send: { timeout: 15 }
+    save:
+      sent_photo_messages: "append photo message ID"
+    verify:
+      - attachment_preview_appeared: true
+      - photo_sent_successfully: true
+      - full_width_image_rendered: true
+      - sent_indicator_visible: { label_contains: "sent" }
+    criteria: photo_sent_from_app
+    note: "Photo sent from app with education sheet handling"
+
+  - id: test_remove_attachment
+    name: "Test removing attachment before sending"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - select_photo_from_picker: { index: 1 }
+      - wait_for_element: { id: "attachment-preview-image", timeout: 5 }
+      - tap: { id: "remove-attachment-button" }
+      - wait_for_element_disappear: { id: "attachment-preview-image", timeout: 5 }
+      - verify_composer_text_only_state: true
+    verify:
+      - attachment_preview_disappeared: true
+      - composer_returned_to_text_state: true
+    criteria: attachment_removal_works
+    note: "Attachment can be removed before sending, returning composer to text state"
+
+  - id: send_photo_with_text
+    name: "Send photo with accompanying text message"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - select_photo_from_picker: { index: 2 }
+      - wait_for_element: { id: "attachment-preview-image", timeout: 5 }
+      - type_in_message_field: { text: "Check out this photo" }
+      - tap: { id: "send-message-button" }
+      - wait_for_combined_message_send: { timeout: 15 }
+      - verify_both_content_types_sent:
+          photo_rendered: true
+          text_content: "Check out this photo"
+    save:
+      sent_photo_messages: "append combined message ID"
+    verify:
+      - photo_and_text_both_sent: true
+      - combined_message_rendered: true
+    criteria: photo_with_text_sent
+    note: "Photo with text message sent successfully as combined content"
+
+  - id: receive_photo_from_cli
+    name: "Receive photo from CLI and verify rendering"
+    actions:
+      - download_cli_test_photo:
+          url: "https://picsum.photos/850/650"
+          path: "/tmp/cli-photo.jpg"
+      - send_photo_via_cli:
+          conversation_id: "$test_conversation_id"
+          photo_path: "/tmp/cli-photo.jpg"
+          command: "send-attachment"
+      - wait_for_incoming_photo: { timeout: 20 }
+      - verify_incoming_photo_rendered:
+          full_width: true
+          not_loading_placeholder: true
+          not_error_state: true
+    save:
+      received_photo_messages: "append incoming photo message ID"
+    verify:
+      - incoming_photo_rendered_successfully: true
+      - full_width_image_display: true
+    criteria: photo_received_from_cli
+    note: "Photo from CLI renders correctly as full-width image"
+
+  - id: test_incoming_photo_blur_reveal
+    name: "Test incoming photo blur/reveal privacy flow"
+    actions:
+      - verify_incoming_photo_blurred:
+          blur_overlay_visible: true
+          tap_to_reveal_text: "Tap pic to reveal"
+      - screenshot: { description: "Incoming photo blurred state" }
+      - tap_blurred_photo: {}
+      - handle_reveal_education:
+          sheet_title: "Reveal"
+          dismiss_button: "Got it"
+          save_seen_state: "reveal_education_seen"
+      - wait_for_blur_animation: { duration: 2 }
+      - verify_photo_revealed:
+          no_blur_overlay: true
+          sharp_image_visible: true
+      - screenshot: { description: "Photo revealed state" }
+    verify:
+      - photo_initially_blurred: true
+      - tap_to_reveal_works: true
+      - blur_animates_away: true
+      - revealed_photo_sharp: true
+    criteria: blur_reveal_flow_works
+    note: "Incoming photos are blurred by default and can be revealed by tapping"
+
+  - id: test_incoming_photo_context_menu
+    name: "Test context menu actions on incoming photos"
+    actions:
+      - long_press: 
+          target: "revealed_incoming_photo"
+          duration: 0.5
+      - wait_for_element: { pattern: "context-menu", timeout: 5 }
+      - verify_context_menu_options:
+          expected_options: ["Reply", "Save", "Blur"]
+      - tap_context_menu_option: { option: "Blur" }
+      - wait_for_blur_reapply: { timeout: 3 }
+      - verify_photo_reblurred:
+          blur_overlay_visible: true
+          tap_to_reveal_text: "Tap pic to reveal"
+      - long_press:
+          target: "blurred_photo"
+          duration: 0.5
+      - verify_context_menu_options:
+          expected_options: ["Reply", "Save", "Reveal"]
+      - tap_context_menu_option: { option: "Reveal" }
+      - verify_photo_revealed_again: { no_blur_overlay: true }
+    verify:
+      - context_menu_appeared: true
+      - blur_option_reblurs_photo: true
+      - reveal_option_unblurs_photo: true
+      - context_menu_toggles_blur_reveal: true
+    criteria: incoming_photo_context_menu_works
+    note: "Context menu on incoming photos provides Reply, Save, and Blur/Reveal options"
+
+  - id: test_own_photo_context_menu
+    name: "Test context menu on own sent photos"
+    actions:
+      - long_press:
+          target: "own_sent_photo" 
+          duration: 0.5
+      - wait_for_element: { pattern: "context-menu", timeout: 5 }
+      - verify_own_photo_context_menu:
+          expected_options: ["Reply", "Save", "Blur"]
+          not_auto_blurred: true
+          owner_can_blur: true
+    verify:
+      - own_photo_context_menu_correct: true
+      - own_photos_not_auto_blurred: true
+      - owner_can_manually_blur: true
+    criteria: own_photo_context_menu_works
+    note: "Own photos show Reply, Save, and Blur options (not auto-blurred but owner can blur)"
+
+teardown:
+  - action: explode_conversation
+    args:
+      id: "$test_conversation_id"
+    optional: true
+  - action: cleanup_test_photos
+    paths: ["/tmp/test-photo.jpg", "/tmp/cli-photo.jpg"]
+    optional: true
+
+criteria:
+  photo_sent_from_app:
+    description: "Photo picker opens, education sheet handled, photo sends and renders as full-width image with sent indicator"
+  attachment_removal_works:
+    description: "Remove button clears attachment preview and returns composer to text-only state"
+  photo_with_text_sent:
+    description: "Photo with text sends both content types successfully"
+  photo_received_from_cli:
+    description: "Incoming photo from CLI renders as full-width image (not loading/error state)"
+  blur_reveal_flow_works:
+    description: "Incoming photos are blurred by default with overlay, tapping reveals with animation"
+  incoming_photo_context_menu_works:
+    description: "Context menu shows Reply/Save/Blur-Reveal, blur/reveal toggles work correctly"
+  own_photo_context_menu_works:
+    description: "Own sent photos show Reply/Save/Blur options (not auto-blurred but owner can blur)"
+
+notes:
+  - Tests comprehensive photo messaging including privacy features
+  - Requires simulator photo library setup and CLI photo sending capabilities  
+  - Tests both sending and receiving flows with education sheet handling
+  - Blur/reveal privacy flow is critical for photo message privacy
+  - Context menu functionality provides essential photo management actions
+  - Education sheets ("Pics are personal", "Reveal") appear once per install
