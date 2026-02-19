@@ -227,13 +227,13 @@ teardown:
     args:
       pids: ["$background_watch_pid"]
     optional: true
-  - action: explode_conversations
-    args:
-      conversations:
-        - "$few_msgs_conversation_id"
-        - "$many_msgs_conversation_id"
-        - "$join_test_conversation_id"
+  - action: explode_conversation
+    args: { id: "$many_msgs_conversation_id" }
     optional: true
+  - action: explode_conversation
+    args: { id: "$join_test_conversation_id" }
+    optional: true
+  # Note: few_msgs_conversation_id may be pre-existing, so not deleted
 
 criteria:
   few_messages_conversation_ready:

@@ -149,6 +149,11 @@ steps:
   - id: test_filter_persistence
     name: "Test filter state persists during navigation"
     actions:
+      # First make a conversation unread to test persistence
+      - send_message:
+          conversation: "Filter Unread A"
+          message: "Creating unread state for persistence test"
+      - wait_for_message_sync: { duration: 3 }
       - apply_unread_filter_again:
           button_id: "filter-button"
           option: "Unread"
@@ -170,9 +175,14 @@ teardown:
       - tap: { id: "filter-button" }
       - tap: { label: "All" }
     optional: true
-  - action: explode_conversations
-    args:
-      conversations: "$filter_conversations"
+  - action: explode_conversation
+    args: { name: "Filter Read" }
+    optional: true
+  - action: explode_conversation
+    args: { name: "Filter Unread A" }
+    optional: true
+  - action: explode_conversation
+    args: { name: "Filter Unread B" }
     optional: true
 
 criteria:
