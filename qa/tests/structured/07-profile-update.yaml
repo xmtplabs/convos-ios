@@ -141,8 +141,11 @@ steps:
     name: "Save profile photo change"
     actions:
       - download_test_photo: { url: "https://picsum.photos/400/400", path: "/tmp/profile-photo.jpg" }
+      - simctl_add_media: { path: "/tmp/profile-photo.jpg" }
+      - wait: 1
       - tap: { label: "Photo Library", optional: true }
       - wait: 2
+      - tap_photo_in_picker: { timeout: 5 }
       - tap: { id: "save-profile-button", optional: true }
       - tap: { label: "Done", optional: true }
       - wait: 3
