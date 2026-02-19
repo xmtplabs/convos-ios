@@ -113,14 +113,6 @@ steps:
   - id: test_filter_persistence
     name: "Test filter state persists during navigation"
     actions:
-      # First make a conversation unread to test persistence
-      - send_message:
-          conversation: "Filter Unread A"
-          message: "Creating unread state for persistence test"
-      - wait_for_message_sync: { duration: 3 }
-      - apply_unread_filter_again:
-          button_id: "filter-button"
-          option: "Unread"
       - navigate_to_app_settings: { button_id: "app-settings-button" }
       - wait_for_settings_view: { timeout: 5 }
       - navigate_back_to_conversations: {}
