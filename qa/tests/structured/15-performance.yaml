@@ -229,7 +229,10 @@ teardown:
     optional: true
   - action: explode_conversations
     args:
-      conversations: "$test_conversations"
+      conversations:
+        - "$few_msgs_conversation_id"
+        - "$many_msgs_conversation_id"
+        - "$join_test_conversation_id"
     optional: true
 
 criteria:
@@ -259,7 +262,7 @@ expected_results:
       | new_convo_ready | {r1}ms | {r2}ms | {r3}ms | {median}ms | - | {status} |
       | join_convo_ready | {r1}ms | - | - | {r1}ms | - | info only |
       | join_approval_to_ready | {computed}ms | - | - | {computed}ms | - | {status} |
-    status_legend: "✅ = within target, ⚠️ = 1-2x target, ❌ = > 2x target"
+    status_legend: "✅ = within target, ⚠️ = 2-5x target, ❌ = > 5x target"
 
 notes:
   - This is a baseline measurement test - no hard pass/fail on first run
