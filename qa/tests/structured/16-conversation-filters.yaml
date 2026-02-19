@@ -110,6 +110,29 @@ steps:
     criteria: new_message_appears_in_filter
     note: "New message makes previously read conversation appear in unread filter"
 
+  - id: test_filter_persistence
+    name: "Test filter state persists during navigation"
+    actions:
+      # First make a conversation unread to test persistence
+      - send_message:
+          conversation: "Filter Unread A"
+          message: "Creating unread state for persistence test"
+      - wait_for_message_sync: { duration: 3 }
+      - apply_unread_filter_again:
+          button_id: "filter-button"
+          option: "Unread"
+      - navigate_to_app_settings: { button_id: "app-settings-button" }
+      - wait_for_settings_view: { timeout: 5 }
+      - navigate_back_to_conversations: {}
+      - verify_filter_still_active:
+          button_highlighted: true
+          filtered_view: true
+    verify:
+      - filter_button_highlighted: true
+      - filtered_conversations_still_active: true
+    criteria: filter_persistence_verified
+    note: "Unread filter state persists during navigation to settings and back"
+
   - id: test_empty_filter_state
     name: "Mark all conversations as read to test empty filter state"
     actions:
@@ -145,29 +168,6 @@ steps:
       - filter_button_highlighted: false
     criteria: filter_cleared
     note: "All conversations visible again with filter button in default state"
-
-  - id: test_filter_persistence
-    name: "Test filter state persists during navigation"
-    actions:
-      # First make a conversation unread to test persistence
-      - send_message:
-          conversation: "Filter Unread A"
-          message: "Creating unread state for persistence test"
-      - wait_for_message_sync: { duration: 3 }
-      - apply_unread_filter_again:
-          button_id: "filter-button"
-          option: "Unread"
-      - navigate_to_app_settings: { button_id: "app-settings-button" }
-      - wait_for_settings_view: { timeout: 5 }
-      - navigate_back_to_conversations: {}
-      - verify_filter_still_active:
-          button_highlighted: true
-          filtered_view: true
-    verify:
-      - filter_button_highlighted: true
-      - filtered_conversations_still_active: true
-    criteria: filter_persistence_verified
-    note: "Unread filter state persists during navigation to settings and back"
 
 teardown:
   - action: clear_any_active_filter
