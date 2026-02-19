@@ -1,0 +1,314 @@
+id: "13"
+name: "Database Migration from Main"
+description: >
+  Verify that upgrading from the current production version (main branch) to 
+  the current branch preserves user data and functions correctly. Tests both
+  successful migration and debug erase behavior when schema changes.
+tags: [migration, database, builds, integration, worktrees]
+depends_on: []  # standalone test
+estimated_duration_s: 900  # 15 minutes - complex build and test process
+
+prerequisites:
+  current_branch_tested: true
+  cli_initialized: true
+  git_worktrees_available: true
+
+state:
+  migration_simulator_udid: null
+  main_worktree_path: null
+  pre_migration_conversations: []
+  migration_outcome: null  # "preserved" or "erased"
+
+setup:
+  - action: create_migration_simulator
+    note: "Clone base iPhone simulator with name '<current-simulator>-migration'"
+    save:
+      migration_simulator_udid: "extract UDID from simulator creation"
+  - action: boot_simulator
+    args:
+      udid: "$migration_simulator_udid"
+  - action: record_current_branch_info
+    save:
+      current_branch: "extract from git branch"
+
+steps:
+  - id: create_main_worktree
+    name: "Phase 1: Create temporary main branch worktree"
+    actions:
+      - git_worktree_add:
+          path: "/tmp/convos-migration-main"
+          branch: "main"
+          fallback_detached: "origin/main"
+    verify:
+      - directory_exists: { path: "/tmp/convos-migration-main" }
+      - file_exists: { path: "/tmp/convos-migration-main/Convos.xcodeproj" }
+    criteria: main_worktree_created
+    note: "Main branch worktree created successfully"
+
+  - id: build_main_version
+    name: "Build and install main branch version"
+    actions:
+      - xcodebuild:
+          project: "/tmp/convos-migration-main/Convos.xcodeproj"
+          scheme: "Convos (Dev)"
+          destination: "platform=iOS Simulator,id=$migration_simulator_udid"
+          derived_data_path: "/tmp/convos-migration-main/.derivedData"
+      - find_built_app:
+          search_path: "/tmp/convos-migration-main/.derivedData/Build/Products"
+          name: "Convos.app"
+      - simctl_install:
+          udid: "$migration_simulator_udid"
+          app_path: "$found_app_path"
+      - simctl_launch:
+          udid: "$migration_simulator_udid"
+          bundle_id: "org.convos.ios-dev"
+    verify:
+      - app_launched_successfully: true
+    criteria: main_version_installed
+    note: "Main branch version built, installed, and launched on migration simulator"
+
+  - id: populate_data_main_version
+    name: "Phase 2: Populate data on main branch version"
+    actions:
+      - cli_create_conversation:
+          name: "Migration Chat Alpha"
+          profile_name: "Alpha User"
+      - cli_create_conversation:
+          name: "Migration Chat Beta"  
+          profile_name: "Beta User"
+      - cli_create_conversation:
+          name: "Migration Chat Gamma"
+          profile_name: "Gamma User"
+      - join_conversations_via_deep_link:
+          simulator_udid: "$migration_simulator_udid"
+          conversations: ["Migration Chat Alpha", "Migration Chat Beta", "Migration Chat Gamma"]
+    save:
+      pre_migration_conversations: ["Migration Chat Alpha", "Migration Chat Beta", "Migration Chat Gamma"]
+    verify:
+      - conversations_joined: 3
+      - element_exists: { label_contains: "Migration Chat Alpha" }
+      - element_exists: { label_contains: "Migration Chat Beta" }
+      - element_exists: { label_contains: "Migration Chat Gamma" }
+    criteria: conversations_created_on_main
+    note: "Three conversations created and joined on main branch version"
+
+  - id: populate_messages
+    name: "Populate conversations with test messages"
+    actions:
+      - cli_send_messages:
+          conversation: "Migration Chat Alpha"
+          messages: ["Alpha message 1", "Alpha message 2", "Alpha message 3"]
+      - cli_send_messages:
+          conversation: "Migration Chat Beta"
+          messages: ["Beta message 1", "Beta message 2", "👋"]
+      - cli_send_message:
+          conversation: "Migration Chat Gamma"
+          message: "Gamma CLI message"
+      - app_send_message:
+          simulator_udid: "$migration_simulator_udid"
+          conversation: "Migration Chat Gamma"
+          message: "Gamma app message"
+      - wait: 5
+      - take_screenshot:
+          udid: "$migration_simulator_udid"
+          filename: "pre-migration-state.png"
+    verify:
+      - message_count_alpha: 3
+      - message_count_beta: 3
+      - message_count_gamma: 2
+    criteria: messages_populated_on_main
+    note: "All conversations populated with test messages on main version"
+
+  - id: terminate_main_version
+    name: "Terminate main branch app"
+    actions:
+      - simctl_terminate:
+          udid: "$migration_simulator_udid"
+          bundle_id: "org.convos.ios-dev"
+    verify:
+      - app_terminated: true
+    criteria: main_version_terminated
+    note: "Main branch version terminated cleanly"
+
+  - id: build_current_version
+    name: "Phase 3: Build and install current branch version"
+    actions:
+      - xcodebuild:
+          project: "Convos.xcodeproj"
+          scheme: "Convos (Dev)"
+          destination: "platform=iOS Simulator,id=$migration_simulator_udid"
+          derived_data_path: ".derivedData"
+      - find_built_app:
+          search_path: ".derivedData/Build/Products"
+          name: "Convos.app"
+      - simctl_install:
+          udid: "$migration_simulator_udid"
+          app_path: "$found_app_path"
+      - simctl_launch:
+          udid: "$migration_simulator_udid"
+          bundle_id: "org.convos.ios-dev"
+      - wait: 10
+      - take_screenshot:
+          udid: "$migration_simulator_udid"
+          filename: "post-migration-launch.png"
+    verify:
+      - app_launched_successfully: true
+    criteria: current_version_installed
+    note: "Current branch version built, installed, and launched on migration simulator"
+
+  - id: check_migration_outcome
+    name: "Phase 4: Determine migration outcome"
+    actions:
+      - wait_for_element:
+          udid: "$migration_simulator_udid"
+          id: "conversations-list"
+          timeout: 20
+      - find_elements:
+          udid: "$migration_simulator_udid"
+          pattern: "Migration Chat"
+    verify:
+      - app_stable: true
+    save:
+      migration_outcome: "determine based on conversation presence"
+    criteria: migration_outcome_determined
+    note: "Migration outcome determined: data preserved or erased"
+
+  - id: verify_preserved_data
+    name: "Verify preserved data (if migration successful)"
+    condition: "$migration_outcome == 'preserved'"
+    actions:
+      - verify_conversation_exists:
+          udid: "$migration_simulator_udid"
+          name: "Migration Chat Alpha"
+      - verify_conversation_exists:
+          udid: "$migration_simulator_udid"
+          name: "Migration Chat Beta"  
+      - verify_conversation_exists:
+          udid: "$migration_simulator_udid"
+          name: "Migration Chat Gamma"
+      - tap_conversation:
+          udid: "$migration_simulator_udid"
+          name: "Migration Chat Alpha"
+      - verify_message_count: 3
+      - navigate_back:
+          udid: "$migration_simulator_udid"
+      - tap_conversation:
+          udid: "$migration_simulator_udid"
+          name: "Migration Chat Beta"
+      - verify_message_count: 3
+      - navigate_back:
+          udid: "$migration_simulator_udid"
+    verify:
+      - all_conversations_preserved: true
+      - messages_intact: true
+    criteria: preserved_data_verified
+    note: "All conversations and messages verified after successful migration"
+
+  - id: test_messaging_after_migration
+    name: "Test messaging functionality on migrated data"
+    condition: "$migration_outcome == 'preserved'"
+    actions:
+      - tap_conversation:
+          udid: "$migration_simulator_udid"
+          name: "Migration Chat Alpha"
+      - cli_send_message:
+          conversation: "Migration Chat Alpha"
+          message: "Post-migration CLI test"
+      - wait: 3
+      - verify_message_appears:
+          udid: "$migration_simulator_udid"
+          message: "Post-migration CLI test"
+      - app_send_message:
+          udid: "$migration_simulator_udid"
+          message: "Post-migration app test"
+      - verify_message_via_cli:
+          conversation: "Migration Chat Alpha"
+          message: "Post-migration app test"
+    verify:
+      - bidirectional_messaging_works: true
+    criteria: post_migration_messaging_verified
+    note: "Bidirectional messaging verified on migrated conversation"
+
+  - id: verify_post_upgrade_functionality
+    name: "Phase 5: Verify core functionality works on new version"
+    actions:
+      - navigate_to_conversations_list:
+          udid: "$migration_simulator_udid"
+      - cli_create_conversation:
+          name: "Post-Migration Test"
+          profile_name: "Test User"
+      - open_invite_deep_link:
+          udid: "$migration_simulator_udid"
+          conversation: "Post-Migration Test"
+      - process_cli_join_request:
+          conversation: "Post-Migration Test"
+      - wait_for_conversation_entry:
+          udid: "$migration_simulator_udid"
+      - cli_send_message:
+          conversation: "Post-Migration Test"
+          message: "CLI to app test"
+      - verify_message_appears:
+          udid: "$migration_simulator_udid"
+          message: "CLI to app test"
+      - app_send_message:
+          udid: "$migration_simulator_udid"
+          message: "App to CLI test"
+      - verify_message_via_cli:
+          conversation: "Post-Migration Test"
+          message: "App to CLI test"
+    verify:
+      - new_conversation_functional: true
+      - bidirectional_messaging_works: true
+    criteria: post_upgrade_functionality_verified
+    note: "Core app functionality verified working on upgraded version"
+
+teardown:
+  - action: simctl_terminate
+    args:
+      udid: "$migration_simulator_udid"
+      bundle_id: "org.convos.ios-dev"
+  - action: simctl_delete
+    args:
+      udid: "$migration_simulator_udid"
+    note: "Delete migration simulator"
+  - action: git_worktree_remove
+    args:
+      path: "/tmp/convos-migration-main"
+      force: true
+    note: "Remove temporary main branch worktree"
+  - action: cli_explode_conversations
+    args:
+      conversations: "$pre_migration_conversations"
+    optional: true
+  - action: cli_explode_conversation
+    args:
+      conversation: "Post-Migration Test"
+    optional: true
+
+criteria:
+  main_worktree_created:
+    description: "Main branch worktree created successfully for building old version"
+  main_version_installed:
+    description: "Main branch app builds and installs successfully on migration simulator"
+  conversations_created_on_main:
+    description: "Conversations can be created and joined on main branch version"
+  messages_populated_on_main:
+    description: "Test messages can be populated across conversations on main version"
+  main_version_terminated:
+    description: "Main branch version terminates cleanly before upgrade"
+  current_version_installed:
+    description: "Current branch app builds and installs on top of main branch version"
+  migration_outcome_determined:
+    description: "App launches without crashing and migration outcome is determined"
+  preserved_data_verified:
+    description: "If data preserved: conversations and messages are intact after upgrade"
+  post_migration_messaging_verified:
+    description: "If data preserved: new messages can be sent/received in migrated conversations"
+  post_upgrade_functionality_verified:
+    description: "Core functionality (conversation join, messaging) works on upgraded version"
+
+notes:
+  - This test detects debug erase behavior when database schema changes between versions
+  - If conversations disappear after upgrade, this indicates schema change triggered erase (expected in DEBUG builds)  
+  - The test should pass whether data is preserved or erased, as long as the app functions correctly
+  - Complex test involving builds, git worktrees, and dedicated simulator management
