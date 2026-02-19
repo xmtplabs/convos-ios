@@ -1,0 +1,270 @@
+id: "15"
+name: "Performance Baselines"
+description: >
+  Measure and record performance metrics for critical user-facing operations.
+  Establishes baseline timings and detects performance regressions.
+tags: [performance, benchmarking, metrics, instrumentation]
+depends_on: []  # independent test
+estimated_duration_s: 900  # 15 minutes - complex multi-phase performance testing
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  instrumented_build: true  # contains [PERF] log lines
+  existing_conversation_available: true
+
+state:
+  log_markers: {}
+  performance_results: {}
+  test_conversations: []
+  few_msgs_conversation_id: null
+  many_msgs_conversation_id: null
+  join_test_conversation_id: null
+  background_watch_pid: null
+
+setup:
+  - action: get_initial_log_marker
+    save:
+      initial_log_marker: "extract timestamp for log filtering"
+  - action: verify_instrumented_build
+    verify:
+      - log_contains_perf_markers: true
+    note: "Confirm app build includes [PERF] instrumentation"
+
+steps:
+  - id: setup_few_messages_conversation
+    name: "Setup: Ensure conversation with 20+ messages exists"
+    actions:
+      - check_existing_conversations:
+          min_message_count: 20
+      - if_no_suitable_conversation_exists:
+          create_conversation:
+            name: "Performance Test - Few Messages"
+            profile_name: "Perf Test CLI"
+          generate_invite: true
+          background_join_processing: true
+          tap_quickname_pill: { retries: 30 }
+          send_mixed_messages:
+            count: 20
+            patterns:
+              - "Short message {i}"
+            wait_for_sync: 5
+    save:
+      few_msgs_conversation_id: "extract conversation ID"
+    verify:
+      - conversation_has_sufficient_messages: { min: 20 }
+    criteria: few_messages_conversation_ready
+    note: "Conversation with 20+ messages available for performance testing"
+
+  - id: measure_open_few_messages
+    name: "Part 1: Measure opening conversation with few messages (3 runs)"
+    actions:
+      - navigate_to_conversations_list: {}
+      - repeat_measurement:
+          iterations: 3
+          steps:
+            - get_log_marker: {}
+            - tap_conversation: { id: "$few_msgs_conversation_id" }
+            - wait_for_element: { id: "message-text-field", timeout: 10 }
+            - extract_perf_logs:
+                pattern: "[PERF] ConversationViewModel.init"
+                fields: ["duration_ms", "message_count"]
+            - navigate_back: {}
+            - wait: 2
+    save:
+      open_few_msgs_results: "array of {duration_ms, message_count} from 3 runs"
+    verify:
+      - all_measurements_completed: { count: 3 }
+      - perf_logs_extracted: true
+    criteria: few_messages_performance_measured
+    note: "3 measurements of ConversationViewModel.init with few messages"
+
+  - id: setup_many_messages_conversation  
+    name: "Part 2: Setup conversation with 100+ messages (post-join only)"
+    actions:
+      - create_conversation:
+          name: "Performance Test - Many Messages"
+          profile_name: "Perf Test CLI Heavy"
+      - generate_invite: true
+      - background_join_processing:
+          command: "process-join-requests --watch"
+          save_pid: "background_watch_pid"
+      - open_invite_deep_link: {}
+      - wait_for_join_completion: { member_count: 2 }
+      - stop_background_process: { pid: "$background_watch_pid" }
+      - send_message_batches_after_join:
+          batches:
+            - count: 40
+              pattern: "Message number {i} - a short one"
+            - count: 30  
+              pattern: "This is a longer message number {i}. It has multiple sentences to simulate real conversation content. People often write paragraphs like this in group chats."
+            - count: 20
+              pattern: "🎉🔥👀 Emoji blast {i}! 🚀✨💯"
+            - count: 10
+              pattern: "Final batch {i} - wrapping up the conversation with some more messages to push well past the page boundary"
+      - wait_for_message_sync: { duration: 20 }
+      - verify_message_count:
+          method: "scroll_conversation"
+          expected_min: 100
+    save:
+      many_msgs_conversation_id: "extract conversation ID"
+    verify:
+      - conversation_has_100plus_messages: true
+      - messages_sent_after_join: true
+    criteria: many_messages_conversation_ready
+    note: "Conversation with 100+ messages created (all sent after app joined)"
+
+  - id: measure_open_many_messages
+    name: "Measure opening conversation with many messages (3 runs)"
+    actions:
+      - navigate_to_conversations_list: {}
+      - repeat_measurement:
+          iterations: 3
+          steps:
+            - get_log_marker: {}
+            - tap_conversation: { id: "$many_msgs_conversation_id" }
+            - wait_for_element: { id: "message-text-field", timeout: 15 }
+            - extract_perf_logs:
+                pattern: "[PERF] ConversationViewModel.init"
+                fields: ["duration_ms", "message_count"]
+                expected_message_count: 50  # page size limit
+            - navigate_back: {}
+            - wait: 2
+    save:
+      open_many_msgs_results: "array of {duration_ms, message_count} from 3 runs"
+    verify:
+      - all_measurements_completed: { count: 3 }
+      - message_count_capped_at_page_size: { expected: 50 }
+    criteria: many_messages_performance_measured
+    note: "3 measurements of ConversationViewModel.init with 100+ messages (page-capped at 50)"
+
+  - id: measure_new_conversation_creation
+    name: "Part 3: Measure new conversation creation (3 runs)"
+    actions:
+      - navigate_to_conversations_list: {}
+      - repeat_measurement:
+          iterations: 3
+          steps:
+            - get_log_marker: {}
+            - tap: { id: "compose-button" }
+            - wait_for_element: { pattern: "qr-code", timeout: 15 }
+            - extract_perf_logs:
+                patterns:
+                  - "[PERF] NewConversation.inboxAcquired"
+                  - "[PERF] NewConversation.creating" 
+                  - "[PERF] NewConversation.ready"
+                fields: ["duration_ms", "operation"]
+            - dismiss_new_conversation: {}
+            - wait: 2
+    save:
+      new_conversation_results: "array of {inboxAcquired_ms, creating_ms, ready_ms} from 3 runs"
+    verify:
+      - all_measurements_completed: { count: 3 }
+      - perf_logs_extracted: { operations: ["inboxAcquired", "ready"] }
+    criteria: new_conversation_performance_measured
+    note: "3 measurements of new conversation creation flow"
+
+  - id: measure_join_conversation_performance
+    name: "Part 4: Measure join conversation via invite"
+    actions:
+      - create_conversation:
+          name: "Performance Test - Join Flow"
+          profile_name: "Join Test CLI"
+      - generate_invite: true
+      - start_background_watch:
+          command: "process-join-requests --watch"
+          save_pid: "background_watch_pid"
+      - get_log_marker: {}
+      - open_invite_deep_link: {}
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+      - wait_for_member_count: { expected: 2 }
+      - stop_background_process: { pid: "$background_watch_pid" }
+      - extract_join_perf_logs:
+          patterns:
+            - "[PERF] NewConversation.inboxAcquired"
+            - "[PERF] NewConversation.creating"
+            - "[PERF] NewConversation.joinRequestSent"
+            - "[PERF] NewConversation.ready"
+          extract_fields: ["duration_ms", "timestamp", "origin"]
+          compute_derived:
+            join_approval_to_ready: "delta between joinRequestSent and ready (origin: joined)"
+    save:
+      join_conversation_results: "join performance metrics including derived metrics"
+      join_test_conversation_id: "extract conversation ID"
+    verify:
+      - join_completed_successfully: true
+      - ready_log_shows_joined_origin: true
+    criteria: join_conversation_performance_measured
+    note: "Single measurement of join conversation flow with approval-to-ready timing"
+
+  - id: analyze_performance_results
+    name: "Analyze and categorize performance results"
+    actions:
+      - compute_medians:
+          datasets:
+            - open_few_msgs_results
+            - open_many_msgs_results  
+            - new_conversation_results
+      - apply_regression_detection:
+          targets:
+            open_few_msgs: { target_ms: 50, warning_multiplier: 2, critical_multiplier: 5 }
+            open_many_msgs: { target_ms: 100, warning_multiplier: 2, critical_multiplier: 5 }
+            new_convo_inbox: { target_ms: 500, warning_multiplier: 2, critical_multiplier: 5 }
+            new_convo_ready: { target_ms: 1000, warning_multiplier: 2, critical_multiplier: 5 }
+            join_approval_to_ready: { target_ms: 5000, warning_multiplier: 2, critical_multiplier: 5 }
+      - check_xmtp_errors_in_logs:
+          since_marker: "$initial_log_marker"
+    save:
+      performance_analysis: "regression detection results and status indicators"
+      xmtp_errors: "list of any XMTP errors observed during testing"
+    verify:
+      - analysis_completed: true
+    criteria: performance_analysis_completed
+    note: "Performance metrics analyzed with regression detection"
+
+teardown:
+  - action: stop_background_processes
+    args:
+      pids: ["$background_watch_pid"]
+    optional: true
+  - action: explode_conversations
+    args:
+      conversations: "$test_conversations"
+    optional: true
+
+criteria:
+  few_messages_conversation_ready:
+    description: "Conversation with 20+ messages available for performance testing"
+  few_messages_performance_measured:
+    description: "3 measurements completed of opening conversation with few messages"
+  many_messages_conversation_ready:
+    description: "Conversation with 100+ messages created (all sent after app joined)"
+  many_messages_performance_measured:
+    description: "3 measurements completed of opening conversation with many messages"
+  new_conversation_performance_measured:
+    description: "3 measurements completed of new conversation creation"
+  join_conversation_performance_measured:
+    description: "Join conversation performance measured with approval-to-ready timing"
+  performance_analysis_completed:
+    description: "Performance metrics analyzed with regression detection and error checking"
+
+expected_results:
+  performance_table:
+    format: |
+      | Metric | Run 1 | Run 2 | Run 3 | Median | Msgs | Status |
+      |--------|-------|-------|-------|--------|------|--------|
+      | open_few_msgs | {r1}ms | {r2}ms | {r3}ms | {median}ms | {count} | {status} |
+      | open_many_msgs | {r1}ms | {r2}ms | {r3}ms | {median}ms | {count} | {status} |
+      | new_convo_inbox | {r1}ms | {r2}ms | {r3}ms | {median}ms | - | {status} |
+      | new_convo_ready | {r1}ms | {r2}ms | {r3}ms | {median}ms | - | {status} |
+      | join_convo_ready | {r1}ms | - | - | {r1}ms | - | info only |
+      | join_approval_to_ready | {computed}ms | - | - | {computed}ms | - | {status} |
+    status_legend: "✅ = within target, ⚠️ = 1-2x target, ❌ = > 2x target"
+
+notes:
+  - This is a baseline measurement test - no hard pass/fail on first run
+  - Requires instrumented build with [PERF] log lines
+  - Messages for many-message test must be sent AFTER app joins (privacy rule)
+  - Background CLI watch process minimizes join approval latency
+  - Regression detection flags metrics > 2x target as potential issues
+  - XMTP errors should be noted but may not affect core performance measurements
