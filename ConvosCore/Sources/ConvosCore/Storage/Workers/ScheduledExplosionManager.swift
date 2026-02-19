@@ -6,8 +6,8 @@ public protocol ScheduledExplosionManagerProtocol {}
 
 /// @unchecked Sendable: Protocol dependencies (DatabaseReader, AppLifecycle)
 /// are all Sendable. The `observers` array is only modified during init and deinit.
-/// The `schedulingTasks` dictionary is protected by `taskLock` to prevent data races
-/// from concurrent notification callbacks.
+/// The `schedulingTasks` and `expirationTasks` dictionaries are protected by `taskLock`
+/// to prevent data races from concurrent notification callbacks.
 final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unchecked Sendable {
     private let databaseReader: any DatabaseReader
     private let appLifecycle: any AppLifecycleProviding
