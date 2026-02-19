@@ -1,0 +1,148 @@
+id: "18"
+name: "Delete All Data"
+description: >
+  Verify that the "Delete All Data" flow in App Settings permanently deletes 
+  all conversations and returns the app to the onboarding state.
+tags: [destructive, settings, data-management, onboarding-reset]
+depends_on: []  # independent test
+estimated_duration_s: 180  # 3 minutes - simple but thorough destructive test
+
+prerequisites:
+  app_running: true
+  past_onboarding: true
+  conversations_exist: { min: 2 }
+
+state:
+  pre_deletion_conversations: []
+  deletion_in_progress: false
+
+setup:
+  - action: verify_conversation_count
+    note: "Ensure at least 2 conversations exist to verify complete deletion"
+    save:
+      pre_deletion_conversations: "extract conversation names for verification"
+    requirements:
+      min_conversations: 2
+
+steps:
+  - id: navigate_to_delete_all_data
+    name: "Navigate to Delete All Data button in App Settings"
+    actions:
+      - tap: { id: "app-settings-button" }
+      - wait_for_element: { id: "app-settings-view", timeout: 10 }
+      - scroll_to_element: { id: "delete-all-data-button" }
+      - verify_element_visible: { id: "delete-all-data-button" }
+    verify:
+      - element_exists: { id: "app-settings-view" }
+      - element_exists: { id: "delete-all-data-button" }
+    criteria: delete_all_data_button_accessible
+    note: "Delete All Data button found and accessible in App Settings"
+
+  - id: open_confirmation_view
+    name: "Open Delete All Data confirmation view"
+    actions:
+      - tap: { id: "delete-all-data-button" }
+      - wait_for_element: { id: "delete-confirmation-view", timeout: 5 }
+      - verify_confirmation_elements:
+          title_contains: "Delete everything"
+          warning_message: true
+          hold_to_delete_button: { id: "hold-to-delete-button" }
+          cancel_button: { id: "cancel-button" }
+    verify:
+      - element_exists: { id: "delete-confirmation-view" }
+      - element_exists: { id: "hold-to-delete-button" }
+      - element_exists: { id: "cancel-button" }
+      - confirmation_warning_present: true
+    criteria: confirmation_view_displayed
+    note: "Confirmation view appears with proper warning and buttons"
+
+  - id: test_cancel_deletion
+    name: "Test cancelling deletion preserves data"
+    actions:
+      - tap: { id: "cancel-button" }
+      - wait_for_element_disappear: { id: "delete-confirmation-view", timeout: 5 }
+      - navigate_to_conversations_list: {}
+      - verify_conversations_still_exist:
+          expected_conversations: "$pre_deletion_conversations"
+    verify:
+      - element_not_exists: { id: "delete-confirmation-view" }
+      - conversations_preserved: true
+    criteria: cancel_preserves_data
+    note: "Cancel button dismisses confirmation without deleting anything"
+
+  - id: perform_deletion
+    name: "Perform actual deletion via hold-to-delete"
+    actions:
+      - navigate_back_to_settings: {}
+      - tap: { id: "delete-all-data-button" }
+      - wait_for_element: { id: "hold-to-delete-button", timeout: 5 }
+      - long_press: 
+          id: "hold-to-delete-button"
+          duration: 3
+      - verify_deleting_progress_state: { button_text_contains: "Deleting" }
+    verify:
+      - deleting_progress_shown: true
+    criteria: deletion_initiated
+    note: "Hold-to-delete triggers deletion with progress state"
+    save:
+      deletion_in_progress: true
+
+  - id: verify_deletion_completion
+    name: "Verify deletion completes and app resets to onboarding state"
+    actions:
+      - wait_for_deletion_completion: { timeout: 30 }
+      - wait_for_element: { pattern: "empty-state", timeout: 10 }
+      - verify_onboarding_empty_state:
+          cta_buttons: ["Start a convo", "join one"]
+          conversations_list_empty: true
+      - verify_no_stuck_state:
+          no_deleting_spinner: true
+          no_deleting_message: true
+          app_interactive: true
+    verify:
+      - element_exists: { pattern: "empty-state" }
+      - conversations_list_empty: true
+      - no_pre_deletion_conversations_visible: true
+      - app_fully_interactive: true
+    criteria: deletion_completed_successfully
+    note: "App returns to empty state with no remaining conversations"
+
+  - id: verify_app_functionality_after_deletion
+    name: "Verify app remains functional after deletion"
+    actions:
+      - tap: { label_contains: "Start a convo" }
+      - wait_for_element: { pattern: "new-conversation", timeout: 10 }
+      - verify_new_conversation_flow_works: true
+      - dismiss_new_conversation: {}
+    verify:
+      - new_conversation_flow_accessible: true
+      - app_fully_functional: true
+    criteria: app_functional_after_deletion
+    note: "App is fully interactive and functional after data deletion"
+
+teardown:
+  - action: verify_clean_state
+    note: "App is already in fresh state - no additional teardown needed"
+  - action: record_completion
+    note: "Delete All Data test completed - app reset to onboarding state"
+
+criteria:
+  delete_all_data_button_accessible:
+    description: "Delete All Data button is accessible in App Settings"
+  confirmation_view_displayed:
+    description: "Confirmation view appears with warning and hold-to-delete button"
+  cancel_preserves_data:
+    description: "Cancel dismisses confirmation without deleting anything"
+  deletion_initiated:
+    description: "Holding delete button shows 'Deleting...' progress state"
+  deletion_completed_successfully:
+    description: "Deletion completes and app returns to empty/onboarding state with no remaining conversations"
+  app_functional_after_deletion:
+    description: "No stuck 'Deleting...' state - app is fully interactive after completion"
+
+notes:
+  - This is a destructive test that wipes all app data
+  - Should be run last in a test suite or on a disposable simulator
+  - Tests the complete data deletion flow including progress states
+  - Verifies app returns to fully functional onboarding state
+  - No teardown needed - app is already reset to fresh state
