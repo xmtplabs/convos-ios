@@ -429,9 +429,7 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItemEnabled = true
             messagesTextFieldEnabled = true
             isCreatingConversation = false
-            if result.origin != .existing || !startedWithFullscreenScanner {
-                showingFullScreenScanner = false
-            }
+            showingFullScreenScanner = false
             currentError = nil
 
             let readyElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000

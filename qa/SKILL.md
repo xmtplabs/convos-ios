@@ -39,6 +39,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 19 | `qa/tests/19-profile-photo.md` | Profile photo, group photo, sync to other participants |
 | 20 | `qa/tests/20-send-receive-photos.md` | Send photos from app, receive from CLI, blur/reveal, context menu |
 | 21 | `qa/tests/21-message-gestures.md` | All message gestures: double-tap, swipe reply, long-press menu, link tap, avatar tap |
+| 22 | `qa/tests/22-rejoin-existing-conversation.md` | Rejoin existing conversation via deep link or paste in scanner |
 
 ## Running Tests
 
