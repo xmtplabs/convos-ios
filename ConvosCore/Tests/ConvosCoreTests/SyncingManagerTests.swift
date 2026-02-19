@@ -1006,7 +1006,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Before starting, should not be ready
@@ -1045,7 +1046,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
@@ -1091,7 +1093,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start and wait for ready
@@ -1136,7 +1139,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Start syncing - streams will fail but readiness signals are still sent
@@ -1167,7 +1171,8 @@ struct SyncingManagerTests {
             identityStore: fixtures.identityStore,
             databaseWriter: fixtures.databaseManager.dbWriter,
             databaseReader: fixtures.databaseManager.dbReader,
-            deviceRegistrationManager: nil
+            deviceRegistrationManager: nil,
+            notificationCenter: MockUserNotificationCenter()
         )
 
         // Cycle 1
