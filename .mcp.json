@@ -2,7 +2,7 @@
   "mcpServers": {
     "XcodeBuildMCP": {
       "command": "npx",
-      "args": ["-y", "xcodebuildmcp@latest"],
+      "args": ["-y", "xcodebuildmcp@latest", "mcp"],
       "env": {
         "XCODE_PROJECT_PATH": "Convos.xcodeproj"
       }
