@@ -284,7 +284,8 @@ private class ScheduledExplosionTestFixtures {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                isUnused: false
             )
             try conversation.insert(db)
         }
