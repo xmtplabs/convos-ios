@@ -1,0 +1,145 @@
+id: "04"
+name: "Join Conversation via Paste in Scan View"
+description: >
+  Verify that the app can join a conversation by pasting an invite URL 
+  in the scan/join view.
+tags: [joining, paste, scanning, core]
+depends_on: ["01"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  past_onboarding: true
+  cli_initialized: true
+
+state:
+  conversation_id: null
+  invite_url: null
+  cli_identity_id: null
+
+setup:
+  - action: cli_create_conversation
+    args:
+      name: "Paste Invite Test"
+      profile_name: "CLI Tester"
+    save:
+      conversation_id: "extract from CLI output"
+      cli_identity_id: "extract from CLI output"
+  - action: cli_generate_invite
+    args:
+      conversation: "$conversation_id"
+    save:
+      invite_url: "extract from CLI output"
+  - action: copy_to_clipboard
+    args:
+      text: "$invite_url"
+    note: "Copy invite URL to simulator clipboard for pasting"
+
+steps:
+  - id: open_scan_view
+    name: "Open scan view from conversations list"
+    actions:
+      - wait_for_element: { id: "scan-button", timeout: 10 }
+      - tap: { id: "scan-button" }
+      - wait_for_element: { id: "paste-invite-button", timeout: 15 }
+    verify:
+      - element_exists: { id: "paste-invite-button" }
+    criteria: scan_view_opens
+    note: "Scan button is in bottom toolbar, opens camera/scan view"
+
+  - id: paste_invite
+    name: "Tap paste button to process clipboard invite"
+    actions:
+      - tap: { id: "paste-invite-button" }
+      - wait: 3
+      - wait_for_element: { id: "join-conversation-button", timeout: 15 }
+    verify:
+      - element_exists: { id: "join-conversation-button" }
+    criteria: paste_triggers_join_flow
+    note: "Paste button processes clipboard URL and shows join UI"
+
+  - id: request_join
+    name: "Tap join button to request access"
+    actions:
+      - tap: { id: "join-conversation-button" }
+      - wait: 3
+    note: "App sends join request that CLI will need to process"
+
+  - id: process_join_request
+    name: "Process the join request via CLI"
+    actions:
+      - cli_process_joins:
+          conversation: "$conversation_id"
+          watch: true
+          timeout: 30
+      - wait: 5
+    verify:
+      - cli_output_contains: "processed"
+    criteria: join_request_processed
+    note: "CLI processes the join in watch mode"
+
+  - id: verify_instant_conversation_entry
+    name: "App instantly enters conversation after join processed"
+    actions:
+      - wait_for_element: { label_contains: "Paste Invite Test", timeout: 10 }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "Paste Invite Test" }
+      - element_exists: { id: "message-text-field" }
+    criteria: app_enters_conversation_instantly
+    note: "Conversation should appear instantly after CLI confirms join processed"
+
+  - id: cli_sends_message
+    name: "CLI sends confirmation message"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Welcome via paste!"
+      - wait: 5
+      - wait_for_element: { label_contains: "Welcome via paste!", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Welcome via paste!" }
+    criteria: cli_message_received
+
+  - id: app_replies
+    name: "App sends reply to confirm communication works"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Paste join worked perfectly!" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - find_elements: { label_contains: "Paste join worked perfectly!" }
+    verify:
+      - element_exists: { label_contains: "Paste join worked perfectly!" }
+    criteria: app_can_send_reply
+
+  - id: verify_reply_via_cli
+    name: "App's reply visible via CLI"
+    actions:
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "Paste join worked perfectly!"
+    verify:
+      - cli_output_contains: "Paste join worked perfectly!"
+    criteria: app_reply_in_cli
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  scan_view_opens:
+    description: "Scan view opens from the conversations list"
+  paste_triggers_join_flow:
+    description: "Pasting a valid invite URL triggers the join flow"
+  join_request_processed:
+    description: "Join request is sent and can be processed by the CLI"
+  app_enters_conversation_instantly:
+    description: "App enters the conversation instantly after joining (no delay expected)"
+  cli_message_received:
+    description: "Messages from CLI appear in the app after joining"
+  app_can_send_reply:
+    description: "App can send messages in the joined conversation"
+  app_reply_in_cli:
+    description: "App's reply appears via CLI, confirming two-way communication"
