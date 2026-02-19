@@ -13,6 +13,8 @@ struct ConvosApp: App {
     let quicknameViewModel: QuicknameSettingsViewModel = .shared
 
     init() {
+        FileDescriptorDiagnostics.raiseSoftLimit(to: 512)
+
         let environment = ConfigManager.shared.currentEnvironment
         // Configure logging (automatically disabled in production)
         ConvosLog.configure(environment: environment)

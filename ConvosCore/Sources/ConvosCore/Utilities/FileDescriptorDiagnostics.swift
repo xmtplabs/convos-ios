@@ -43,6 +43,30 @@ public enum FileDescriptorDiagnostics {
         return (soft: limits.rlim_cur, hard: limits.rlim_max)
     }
 
+    /// Raises the soft file descriptor limit to the given value (clamped to the hard limit).
+    /// Call early in app launch before XMTP clients are created.
+    @discardableResult
+    public static func raiseSoftLimit(to newLimit: UInt64 = 512) -> Bool {
+        var limits = rlimit()
+        guard getrlimit(RLIMIT_NOFILE, &limits) == 0 else {
+            os_log(.error, log: logger, "Failed to get current file descriptor limits")
+            return false
+        }
+        let target = min(newLimit, limits.rlim_max)
+        let previous = limits.rlim_cur
+        if previous >= target {
+            os_log(.default, log: logger, "FD soft limit already at %llu (requested %llu)", previous, newLimit)
+            return true
+        }
+        limits.rlim_cur = target
+        guard setrlimit(RLIMIT_NOFILE, &limits) == 0 else {
+            os_log(.error, log: logger, "Failed to raise FD soft limit to %llu", target)
+            return false
+        }
+        os_log(.default, log: logger, "Raised FD soft limit from %llu to %llu", previous, target)
+        return true
+    }
+
     /// Logs current file descriptor usage using os_log (visible in production)
     public static func logUsage(context: String = "") {
         let count = openFileDescriptorCount()
