@@ -1,0 +1,285 @@
+id: "08"
+name: "Lock and Unlock Conversation"
+description: >
+  Verify that locking a conversation prevents new members from joining, 
+  invalidates existing invites, prevents non-admins from locking, and that 
+  unlocking restores invite generation while old invites remain invalid.
+tags: [conversation, locking, permissions, invites, admin, core]
+depends_on: ["02"]
+estimated_duration_s: 420
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: false
+
+state:
+  conversation_id: null
+  cli_identity_id: null
+  pre_lock_invite_url: null
+  post_unlock_invite_url: null
+
+setup:
+  - action: cli_create_conversation
+    args:
+      name: "Lock Test"
+      profile_name: "CLI Admin"
+    save:
+      conversation_id: "extract from CLI output"
+      cli_identity_id: "extract from CLI output"
+    note: "CLI user becomes super admin (creator)"
+  - action: cli_generate_invite
+    args:
+      conversation: "$conversation_id"
+    save:
+      initial_invite_url: "extract invite URL from CLI output"
+  - action: join_conversation_via_app
+    args:
+      invite_url: "$initial_invite_url"
+    note: "App joins as regular member"
+  - action: send_initial_messages
+    note: "Establish conversation activity"
+
+steps:
+  - id: navigate_to_conversation
+    name: "Open Lock Test conversation"
+    actions:
+      - navigate_to_conversation: { name: "Lock Test" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Lock Test" }
+      - element_exists: { id: "message-text-field" }
+    criteria: conversation_opens
+
+  - id: verify_pre_lock_state
+    name: "Verify conversation is unlocked initially"
+    actions:
+      - screenshot: {}
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "conversation-info-view", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_not_exists: { id: "lock-icon" }
+      - element_exists: { id: "share-button" }
+    criteria: pre_lock_state_correct
+    note: "No lock icon in toolbar, sharing available"
+
+  - id: check_non_admin_lock_restrictions
+    name: "Verify non-admin cannot lock conversation"
+    actions:
+      - find_elements: { pattern: "lock" }
+      - screenshot: {}
+    verify:
+      - element_not_exists: { id: "lock-toggle" }
+    criteria: non_admin_cannot_lock
+    note: "App user (regular member) should not see lock option"
+
+  - id: return_to_conversation
+    name: "Return to conversation from info view"
+    actions:
+      - tap: { id: "BackButton" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: back_to_conversation
+
+  - id: generate_pre_lock_invite
+    name: "Generate invite before locking via CLI"
+    actions:
+      - cli_generate_invite:
+          conversation: "$conversation_id"
+    verify:
+      - cli_output_contains: "https://convos.org"
+    criteria: pre_lock_invite_generated
+    save:
+      pre_lock_invite_url: "extract invite URL from CLI output"
+    note: "This invite should become invalid after locking"
+
+  - id: lock_conversation_via_cli
+    name: "Lock conversation using CLI (super admin)"
+    actions:
+      - cli_lock_conversation:
+          conversation: "$conversation_id"
+      - wait: 5
+    verify:
+      - cli_output_contains: "locked"
+    criteria: conversation_locked_via_cli
+    note: "Wait for lock state to sync to app"
+
+  - id: verify_lock_state_in_app
+    name: "Verify lock icon appears in app"
+    actions:
+      - screenshot: {}
+      - wait_for_element: { id: "lock-icon", timeout: 15 }
+    verify:
+      - element_exists: { id: "lock-icon" }
+    criteria: lock_icon_appears
+    note: "Lock icon should appear in conversation toolbar"
+
+  - id: verify_lock_in_conversation_info
+    name: "Check conversation info shows locked state"
+    actions:
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "conversation-info-view", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_not_exists: { id: "share-button" }
+    criteria: lock_state_in_info
+    note: "Share button should be unavailable when locked"
+
+  - id: test_pre_lock_invite_invalid
+    name: "Test that pre-lock invite no longer works"
+    actions:
+      - cli_reset_identity: {}
+      - cli_reinitialize: {}
+      - cli_join_attempt:
+          invite_url: "$pre_lock_invite_url"
+          expect_failure: true
+    verify:
+      - cli_output_contains: ["rejected", "failed", "locked"]
+    criteria: pre_lock_invite_invalid
+    note: "Join should fail because conversation is locked"
+
+  - id: restore_cli_admin_identity
+    name: "Restore CLI admin identity for unlock"
+    actions:
+      - cli_restore_identity:
+          identity: "$cli_identity_id"
+    verify:
+      - cli_output_contains: "identity restored"
+    criteria: cli_admin_restored
+    note: "Need super admin identity to unlock"
+
+  - id: unlock_conversation_via_cli
+    name: "Unlock conversation using CLI"
+    actions:
+      - cli_unlock_conversation:
+          conversation: "$conversation_id"
+      - wait: 5
+    verify:
+      - cli_output_contains: "unlocked"
+    criteria: conversation_unlocked_via_cli
+    note: "Wait for unlock state to sync to app"
+
+  - id: verify_unlock_state_in_app
+    name: "Verify lock icon disappears from app"
+    actions:
+      - tap: { id: "BackButton", optional: true }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - screenshot: {}
+      - wait: 3
+      - screenshot: {}
+    verify:
+      - element_not_exists: { id: "lock-icon" }
+    criteria: lock_icon_disappears
+    note: "Lock icon should no longer be visible in toolbar"
+
+  - id: verify_sharing_restored
+    name: "Verify sharing is available again"
+    actions:
+      - tap: { id: "conversation-info-button" }
+      - wait_for_element: { id: "conversation-info-view", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "share-button" }
+    criteria: sharing_restored
+    note: "Share button should be available again after unlock"
+
+  - id: test_old_invite_still_invalid
+    name: "Verify old invite still doesn't work after unlock"
+    actions:
+      - cli_reset_identity: {}
+      - cli_reinitialize: {}
+      - cli_join_attempt:
+          invite_url: "$pre_lock_invite_url"
+          expect_failure: true
+    verify:
+      - cli_output_contains: ["rejected", "failed", "invalid"]
+    criteria: old_invite_still_invalid
+    note: "Pre-lock invite should remain invalid even after unlock"
+
+  - id: restore_admin_for_new_invite
+    name: "Restore admin identity to generate new invite"
+    actions:
+      - cli_restore_identity:
+          identity: "$cli_identity_id"
+    verify:
+      - cli_output_contains: "identity restored"
+    criteria: admin_restored_for_invite
+
+  - id: generate_post_unlock_invite
+    name: "Generate new invite after unlock"
+    actions:
+      - cli_generate_invite:
+          conversation: "$conversation_id"
+    verify:
+      - cli_output_contains: "https://convos.org"
+    criteria: post_unlock_invite_generated
+    save:
+      post_unlock_invite_url: "extract invite URL from CLI output"
+    note: "New invite should work since conversation is unlocked"
+
+  - id: test_new_invite_works
+    name: "Verify new invite works after unlock"
+    actions:
+      - cli_reset_identity: {}
+      - cli_reinitialize: {}
+      - cli_join_attempt:
+          invite_url: "$post_unlock_invite_url"
+          expect_success: true
+    verify:
+      - cli_output_contains: ["joined", "success"]
+    criteria: new_invite_works
+    note: "New post-unlock invite should successfully join"
+
+  - id: restore_admin_for_teardown
+    name: "Restore admin identity for cleanup"
+    actions:
+      - cli_restore_identity:
+          identity: "$cli_identity_id"
+    verify:
+      - cli_output_contains: "identity restored"
+    criteria: admin_restored_for_cleanup
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    note: "Clean up test conversation"
+
+criteria:
+  conversation_opens:
+    description: "Lock Test conversation opens successfully"
+  pre_lock_state_correct:
+    description: "Initial state shows no lock icon and sharing available"
+  non_admin_cannot_lock:
+    description: "Non-admin user (app) cannot see lock option"
+  back_to_conversation:
+    description: "Can navigate back to conversation from info view"
+  pre_lock_invite_generated:
+    description: "Can generate invite before locking via CLI"
+  conversation_locked_via_cli:
+    description: "Conversation can be locked via CLI by super admin"
+  lock_icon_appears:
+    description: "Lock icon appears in app after CLI locks conversation"
+  lock_state_in_info:
+    description: "Conversation info reflects locked state (no share button)"
+  pre_lock_invite_invalid:
+    description: "Pre-lock invite becomes invalid after locking"
+  cli_admin_restored:
+    description: "CLI admin identity can be restored"
+  conversation_unlocked_via_cli:
+    description: "Conversation can be unlocked via CLI by super admin"
+  lock_icon_disappears:
+    description: "Lock icon disappears from app after unlock"
+  sharing_restored:
+    description: "Share button becomes available again after unlock"
+  old_invite_still_invalid:
+    description: "Old invite remains invalid even after unlocking"
+  admin_restored_for_invite:
+    description: "Admin identity restored to generate new invite"
+  post_unlock_invite_generated:
+    description: "New invite can be generated after unlock"
+  new_invite_works:
+    description: "New invite works properly after unlock"
+  admin_restored_for_cleanup:
+    description: "Admin identity restored for conversation cleanup"
