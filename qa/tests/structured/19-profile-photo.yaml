@@ -1,0 +1,210 @@
+id: "19"
+name: "Profile and Group Photos"
+description: >
+  Verify that profile photos and group photos can be set, display correctly,
+  and sync to other participants via XMTP.
+tags: [photos, profile, identity, sync, group-settings, media]
+depends_on: []  # independent test
+estimated_duration_s: 240  # 4 minutes - photo setting and sync verification
+
+prerequisites:
+  app_running: true
+  past_onboarding: true
+  cli_initialized: true
+  shared_conversation_with_cli: true
+
+state:
+  test_conversation_id: null
+  original_profile_photo: null
+  original_group_photo: null
+  first_profile_photo_url: null
+  updated_profile_photo_url: null
+  group_photo_url: null
+
+setup:
+  - action: create_shared_conversation
+    steps:
+      - create_conversation:
+          name: "Photo Test"
+          profile_name: "Photo CLI User"
+      - generate_invite: {}
+      - background_join_processing: true
+      - join_from_app: {}
+      - exchange_initial_messages: 
+          cli_message: "CLI setup message"
+          app_message: "App setup message"
+    save:
+      test_conversation_id: "extract conversation ID"
+    verify:
+      - shared_conversation_ready: { participants: 2 }
+      - messages_exchanged: true
+    note: "Shared conversation created with both CLI and app participants"
+
+steps:
+  - id: set_profile_photo_from_app
+    name: "Set profile photo from app conversation info"
+    actions:
+      - open_conversation: { id: "$test_conversation_id" }
+      - tap: { id: "info-button" }
+      - wait_for_element: { id: "conversation-info-view", timeout: 10 }
+      - tap_user_avatar_edit_area: {}
+      - wait_for_photo_picker: { timeout: 5 }
+      - select_photo_from_picker: { source: "camera_roll_or_sample" }
+      - wait_for_photo_load: { timeout: 10 }
+      - save_profile_changes: {}
+    save:
+      first_profile_photo_url: "extract photo URL from save operation"
+    verify:
+      - photo_picker_appeared: true
+      - photo_loaded_successfully: true
+      - profile_save_completed: true
+    criteria: profile_photo_set_successfully
+    note: "Profile photo set via app photo picker"
+
+  - id: verify_profile_photo_displays_in_app
+    name: "Verify profile photo appears on user's messages"
+    actions:
+      - navigate_back_to_conversation: {}
+      - send_message_from_app: { text: "Test message with new profile photo" }
+      - wait_for_message_send: { timeout: 10 }
+      - verify_profile_photo_on_avatar:
+          message_sender: "self"
+          expects_photo: true
+          not_initials_or_emoji: true
+    verify:
+      - profile_photo_visible_on_avatar: true
+      - photo_replaced_default_avatar: true
+    criteria: profile_photo_displays_in_conversation
+    note: "Profile photo appears on user's avatar instead of default initials"
+
+  - id: verify_profile_photo_syncs_to_cli
+    name: "Verify profile photo synced to CLI participants"
+    actions:
+      - check_cli_conversation_profiles:
+          conversation_id: "$test_conversation_id"
+          command: "convos conversation profiles"
+      - verify_app_user_profile_has_image:
+          expected_image_url: "$first_profile_photo_url"
+          not_null: true
+    verify:
+      - cli_shows_image_url: true
+      - profile_synced_via_xmtp: true
+    criteria: profile_photo_synced_to_cli
+    note: "Profile photo upload and XMTP sync completed successfully"
+
+  - id: set_group_photo
+    name: "Set group photo from conversation info"
+    actions:
+      - open_conversation_info: {}
+      - tap_group_avatar_area: { location: "conversation_info_header" }
+      - wait_for_photo_picker: { timeout: 5 }
+      - select_photo_from_picker: { source: "different_photo_than_profile" }
+      - wait_for_photo_load: { timeout: 10 }
+      - save_group_photo_changes: {}
+    save:
+      group_photo_url: "extract group photo URL"
+    verify:
+      - group_photo_picker_appeared: true
+      - group_photo_loaded: true
+      - group_photo_save_completed: true
+    criteria: group_photo_set_successfully
+    note: "Group photo set via conversation info interface"
+
+  - id: verify_group_photo_displays
+    name: "Verify group photo displays in conversation info and conversations list"
+    actions:
+      - verify_group_photo_in_info_header:
+          expected_photo_url: "$group_photo_url"
+      - navigate_to_conversations_list: {}
+      - verify_group_photo_in_conversations_list:
+          conversation_name: "Photo Test"
+          expected_photo: true
+          not_default_avatar: true
+    verify:
+      - group_photo_in_info_header: true
+      - group_photo_in_conversations_list: true
+    criteria: group_photo_displays_correctly
+    note: "Group photo visible in conversation info header and conversations list"
+
+  - id: verify_group_photo_syncs_to_cli
+    name: "Verify group photo synced to CLI"
+    actions:
+      - check_cli_conversation_details:
+          conversation_id: "$test_conversation_id"
+          command: "convos conversation show"
+      - verify_conversation_has_image_url:
+          expected_image_url: "$group_photo_url"
+          not_null: true
+    verify:
+      - cli_shows_conversation_image_url: true
+      - group_photo_synced_via_xmtp: true
+    criteria: group_photo_synced_to_cli
+    note: "Group photo sync to other participants verified via CLI"
+
+  - id: update_profile_photo
+    name: "Update profile photo to different image"
+    actions:
+      - open_conversation: { id: "$test_conversation_id" }
+      - open_conversation_info: {}
+      - tap_user_avatar_edit_area: {}
+      - wait_for_photo_picker: { timeout: 5 }
+      - select_different_photo: { different_from: "$first_profile_photo_url" }
+      - wait_for_photo_load: { timeout: 10 }
+      - save_profile_changes: {}
+    save:
+      updated_profile_photo_url: "extract new photo URL"
+    verify:
+      - different_photo_selected: true
+      - photo_update_saved: true
+    criteria: profile_photo_updated
+    note: "Profile photo successfully updated to different image"
+
+  - id: verify_updated_profile_photo
+    name: "Verify updated profile photo replaces old photo"
+    actions:
+      - navigate_back_to_conversation: {}
+      - send_message_from_app: { text: "Message with updated profile photo" }
+      - wait_for_message_send: { timeout: 10 }
+      - verify_updated_photo_on_avatar:
+          expected_photo_url: "$updated_profile_photo_url"
+          not_old_photo_url: "$first_profile_photo_url"
+      - verify_updated_photo_synced_to_cli:
+          conversation_id: "$test_conversation_id"
+          expected_new_url: "$updated_profile_photo_url"
+    verify:
+      - updated_photo_visible_on_avatar: true
+      - old_photo_replaced: true
+      - updated_photo_synced_to_cli: true
+    criteria: updated_profile_photo_verified
+    note: "Updated profile photo replaces old photo in UI and syncs to CLI"
+
+teardown:
+  - action: explode_conversation
+    args:
+      id: "$test_conversation_id"
+    optional: true
+
+criteria:
+  profile_photo_set_successfully:
+    description: "Profile photo can be set from the app via photo picker"
+  profile_photo_displays_in_conversation:
+    description: "Profile photo displays on user's avatar in conversation instead of default"
+  profile_photo_synced_to_cli:
+    description: "Profile photo syncs to other participants (visible via CLI with image URL)"
+  group_photo_set_successfully:
+    description: "Group photo can be set from conversation info"
+  group_photo_displays_correctly:
+    description: "Group photo displays in conversation info header and conversations list avatar"
+  group_photo_synced_to_cli:
+    description: "Group photo syncs to other participants (visible via CLI conversation details)"
+  profile_photo_updated:
+    description: "Profile photo can be updated to a different image"
+  updated_profile_photo_verified:
+    description: "Updated profile photo replaces old photo in UI and syncs to CLI"
+
+notes:
+  - Tests both profile photos (individual identity) and group photos (conversation branding)
+  - Verifies photo upload, display, and XMTP sync functionality
+  - Tests photo updates and replacement of existing photos
+  - Critical for user identity and conversation personalization features
+  - Requires photo picker integration and media handling capabilities
