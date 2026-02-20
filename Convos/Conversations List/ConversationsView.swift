@@ -10,6 +10,7 @@ struct ConversationsView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var conversationPendingDeletion: Conversation?
     @State private var conversationPendingExplosion: Conversation?
     @State private var scrollOffset: CGFloat = 0
@@ -138,8 +139,12 @@ struct ConversationsView: View {
 
                 if conversation.creator.isCurrentUser {
                     let explodeAction = { conversationPendingExplosion = conversation }
+                    let iconColor: Color = colorScheme == .dark ? .black : .white
                     Button(action: explodeAction) {
                         Image(systemName: "burst")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(iconColor)
+                            .font(.system(size: 20))
                     }
                     .tint(.colorBackgroundInverted)
                     .accessibilityLabel("Explode conversation")
