@@ -474,4 +474,7 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {}
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws {}
     func unregisterInstallation(clientId: String) async throws {}
+    func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
+        ("https://example.com/upload/\(filename)", "https://example.com/assets/\(filename)")
+    }
 }
