@@ -428,7 +428,12 @@ struct ConversationStateMachineTests {
 
     // MARK: - Multiple Conversation Tests
 
-    @Test("Creating multiple conversations sequentially works", .timeLimit(.minutes(4)))
+    @Test(
+        "Creating multiple conversations sequentially works",
+        .timeLimit(.minutes(4)),
+        .enabled(if: ProcessInfo.processInfo.environment["XMTP_NODE_ADDRESS"] == nil,
+                 "Skipped in CI: requires two sequential XMTP conversation creations which can exceed timeout on ephemeral backends")
+    )
     func testMultipleSequentialConversations() async throws {
         let fixtures = TestFixtures()
 
