@@ -407,7 +407,7 @@ struct SyncingManagerTests {
     func testStartOrder() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
-        mockClient.syncBehavior = .delay(0.5) // Delay sync to verify streams start first
+        mockClient.syncBehavior = .delay(0.5)
         let mockAPIClient = TestableMockAPIClient()
 
         let syncingManager = SyncingManager(
@@ -418,27 +418,22 @@ struct SyncingManagerTests {
             notificationCenter: MockUserNotificationCenter()
         )
 
-        // Start syncing
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
-
-        // Wait a short time - streams should be started but sync might not be done yet
-        try await Task.sleep(for: .milliseconds(100))
 
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
 
-        // Streams should be started immediately
+        try await waitUntil(timeout: .seconds(5)) {
+            conversations.streamCallCount >= 2
+        }
+
         #expect(conversations.streamCallCount >= 2, "Both message and conversation streams should be started")
 
-        // syncAllConversations should be called (but may not be complete yet)
-        #expect(conversations.syncCallCount >= 0, "syncAllConversations may or may not have started yet")
+        try await waitUntil(timeout: .seconds(5)) {
+            conversations.syncCallCount > 0
+        }
 
-        // Wait for sync to complete
-        try await Task.sleep(for: .milliseconds(600))
-
-        // Now verify sync was called
         #expect(conversations.syncCallCount > 0, "syncAllConversations should have been called")
 
-        // Clean up
         await syncingManager.stop()
         try? await fixtures.cleanup()
     }
@@ -534,27 +529,26 @@ struct SyncingManagerTests {
             notificationCenter: MockUserNotificationCenter()
         )
 
-        // Start syncing (streams start first, then syncAllConversations is called)
         await syncingManager.start(with: mockClient, apiClient: mockAPIClient)
 
-        // Wait for initial sync to complete
-        try await Task.sleep(for: .milliseconds(500))
-
         let conversations = mockClient.conversationsProvider as! TestableMockConversations
+
+        try await waitUntil(timeout: .seconds(5)) {
+            conversations.syncCallCount > 0
+        }
+
         let initialSyncCount = conversations.syncCallCount
 
-        // Pause
         await syncingManager.pause()
-        try await Task.sleep(for: .milliseconds(500))
 
-        // Resume (should only restart streams, NOT call syncAllConversations)
         await syncingManager.resume()
-        try await Task.sleep(for: .milliseconds(500))
 
-        // Verify syncAllConversations was NOT called again on resume
+        try await waitUntil(timeout: .seconds(5)) {
+            conversations.streamCallCount >= 4
+        }
+
         #expect(conversations.syncCallCount == initialSyncCount, "syncAllConversations should not be called on resume")
 
-        // Clean up
         await syncingManager.stop()
         try? await fixtures.cleanup()
     }
@@ -684,22 +678,22 @@ struct SyncingManagerTests {
             notificationCenter: MockUserNotificationCenter()
         )
 
-        // Start syncing with first client
         await syncingManager.start(with: mockClient1, apiClient: mockAPIClient)
 
-        // Wait for ready state
-        try await Task.sleep(for: .milliseconds(200))
+        let conversations1 = mockClient1.conversationsProvider as! TestableMockConversations
+        try await waitUntil(timeout: .seconds(5)) {
+            conversations1.syncCallCount > 0
+        }
 
         let conversations2 = mockClient2.conversationsProvider as! TestableMockConversations
         #expect(conversations2.syncCallCount == 0, "Second client should not have been used yet")
 
-        // Start with different client (should stop and restart)
         await syncingManager.start(with: mockClient2, apiClient: mockAPIClient)
 
-        // Wait for restart
-        try await Task.sleep(for: .milliseconds(300))
+        try await waitUntil(timeout: .seconds(5)) {
+            conversations2.syncCallCount > 0
+        }
 
-        // Verify syncAllConversations was called on the new client
         #expect(conversations2.syncCallCount > 0, "syncAllConversations should be called on new client after restart")
 
         // Clean up

@@ -356,13 +356,16 @@ struct NetworkMonitorTests {
         let task = Task { @Sendable in
             for await status in await monitor.statusSequence {
                 await receiver.markReceived()
-                // Status is always set
                 #expect(status == .unknown || status == .connecting || status.isConnected)
                 break
             }
         }
 
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if await receiver.received { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
 
         let receivedStatus = await receiver.received
         #expect(receivedStatus == true)
