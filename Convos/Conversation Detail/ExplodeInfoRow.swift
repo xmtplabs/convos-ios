@@ -26,7 +26,7 @@ struct ExplodeInfoRow: View {
                         Color.colorCaution
                             .opacity(isHolding || didFire ? 1.0 : 0.0)
                     }
-                    .animation(.easeInOut(duration: 0.25), value: isHolding)
+                    .animation(.easeInOut(duration: 0.15), value: isHolding)
                 )
         } else {
             readyContent
