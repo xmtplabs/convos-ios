@@ -542,7 +542,6 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             let staleClientIds = try pendingInviteRepository.stalePendingInviteClientIds(olderThan: cutoff)
             guard !staleClientIds.isEmpty else { return }
 
-            // TODO: re-enable deletion once we've validated via the debug view in production
             Log.info("Found \(staleClientIds.count) stale pending invite(s) older than 7 days (not deleting yet)")
         } catch {
             Log.error("Failed to check stale pending invites: \(error)")
