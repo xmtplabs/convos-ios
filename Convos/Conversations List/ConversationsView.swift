@@ -152,10 +152,13 @@ struct ConversationsView: View {
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                 let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
+                let readIconColor: Color = colorScheme == .dark ? .black : .white
                 Button(action: toggleReadAction) {
                     Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(readIconColor, readIconColor)
                 }
-                .tint(.colorFillSecondary)
+                .tint(.colorBackgroundInverted)
                 .accessibilityLabel(conversation.isUnread ? "Mark as read" : "Mark as unread")
 
                 let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
