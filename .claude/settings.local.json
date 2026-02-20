@@ -9,7 +9,9 @@
       "Bash(git merge:*)",
       "Bash(gt add:*)",
       "Bash(gt continue:*)",
-      "Bash(gt log:*)"
+      "Bash(gt log:*)",
+      "mcp__claude_ai_Notion__fetch",
+      "mcp__claude_ai_Notion__notion-update-page"
     ]
   },
   "enableAllProjectMcpServers": true,
@@ -19,6 +21,7 @@
     "xmtp-docs",
     "graphite",
     "notion",
-    "linear"
+    "linear",
+    "figma"
   ]
 }

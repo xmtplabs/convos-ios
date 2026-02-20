@@ -143,16 +143,15 @@ Out of MVP scope:
 
 ## Security
 7. Is iCloud Keychain-only acceptable for MVP threat model?
-8. Do we require optional PIN/passphrase in v1.1?
+8. Do we require an optional PIN/passphrase in the first post-MVP release (the first backup-security hardening release after MVP)?
 
 ## Product direction
 9. When to expose per-conversation backup/sync controls vs app-level default?
-10. Turnkey viability for future backend abstraction (import/export UX and cost constraints).
+10. Turnkey viability for future backend abstraction (import/export UX and cost constraints), export and share conversations to other platforms like Convos Web and Convos Android.
 
 ## Additional questions to answer before implementation
-11. What exact action creates a new installation in our current restore path (key restore only, client rebuild, or first network auth), and can we avoid creating it until user confirms restore?
-12. Should we introduce a "restore mode" that blocks normal send/subscribe until installation cleanup completes, to avoid race conditions and duplicate pushes?
-13. For installation cleanup, do we need a server-assisted "last seen" signal, or can we decide safely with XMTP-only metadata?
+11. Should we introduce a "restore mode" that blocks normal send/subscribe until installation cleanup completes, to avoid race conditions and duplicate pushes?
+12. For installation cleanup, do we need a server-assisted "last seen" signal, or can we decide safely with XMTP-only metadata? Wondering if the endpoint Nick mentioned for last-message is installation or inboxId based?
 14. If installation revocation fails for some conversations, do we partially restore, retry in background, or block the whole restore?
 15. How do we message "history available but identity missing" and "identity restored but history incomplete" so support can quickly diagnose user issues?
 16. Should we create a lightweight diagnostics screen (backup status per conversation, last backup date, installation count risk) for support and QA?
@@ -181,7 +180,7 @@ Out of MVP scope:
 
 ---
 
-## MVP success criteria (revised)
+## MVP success criteria
 
 - User who loses device can recover identities and resume conversations on new iPhone
 - Restore flow does not accumulate unbounded stale installations per conversation
