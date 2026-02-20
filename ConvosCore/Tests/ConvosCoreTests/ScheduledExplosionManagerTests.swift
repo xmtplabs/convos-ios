@@ -99,24 +99,27 @@ struct ScheduledExplosionManagerTests {
         let expiresAt = Date().addingTimeInterval(-60)
         try await fixtures.setupConversation(expiresAt: expiresAt)
 
+        let conversationId = fixtures.conversationId
         await MainActor.run {
             NotificationCenter.default.post(
                 name: .conversationScheduledExplosion,
                 object: nil,
                 userInfo: [
-                    "conversationId": fixtures.conversationId,
+                    "conversationId": conversationId,
                     "expiresAt": expiresAt
                 ]
             )
         }
 
-        try await Task.sleep(for: .milliseconds(200))
+        try await waitForCondition(timeout: 2.0) {
+            !fixtures.manager.hasSchedulingTask(for: conversationId)
+        }
 
         let hasReminder = fixtures.notificationCenter.hasRequest(
-            withIdentifier: "explosion-reminder-\(fixtures.conversationId)"
+            withIdentifier: "explosion-reminder-\(conversationId)"
         )
         let hasExplosion = fixtures.notificationCenter.hasRequest(
-            withIdentifier: "explosion-\(fixtures.conversationId)"
+            withIdentifier: "explosion-\(conversationId)"
         )
 
         #expect(!hasReminder, "Should not schedule reminder for expired")
@@ -242,7 +245,7 @@ private class ScheduledExplosionTestFixtures {
     let appLifecycle: MockAppLifecycleProvider
     let notificationCenter: MockUserNotificationCenter
     let manager: ScheduledExplosionManager
-    let conversationId: String = "test-conversation-id"
+    let conversationId: String = "explosion-test-\(UUID().uuidString)"
     let inboxId: String = "test-inbox-id"
     let clientId: String = "test-client-id"
 

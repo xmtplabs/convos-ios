@@ -17,7 +17,7 @@ private let testEnvironment = AppEnvironment.tests
 /// - Keychain fallback path
 /// - Clearing unused conversations
 /// - Ensuring same conversation is never consumed twice
-@Suite("UnusedConversationCache Tests")
+@Suite("UnusedConversationCache Tests", .timeLimit(.minutes(3)))
 struct UnusedConversationCacheTests {
     // MARK: - Test Helpers
 

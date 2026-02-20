@@ -60,8 +60,8 @@ struct ConsumeInboxOnlyTests {
 
     // MARK: - consumeInboxOnly cleans up orphaned conversation
 
-    @Test("consumeInboxOnly deletes the pre-created conversation from database")
-    func testConsumeInboxOnlyDeletesOrphanedConversation() async throws {
+    @Test("consumeInboxOnly leaves the pre-created conversation as unused in database")
+    func testConsumeInboxOnlyLeavesConversationAsUnused() async throws {
         let fixtures = TestFixtures()
         let cache = UnusedConversationCache(
             keychainService: MockKeychainService(),
@@ -91,7 +91,7 @@ struct ConsumeInboxOnlyTests {
         let unusedCountAfter = try await fixtures.databaseManager.dbReader.read { db in
             try DBConversation.filter(DBConversation.Columns.isUnused == true).fetchCount(db)
         }
-        #expect(unusedCountAfter == 0, "Orphaned unused conversation should be deleted after consumeInboxOnly")
+        #expect(unusedCountAfter == 1, "Unused conversation should remain in database to prevent re-sync race condition")
 
         await service.stopAndDelete()
         try? await fixtures.cleanup()

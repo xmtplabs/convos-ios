@@ -11,7 +11,7 @@ import Testing
 /// - Multiple subscribers to statusSequence
 /// - Network monitor restart after stop
 /// - Edge cases and error handling
-@Suite("NetworkMonitor Tests", .serialized)
+@Suite("NetworkMonitor Tests", .serialized, .timeLimit(.minutes(2)))
 struct NetworkMonitorTests {
 
     private enum TestError: Error {
@@ -291,24 +291,29 @@ struct NetworkMonitorTests {
             }
         }
 
-        // Wait for initial status
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+        // Wait for both subscribers to receive at least one status
+        // Use polling instead of fixed sleep for reliability on CI
+        try await waitUntil(timeout: .seconds(5)) {
+            let c1 = await counter.count1
+            let c2 = await counter.count2
+            return c1 >= 1 && c2 >= 1
+        }
 
-        // First subscriber should have unsubscribed
+        // First subscriber should have unsubscribed (count1 >= 1)
         let count1 = await counter.count1
         #expect(count1 >= 1)
 
-        // Second subscriber should still be active
+        // Second subscriber should still be active (count2 >= 1)
         let count2 = await counter.count2
         #expect(count2 >= 1)
 
-        // Wait a bit more
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+        // Wait a bit more for potential additional statuses
+        try await Task.sleep(nanoseconds: 200_000_000) // 0.2 seconds
 
-        // First subscriber should not have received more
+        // First subscriber should not have received more (broke out of loop after 1)
         let count1After = await counter.count1
 
-        // Second subscriber may have received more
+        // Second subscriber may have received more (still in loop)
         let count2After = await counter.count2
 
         #expect(count1After == count1) // First subscriber stopped receiving
@@ -351,13 +356,16 @@ struct NetworkMonitorTests {
         let task = Task { @Sendable in
             for await status in await monitor.statusSequence {
                 await receiver.markReceived()
-                // Status is always set
                 #expect(status == .unknown || status == .connecting || status.isConnected)
                 break
             }
         }
 
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 seconds
+        let deadline = ContinuousClock.now + .seconds(5)
+        while ContinuousClock.now < deadline {
+            if await receiver.received { break }
+            try await Task.sleep(for: .milliseconds(50))
+        }
 
         let receivedStatus = await receiver.received
         #expect(receivedStatus == true)
