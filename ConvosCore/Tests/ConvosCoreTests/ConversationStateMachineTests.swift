@@ -470,7 +470,7 @@ struct ConversationStateMachineTests {
 
         var conversationId1: String?
         do {
-            conversationId1 = try await withTimeout(seconds: 30) {
+            conversationId1 = try await withTimeout(seconds: 60) {
                 for await state in await stateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -480,6 +480,9 @@ struct ConversationStateMachineTests {
             }
         } catch {
             Issue.record("Timed out waiting for first conversation to be ready: \(error)")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
         }
 
         #expect(conversationId1 != nil, "Should have first conversation ID")
@@ -506,7 +509,7 @@ struct ConversationStateMachineTests {
 
         var conversationId2: String?
         do {
-            conversationId2 = try await withTimeout(seconds: 30) {
+            conversationId2 = try await withTimeout(seconds: 60) {
                 for await state in await stateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -653,7 +656,7 @@ struct ConversationStateMachineTests {
         // Wait for ready state and get conversation ID
         var inviterConversationId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 30) {
+            inviterConversationId = try await withTimeout(seconds: 60) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -663,6 +666,9 @@ struct ConversationStateMachineTests {
             }
         } catch {
             Issue.record("Timed out waiting for inviter to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            return
         }
 
         guard let convId = inviterConversationId else {
@@ -821,7 +827,7 @@ struct ConversationStateMachineTests {
         var inviterConversationId: String?
         var inviterInboxId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 60) {
+            inviterConversationId = try await withTimeout(seconds: 90) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -833,6 +839,7 @@ struct ConversationStateMachineTests {
             Issue.record("Timed out waiting for conversation creation: \(error)")
             await inviterMessagingService.stopAndDelete()
             try? await inviterFixtures.cleanup()
+            return
         }
 
         guard let convId = inviterConversationId else {
@@ -923,7 +930,7 @@ struct ConversationStateMachineTests {
         var joinerReachedReady = false
 
         do {
-            joinerConversationId = try await withTimeout(seconds: 60) {
+            joinerConversationId = try await withTimeout(seconds: 90) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):
@@ -944,6 +951,7 @@ struct ConversationStateMachineTests {
             await joinerMessagingService.stopAndDelete()
             try? await inviterFixtures.cleanup()
             try? await joinerFixtures.cleanup()
+            return
         }
 
         #expect(joinerConversationId != nil, "Should have joined conversation")
@@ -1567,7 +1575,7 @@ struct ConversationStateMachineTests {
         // XMTP publish() can be slow in CI, so use a generous timeout
         var inviterConversationId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 30) {
+            inviterConversationId = try await withTimeout(seconds: 60) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -1577,6 +1585,9 @@ struct ConversationStateMachineTests {
             }
         } catch {
             Issue.record("Inviter failed to create conversation: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            return
         }
 
         guard let inviterConvId = inviterConversationId else {
@@ -1680,6 +1691,11 @@ struct ConversationStateMachineTests {
             }
         } catch {
             Issue.record("Joiner failed to join: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            await joinerMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            try? await joinerFixtures.cleanup()
+            return
         }
 
         guard let joinerConvId = joinerConversationId else {

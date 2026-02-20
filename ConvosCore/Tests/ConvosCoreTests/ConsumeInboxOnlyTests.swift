@@ -122,6 +122,9 @@ struct ConsumeInboxOnlyTests {
             environment: testEnvironment
         )
 
+        // Stop the service before checking DB state to avoid racing with sync
+        await service.stop()
+
         let visibleConversations = try await fixtures.databaseManager.dbReader.read { db in
             try DBConversation
                 .filter(DBConversation.Columns.isUnused == false)
