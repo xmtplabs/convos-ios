@@ -61,7 +61,7 @@ Build a list of all display items: the sorted named profiles, plus `"Somebody"` 
 
 **Case C: Total count exceeds MAX_NAMES.**
 
-Take the first `MAX_NAMES` sorted named profiles. Calculate `othersCount = totalCount - MAX_NAMES`. Format as:
+Take the first `MAX_NAMES` sorted named profiles (or all of them if fewer than `MAX_NAMES` exist). Let `namesPrefix` be the names actually shown. Calculate `othersCount = totalCount - namesPrefix.count`. Format as:
 
 ```
 "{name1}, {name2}, {name3} and {othersCount} other"    // othersCount == 1
@@ -95,11 +95,11 @@ Every conversation has a deterministic default emoji derived from its `clientCon
 ```
 input  = clientConversationId (UTF-8 encoded)
 hash   = SHA-256(input)
-index  = hash[0] % 80          // first byte of the hash, modulo pool size
+index  = hash[0] % 90          // first byte of the hash, modulo pool size
 emoji  = EMOJI_POOL[index]
 ```
 
-**Emoji pool (80 items, in order):**
+**Emoji pool (90 items, in order):**
 
 ```
 Index  0-9:   🥫 🎸 🎨 🎯 🎪 🎭 🎬 🎤 🎧 🎹
@@ -110,9 +110,10 @@ Index 40-49:  🪻 🪷 🪹 🪺 🌙 ⭐️ 🌍 🔥 💧 🌪️
 Index 50-59:  🦊 🐙 🦋 🐢 🦩 🦄 🐋 🦈 🦑 🐠
 Index 60-69:  🦜 🦚 🦢 🦉 🦇 🐝 🐌 🦎 🐲 🦕
 Index 70-79:  🍕 🌮 🍩 🍦 🥑 🍎 🍋 🍇 🥝 🍒
+Index 80-89:  🧁 🍰 🍪 🥨 🥐 🧀 🥗 🍜 🍣 🥟
 ```
 
-The pool is intentionally small (80 items) and curated to avoid culturally sensitive or ambiguous symbols. Collisions are expected and acceptable.
+The pool is intentionally small (90 items) and curated to avoid culturally sensitive or ambiguous symbols. Collisions are expected and acceptable.
 
 ### 4. Avatar Type Resolution
 
@@ -154,7 +155,7 @@ A conversation with 0 other members is not fully anonymous; it's considered new.
 ### Negative
 
 - Display names change as members join, leave, or update their profile names
-- 80-emoji pool means collisions across conversations within the same account
+- 90-emoji pool means collisions across conversations within the same account
 - "Somebodies" is unconventional English; integrators should not localize it differently without coordinating across clients
 
 ## Implementation Notes
