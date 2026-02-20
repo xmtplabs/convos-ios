@@ -1,193 +1,190 @@
 # iCloud Backup Plan for Convos
 
+## TL;DR
+
+- **Yes, installation lifecycle is required in MVP.**
+  - Restore creates a new installation.
+  - With a per-conversation model, that means one new installation **per restored conversation**.
+  - If XMTP installation count is capped (e.g. 10), we need cleanup/revocation for stale installations per conversation.
+- **No, full multi-device UX is not required for MVP.**
+  - We can ship "recover on a new device" first.
+  - But we still must handle temporary multi-installation states safely.
+- **Archive backup is not required for the first useful release if iPhone full backup already restores message DB files.**
+  - But archive still matters for app-level restore scenarios (delete/reinstall, restore without whole-phone migration, selective export/portability).
+
+---
+
 ## Purpose
 Ship a near-term backup + restore solution for "my phone is in the river" without blocking on full multi-device architecture.
 
-This plan is intentionally split into two tracks:
-- identity continuity (keys / inbox access / resume conversations)
-- history continuity (message archive restore)
-
-The product priority is **resume first, history second**.
+Product priority:
+1. **Resume conversations** (keys/identity continuity)
+2. **Restore history** (archive continuity) where needed
 
 ---
 
-## Updated framing (from team discussion)
-
-### What we are solving now
-1. User loses device
-2. User installs Convos on new iPhone
-3. User can recover identities (per-conversation keys)
-4. User can be re-added / resume sending and receiving
-5. Optional: user restores old message history
-
-### What we are not solving yet
-- Full simultaneous multi-device UX (phone + iPad + desktop all active and coherent)
-- Cross-platform key portability (iOS -> Android) as an MVP requirement
-- Full preferences sync (mute, read state, local UI state)
-
-### Core product principle
-A short-term backup solution must not block the long-term vision:
-- per-conversation portability
-- selective sync/backup at conversation granularity
-- eventual multi-platform support
-
----
-
-## Current state (codebase)
+## Current state
 
 - Per-conversation identity model (ADR 002): one XMTP inbox per conversation
-- Keychain identity currently stored with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
-- No cloud key backup
+- Keychain identity stored with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` (not iCloud-synced)
 - `deviceSyncEnabled: false`
-- No message archive backup job
+- No explicit archive backup job
+- App data may be present in iOS device backups, but keys are not recoverable if keychain item remains `ThisDeviceOnly`
 
-Consequence: if keychain is lost, user loses ability to resume conversations.
-
----
-
-## Decisions and recommendations
-
-## Decision A: Ship key backup first (MVP)
-Reason: no point restoring history if user cannot resume conversations.
-
-## Decision B: Keep message archive as Phase 2
-Reason: archive restore is useful, but less critical than identity recovery.
-
-## Decision C: Treat multi-device as a separate project
-Reason: backup/restore and multi-device share foundations, but UX + state sync + push behavior makes full multi-device materially larger.
-
-## Decision D: Start app-level, keep path open to per-conversation controls
-Recommendation:
-- MVP controls at app level (simple UX)
-- data model and APIs should support future per-conversation backup/sync toggles
-
-Comment: this keeps Shane's conversation-level vision alive without blocking immediate release.
+Consequence today: user may see old local message data after certain restore paths, but still cannot reliably resume messaging without keys.
 
 ---
 
-## Phase 1 — Identity backup to iCloud Keychain (MVP)
+## Clarifying "multi-device required or not?"
 
-### Scope
-Back up per-conversation identity material via iCloud-synced Keychain entries.
+### Required now (MVP)
+**Installation lifecycle management is required.**
 
-### Implementation approach
-- Move keychain accessibility from `...ThisDeviceOnly` to `kSecAttrAccessibleAfterFirstUnlock`
-- Migrate existing keychain items by read -> insert new attributes -> delete old item
-- Add app setting: "Back up conversation keys" (default ON, user can disable)
-- New-device restore flow: detect synced identities and ask user to restore
+Even without full multi-device support, restore introduces multi-installation realities:
+- new installation IDs are created during restore/new install flows
+- old installations may remain active/stale
+- installation cap risk must be managed per conversation
 
-### UX behavior (proposed)
-- On first launch with synced keys found:
-  - Show restore prompt with plain language:
-    - "Restore access to your conversations"
-    - "Message history may be incomplete until contacts/devices re-add this installation"
+### Not required now
+**Polished simultaneous multi-device product** (consistent preferences, read state, mute state, etc.) can remain out of scope.
+
+---
+
+## Proposed scope decisions (for sign-off)
+
+### Key backup first (MVP)
+Reason: no point restoring history if user cannot resume.
+
+### Add installation cleanup to MVP scope
+Reason: restore/new installs create installation growth; cap handling is mandatory.
+
+### Archive is conditional Phase 2 (not automatic)
+Reason: if full-device restore already recovers usable history, archive can be deferred.
+
+### App-level controls first, data model ready for per-conversation controls
+Reason: faster to ship now as a first step, keeps path to Shane's convo-level vision.
+
+---
+
+## Phase 1: Identity backup + restore + installation lifecycle (MVP)
+
+### 1) Key backup
+- Migrate keychain accessibility from `...ThisDeviceOnly` -> `kSecAttrAccessibleAfterFirstUnlock`
+- Migration path: read old -> write new -> delete old
+- Settings toggle: "Back up conversation keys" (default ON, opt-out allowed)
+
+### 2) Restore UX
+- On launch, if synced identities are detected, show explicit restore flow
 - Do not silently auto-activate all conversations in background
-- Warn if old device may still be active (temporary dual-installation state)
+- Explain clearly: resume access first, history may vary by restore path
 
-### Security notes
-- iCloud Keychain is encrypted and practical for MVP
-- This is still tied to Apple account compromise risk
-- Future hardening option: user-known secret (PIN/passphrase) for wrapping backup keys
+### 3) Installation lifecycle (new required MVP work)
+Per conversation, after restore:
+- detect that a new installation exists
+- identify stale/unused installations
+- revoke stale installations when safe
 
-### Explode interaction
-Required behavior:
-- explode must delete local keychain item and synced keychain item
-- clarify product promise: backups may be briefly recoverable during sync windows
+Practical note:
+- Max installation cap is currently set to 10, this cleanup must be proactive to prevent user lockout over time.
 
----
+Implementation note:
+- We already have `revokeInstallations(...)` at client API level.
+- We still need a strategy to determine which installation IDs are safe to revoke per conversation.
 
-## Phase 2 — Message archive backup (XMTP archive files)
-
-### Scope
-Use XMTP archive APIs for optional history restore.
-
-### Expected XMTP behavior
-- `createArchive` per client/inbox
-- encrypted file output
-- additive import with de-duplication
-- restored conversations can be inactive/read-only until reactivation
-
-### Convos-specific implications
-Because Convos uses one client per conversation:
-- archive generation is per conversation
-- potentially many small files
-- need robust folder strategy + metadata index
-
-### Storage proposal (MVP)
-- Archive files: iCloud Drive app container (simple to ship)
-- Archive encryption key: iCloud Keychain
-
-### Backup cadence proposal
-Start with **daily + app background trigger**, with manual "Back up now" action.
-
-Comment: aligns with World/WhatsApp-style expectations and limits performance cost.
-
-### Disappearing messages
-Default: exclude disappearing messages from archives.
+### 4) Explode interaction
+- explode must remove local + synced key material + convo history, we can consider that an exploding convo is simply not backed-up (same as disappearing messages in World)
+- product copy must state backup-related limits (brief sync windows, backup semantics)
 
 ---
 
-## Phase 3 — Multi-device (future)
+## Phase 2 — Archive backup
 
-Out of MVP scope. Includes:
-- Device sync enabled across all per-conversation inboxes
-- Push routing and installation lifecycle on multiple active devices
-- Cross-device preference sync strategy (mute/read/local state)
-- Performance and memory controls for large conversation/device matrices
+### First validate real-world restore matrix
+We should verify behavior for:
+1. **New phone restored from full iCloud device backup**
+2. **User deletes and reinstalls app on same phone**
+3. **User installs on second device without full-phone migration**
+
+### Archive value by scenario
+- Scenario 1: may already have message files from phone backup
+- Scenario 2: likely needs app-level backup/restore path
+- Scenario 3: likely needs app-level backup/restore path
+
+### If Phase 2 proceeds
+- Use XMTP archive APIs per conversation client
+- iCloud Drive container for archive files
+- Archive encryption key in iCloud Keychain
+- Daily/background trigger + manual "Back up now"
+- Exclude disappearing messages
+- Exclude exploding conversations' messages
+
+---
+
+## Phase 3 — Full multi-device experience (future)
+
+Out of MVP scope:
+- device sync and coherent cross-device behavior for preferences/read/mute
+- push and installation orchestration across many active devices
+- performance strategy for (conversations x devices)
 
 ---
 
 ## Open questions (updated)
 
-## Product / UX
-1. Should key backup be default ON for all users, or gated behind onboarding consent?
-2. For restore, do we offer:
-   - "Restore all conversations" first, then per-conversation refinement later?
-   - or immediate per-conversation selection in MVP?
-3. What exact user promise do we make for explode when backups are enabled?
+## Installation lifecycle
+1. Installation cap is currently 10; confirm exact failure mode at cap (error surface, timing, and recovery path).
+2. What source of truth do we use to enumerate per-conversation installations for cleanup?
+3. Revocation policy: age-based, last-seen-based, or explicit user choice (probably not this last one)?
+4. UX if cap reached before cleanup succeeds.
+
+## Archive necessity
+5. After running restore matrix tests, which scenarios remain unsolved without archive?
+6. Is app-delete/reinstall recovery a must-have in MVP or acceptable in Phase 2?
 
 ## Security
-4. Is iCloud Keychain-only acceptable for MVP threat model?
-5. Do we need optional user PIN/passphrase in v1 or v1.1?
-6. What minimum messaging do we need for privacy-sensitive users opting out?
+7. Is iCloud Keychain-only acceptable for MVP threat model?
+8. Do we require optional PIN/passphrase in v1.1?
 
-## Architecture
-7. How do we prevent confusing dual-installation states during restore window?
-8. What telemetry do we need to detect restore success/failure and churn?
-9. Should backup capability be modeled per conversation now (even if hidden in UI)?
+## Product direction
+9. When to expose per-conversation backup/sync controls vs app-level default?
+10. Turnkey viability for future backend abstraction (import/export UX and cost constraints).
 
-## Turnkey
-10. Is Turnkey import/export viable at per-conversation scale without unacceptable UX friction/cost?
-11. If not viable now, what abstraction should we keep so storage backend can change later?
-
----
-
-## Suggested technical work breakdown
-
-1. **Identity backup spike (2-3 days)**
-   - keychain attribute migration prototype
-   - verify cross-device sync in real iCloud account test
-   - verify explode delete propagation
-
-2. **Restore UX prototype (2-3 days)**
-   - detection states: no keys / keys found / restore in progress / restore complete
-   - copy and user education around resume vs history
-
-3. **Archive spike (2-4 days)**
-   - run `createArchive` on per-conversation clients
-   - test import behavior and inactive conversation reactivation paths
-   - benchmark file count and runtime with high conversation counts
-
-4. **ADR + implementation plan**
-   - capture final MVP decisions
-   - lock rollout + migration + metrics plan
+## Additional questions to answer before implementation
+11. What exact action creates a new installation in our current restore path (key restore only, client rebuild, or first network auth), and can we avoid creating it until user confirms restore?
+12. Should we introduce a "restore mode" that blocks normal send/subscribe until installation cleanup completes, to avoid race conditions and duplicate pushes?
+13. For installation cleanup, do we need a server-assisted "last seen" signal, or can we decide safely with XMTP-only metadata?
+14. If installation revocation fails for some conversations, do we partially restore, retry in background, or block the whole restore?
+15. How do we message "history available but identity missing" and "identity restored but history incomplete" so support can quickly diagnose user issues?
+16. Should we create a lightweight diagnostics screen (backup status per conversation, last backup date, installation count risk) for support and QA?
+17. If user disables iCloud Keychain after enabling backup, what should Convos do on next launch (warn, degrade gracefully, or require explicit confirmation)?
+18. Do we need a "backup health" metric pipeline (restore success %, cap near-miss %, time-to-resume) before broad rollout?
 
 ---
 
-## Success criteria for MVP
+## Immediate next steps
 
-- User who loses device can recover conversation identities on new iPhone
-- User can resume receiving/sending once conversation membership reactivation occurs
-- No irreversible data-loss regressions introduced by keychain migration
-- Clear UX around what is restored immediately vs eventually
-- Foundation remains compatible with future per-conversation backup/sync controls
+1. **Add installation-lifecycle spike (high priority)**
+   - model per-conversation installation growth on repeated restore/reinstall
+   - design stale-installation revocation policy
+   - test cap behavior and error handling
+
+2. **Run restore behavior matrix (high priority)**
+   - full-phone restore vs app reinstall vs second-device install
+   - document exactly what messages/data survive in each path
+
+3. **Finalize MVP boundary**
+   - phase 1 includes key backup + restore + installation cleanup
+   - decide whether archive is required now or can remain phase 2
+
+4. **Write ADR update**
+   - capture installation lifecycle requirement and archive gating criteria
+
+---
+
+## MVP success criteria (revised)
+
+- User who loses device can recover identities and resume conversations on new iPhone
+- Restore flow does not accumulate unbounded stale installations per conversation
+- Installation cap risk is mitigated by policy + tooling
+- Product messaging is clear on what is restored now vs later
+- Architecture stays compatible with future per-conversation backup/sync controls
