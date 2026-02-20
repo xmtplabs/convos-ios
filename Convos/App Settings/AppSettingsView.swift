@@ -1,3 +1,4 @@
+import ConvosCore
 import SwiftUI
 
 struct ConvosToolbarButton: View {
@@ -33,6 +34,7 @@ struct ConvosToolbarButton: View {
 struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
+    let session: any SessionManagerProtocol
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
@@ -158,6 +160,13 @@ struct AppSettingsView: View {
                     }
                     .foregroundStyle(.colorTextPrimary)
 
+                    NavigationLink {
+                        PendingInviteDebugView(session: session)
+                    } label: {
+                        Text("Pending Invites")
+                    }
+                    .foregroundStyle(.colorTextPrimary)
+
                     if !ConfigManager.shared.currentEnvironment.isProduction {
                         NavigationLink {
                             DebugExportView(environment: ConfigManager.shared.currentEnvironment)
@@ -238,6 +247,7 @@ struct AppSettingsView: View {
         AppSettingsView(
             viewModel: .mock,
             quicknameViewModel: quicknameViewModel,
+            session: MockInboxesService(),
             onDeleteAllData: {}
         )
     }

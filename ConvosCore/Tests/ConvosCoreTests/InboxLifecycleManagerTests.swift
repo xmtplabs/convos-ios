@@ -1235,3 +1235,387 @@ extension InboxLifecycleManager {
         }
     }
 }
+
+// MARK: - Stale Pending Invite Expiry Tests
+
+@Suite("InboxLifecycleManager Stale Expiry Tests", .serialized)
+struct InboxLifecycleManagerStaleExpiryTests {
+
+    @Test("Stale pending invites are detected but not deleted on app launch")
+    func testStalePendingInvitesDetectedButNotDeleted() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let eightDaysAgo = Date().addingTimeInterval(-8 * 24 * 60 * 60)
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: eightDaysAgo).insert(db)
+
+            try makeDBConversation(
+                id: "draft-stale",
+                inboxId: "inbox-1",
+                clientId: "client-1",
+                inviteTag: "stale-tag",
+                createdAt: eightDaysAgo
+            ).insert(db)
+        }
+
+        let checkRepo = PendingInviteRepository(databaseReader: dbManager.dbReader)
+        let hasPendingBefore = try checkRepo.hasPendingInvites(clientId: "client-1")
+        #expect(hasPendingBefore == true, "Should have pending invite before launch")
+
+        let activityRepo = MockInboxActivityRepository()
+        let managerRepo = PendingInviteRepository(databaseReader: dbManager.dbReader)
+        let manager = InboxLifecycleManager(
+            maxAwakeInboxes: 10,
+            databaseReader: dbManager.dbReader,
+            databaseWriter: dbManager.dbWriter,
+            identityStore: MockKeychainIdentityStore(),
+            environment: .tests,
+            platformProviders: .mock,
+            activityRepository: activityRepo,
+            pendingInviteRepository: managerRepo
+        )
+
+        await manager.initializeOnAppLaunch()
+
+        let verifyRepo = PendingInviteRepository(databaseReader: dbManager.dbReader)
+        let hasPendingAfter = try verifyRepo.hasPendingInvites(clientId: "client-1")
+        #expect(hasPendingAfter == true, "Stale pending invite should still exist (deletion temporarily disabled)")
+    }
+
+    @Test("Recent pending invites are not deleted on app launch")
+    func testRecentPendingInvitesNotDeleted() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let twoDaysAgo = Date().addingTimeInterval(-2 * 24 * 60 * 60)
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: twoDaysAgo).insert(db)
+
+            try makeDBConversation(
+                id: "draft-recent",
+                inboxId: "inbox-1",
+                clientId: "client-1",
+                inviteTag: "recent-tag",
+                createdAt: twoDaysAgo
+            ).insert(db)
+        }
+
+        let activityRepo = MockInboxActivityRepository()
+        activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: nil, conversationCount: 0)
+        ]
+
+        let managerRepo = PendingInviteRepository(databaseReader: dbManager.dbReader)
+        let manager = InboxLifecycleManager(
+            maxAwakeInboxes: 10,
+            databaseReader: dbManager.dbReader,
+            databaseWriter: dbManager.dbWriter,
+            identityStore: MockKeychainIdentityStore(),
+            environment: .tests,
+            platformProviders: .mock,
+            activityRepository: activityRepo,
+            pendingInviteRepository: managerRepo
+        )
+
+        await manager.initializeOnAppLaunch()
+
+        let verifyRepo = PendingInviteRepository(databaseReader: dbManager.dbReader)
+        let hasPendingAfter = try verifyRepo.hasPendingInvites(clientId: "client-1")
+        #expect(hasPendingAfter == true, "Recent pending invite should not be deleted")
+    }
+
+    @Test("stalePendingInviteClientIds correctly identifies stale vs recent invites")
+    func testStalePendingInviteIdentification() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let tenDaysAgo = Date().addingTimeInterval(-10 * 24 * 60 * 60)
+        let oneDayAgo = Date().addingTimeInterval(-1 * 24 * 60 * 60)
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: tenDaysAgo).insert(db)
+            try DBInbox(inboxId: "inbox-2", clientId: "client-2", createdAt: oneDayAgo).insert(db)
+
+            try makeDBConversation(
+                id: "draft-stale",
+                inboxId: "inbox-1",
+                clientId: "client-1",
+                inviteTag: "stale-tag",
+                createdAt: tenDaysAgo
+            ).insert(db)
+
+            try makeDBConversation(
+                id: "draft-recent",
+                inboxId: "inbox-2",
+                clientId: "client-2",
+                inviteTag: "recent-tag",
+                createdAt: oneDayAgo
+            ).insert(db)
+        }
+
+        let repo = PendingInviteRepository(databaseReader: dbManager.dbReader)
+        let cutoff = Date().addingTimeInterval(-InboxLifecycleManager.stalePendingInviteInterval)
+        let staleIds = try repo.stalePendingInviteClientIds(olderThan: cutoff)
+
+        #expect(staleIds.contains("client-1"), "10-day-old invite should be stale")
+        #expect(!staleIds.contains("client-2"), "1-day-old invite should not be stale")
+    }
+
+    @Test("Non-draft conversations are not affected by stale cleanup")
+    func testNonDraftConversationsNotAffected() async throws {
+        let dbManager = MockDatabaseManager.makeTestDatabase()
+        let tenDaysAgo = Date().addingTimeInterval(-10 * 24 * 60 * 60)
+
+        try await dbManager.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: tenDaysAgo).insert(db)
+
+            try makeDBConversation(
+                id: "convo-real",
+                inboxId: "inbox-1",
+                clientId: "client-1",
+                inviteTag: "some-tag",
+                createdAt: tenDaysAgo,
+                consent: .allowed
+            ).insert(db)
+        }
+
+        let activityRepo = MockInboxActivityRepository()
+        activityRepo.activities = [
+            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: Date(), conversationCount: 1)
+        ]
+
+        let managerRepo = PendingInviteRepository(databaseReader: dbManager.dbReader)
+        let manager = InboxLifecycleManager(
+            maxAwakeInboxes: 10,
+            databaseReader: dbManager.dbReader,
+            databaseWriter: dbManager.dbWriter,
+            identityStore: MockKeychainIdentityStore(),
+            environment: .tests,
+            platformProviders: .mock,
+            activityRepository: activityRepo,
+            pendingInviteRepository: managerRepo
+        )
+
+        await manager.initializeOnAppLaunch()
+
+        let conversationCount = try await dbManager.dbReader.read { db in
+            try DBConversation.filter(DBConversation.Columns.id == "convo-real").fetchCount(db)
+        }
+        #expect(conversationCount == 1, "Real conversation should not be deleted by stale cleanup")
+    }
+
+    // MARK: - Test Helpers
+
+    func makeDBConversation(
+        id: String,
+        inboxId: String,
+        clientId: String,
+        inviteTag: String,
+        createdAt: Date = Date(),
+        consent: Consent = .unknown
+    ) -> DBConversation {
+        DBConversation(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: id,
+            inviteTag: inviteTag,
+            creatorId: inboxId,
+            kind: .group,
+            consent: consent,
+            createdAt: createdAt,
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            isUnused: false
+        )
+    }
+}
+
+// MARK: - Pending Invite Cap and Stale Expiry Tests
+
+@Suite("InboxLifecycleManager Pending Invite Cap Tests", .serialized)
+struct InboxLifecycleManagerPendingInviteCapTests {
+
+    @Test("Pending invite inboxes are capped during app launch")
+    func testPendingInvitesAreCappedOnAppLaunch() async throws {
+        let fixtures = makeTestFixtures(maxAwake: 10, maxPendingInvites: 2)
+        let manager = fixtures.manager
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "pi-1", inboxId: "inbox-pi-1", lastActivity: nil, conversationCount: 0),
+            InboxActivity(clientId: "pi-2", inboxId: "inbox-pi-2", lastActivity: nil, conversationCount: 0),
+            InboxActivity(clientId: "pi-3", inboxId: "inbox-pi-3", lastActivity: nil, conversationCount: 0),
+            InboxActivity(clientId: "pi-4", inboxId: "inbox-pi-4", lastActivity: nil, conversationCount: 0),
+            InboxActivity(clientId: "regular-1", inboxId: "inbox-regular-1", lastActivity: Date(), conversationCount: 1),
+        ]
+
+        fixtures.pendingInviteRepo.pendingInvites = [
+            PendingInviteInfo(clientId: "pi-1", inboxId: "inbox-pi-1", pendingConversationIds: ["draft-1"]),
+            PendingInviteInfo(clientId: "pi-2", inboxId: "inbox-pi-2", pendingConversationIds: ["draft-2"]),
+            PendingInviteInfo(clientId: "pi-3", inboxId: "inbox-pi-3", pendingConversationIds: ["draft-3"]),
+            PendingInviteInfo(clientId: "pi-4", inboxId: "inbox-pi-4", pendingConversationIds: ["draft-4"]),
+        ]
+
+        await manager.initializeOnAppLaunch()
+
+        var awakePendingCount = 0
+        var sleepingPendingCount = 0
+        for pid in ["pi-1", "pi-2", "pi-3", "pi-4"] {
+            if await manager.isAwake(clientId: pid) {
+                awakePendingCount += 1
+            } else if await manager.isSleeping(clientId: pid) {
+                sleepingPendingCount += 1
+            }
+        }
+
+        #expect(awakePendingCount == 2, "Only maxAwakePendingInvites (2) should be awake")
+        #expect(sleepingPendingCount == 2, "Excess pending invite inboxes should be sleeping")
+
+        #expect(await manager.isAwake(clientId: "regular-1"), "Regular inbox should still wake")
+    }
+
+    @Test("attemptWake respects pending invite cap")
+    func testAttemptWakeRespectsPendingInviteCap() async throws {
+        let fixtures = makeTestFixtures(maxAwake: 5, maxPendingInvites: 1)
+        let manager = fixtures.manager
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "pi-1", inboxId: "inbox-pi-1", lastActivity: nil, conversationCount: 0),
+            InboxActivity(clientId: "pi-2", inboxId: "inbox-pi-2", lastActivity: nil, conversationCount: 0),
+        ]
+
+        fixtures.pendingInviteRepo.pendingInvites = [
+            PendingInviteInfo(clientId: "pi-1", inboxId: "inbox-pi-1", pendingConversationIds: ["draft-1"]),
+            PendingInviteInfo(clientId: "pi-2", inboxId: "inbox-pi-2", pendingConversationIds: ["draft-2"]),
+        ]
+
+        try await manager.wakeAndDiscard(clientId: "pi-1", inboxId: "inbox-pi-1", reason: .pendingInvite)
+        #expect(await manager.isAwake(clientId: "pi-1"))
+
+        // At cap, but below overall capacity — should still succeed since overall capacity allows it
+        try await manager.wakeAndDiscard(clientId: "pi-2", inboxId: "inbox-pi-2", reason: .pendingInvite)
+        #expect(await manager.isAwake(clientId: "pi-2"), "Under overall capacity, should still wake")
+    }
+
+    @Test("wake evicts LRU for pending invite even when over pending cap")
+    func testWakeEvictsLRUForPendingInviteOverCap() async throws {
+        let fixtures = makeTestFixtures(maxAwake: 2, maxPendingInvites: 1)
+        let manager = fixtures.manager
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "pi-1", inboxId: "inbox-pi-1", lastActivity: nil, conversationCount: 0),
+            InboxActivity(clientId: "regular-1", inboxId: "inbox-r-1", lastActivity: Date(), conversationCount: 1),
+            InboxActivity(clientId: "pi-2", inboxId: "inbox-pi-2", lastActivity: nil, conversationCount: 0),
+        ]
+
+        fixtures.pendingInviteRepo.pendingInvites = [
+            PendingInviteInfo(clientId: "pi-1", inboxId: "inbox-pi-1", pendingConversationIds: ["draft-1"]),
+            PendingInviteInfo(clientId: "pi-2", inboxId: "inbox-pi-2", pendingConversationIds: ["draft-2"]),
+        ]
+
+        try await manager.wakeAndDiscard(clientId: "pi-1", inboxId: "inbox-pi-1", reason: .pendingInvite)
+        try await manager.wakeAndDiscard(clientId: "regular-1", inboxId: "inbox-r-1", reason: .appLaunch)
+
+        #expect(await manager.awakeClientIds.count == 2)
+
+        // wake() evicts LRU first, so pi-2 can wake even though over pending cap
+        try await manager.wakeAndDiscard(clientId: "pi-2", inboxId: "inbox-pi-2", reason: .pendingInvite)
+        #expect(await manager.isAwake(clientId: "pi-2"), "User-initiated wake should succeed via LRU eviction")
+        #expect(await manager.isSleeping(clientId: "regular-1"), "LRU should be evicted")
+    }
+
+    @Test("Sleep allows sleeping pending invite inbox when over cap")
+    func testSleepAllowsPendingInviteOverCap() async throws {
+        let fixtures = makeTestFixtures(maxAwake: 10, maxPendingInvites: 1)
+        let manager = fixtures.manager
+
+        fixtures.activityRepo.activities = [
+            InboxActivity(clientId: "pi-1", inboxId: "inbox-pi-1", lastActivity: nil, conversationCount: 0),
+            InboxActivity(clientId: "pi-2", inboxId: "inbox-pi-2", lastActivity: nil, conversationCount: 0),
+        ]
+
+        fixtures.pendingInviteRepo.pendingInvites = [
+            PendingInviteInfo(clientId: "pi-1", inboxId: "inbox-pi-1", pendingConversationIds: ["draft-1"]),
+            PendingInviteInfo(clientId: "pi-2", inboxId: "inbox-pi-2", pendingConversationIds: ["draft-2"]),
+        ]
+
+        try await manager.wakeAndDiscard(clientId: "pi-1", inboxId: "inbox-pi-1", reason: .pendingInvite)
+        try await manager.wakeAndDiscard(clientId: "pi-2", inboxId: "inbox-pi-2", reason: .pendingInvite)
+
+        #expect(await manager.awakeClientIds.count == 2)
+
+        // With 2 awake and cap of 1, sleeping pi-2 should succeed (over cap)
+        await manager.sleep(clientId: "pi-2")
+        #expect(await manager.isSleeping(clientId: "pi-2"), "Over-cap pending invite should be sleepable")
+
+        // pi-1 is under the cap, so sleeping it should be prevented
+        await manager.sleep(clientId: "pi-1")
+        #expect(await manager.isAwake(clientId: "pi-1"), "Under-cap pending invite should not be slept")
+    }
+
+    @Test("Pending invite inboxes with no activity record are also capped")
+    func testPendingInvitesNoActivityRecordAreCapped() async throws {
+        let fixtures = makeTestFixtures(maxAwake: 10, maxPendingInvites: 1)
+        let manager = fixtures.manager
+
+        // No activity records — these inboxes only appear in the pending invite list
+        fixtures.activityRepo.activities = []
+
+        fixtures.pendingInviteRepo.pendingInvites = [
+            PendingInviteInfo(clientId: "pi-1", inboxId: "inbox-pi-1", pendingConversationIds: ["draft-1"]),
+            PendingInviteInfo(clientId: "pi-2", inboxId: "inbox-pi-2", pendingConversationIds: ["draft-2"]),
+            PendingInviteInfo(clientId: "pi-3", inboxId: "inbox-pi-3", pendingConversationIds: ["draft-3"]),
+        ]
+
+        await manager.initializeOnAppLaunch()
+
+        var awakePendingCount = 0
+        for pid in ["pi-1", "pi-2", "pi-3"] {
+            if await manager.isAwake(clientId: pid) {
+                awakePendingCount += 1
+            }
+        }
+
+        #expect(awakePendingCount == 1, "Only 1 pending invite inbox should be awake (cap = 1)")
+    }
+
+    // MARK: - Test Helpers
+
+    struct TestFixtures {
+        let manager: InboxLifecycleManager
+        let activityRepo: MockInboxActivityRepository
+        let pendingInviteRepo: MockPendingInviteRepository
+        let databaseManager: MockDatabaseManager
+    }
+
+    func makeTestFixtures(maxAwake: Int = 50, maxPendingInvites: Int = 3) -> TestFixtures {
+        let databaseManager = MockDatabaseManager.makeTestDatabase()
+        let activityRepo = MockInboxActivityRepository()
+        let pendingInviteRepo = MockPendingInviteRepository()
+
+        let manager = InboxLifecycleManager(
+            maxAwakeInboxes: maxAwake,
+            maxAwakePendingInvites: maxPendingInvites,
+            databaseReader: databaseManager.dbReader,
+            databaseWriter: databaseManager.dbWriter,
+            identityStore: MockKeychainIdentityStore(),
+            environment: .tests,
+            platformProviders: .mock,
+            activityRepository: activityRepo,
+            pendingInviteRepository: pendingInviteRepo
+        )
+
+        return TestFixtures(
+            manager: manager,
+            activityRepo: activityRepo,
+            pendingInviteRepo: pendingInviteRepo,
+            databaseManager: databaseManager
+        )
+    }
+}

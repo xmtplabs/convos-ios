@@ -390,6 +390,7 @@ struct ConversationsView: View {
             AppSettingsView(
                 viewModel: viewModel.appSettingsViewModel,
                 quicknameViewModel: quicknameViewModel,
+                session: viewModel.session,
                 onDeleteAllData: viewModel.deleteAllData
             )
             .navigationTransition(

@@ -66,4 +66,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Helpers
 
     func inboxId(for conversationId: String) async -> String?
+
+    // MARK: Debug
+
+    func pendingInviteDetails() throws -> [PendingInviteDetail]
+    func deleteExpiredPendingInvites() async throws -> Int
 }

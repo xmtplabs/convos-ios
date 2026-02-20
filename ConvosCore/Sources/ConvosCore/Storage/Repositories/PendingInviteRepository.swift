@@ -17,11 +17,42 @@ public struct PendingInviteInfo: Codable, Hashable, Identifiable {
     }
 }
 
+public struct PendingInviteDetail: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { conversationId }
+    public let conversationId: String
+    public let clientId: String
+    public let inboxId: String
+    public let inviteTag: String
+    public let conversationName: String?
+    public let createdAt: Date
+    public let memberCount: Int
+
+    public init(
+        conversationId: String,
+        clientId: String,
+        inboxId: String,
+        inviteTag: String,
+        conversationName: String?,
+        createdAt: Date,
+        memberCount: Int = 0
+    ) {
+        self.conversationId = conversationId
+        self.clientId = clientId
+        self.inboxId = inboxId
+        self.inviteTag = inviteTag
+        self.conversationName = conversationName
+        self.createdAt = createdAt
+        self.memberCount = memberCount
+    }
+}
+
 public protocol PendingInviteRepositoryProtocol {
     func allPendingInvites() throws -> [PendingInviteInfo]
     func pendingInvites(for clientId: String) throws -> PendingInviteInfo?
     func clientIdsWithPendingInvites() throws -> Set<String>
     func hasPendingInvites(clientId: String) throws -> Bool
+    func allPendingInviteDetails() throws -> [PendingInviteDetail]
+    func stalePendingInviteClientIds(olderThan cutoff: Date) throws -> Set<String>
 }
 
 public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
@@ -66,6 +97,53 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
                 .filter(length(DBConversation.Columns.inviteTag) > 0)
                 .fetchCount(db)
             return count > 0
+        }
+    }
+
+    public func allPendingInviteDetails() throws -> [PendingInviteDetail] {
+        try databaseReader.read { db in
+            let sql = """
+                SELECT
+                    c.id as conversationId,
+                    c.clientId,
+                    c.inboxId,
+                    c.inviteTag,
+                    c.name,
+                    c.createdAt,
+                    (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) as memberCount
+                FROM conversation c
+                WHERE c.id LIKE 'draft-%'
+                    AND c.inviteTag IS NOT NULL
+                    AND c.inviteTag != ''
+                ORDER BY c.createdAt ASC
+                """
+            return try Row.fetchAll(db, sql: sql).map { row in
+                PendingInviteDetail(
+                    conversationId: row["conversationId"],
+                    clientId: row["clientId"],
+                    inboxId: row["inboxId"],
+                    inviteTag: row["inviteTag"],
+                    conversationName: row["name"],
+                    createdAt: row["createdAt"],
+                    memberCount: row["memberCount"]
+                )
+            }
+        }
+    }
+
+    public func stalePendingInviteClientIds(olderThan cutoff: Date) throws -> Set<String> {
+        try databaseReader.read { db in
+            let sql = """
+                SELECT DISTINCT c.clientId
+                FROM conversation c
+                WHERE c.id LIKE 'draft-%'
+                    AND c.inviteTag IS NOT NULL
+                    AND c.inviteTag != ''
+                    AND c.createdAt < ?
+                    AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) <= 1
+                """
+            let clientIds = try String.fetchAll(db, sql: sql, arguments: [cutoff])
+            return Set(clientIds)
         }
     }
 
@@ -127,6 +205,8 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
 
 public final class MockPendingInviteRepository: PendingInviteRepositoryProtocol, @unchecked Sendable {
     public var pendingInvites: [PendingInviteInfo] = []
+    public var pendingInviteDetails: [PendingInviteDetail] = []
+    public var staleCutoffResult: Set<String> = []
 
     public init() {}
 
@@ -144,5 +224,13 @@ public final class MockPendingInviteRepository: PendingInviteRepositoryProtocol,
 
     public func hasPendingInvites(clientId: String) throws -> Bool {
         pendingInvites.first { $0.clientId == clientId }?.hasPendingInvites ?? false
+    }
+
+    public func allPendingInviteDetails() throws -> [PendingInviteDetail] {
+        pendingInviteDetails
+    }
+
+    public func stalePendingInviteClientIds(olderThan cutoff: Date) throws -> Set<String> {
+        staleCutoffResult
     }
 }

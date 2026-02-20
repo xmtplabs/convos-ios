@@ -116,4 +116,14 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func isInboxSleeping(clientId: String) async -> Bool {
         false
     }
+
+    // MARK: - Debug
+
+    public func pendingInviteDetails() throws -> [PendingInviteDetail] {
+        []
+    }
+
+    public func deleteExpiredPendingInvites() async throws -> Int {
+        0
+    }
 }
