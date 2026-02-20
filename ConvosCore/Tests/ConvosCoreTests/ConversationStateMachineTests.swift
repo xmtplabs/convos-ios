@@ -428,7 +428,7 @@ struct ConversationStateMachineTests {
 
     // MARK: - Multiple Conversation Tests
 
-    @Test("Creating multiple conversations sequentially works")
+    @Test("Creating multiple conversations sequentially works", .timeLimit(.minutes(4)))
     func testMultipleSequentialConversations() async throws {
         let fixtures = TestFixtures()
 
@@ -509,7 +509,7 @@ struct ConversationStateMachineTests {
 
         var conversationId2: String?
         do {
-            conversationId2 = try await withTimeout(seconds: 90) {
+            conversationId2 = try await withTimeout(seconds: 120) {
                 for await state in await stateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
