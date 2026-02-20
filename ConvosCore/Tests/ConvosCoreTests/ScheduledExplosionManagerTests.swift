@@ -26,7 +26,7 @@ struct ScheduledExplosionManagerTests {
         }
 
         let reminderIdentifier = "explosion-reminder-\(conversationId)"
-        try await waitForCondition(timeout: 2.0) {
+        try await waitUntil(timeout: .seconds(3)) {
             fixtures.notificationCenter.hasRequest(withIdentifier: reminderIdentifier)
         }
 
@@ -53,7 +53,7 @@ struct ScheduledExplosionManagerTests {
         }
 
         let explosionIdentifier = "explosion-\(conversationId)"
-        try await waitForCondition(timeout: 2.0) {
+        try await waitUntil(timeout: .seconds(3)) {
             fixtures.notificationCenter.hasRequest(withIdentifier: explosionIdentifier)
         }
 
@@ -80,7 +80,7 @@ struct ScheduledExplosionManagerTests {
         }
 
         let explosionIdentifier = "explosion-\(conversationId)"
-        try await waitForCondition(timeout: 2.0) {
+        try await waitUntil(timeout: .seconds(3)) {
             fixtures.notificationCenter.hasRequest(withIdentifier: explosionIdentifier)
         }
 
@@ -111,9 +111,7 @@ struct ScheduledExplosionManagerTests {
             )
         }
 
-        try await waitForCondition(timeout: 2.0) {
-            !fixtures.manager.hasSchedulingTask(for: conversationId)
-        }
+        try await waitForSchedulingTaskCompletion(fixtures: fixtures, conversationId: conversationId)
 
         let hasReminder = fixtures.notificationCenter.hasRequest(
             withIdentifier: "explosion-reminder-\(conversationId)"
@@ -145,7 +143,7 @@ struct ScheduledExplosionManagerTests {
         }
 
         let reminderIdentifier = "explosion-reminder-\(conversationId)"
-        try await waitForCondition(timeout: 2.0) {
+        try await waitUntil(timeout: .seconds(3)) {
             fixtures.notificationCenter.hasRequest(withIdentifier: reminderIdentifier)
         }
 
@@ -160,7 +158,9 @@ struct ScheduledExplosionManagerTests {
             )
         }
 
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil(timeout: .seconds(3)) {
+            fixtures.notificationCenter.removedIdentifiers.contains("explosion-\(conversationId)")
+        }
 
         let removedIds = fixtures.notificationCenter.removedIdentifiers
         #expect(removedIds.contains("explosion-reminder-\(conversationId)"))
@@ -186,13 +186,15 @@ struct ScheduledExplosionManagerTests {
         }
 
         let reminderIdentifier = "explosion-reminder-\(conversationId)"
-        try await waitForCondition(timeout: 2.0) {
+        let explosionIdentifier = "explosion-\(conversationId)"
+        try await waitUntil(timeout: .seconds(3)) {
             fixtures.notificationCenter.hasRequest(withIdentifier: reminderIdentifier)
+                && fixtures.notificationCenter.hasRequest(withIdentifier: explosionIdentifier)
         }
 
         let reminderRequest = fixtures.notificationCenter.getRequest(withIdentifier: reminderIdentifier)
         let explosionRequest = fixtures.notificationCenter.getRequest(
-            withIdentifier: "explosion-\(conversationId)"
+            withIdentifier: explosionIdentifier
         )
 
         #expect(reminderRequest != nil)
@@ -231,7 +233,7 @@ struct ScheduledExplosionManagerTests {
         }
 
         let explosionIdentifier = "explosion-\(conversationId)"
-        try await waitForCondition(timeout: 2.0) {
+        try await waitUntil(timeout: .seconds(3)) {
             fixtures.notificationCenter.hasRequest(withIdentifier: explosionIdentifier)
         }
 
@@ -295,12 +297,20 @@ private class ScheduledExplosionTestFixtures {
     }
 }
 
-private func waitForCondition(timeout: TimeInterval, condition: () -> Bool) async throws {
-    let deadline = Date().addingTimeInterval(timeout)
-    while Date() < deadline {
-        if condition() {
-            return
-        }
-        try await Task.sleep(for: .milliseconds(50))
+/// Wait for a scheduling task to start and then complete.
+/// The observer callback is dispatched async to the main queue, so we first
+/// need to yield to let it fire, then wait for the resulting task to finish.
+private func waitForSchedulingTaskCompletion(
+    fixtures: ScheduledExplosionTestFixtures,
+    conversationId: String
+) async throws {
+    // Phase 1: wait for the task to appear (callback has fired)
+    try await waitUntil(timeout: .seconds(3)) {
+        fixtures.manager.hasSchedulingTask(for: conversationId)
+    }
+
+    // Phase 2: wait for the task to complete (removed from dictionary)
+    try await waitUntil(timeout: .seconds(3)) {
+        !fixtures.manager.hasSchedulingTask(for: conversationId)
     }
 }
