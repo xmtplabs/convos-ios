@@ -64,6 +64,8 @@ public protocol InboxLifecycleManagerProtocol: Actor {
 
 public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     public let maxAwakeInboxes: Int
+    public let maxAwakePendingInvites: Int
+    public static let stalePendingInviteInterval: TimeInterval = 7 * 24 * 60 * 60
 
     private var awakeInboxes: [String: any MessagingServiceProtocol] = [:]
     private var _sleepingClientIds: Set<String> = []
@@ -103,6 +105,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
     public init(
         maxAwakeInboxes: Int = 10,
+        maxAwakePendingInvites: Int = 3,
         databaseReader: any DatabaseReader,
         databaseWriter: any DatabaseWriter,
         identityStore: any KeychainIdentityStoreProtocol,
@@ -115,6 +118,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         apiClient: (any ConvosAPIClientProtocol)? = nil
     ) {
         self.maxAwakeInboxes = maxAwakeInboxes
+        self.maxAwakePendingInvites = maxAwakePendingInvites
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.identityStore = identityStore
@@ -181,7 +185,6 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         return try await attemptWake(clientId: clientId, inboxId: inboxId, reason: reason)
     }
 
-    /// Internal wake that throws if at capacity
     private func attemptWake(clientId: String, inboxId: String, reason: WakeReason) async throws -> any MessagingServiceProtocol {
         Log.info("Attempting wake for inbox clientId: \(clientId), reason: \(reason.rawValue)")
 
@@ -191,7 +194,6 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             return existing
         }
 
-        // Fail open: if pending invite check fails, assume true to preserve privilege
         let hasPendingInvite: Bool
         do {
             hasPendingInvite = try pendingInviteRepository.hasPendingInvites(clientId: clientId)
@@ -201,8 +203,17 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         }
         let currentAwakeCount = awakeInboxes.count
 
-        // Check capacity - pending invites are always allowed, others must have room
-        if !hasPendingInvite && currentAwakeCount >= maxAwakeInboxes {
+        if hasPendingInvite {
+            let awakePendingCount = countAwakePendingInvites()
+            if awakePendingCount >= maxAwakePendingInvites && currentAwakeCount >= maxAwakeInboxes {
+                Log.warning(
+                    "Cannot wake pending invite inbox \(clientId): " +
+                    "pending cap reached (\(awakePendingCount)/\(maxAwakePendingInvites)) " +
+                    "and at overall capacity (\(currentAwakeCount)/\(maxAwakeInboxes))"
+                )
+                throw InboxLifecycleError.wakeCapacityExceeded
+            }
+        } else if currentAwakeCount >= maxAwakeInboxes {
             Log.warning("Cannot wake inbox \(clientId): at capacity (\(currentAwakeCount)/\(maxAwakeInboxes))")
             throw InboxLifecycleError.wakeCapacityExceeded
         }
@@ -216,13 +227,17 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         return service
     }
 
+    private func countAwakePendingInvites() -> Int {
+        let pendingIds = (try? pendingInviteRepository.clientIdsWithPendingInvites()) ?? []
+        return awakeInboxes.keys.filter { pendingIds.contains($0) }.count
+    }
+
     public func sleep(clientId: String) async {
         guard let service = awakeInboxes.removeValue(forKey: clientId) else {
             Log.info("Inbox not awake, cannot sleep: \(clientId)")
             return
         }
 
-        // Fail open: if pending invite check fails, assume true to preserve privilege
         let hasPendingInvite: Bool
         do {
             hasPendingInvite = try pendingInviteRepository.hasPendingInvites(clientId: clientId)
@@ -231,16 +246,19 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             hasPendingInvite = true
         }
         if hasPendingInvite {
-            Log.warning("Cannot sleep inbox with pending invite: \(clientId), keeping awake")
-            awakeInboxes[clientId] = service
-            return
+            let awakePendingCount = countAwakePendingInvites()
+            if awakePendingCount < maxAwakePendingInvites {
+                Log.warning("Cannot sleep inbox with pending invite (under cap): \(clientId), keeping awake")
+                awakeInboxes[clientId] = service
+                return
+            }
+            Log.info("Pending invite inbox over cap (\(awakePendingCount)/\(maxAwakePendingInvites)), allowing sleep: \(clientId)")
         }
 
         Log.info("Sleeping inbox: \(clientId)")
         let sleepTime = Date()
         await service.stop()
 
-        // Check if inbox was re-woken during the await (concurrent wake() call)
         guard awakeInboxes[clientId] == nil else {
             Log.info("Inbox was re-woken during stop, not marking as sleeping: \(clientId)")
             return
@@ -358,6 +376,8 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     public func initializeOnAppLaunch() async {
         Log.info("Initializing InboxLifecycleManager on app launch")
 
+        await cleanupStalePendingInvites()
+
         do {
             let allActivities = try activityRepository.allInboxActivities()
             let allPendingInvites = try pendingInviteRepository.allPendingInvites()
@@ -365,18 +385,39 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
             Log.info("Found \(allActivities.count) inboxes with activity, \(allPendingInvites.count) with pending invites")
 
-            // wake inboxes from activity records
-            for activity in allActivities {
-                let hasPendingInvite = allPendingInvites.contains { $0.clientId == activity.clientId && $0.hasPendingInvites }
+            let pendingInviteClientIds = Set(
+                allPendingInvites
+                    .filter { $0.hasPendingInvites }
+                    .map { $0.clientId }
+            )
+            var awakePendingInviteCount = 0
 
-                // Pending invites always wake (can exceed maxAwakeInboxes)
-                // Regular inboxes only wake if we haven't hit capacity
-                if hasPendingInvite || awakeInboxes.count < maxAwakeInboxes {
+            for activity in allActivities {
+                let hasPendingInvite = pendingInviteClientIds.contains(activity.clientId)
+
+                if hasPendingInvite {
+                    if awakePendingInviteCount < maxAwakePendingInvites {
+                        do {
+                            _ = try await attemptWake(
+                                clientId: activity.clientId,
+                                inboxId: activity.inboxId,
+                                reason: .pendingInvite
+                            )
+                            awakePendingInviteCount += 1
+                        } catch {
+                            Log.error("Failed to wake pending invite inbox \(activity.clientId): \(error)")
+                        }
+                    } else {
+                        _sleepingClientIds.insert(activity.clientId)
+                        _sleepTimes[activity.clientId] = Date()
+                        Log.info("Pending invite inbox over cap, marked sleeping: \(activity.clientId)")
+                    }
+                } else if awakeInboxes.count < maxAwakeInboxes {
                     do {
                         _ = try await attemptWake(
                             clientId: activity.clientId,
                             inboxId: activity.inboxId,
-                            reason: hasPendingInvite ? .pendingInvite : .appLaunch
+                            reason: .appLaunch
                         )
                     } catch {
                         Log.error("Failed to wake inbox \(activity.clientId): \(error)")
@@ -388,27 +429,49 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                 }
             }
 
-            // wake pending invite inboxes that have no activity record
             for pendingInvite in allPendingInvites where pendingInvite.hasPendingInvites {
                 let clientId = pendingInvite.clientId
                 let inboxId = pendingInvite.inboxId
                 if !activityClientIds.contains(clientId) && !awakeInboxes.keys.contains(clientId) {
-                    Log.info("Waking pending invite inbox with no activity record: \(clientId)")
-                    do {
-                        _ = try await attemptWake(
-                            clientId: clientId,
-                            inboxId: inboxId,
-                            reason: .pendingInvite
-                        )
-                    } catch {
-                        Log.error("Failed to wake pending invite inbox \(clientId): \(error)")
+                    if awakePendingInviteCount < maxAwakePendingInvites {
+                        Log.info("Waking pending invite inbox with no activity record: \(clientId)")
+                        do {
+                            _ = try await attemptWake(
+                                clientId: clientId,
+                                inboxId: inboxId,
+                                reason: .pendingInvite
+                            )
+                            awakePendingInviteCount += 1
+                        } catch {
+                            Log.error("Failed to wake pending invite inbox \(clientId): \(error)")
+                        }
+                    } else {
+                        _sleepingClientIds.insert(clientId)
+                        _sleepTimes[clientId] = Date()
+                        Log.info("Pending invite inbox (no activity) over cap, marked sleeping: \(clientId)")
                     }
                 }
             }
 
-            Log.info("App launch initialization complete: \(awakeInboxes.count) awake, \(_sleepingClientIds.count) sleeping")
+            Log.info(
+                "App launch initialization complete: \(awakeInboxes.count) awake, " +
+                "\(_sleepingClientIds.count) sleeping, \(awakePendingInviteCount) pending invite inboxes awake"
+            )
         } catch {
             Log.error("Failed to initialize InboxLifecycleManager: \(error)")
+        }
+    }
+
+    private func cleanupStalePendingInvites() async {
+        let cutoff = Date().addingTimeInterval(-Self.stalePendingInviteInterval)
+        do {
+            let staleClientIds = try pendingInviteRepository.stalePendingInviteClientIds(olderThan: cutoff)
+            guard !staleClientIds.isEmpty else { return }
+
+            // TODO: re-enable deletion once we've validated via the debug view in production
+            Log.info("Found \(staleClientIds.count) stale pending invite(s) older than 7 days (not deleting yet)")
+        } catch {
+            Log.error("Failed to check stale pending invites: \(error)")
         }
     }
 

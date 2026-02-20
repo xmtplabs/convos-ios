@@ -369,6 +369,91 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         await lifecycleManager.isSleeping(clientId: clientId)
     }
 
+    // MARK: Debug
+
+    public func pendingInviteDetails() throws -> [PendingInviteDetail] {
+        let repository = PendingInviteRepository(databaseReader: databaseReader)
+        return try repository.allPendingInviteDetails()
+    }
+
+    public func deleteExpiredPendingInvites() async throws -> Int {
+        let cutoff = Date().addingTimeInterval(-InboxLifecycleManager.stalePendingInviteInterval)
+
+        let expiredInvites: [DBConversation] = try await databaseReader.read { db in
+            let sql = """
+                SELECT c.*
+                FROM conversation c
+                WHERE c.id LIKE 'draft-%'
+                    AND c.inviteTag IS NOT NULL
+                    AND length(c.inviteTag) > 0
+                    AND c.createdAt < ?
+                    AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) <= 1
+                """
+            return try DBConversation.fetchAll(db, sql: sql, arguments: [cutoff])
+        }
+
+        guard !expiredInvites.isEmpty else { return 0 }
+
+        let expiredConversationIds = Set(expiredInvites.map { $0.id })
+        let expiredClientIds = Set(expiredInvites.map { $0.clientId })
+
+        let clientIdsToKeep: Set<String> = try await databaseReader.read { db in
+            let placeholders = expiredClientIds.map { _ in "?" }.joined(separator: ",")
+            let expiredIdPlaceholders = expiredConversationIds.map { _ in "?" }.joined(separator: ",")
+
+            let sql = """
+                SELECT DISTINCT c.clientId
+                FROM conversation c
+                WHERE c.clientId IN (\(placeholders))
+                    AND (
+                        (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) > 1
+                        OR c.id NOT IN (\(expiredIdPlaceholders))
+                    )
+                """
+            let arguments = StatementArguments(Array(expiredClientIds) + Array(expiredConversationIds))
+            return Set(try String.fetchAll(db, sql: sql, arguments: arguments))
+        }
+
+        let safeToDeleteClientIds = expiredClientIds.subtracting(clientIdsToKeep)
+
+        let inboxWriter = InboxWriter(dbWriter: databaseWriter)
+
+        for clientId in safeToDeleteClientIds {
+            await lifecycleManager.forceRemove(clientId: clientId)
+
+            do {
+                let identity = try await identityStore.delete(clientId: clientId)
+                Log.info("Deleted keychain identity for expired invite inbox: \(identity.inboxId)")
+            } catch {
+                Log.warning("Could not delete keychain identity for clientId \(clientId): \(error)")
+            }
+
+            do {
+                try await inboxWriter.delete(clientId: clientId)
+                Log.info("Deleted inbox record for expired invite clientId: \(clientId)")
+            } catch {
+                Log.warning("Could not delete inbox record for clientId \(clientId): \(error)")
+            }
+        }
+
+        let safeToDeleteConversationIds = expiredInvites
+            .filter { safeToDeleteClientIds.contains($0.clientId) }
+            .map { $0.id }
+
+        let deletedCount = try await databaseWriter.write { db in
+            try DBConversation
+                .filter(safeToDeleteConversationIds.contains(DBConversation.Columns.id))
+                .deleteAll(db)
+        }
+
+        if !clientIdsToKeep.isEmpty {
+            Log.info("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
+        }
+
+        Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")
+        return deletedCount
+    }
+
     // MARK: Helpers
 
     public func inboxId(for conversationId: String) async -> String? {
