@@ -10,6 +10,7 @@ struct ConversationToolbarButton: View {
     let conversationName: String
     let placeholderName: String
     let subtitle: String
+    let scheduledExplosionDate: Date?
     let action: () -> Void
     var longPressAction: (() -> Void)?
 
@@ -19,6 +20,7 @@ struct ConversationToolbarButton: View {
         conversationName: String,
         placeholderName: String,
         subtitle: String = "Customize",
+        scheduledExplosionDate: Date? = nil,
         action: @escaping () -> Void,
         longPressAction: (() -> Void)? = nil
     ) {
@@ -27,6 +29,7 @@ struct ConversationToolbarButton: View {
         self.conversationName = conversationName
         self.placeholderName = placeholderName
         self.subtitle = subtitle
+        self.scheduledExplosionDate = scheduledExplosionDate
         self.action = action
         self.longPressAction = longPressAction
     }
@@ -36,6 +39,23 @@ struct ConversationToolbarButton: View {
             return placeholderName
         }
         return conversationName
+    }
+
+    @ViewBuilder
+    private var subtitleView: some View {
+        if let expiresAt = scheduledExplosionDate {
+            TimelineView(.periodic(from: .now, by: 1.0)) { context in
+                Text(ExplosionDurationFormatter.countdown(until: expiresAt, from: context.date))
+                    .lineLimit(1)
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.colorCaution)
+            }
+        } else {
+            Text(subtitle)
+                .lineLimit(1)
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
+        }
     }
 
     private var content: some View {
@@ -54,10 +74,7 @@ struct ConversationToolbarButton: View {
                     .truncationMode(.tail)
                     .foregroundStyle(.colorTextPrimary)
                     .fixedSize()
-                Text(subtitle)
-                    .lineLimit(1)
-                    .font(.caption)
-                    .foregroundStyle(.colorTextSecondary)
+                subtitleView
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
         }

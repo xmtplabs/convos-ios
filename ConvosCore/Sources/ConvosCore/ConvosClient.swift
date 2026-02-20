@@ -14,6 +14,7 @@ public final class ConvosClient {
     private let databaseManager: any DatabaseManagerProtocol
     private let environment: AppEnvironment
     public let expiredConversationsWorker: ExpiredConversationsWorkerProtocol?
+    public let scheduledExplosionManager: ScheduledExplosionManagerProtocol?
     public let platformProviders: PlatformProviders
 
     var databaseWriter: any DatabaseWriter {
@@ -43,6 +44,7 @@ public final class ConvosClient {
             databaseManager: databaseManager,
             environment: .tests,
             expiredConversationsWorker: nil,
+            scheduledExplosionManager: nil,
             platformProviders: platformProviders
         )
     }
@@ -55,6 +57,7 @@ public final class ConvosClient {
             databaseManager: databaseManager,
             environment: .tests,
             expiredConversationsWorker: nil,
+            scheduledExplosionManager: nil,
             platformProviders: platformProviders
         )
     }
@@ -64,12 +67,14 @@ public final class ConvosClient {
         databaseManager: any DatabaseManagerProtocol,
         environment: AppEnvironment,
         expiredConversationsWorker: ExpiredConversationsWorkerProtocol?,
+        scheduledExplosionManager: ScheduledExplosionManagerProtocol?,
         platformProviders: PlatformProviders
     ) {
         self.sessionManager = sessionManager
         self.databaseManager = databaseManager
         self.environment = environment
         self.expiredConversationsWorker = expiredConversationsWorker
+        self.scheduledExplosionManager = scheduledExplosionManager
         self.platformProviders = platformProviders
     }
 }

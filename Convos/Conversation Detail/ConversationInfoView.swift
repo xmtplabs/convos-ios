@@ -31,10 +31,10 @@ struct FeatureRowItem<AccessoryView: View>: View {
                     image
                         .font(.headline)
                         .padding(.horizontal, DesignConstants.Spacing.step2x)
-                        .padding(.vertical, 10.0)
+                        .padding(.vertical, DesignConstants.Spacing.step3x)
                         .foregroundStyle(iconForegroundColor)
                 }
-                .frame(width: 40.0, height: 40.0)
+                .frame(width: DesignConstants.Spacing.step10x, height: DesignConstants.Spacing.step10x)
                 .background(
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
                         .fill(iconBackgroundColor)
@@ -74,7 +74,7 @@ struct ConversationInfoView: View {
     let focusCoordinator: FocusCoordinator
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @State private var showingExplodeConfirmation: Bool = false
+    @State private var showingExplodeSheet: Bool = false
     @State private var presentingEditView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
@@ -253,6 +253,16 @@ struct ConversationInfoView: View {
                     lockRow
                 }
 
+                if viewModel.canRemoveMembers {
+                    Section {
+                        ExplodeInfoRow(
+                            scheduledExplosionDate: viewModel.scheduledExplosionDate,
+                            onTap: { showingExplodeSheet = true },
+                            onExplodeNow: { viewModel.explodeConvo() }
+                        )
+                    }
+                }
+
                 Section {
                     FeatureRowItem(
                         imageName: nil,
@@ -408,32 +418,6 @@ struct ConversationInfoView: View {
                         }
                     }
                 }
-
-                if viewModel.canRemoveMembers {
-                    Section {
-                        Button {
-                            showingExplodeConfirmation = true
-                        } label: {
-                            Text("Explode now")
-                                .foregroundStyle(.colorCaution)
-                        }
-                        .accessibilityLabel("Explode conversation")
-                        .accessibilityHint("Irrecoverably deletes the conversation for everyone")
-                        .accessibilityIdentifier("explode-now-button")
-                        .confirmationDialog("", isPresented: $showingExplodeConfirmation) {
-                            Button("Explode", role: .destructive) {
-                                viewModel.explodeConvo()
-                            }
-
-                            Button("Cancel") {
-                                showingExplodeConfirmation = false
-                            }
-                        }
-                    } footer: {
-                        Text("Irrecoverably delete the convo for everyone")
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                }
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)
@@ -494,6 +478,28 @@ struct ConversationInfoView: View {
                 FullConvoInfoView(onDismiss: {
                     showingFullInfo = false
                 })
+            }
+            .background {
+                Color.clear
+                    .fullScreenCover(isPresented: $showingExplodeSheet) {
+                        ExplodeConvoSheet(
+                            isScheduled: viewModel.scheduledExplosionDate != nil,
+                            onSchedule: { date in
+                                viewModel.scheduleExplosion(at: date)
+                                showingExplodeSheet = false
+                            },
+                            onExplodeNow: {
+                                viewModel.explodeConvo()
+                            },
+                            onDismiss: {
+                                showingExplodeSheet = false
+                            }
+                        )
+                        .presentationBackground(.clear)
+                    }
+                    .transaction { transaction in
+                        transaction.disablesAnimations = true
+                    }
             }
         }
     }

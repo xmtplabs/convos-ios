@@ -159,7 +159,8 @@ public actor ConversationStateMachine {
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
-            databaseReader: databaseReader
+            databaseReader: databaseReader,
+            notificationCenter: MockUserNotificationCenter()
         )
     }
 
@@ -590,6 +591,7 @@ public actor ConversationStateMachine {
         let text = try invite.toURLSafeSlug()
         _ = try await dm.prepare(text: text)
         try await dm.publish()
+        Log.info("[PERF] NewConversation.joinRequestSent")
 
         // Clean up previous conversation, do this without matching the `conversationId`.
         // We don't need the created conversation during the 'joining' state and

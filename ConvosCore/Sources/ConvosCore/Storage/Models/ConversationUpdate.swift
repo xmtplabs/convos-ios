@@ -12,7 +12,7 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
 
             var showsInMessagesList: Bool {
                 switch self {
-                case .expiresAt, .unknown, .metadata:
+                case .unknown, .metadata:
                     false
                 default:
                     true
@@ -47,6 +47,9 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
             return creator.profile
         } else if let metadataChange = metadataChanges.first,
                   metadataChange.field == .description {
+            return creator.profile
+        } else if let metadataChange = metadataChanges.first,
+                  metadataChange.field == .expiresAt {
             return creator.profile
         } else if !removedMembers.isEmpty {
             return nil

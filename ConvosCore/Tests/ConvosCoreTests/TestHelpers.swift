@@ -289,3 +289,48 @@ public actor MockNetworkMonitor: NetworkMonitorProtocol {
         }
     }
 }
+
+class NotificationCapture: @unchecked Sendable {
+    private let lock: NSLock = NSLock()
+    private var _postedNotifications: [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] = []
+    private var observers: [NSObjectProtocol] = []
+
+    var postedNotifications: [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return _postedNotifications
+    }
+
+    func startCapturing(_ name: Notification.Name) {
+        let observer = NotificationCenter.default.addObserver(
+            forName: name,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            self.lock.lock()
+            self._postedNotifications.append((notification.name, notification.userInfo))
+            self.lock.unlock()
+        }
+        observers.append(observer)
+    }
+
+    func stopCapturing() {
+        observers.forEach { NotificationCenter.default.removeObserver($0) }
+        observers.removeAll()
+    }
+
+    func hasNotification(_ name: Notification.Name) -> Bool {
+        postedNotifications.contains { $0.name == name }
+    }
+
+    func notifications(named name: Notification.Name) -> [(name: Notification.Name, userInfo: [AnyHashable: Any]?)] {
+        postedNotifications.filter { $0.name == name }
+    }
+
+    func reset() {
+        lock.lock()
+        _postedNotifications.removeAll()
+        lock.unlock()
+    }
+}

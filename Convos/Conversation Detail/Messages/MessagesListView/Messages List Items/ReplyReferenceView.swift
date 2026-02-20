@@ -83,6 +83,7 @@ struct ReplyReferenceView: View {
             if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
                     attachmentKey: attachment.key,
+                    parentMessage: parentMessage,
                     shouldBlur: shouldBlurAttachment,
                     onReveal: { onPhotoRevealed?(attachment.key) },
                     onHide: { onPhotoHidden?(attachment.key) }
@@ -198,21 +199,36 @@ struct ReplyReferenceView: View {
 
 private struct ReplyReferencePhotoPreview: View {
     let attachmentKey: String
+    let parentMessage: Message
     let shouldBlur: Bool
     let onReveal: () -> Void
     let onHide: () -> Void
 
+    @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
     @State private var loadedImage: UIImage?
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
     private static let maxHeight: CGFloat = 80.0
 
-    init(attachmentKey: String, shouldBlur: Bool, onReveal: @escaping () -> Void, onHide: @escaping () -> Void) {
+    init(
+        attachmentKey: String,
+        parentMessage: Message,
+        shouldBlur: Bool,
+        onReveal: @escaping () -> Void,
+        onHide: @escaping () -> Void
+    ) {
         self.attachmentKey = attachmentKey
+        self.parentMessage = parentMessage
         self.shouldBlur = shouldBlur
         self.onReveal = onReveal
         self.onHide = onHide
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+    }
+
+    @State private var instanceID: UUID = UUID()
+
+    private var isSourceForContextMenu: Bool {
+        contextMenuState.isReplyParent && contextMenuState.sourceID == instanceID
     }
 
     var body: some View {
@@ -224,29 +240,32 @@ private struct ReplyReferencePhotoPreview: View {
                     .frame(maxHeight: Self.maxHeight)
                     .scaleEffect(shouldBlur ? 1.65 : 1.0)
                     .blur(radius: shouldBlur ? 96 : 0)
-                    .opacity(1.0)
-                    .clipShape(RoundedRectangle(cornerRadius: 12.0))
-                    .contentShape(RoundedRectangle(cornerRadius: 12.0))
+                    .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
+                    .opacity(isSourceForContextMenu ? 0 : 1.0)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
+                    .contentShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
                     .onTapGesture {
                         if shouldBlur {
                             onReveal()
                         }
                     }
-                    .contextMenu {
-                        if shouldBlur {
-                            let revealAction = { onReveal() }
-                            Button(action: revealAction) {
-                                Label("Reveal", systemImage: "eye")
-                            }
-                        } else {
-                            let hideAction = { onHide() }
-                            Button(action: hideAction) {
-                                Label("Blur", systemImage: "eye.slash")
-                            }
+                    .overlay {
+                        GeometryReader { geometry in
+                            Color.clear
+                                .contentShape(Rectangle())
+                                .onLongPressGesture(minimumDuration: 0.5) {
+                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                    let frame = geometry.frame(in: .global)
+                                    contextMenuState.presentReplyParent(
+                                        message: .message(parentMessage, .existing),
+                                        bubbleFrame: frame,
+                                        sourceID: instanceID
+                                    )
+                                }
                         }
                     }
             } else {
-                RoundedRectangle(cornerRadius: 12.0)
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
                     .fill(.quaternary)
                     .frame(width: 60.0, height: Self.maxHeight)
             }

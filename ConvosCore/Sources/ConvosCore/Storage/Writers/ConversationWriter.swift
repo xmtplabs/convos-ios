@@ -436,6 +436,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if existingConversation.isUnused {
                 updatedConversation = updatedConversation.with(isUnused: true)
             }
+            if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
+                updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
+            }
             try updatedConversation.save(db)
             firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != existingConversation.expiresAt
             actualClientConversationId = preferredClientConversationId

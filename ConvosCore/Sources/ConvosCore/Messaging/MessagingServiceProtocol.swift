@@ -43,6 +43,7 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     func replyWriter() -> any ReplyMessageWriterProtocol
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
+    func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
 
     func uploadImage(data: Data, filename: String) async throws -> String

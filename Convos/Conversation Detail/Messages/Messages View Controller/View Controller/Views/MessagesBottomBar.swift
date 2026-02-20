@@ -178,7 +178,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onTapReactions: { _ in },
             onReply: { _ in },
             contextMenuState: .init(),
-            onDoubleTap: { _ in },
             onPhotoRevealed: { _ in },
             onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },

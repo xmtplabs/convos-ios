@@ -84,6 +84,7 @@ class NewConversationViewModel: Identifiable {
     @ObservationIgnored
     private var dismissAction: DismissAction?
     private var pendingInviteCode: String?
+    private let perfStartTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
 
     // MARK: - Init
 
@@ -159,6 +160,8 @@ class NewConversationViewModel: Identifiable {
             case .newConversation:
                 let (messagingService, existingConversationId) = await session.addInbox()
                 guard !Task.isCancelled else { return }
+                let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
+                Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
                 configureWithMessagingService(
                     messagingService,
                     existingConversationId: existingConversationId
@@ -167,6 +170,8 @@ class NewConversationViewModel: Identifiable {
             case .scanner, .joinInvite:
                 let messagingService = await session.addInboxOnly()
                 guard !Task.isCancelled else { return }
+                let inboxElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
+                Log.info("[PERF] NewConversation.inboxAcquired: \(String(format: "%.0f", inboxElapsed))ms")
                 configureWithMessagingService(messagingService, existingConversationId: nil)
             }
 
@@ -379,6 +384,8 @@ class NewConversationViewModel: Identifiable {
             resetUIState()
 
         case .creating:
+            let creatingElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
+            Log.info("[PERF] NewConversation.creating: \(String(format: "%.0f", creatingElapsed))ms")
             isCreatingConversation = true
             conversationViewModel?.isWaitingForInviteAcceptance = false
             currentError = nil
@@ -422,11 +429,11 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItemEnabled = true
             messagesTextFieldEnabled = true
             isCreatingConversation = false
-            if result.origin != .existing || !startedWithFullscreenScanner {
-                showingFullScreenScanner = false
-            }
+            showingFullScreenScanner = false
             currentError = nil
 
+            let readyElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
+            Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
             Log.info("Conversation ready!")
 
         case .deleting:

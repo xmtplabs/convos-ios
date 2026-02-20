@@ -1,6 +1,5 @@
 import ConvosCore
 import ConvosLogging
-import Photos
 import SwiftUI
 import UIKit
 
@@ -11,22 +10,15 @@ struct MessagesGroupItemView: View {
     let onTapAvatar: (AnyMessage) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReply: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
-    @State private var swipeOffset: CGFloat = 0
 
     private var animates: Bool {
         message.origin == .inserted
-    }
-
-    private var isReply: Bool {
-        if case .reply = message { return true }
-        return false
     }
 
     var body: some View {
@@ -46,170 +38,12 @@ struct MessagesGroupItemView: View {
                     ? DesignConstants.Spacing.step4x
                     : 0.0)
             }
-            switch message.base.content {
-            case .text(let text):
-                MessageBubble(
-                    style: message.base.content.isEmoji ? .none : bubbleType,
-                    message: text,
-                    isOutgoing: message.base.sender.isCurrentUser,
-                    profile: message.base.sender.profile
-                )
-                .messageInteractions(
-                    message: message,
-                    bubbleStyle: message.base.content.isEmoji ? .none : bubbleType,
-                    onSwipeOffsetChanged: { swipeOffset = $0 },
-                    onSwipeEnded: { triggered in
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            swipeOffset = 0
-                        }
-                        if triggered { onReply(message) }
-                    }
-                )
-                .offset(x: swipeOffset)
-                .background(alignment: .leading) {
-                    if swipeOffset > 0 {
-                        let progress = min(swipeOffset / 60.0, 1.0)
-                        Image(systemName: "arrowshape.turn.up.left.fill")
-                            .foregroundStyle(.tertiary)
-                            .scaleEffect(0.4 + progress * 0.6)
-                            .opacity(Double(progress))
-                            .padding(.leading, DesignConstants.Spacing.step2x)
-                            .accessibilityHidden(true)
-                    }
-                }
-                .zIndex(200)
-                .id("bubble-\(message.base.id)")
-                .scaleEffect(isAppearing ? 0.9 : 1.0)
-                .rotationEffect(
-                    .radians(
-                        isAppearing
-                        ? (message.base.source == .incoming ? -0.05 : 0.05)
-                        : 0
-                    )
-                )
-                .offset(
-                    x: isAppearing
-                    ? (message.base.source == .incoming ? -20 : 20)
-                    : 0,
-                    y: isAppearing ? 40 : 0
-                )
-                .padding(.trailing, DesignConstants.Spacing.step4x)
-
-            case .emoji(let text):
-                EmojiBubble(
-                    emoji: text,
-                    isOutgoing: message.base.sender.isCurrentUser,
-                    profile: message.base.sender.profile
-                )
-                .messageInteractions(
-                    message: message,
-                    bubbleStyle: .none,
-                    onSwipeOffsetChanged: { swipeOffset = $0 },
-                    onSwipeEnded: { triggered in
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            swipeOffset = 0
-                        }
-                        if triggered { onReply(message) }
-                    }
-                )
-                .offset(x: swipeOffset)
-                .background(alignment: .leading) {
-                    if swipeOffset > 0 {
-                        let progress = min(swipeOffset / 60.0, 1.0)
-                        Image(systemName: "arrowshape.turn.up.left.fill")
-                            .foregroundStyle(.tertiary)
-                            .scaleEffect(0.4 + progress * 0.6)
-                            .opacity(Double(progress))
-                            .padding(.leading, DesignConstants.Spacing.step2x)
-                    }
-                }
-                .zIndex(200)
-                .id("emoji-bubble-\(message.base.id)")
-                .opacity(isAppearing ? 0.0 : 1.0)
-                .blur(radius: isAppearing ? 10.0 : 0.0)
-                .scaleEffect(isAppearing ? 0.0 : 1.0)
-                .rotationEffect(
-                    .radians(
-                        isAppearing
-                        ? (message.base.source == .incoming ? -0.10 : 0.10)
-                        : 0
-                    )
-                )
-                .offset(
-                    x: isAppearing
-                    ? (message.base.source == .incoming ? -200 : 200)
-                    : 0,
-                    y: isAppearing ? 40 : 0
-                )
-                .padding(.trailing, DesignConstants.Spacing.step4x)
-
-            case .invite(let invite):
-                MessageInviteContainerView(
-                    invite: invite,
-                    style: bubbleType,
-                    isOutgoing: message.base.source == .outgoing,
-                    profile: message.base.sender.profile,
-                    onTapInvite: onTapInvite,
-                    onTapAvatar: { onTapAvatar(message) }
-                )
-                .messageInteractions(
-                    message: message,
-                    bubbleStyle: bubbleType,
-                    onSingleTap: { onTapInvite(invite) },
-                    onSwipeOffsetChanged: { swipeOffset = $0 },
-                    onSwipeEnded: { triggered in
-                        withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                            swipeOffset = 0
-                        }
-                        if triggered { onReply(message) }
-                    }
-                )
-                .offset(x: swipeOffset)
-                .background(alignment: .leading) {
-                    if swipeOffset > 0 {
-                        let progress = min(swipeOffset / 60.0, 1.0)
-                        Image(systemName: "arrowshape.turn.up.left.fill")
-                            .foregroundStyle(.tertiary)
-                            .scaleEffect(0.4 + progress * 0.6)
-                            .opacity(Double(progress))
-                            .padding(.leading, DesignConstants.Spacing.step2x)
-                    }
-                }
-                .zIndex(200)
-                .id("message-invite-\(message.base.id)")
-                .scaleEffect(isAppearing ? 0.9 : 1.0)
-                .rotationEffect(
-                    .radians(
-                        isAppearing
-                        ? (message.base.source == .incoming ? -0.05 : 0.05)
-                        : 0
-                    )
-                )
-                .offset(
-                    x: isAppearing
-                    ? (message.base.source == .incoming ? -20 : 20)
-                    : 0,
-                    y: isAppearing ? 40 : 0
-                )
-                .padding(.trailing, DesignConstants.Spacing.step4x)
-
-            case .attachment(let attachment):
-                attachmentView(for: attachment)
-
-            case .attachments(let attachments):
-                if let attachment = attachments.first {
-                    attachmentView(for: attachment)
-                }
-
-            case .update:
-                // Updates are handled at the item level, not here
-                EmptyView()
-            }
+            messageContent
         }
         .id("messages-group-item-view-\(message.base.id)")
         .transition(
             .asymmetric(
-                insertion: .identity,      // no transition on insert
+                insertion: .identity,
                 removal: .opacity
             )
         )
@@ -229,52 +63,133 @@ struct MessagesGroupItemView: View {
         }
     }
 
-    @State private var photoSwipeOffset: CGFloat = 0
+    @ViewBuilder
+    private var messageContent: some View {
+        switch message.base.content {
+        case .text(let text):
+            MessageBubble(
+                style: message.base.content.isEmoji ? .none : bubbleType,
+                message: text,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: message.base.content.isEmoji ? .none : bubbleType,
+                onReply: onReply
+            )
+            .id("bubble-\(message.base.id)")
+            .scaleEffect(isAppearing ? 0.9 : 1.0)
+            .rotationEffect(
+                .radians(
+                    isAppearing
+                    ? (message.base.source == .incoming ? -0.05 : 0.05)
+                    : 0
+                )
+            )
+            .offset(
+                x: isAppearing
+                ? (message.base.source == .incoming ? -20 : 20)
+                : 0,
+                y: isAppearing ? 40 : 0
+            )
+            .padding(.trailing, DesignConstants.Spacing.step4x)
+
+        case .emoji(let text):
+            EmojiBubble(
+                emoji: text,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: .none,
+                onReply: onReply
+            )
+            .id("emoji-bubble-\(message.base.id)")
+            .opacity(isAppearing ? 0.0 : 1.0)
+            .blur(radius: isAppearing ? 10.0 : 0.0)
+            .scaleEffect(isAppearing ? 0.0 : 1.0)
+            .rotationEffect(
+                .radians(
+                    isAppearing
+                    ? (message.base.source == .incoming ? -0.10 : 0.10)
+                    : 0
+                )
+            )
+            .offset(
+                x: isAppearing
+                ? (message.base.source == .incoming ? -200 : 200)
+                : 0,
+                y: isAppearing ? 40 : 0
+            )
+            .padding(.trailing, DesignConstants.Spacing.step4x)
+
+        case .invite(let invite):
+            MessageInviteContainerView(
+                invite: invite,
+                style: bubbleType,
+                isOutgoing: message.base.source == .outgoing,
+                profile: message.base.sender.profile,
+                onTapInvite: onTapInvite,
+                onTapAvatar: { onTapAvatar(message) }
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onSingleTap: { onTapInvite(invite) },
+                onReply: onReply
+            )
+            .id("message-invite-\(message.base.id)")
+            .scaleEffect(isAppearing ? 0.9 : 1.0)
+            .rotationEffect(
+                .radians(
+                    isAppearing
+                    ? (message.base.source == .incoming ? -0.05 : 0.05)
+                    : 0
+                )
+            )
+            .offset(
+                x: isAppearing
+                ? (message.base.source == .incoming ? -20 : 20)
+                : 0,
+                y: isAppearing ? 40 : 0
+            )
+            .padding(.trailing, DesignConstants.Spacing.step4x)
+
+        case .attachment(let attachment):
+            attachmentView(for: attachment)
+
+        case .attachments(let attachments):
+            if let attachment = attachments.first {
+                attachmentView(for: attachment)
+            }
+
+        case .update:
+            EmptyView()
+        }
+    }
 
     @ViewBuilder
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
+        let isBlurred = attachment.isHiddenByOwner || (!message.base.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
+
         AttachmentPlaceholder(
             attachment: attachment,
             isOutgoing: message.base.sender.isCurrentUser,
             profile: message.base.sender.profile,
             shouldBlurPhotos: shouldBlurPhotos,
             cornerRadius: 0,
-            onReveal: { onPhotoRevealed(attachment.key) },
-            onHide: { onPhotoHidden(attachment.key) },
-            onDoubleTap: { onDoubleTap(message) },
-            onReply: { onReply(message) },
             onDimensionsLoaded: { width, height in
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
         )
-        .messageInteractions(
+        .messageGesture(
             message: message,
             bubbleStyle: .normal,
-            onSingleTap: {
-                let isBlurred = attachment.isHiddenByOwner || (!message.base.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
-                if isBlurred {
-                    onPhotoRevealed(attachment.key)
-                }
-            },
-            onSwipeOffsetChanged: { photoSwipeOffset = $0 },
-            onSwipeEnded: { triggered in
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                    photoSwipeOffset = 0
-                }
-                if triggered { onReply(message) }
-            }
+            onSingleTap: isBlurred ? { onPhotoRevealed(attachment.key) } : nil,
+            onReply: onReply
         )
-        .offset(x: photoSwipeOffset)
-        .background(alignment: .leading) {
-            if photoSwipeOffset > 0 {
-                let progress = min(photoSwipeOffset / 60.0, 1.0)
-                Image(systemName: "arrowshape.turn.up.left.fill")
-                    .foregroundStyle(.tertiary)
-                    .scaleEffect(0.4 + progress * 0.6)
-                    .opacity(Double(progress))
-                    .padding(.leading, DesignConstants.Spacing.step2x)
-            }
-        }
         .id(message.base.id)
     }
 }
@@ -289,10 +204,6 @@ private struct AttachmentPlaceholder: View {
     let profile: Profile
     let shouldBlurPhotos: Bool
     var cornerRadius: CGFloat = 0
-    let onReveal: () -> Void
-    let onHide: () -> Void
-    let onDoubleTap: () -> Void
-    let onReply: () -> Void
     let onDimensionsLoaded: (Int, Int) -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -300,8 +211,6 @@ private struct AttachmentPlaceholder: View {
     @State private var loadedImage: UIImage?
     @State private var isLoading: Bool = true
     @State private var loadError: Error?
-    @State private var showingSaveSuccess: Bool = false
-    @State private var showingSaveError: Bool = false
     @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
@@ -347,8 +256,6 @@ private struct AttachmentPlaceholder: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .sensoryFeedback(.success, trigger: showingSaveSuccess)
-        .sensoryFeedback(.error, trigger: showingSaveError)
         .task {
             await loadAttachment()
         }
@@ -381,44 +288,15 @@ private struct AttachmentPlaceholder: View {
         .animation(.easeOut(duration: 0.15), value: isPressed)
     }
 
-    private func saveToPhotoLibrary(image: UIImage) {
-        showingSaveSuccess = false
-        showingSaveError = false
-
-        PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-            guard status == .authorized || status == .limited else {
-                Task { @MainActor in
-                    showingSaveError = true
-                }
-                return
-            }
-
-            PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
-            } completionHandler: { success, error in
-                Task { @MainActor in
-                    if success {
-                        showingSaveSuccess = true
-                    } else {
-                        Log.error("Failed to save photo: \(error?.localizedDescription ?? "Unknown error")")
-                        showingSaveError = true
-                    }
-                }
-            }
-        }
-    }
-
     private func loadAttachment() async {
         isLoading = true
         loadError = nil
 
         let cacheKey = attachment.key
 
-        // Check ImageCache first (memory + disk with proper eviction)
         if let cachedImage = await ImageCache.shared.imageAsync(for: cacheKey) {
             loadedImage = cachedImage
             isLoading = false
-            // Backfill dimensions for old photos that were cached before we tracked dims
             if attachment.width == nil {
                 onDimensionsLoaded(Int(cachedImage.size.width), Int(cachedImage.size.height))
             }
@@ -443,10 +321,8 @@ private struct AttachmentPlaceholder: View {
 
             if let image = UIImage(data: imageData) {
                 loadedImage = image
-                // Cache in ImageCache for future loads (handles disk + eviction)
                 ImageCache.shared.cacheImage(image, for: cacheKey)
 
-                // Save dimensions if not already stored (for incoming photos)
                 if attachment.width == nil {
                     onDimensionsLoaded(Int(image.size.width), Int(image.size.height))
                 }
@@ -532,7 +408,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
@@ -552,7 +427,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
@@ -572,7 +446,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
@@ -592,7 +465,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
@@ -613,7 +485,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
@@ -634,7 +505,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
@@ -655,7 +525,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
@@ -675,7 +544,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
@@ -695,7 +563,6 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in print("Photo revealed") },
         onPhotoHidden: { _ in print("Photo hidden") },
         onPhotoDimensionsLoaded: { _, _, _ in }

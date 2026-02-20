@@ -4,6 +4,7 @@ import Foundation
 import Observation
 import SwiftUI
 import UIKit
+import UserNotifications
 
 @MainActor
 @Observable
@@ -105,6 +106,7 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
+    private var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
             if conversationsCount > 1 {
@@ -116,6 +118,7 @@ final class ConversationsViewModel {
     enum ConversationFilter {
         case all
         case unread
+        case exploding
 
         var emptyStateMessage: String {
             switch self {
@@ -123,6 +126,8 @@ final class ConversationsViewModel {
                 return "No convos"
             case .unread:
                 return "No unread convos"
+            case .exploding:
+                return "No exploding convos"
             }
         }
     }
@@ -140,6 +145,8 @@ final class ConversationsViewModel {
             return baseConversations
         case .unread:
             return baseConversations.filter { $0.isUnread }
+        case .exploding:
+            return baseConversations.filter { $0.scheduledExplosionDate != nil }
         }
     }
 
@@ -150,6 +157,8 @@ final class ConversationsViewModel {
             return baseConversations
         case .unread:
             return baseConversations.filter { $0.isUnread }
+        case .exploding:
+            return baseConversations.filter { $0.scheduledExplosionDate != nil }
         }
     }
 
@@ -297,9 +306,9 @@ final class ConversationsViewModel {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
-                    if selectedConversation?.id == conversationId {
-                        selectedConversation = nil
-                        selectedConversationId = nil
+                    conversations.removeAll { $0.id == conversationId }
+                    if _selectedConversationId == conversationId {
+                        _selectedConversationId = nil
                         selectedConversationViewModel = nil
                     }
                     if newConversationViewModel?.conversationViewModel?.conversation.id == conversationId {
@@ -337,7 +346,9 @@ final class ConversationsViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
                 guard let self else { return }
-                self.conversations = conversations
+                self.conversations = hiddenConversationIds.isEmpty
+                    ? conversations
+                    : conversations.filter { !hiddenConversationIds.contains($0.id) }
 
                 // Clear selection if selected conversation no longer exists
                 if let selectedId = _selectedConversationId,
@@ -470,6 +481,79 @@ final class ConversationsViewModel {
                 try await writer.setUnread(false, for: conversationId)
             } catch {
                 Log.warning("Failed marking conversation as read: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func explodeConversation(_ conversation: Conversation) {
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+        let memberInboxIds = conversation.members.map { $0.profile.inboxId }
+
+        hiddenConversationIds.insert(conversationId)
+        if selectedConversation == conversation {
+            selectedConversation = nil
+        }
+        conversations.removeAll { $0.id == conversationId }
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let explosionWriter = messagingService.conversationExplosionWriter()
+                try await explosionWriter.explodeConversation(
+                    conversationId: conversationId,
+                    memberInboxIds: memberInboxIds
+                )
+
+                await UNUserNotificationCenter.current().addExplosionNotification(
+                    conversationId: conversationId,
+                    displayName: conversation.displayName
+                )
+
+                NotificationCenter.default.post(
+                    name: .conversationExpired,
+                    object: nil,
+                    userInfo: ["conversationId": conversationId]
+                )
+                conversation.postLeftConversationNotification()
+                self.hiddenConversationIds.remove(conversationId)
+                Log.info("Exploded conversation from list: \(conversationId)")
+            } catch {
+                self.hiddenConversationIds.remove(conversationId)
+                Log.error("Error exploding conversation from list: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func scheduleConversationExplosion(_ conversation: Conversation, at expiresAt: Date) {
+        guard conversation.scheduledExplosionDate == nil else {
+            Log.warning("Conversation \(conversation.id) already has a scheduled explosion")
+            return
+        }
+
+        if expiresAt <= Date() {
+            explodeConversation(conversation)
+            return
+        }
+
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let explosionWriter = messagingService.conversationExplosionWriter()
+                try await explosionWriter.scheduleExplosion(
+                    conversationId: conversationId,
+                    expiresAt: expiresAt
+                )
+                Log.info("Scheduled explosion from list for conversation: \(conversationId) at \(expiresAt)")
+            } catch {
+                Log.error("Error scheduling explosion from list: \(error.localizedDescription)")
             }
         }
     }

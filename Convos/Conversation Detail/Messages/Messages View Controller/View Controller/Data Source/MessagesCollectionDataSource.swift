@@ -10,7 +10,6 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onTapReactions: ((AnyMessage) -> Void)? { get set }
     var onReply: ((AnyMessage) -> Void)? { get set }
     var contextMenuState: MessageContextMenuState? { get set }
-    var onDoubleTap: ((AnyMessage) -> Void)? { get set }
     var shouldBlurPhotos: Bool { get set }
     var onPhotoRevealed: ((String) -> Void)? { get set }
     var onPhotoHidden: ((String) -> Void)? { get set }

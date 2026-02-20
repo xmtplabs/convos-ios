@@ -5,6 +5,7 @@ struct PinnedConversationsSection: View {
     let pinnedConversations: [Conversation]
     let viewModel: ConversationsViewModel
     @Binding var conversationPendingDeletion: Conversation?
+    @Binding var conversationPendingExplosion: Conversation?
     let onSelectConversation: (Conversation) -> Void
 
     private var shouldUseGrid: Bool {
@@ -29,6 +30,7 @@ struct PinnedConversationsSection: View {
                 conversationContextMenuContent(
                     conversation: conversation,
                     viewModel: viewModel,
+                    onExplode: { conversationPendingExplosion = conversation },
                     onDelete: { conversationPendingDeletion = conversation }
                 )
             }
@@ -49,6 +51,7 @@ struct PinnedConversationsSection: View {
                 }
             }
             .id(conversation.id)
+            .accessibilityIdentifier("pinned-conversation-\(conversation.id)")
     }
 
     var body: some View {
@@ -69,8 +72,6 @@ struct PinnedConversationsSection: View {
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .accessibilityLabel("Pinned conversations")
-        .accessibilityIdentifier("pinned-conversations-section")
     }
 
     private var gridLayout: some View {
@@ -84,13 +85,12 @@ struct PinnedConversationsSection: View {
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .accessibilityLabel("Pinned conversations")
-        .accessibilityIdentifier("pinned-conversations-section")
     }
 }
 
 #Preview {
     @Previewable @State var conversationPendingDeletion: Conversation?
+    @Previewable @State var conversationPendingExplosion: Conversation?
     let convos = ConvosClient.mock()
     let viewModel = ConversationsViewModel(session: convos.session)
 
@@ -102,6 +102,7 @@ struct PinnedConversationsSection: View {
         ],
         viewModel: viewModel,
         conversationPendingDeletion: $conversationPendingDeletion,
+        conversationPendingExplosion: $conversationPendingExplosion,
         onSelectConversation: { _ in }
     )
 }

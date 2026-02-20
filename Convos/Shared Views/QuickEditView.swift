@@ -53,6 +53,7 @@ struct QuickEditView: View {
             .truncationMode(.tail)
             .submitLabel(.done)
             .frame(height: 52.0)
+            .accessibilityIdentifier("quick-edit-display-name-field")
             .safeAreaInset(edge: .trailing) {
                 if showsSettingsButton {
                     Button {

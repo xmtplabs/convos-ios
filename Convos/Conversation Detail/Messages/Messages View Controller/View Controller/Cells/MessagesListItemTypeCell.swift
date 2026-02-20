@@ -78,7 +78,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onTapInvite: config.onTapInvite,
                         onTapReactions: config.onTapReactions,
                         onReply: config.onReply,
-                        onDoubleTap: config.onDoubleTap,
                         onPhotoRevealed: config.onPhotoRevealed,
                         onPhotoHidden: config.onPhotoHidden,
                         onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded

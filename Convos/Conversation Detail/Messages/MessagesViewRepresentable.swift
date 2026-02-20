@@ -17,7 +17,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
-    let onDoubleTap: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
@@ -54,7 +53,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onReaction = onReaction
         messagesViewController.onTapReactions = onTapReactions
         messagesViewController.onReply = onReply
-        messagesViewController.onDoubleTap = onDoubleTap
         messagesViewController.shouldBlurPhotos = shouldBlurPhotos
         messagesViewController.onPhotoRevealed = { key in
             Log.info("[Representable] onPhotoRevealed wrapper called with key: \(key.prefix(50))...")
@@ -66,6 +64,16 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         }
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
+        }
+        let menuPresented = contextMenuState.isPresented
+        let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
+        messagesViewController.view.isUserInteractionEnabled = !menuPresented
+        if menuPresented {
+            messagesViewController.collectionView.panGestureRecognizer.isEnabled = false
+            messagesViewController.collectionView.panGestureRecognizer.isEnabled = true
+        }
+        if wasMenuPresented, !menuPresented {
+            messagesViewController.applyDeferredBottomInset()
         }
         messagesViewController.state = .init(
             conversation: conversation,
@@ -96,7 +104,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onTapReactions: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),
-        onDoubleTap: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },

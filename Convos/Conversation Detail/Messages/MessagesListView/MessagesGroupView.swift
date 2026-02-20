@@ -9,7 +9,6 @@ struct MessagesGroupView: View {
     let onTapInvite: (MessageInvite) -> Void
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
@@ -77,7 +76,6 @@ struct MessagesGroupView: View {
                         onTapAvatar: onTapAvatar,
                         onTapInvite: onTapInvite,
                         onReply: onReply,
-                        onDoubleTap: onDoubleTap,
                         onPhotoRevealed: onPhotoRevealed,
                         onPhotoHidden: onPhotoHidden,
                         onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
@@ -529,7 +527,6 @@ struct MessagesGroupView: View {
                     onTapInvite: { _ in },
                     onTapReactions: { _ in },
                     onReply: { _ in },
-                    onDoubleTap: { _ in },
                     onPhotoRevealed: { _ in },
                     onPhotoHidden: { _ in },
                     onPhotoDimensionsLoaded: { _, _, _ in }
