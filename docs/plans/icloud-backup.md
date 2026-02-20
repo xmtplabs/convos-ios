@@ -1,185 +1,193 @@
 # iCloud Backup Plan for Convos
 
-## Current State
+## Purpose
+Ship a near-term backup + restore solution for "my phone is in the river" without blocking on full multi-device architecture.
 
-Convos uses a **per-conversation identity model** (ADR 002): each conversation gets its own XMTP inbox with unique keys. Today:
+This plan is intentionally split into two tracks:
+- identity continuity (keys / inbox access / resume conversations)
+- history continuity (message archive restore)
 
-- **Keys** (secp256k1 private key + 256-bit DB encryption key) stored in iOS Keychain with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` — device-only, no iCloud sync
-- **XMTP device sync disabled** (`deviceSyncEnabled: false`)
-- **No backup/export exists** — losing the keychain means permanently losing all conversations
-- **No multi-device support** — each conversation lives on exactly one device
-
-Key files:
-- `ConvosCore/.../Auth/Keychain/KeychainIdentityStore.swift` — key storage
-- `ConvosCore/.../Inboxes/InboxStateMachine.swift:928` — device sync disabled
-- `docs/adr/002-per-conversation-identity-model.md` — architecture rationale
+The product priority is **resume first, history second**.
 
 ---
 
-## Team Decisions (from last week's meeting)
+## Updated framing (from team discussion)
 
-1. **Prioritize key backup first** — laptop-first so users can recover identity on a new device
-2. **Chat history backup is optional/secondary** — can be added or enabled later
-3. **Backups likely enabled by default** with user-controlled opt-out for privacy-sensitive users
-4. **Multi-device is not the immediate goal** — backup/restore is the MVP, not simultaneous multi-device
+### What we are solving now
+1. User loses device
+2. User installs Convos on new iPhone
+3. User can recover identities (per-conversation keys)
+4. User can be re-added / resume sending and receiving
+5. Optional: user restores old message history
 
-### Open concerns from the meeting
-- iCloud Keychain sync could accidentally create multi-device states (keys on both devices, duplicate installations)
-- Push notifications are per-installation — multiple devices with same keys would get notifications independently but wouldn't share mute/settings state
-- HistorySync behavior is unclear — is it one-off device-to-device or ongoing sync?
-- How to avoid duplicate/inconsistent installations when restoring archives without proper multi-device support
+### What we are not solving yet
+- Full simultaneous multi-device UX (phone + iPad + desktop all active and coherent)
+- Cross-platform key portability (iOS -> Android) as an MVP requirement
+- Full preferences sync (mute, read state, local UI state)
 
----
-
-## Part 1: Backup Private Keys to iCloud Keychain (MVP)
-
-### What gets backed up
-For each conversation, a `KeychainIdentity` contains:
-- `inboxId` (XMTP inbox identifier)
-- `clientId` (privacy-preserving UUID for push routing)
-- `privateKey` (secp256k1 signing key)
-- `databaseKey` (256-bit encryption key for XMTP local DB)
-
-### Approach
-Change keychain access attribute from `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly` to `kSecAttrAccessibleAfterFirstUnlock` (drops `ThisDeviceOnly`). This enables iCloud Keychain sync automatically.
-
-### What this gives us
-- Keys survive device loss, factory reset, app deletion
-- Keys available on new device signed into same Apple ID
-- iCloud Keychain is E2E encrypted — Apple cannot read keys
-- No new infrastructure needed
-
-### What this does NOT give us
-- Message history (keys alone let you rejoin conversations, but past messages are gone)
-- Multi-device simultaneously (keys on both devices could cause confusing states)
-- Settings/preferences sync (mute state, notification preferences)
-
-### Risks and complications
-- **Accidental multi-device:** If a user has Convos on phone + iPad, both devices would have keys. If both try to build XMTP clients, you get duplicate installations per inbox. Need a strategy:
-  - Option A: App detects "another device has these keys" and presents a transfer flow instead of auto-activating
-  - Option B: Only activate on explicit user action ("Restore from backup?")
-  - Option C: Accept dual-device state and handle it (harder)
-- **Explode feature interaction:** Exploding a conversation deletes keys locally, but iCloud Keychain might still have a copy (sync delay). Need to explicitly delete from iCloud too, or accept that exploded conversations could theoretically be recovered from backup.
-- **Keychain migration:** Existing users have keys with `ThisDeviceOnly`. Need a migration path to copy keys to the new (syncable) access level. Cannot just update the attribute in-place — must delete and re-add each keychain item.
+### Core product principle
+A short-term backup solution must not block the long-term vision:
+- per-conversation portability
+- selective sync/backup at conversation granularity
+- eventual multi-platform support
 
 ---
 
-## Part 2: Backup Message Archive to iCloud (Phase 2)
+## Current state (codebase)
 
-### XMTP Archive API (from docs.xmtp.org)
-Three methods:
-- **`createArchive(path, encryptionKey, options?)`** — encrypted backup file
-- **`archiveMetadata(path, encryptionKey)`** — read backup info before importing
-- **`importArchive(path, encryptionKey)`** — restore messages (additive, deduplicates)
+- Per-conversation identity model (ADR 002): one XMTP inbox per conversation
+- Keychain identity currently stored with `kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly`
+- No cloud key backup
+- `deviceSyncEnabled: false`
+- No message archive backup job
 
-Options for `createArchive`:
-- Time range: `startNs` / `endNs` (nanoseconds), defaults to all time
-- Content types: "Consent" or "Messages", defaults to both
-- `excludeDisappearingMessages`: boolean (defaults to false)
-
-### Restore behavior
-- All imported conversations start **inactive and read-only**
-- Reactivation happens when existing members interact (~up to 30 minutes)
-- Attempting to send/sync on inactive conversations throws `Group is inactive`
-- Import is additive: preserves existing messages, ignores duplicates
-
-### Convos-specific complications
-Since each conversation is a separate XMTP client, we'd need:
-- One `createArchive` call **per conversation** (per XMTP client)
-- A separate 32-byte encryption key per archive (or one shared key for all)
-- Storage for potentially hundreds of small archive files
-
-### Storage options for archive files
-| Option | Pros | Cons |
-|--------|------|------|
-| iCloud Drive (ubiquity container) | Simple, user-visible, iOS-native | User could delete files, visible in Files app |
-| CloudKit private database | Not user-visible, more control | More complex, quota limits |
-| iCloud key-value store | Simplest API | 1MB total limit — way too small |
-
-### Archive encryption key storage
-The 32-byte archive encryption key needs to live somewhere durable:
-- iCloud Keychain (alongside identity keys) — simplest, already synced
-- Derived from a user passphrase — more secure, but UX friction
-- Stored in CloudKit alongside archives — convenient but less secure
+Consequence: if keychain is lost, user loses ability to resume conversations.
 
 ---
 
-## The Multi-Device Question (deferred)
+## Decisions and recommendations
 
-### Why it's hard for Convos specifically
-Standard XMTP: 1 inbox per user, N devices = N installations of that inbox.
-Convos: N inboxes per user (one per conversation). Multi-device = N inboxes x M devices installations.
+## Decision A: Ship key backup first (MVP)
+Reason: no point restoring history if user cannot resume conversations.
 
-This means:
-- Each conversation's XMTP inbox needs installations on every device
-- `deviceSyncEnabled: true` for all inboxes
-- Push notification routing to multiple devices per conversation
-- Memory/performance scales with conversation count x device count
-- Mute/settings state doesn't propagate via XMTP — needs separate sync
+## Decision B: Keep message archive as Phase 2
+Reason: archive restore is useful, but less critical than identity recovery.
 
-### Recommended: defer multi-device, ship backup/restore
-The meeting consensus aligns with this. Ship key backup first. When a user gets a new device:
-1. Keys sync via iCloud Keychain
-2. App detects synced keys, offers "Restore conversations?"
-3. Optionally import archives for message history
-4. Old device should be decommissioned (or at minimum, app warns about dual-device)
+## Decision C: Treat multi-device as a separate project
+Reason: backup/restore and multi-device share foundations, but UX + state sync + push behavior makes full multi-device materially larger.
 
-True multi-device (phone + iPad simultaneously) is a separate, larger project.
+## Decision D: Start app-level, keep path open to per-conversation controls
+Recommendation:
+- MVP controls at app level (simple UX)
+- data model and APIs should support future per-conversation backup/sync toggles
+
+Comment: this keeps Shane's conversation-level vision alive without blocking immediate release.
 
 ---
 
-## Questions for Nick (CTO)
+## Phase 1 — Identity backup to iCloud Keychain (MVP)
 
-### On World's approach
-1. How did World handle key backup? iCloud Keychain, seed phrases, server-side escrow, or something else?
-2. Did World support multi-device simultaneously, or was it single-device with backup/restore?
-3. What was World's HistorySync behavior — one-off device-to-device transfer (requiring old device), or ongoing background sync?
-4. What backup frequency/trigger did World use? On-demand, periodic, event-driven?
-5. Any pain points or lessons learned from World's backup implementation?
+### Scope
+Back up per-conversation identity material via iCloud-synced Keychain entries.
 
-### On Convos-specific concerns
-6. **Explode + backup interaction:** If a user explodes a conversation but keys are backed up to iCloud, should we aggressively purge from iCloud too? Or accept that backup weakens the explode guarantee?
-7. **Dual-device detection:** If keys sync to a second device, should we block auto-activation and require explicit restore, or try to handle dual-device gracefully?
-8. **Keychain migration:** For existing users, migrating from `ThisDeviceOnly` to syncable keychain items requires delete + re-add. Any concerns with this approach?
-9. **Users without iCloud:** Do we need a fallback (e.g., encrypted export file via AirDrop/share sheet) for users who don't use iCloud?
+### Implementation approach
+- Move keychain accessibility from `...ThisDeviceOnly` to `kSecAttrAccessibleAfterFirstUnlock`
+- Migrate existing keychain items by read -> insert new attributes -> delete old item
+- Add app setting: "Back up conversation keys" (default ON, user can disable)
+- New-device restore flow: detect synced identities and ask user to restore
 
-### On the XMTP SDK
-10. Does `createArchive` work per-client in our per-conversation model, or does it assume a single client with many conversations?
-11. Has the XMTP team given guidance on backup with per-conversation identities?
-12. What's the current state of HistorySync in the SDK? Is it stable enough to rely on?
+### UX behavior (proposed)
+- On first launch with synced keys found:
+  - Show restore prompt with plain language:
+    - "Restore access to your conversations"
+    - "Message history may be incomplete until contacts/devices re-add this installation"
+- Do not silently auto-activate all conversations in background
+- Warn if old device may still be active (temporary dual-installation state)
 
----
+### Security notes
+- iCloud Keychain is encrypted and practical for MVP
+- This is still tied to Apple account compromise risk
+- Future hardening option: user-known secret (PIN/passphrase) for wrapping backup keys
 
-## Proposed Phases
-
-### Phase 1: Key Backup (MVP)
-- Change keychain attribute to enable iCloud Keychain sync
-- Migration for existing users (delete + re-add keychain items)
-- Add backup opt-out toggle in settings
-- On new device: detect synced keys, present restore flow
-- Handle explode: explicitly delete from iCloud Keychain on explode
-- Handle dual-device: require explicit "Restore" action, don't auto-activate
-
-### Phase 2: Message Archive Backup
-- Implement per-conversation `createArchive` using XMTP SDK
-- Store archives in iCloud Drive or CloudKit
-- Store archive encryption key in iCloud Keychain
-- Backup trigger: on app background, periodic, or manual
-- Restore flow: import archives after key restore, show inactive state while conversations reactivate
-
-### Phase 3: Multi-Device (future)
-- Enable `deviceSyncEnabled: true`
-- Push notification routing to multiple devices
-- Settings/mute state sync (custom, not via XMTP)
-- Memory management for N clients x M devices
+### Explode interaction
+Required behavior:
+- explode must delete local keychain item and synced keychain item
+- clarify product promise: backups may be briefly recoverable during sync windows
 
 ---
 
-## Next Steps
+## Phase 2 — Message archive backup (XMTP archive files)
 
-1. **Meeting with Nick** — get answers to the questions above
-2. **Prototype iCloud Keychain sync** — change the attribute, verify keys sync across devices, test migration path
-3. **Spike on XMTP archive APIs** — test `createArchive`/`importArchive` with per-conversation model
-4. **Record World's backup flow** — screen recording for reference (action item from meeting)
-5. **Design restore UX** — mockups for the new-device restore flow
-6. **Write ADR** for the chosen approach before implementation
+### Scope
+Use XMTP archive APIs for optional history restore.
+
+### Expected XMTP behavior
+- `createArchive` per client/inbox
+- encrypted file output
+- additive import with de-duplication
+- restored conversations can be inactive/read-only until reactivation
+
+### Convos-specific implications
+Because Convos uses one client per conversation:
+- archive generation is per conversation
+- potentially many small files
+- need robust folder strategy + metadata index
+
+### Storage proposal (MVP)
+- Archive files: iCloud Drive app container (simple to ship)
+- Archive encryption key: iCloud Keychain
+
+### Backup cadence proposal
+Start with **daily + app background trigger**, with manual "Back up now" action.
+
+Comment: aligns with World/WhatsApp-style expectations and limits performance cost.
+
+### Disappearing messages
+Default: exclude disappearing messages from archives.
+
+---
+
+## Phase 3 — Multi-device (future)
+
+Out of MVP scope. Includes:
+- Device sync enabled across all per-conversation inboxes
+- Push routing and installation lifecycle on multiple active devices
+- Cross-device preference sync strategy (mute/read/local state)
+- Performance and memory controls for large conversation/device matrices
+
+---
+
+## Open questions (updated)
+
+## Product / UX
+1. Should key backup be default ON for all users, or gated behind onboarding consent?
+2. For restore, do we offer:
+   - "Restore all conversations" first, then per-conversation refinement later?
+   - or immediate per-conversation selection in MVP?
+3. What exact user promise do we make for explode when backups are enabled?
+
+## Security
+4. Is iCloud Keychain-only acceptable for MVP threat model?
+5. Do we need optional user PIN/passphrase in v1 or v1.1?
+6. What minimum messaging do we need for privacy-sensitive users opting out?
+
+## Architecture
+7. How do we prevent confusing dual-installation states during restore window?
+8. What telemetry do we need to detect restore success/failure and churn?
+9. Should backup capability be modeled per conversation now (even if hidden in UI)?
+
+## Turnkey
+10. Is Turnkey import/export viable at per-conversation scale without unacceptable UX friction/cost?
+11. If not viable now, what abstraction should we keep so storage backend can change later?
+
+---
+
+## Suggested technical work breakdown
+
+1. **Identity backup spike (2-3 days)**
+   - keychain attribute migration prototype
+   - verify cross-device sync in real iCloud account test
+   - verify explode delete propagation
+
+2. **Restore UX prototype (2-3 days)**
+   - detection states: no keys / keys found / restore in progress / restore complete
+   - copy and user education around resume vs history
+
+3. **Archive spike (2-4 days)**
+   - run `createArchive` on per-conversation clients
+   - test import behavior and inactive conversation reactivation paths
+   - benchmark file count and runtime with high conversation counts
+
+4. **ADR + implementation plan**
+   - capture final MVP decisions
+   - lock rollout + migration + metrics plan
+
+---
+
+## Success criteria for MVP
+
+- User who loses device can recover conversation identities on new iPhone
+- User can resume receiving/sending once conversation membership reactivation occurs
+- No irreversible data-loss regressions introduced by keychain migration
+- Clear UX around what is restored immediately vs eventually
+- Foundation remains compatible with future per-conversation backup/sync controls
