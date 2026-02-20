@@ -245,6 +245,7 @@
 				ConvosAppDelegate.swift,
 				"Debug View/DebugExportView.swift",
 				"Debug View/DebugView.swift",
+				"Debug View/PendingInviteDebugView.swift",
 				DeepLinking/DeepLinkHandler.swift,
 				"Design System/DesignConstants.swift",
 				"Design System/Styles/ButtonStyles.swift",

@@ -183,7 +183,7 @@ final class ConversationsViewModel {
 
     // MARK: - Private
 
-    private let session: any SessionManagerProtocol
+    let session: any SessionManagerProtocol
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     private var localStateWriters: [String: any ConversationLocalStateWriterProtocol] = [:]
