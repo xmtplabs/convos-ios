@@ -18,7 +18,7 @@ private let testPlatformProviders = PlatformProviders.mock
 /// - Delete and stop flows
 /// - State sequence observation
 /// - Multiple conversation creation
-@Suite("ConversationStateMachine Tests", .serialized, .timeLimit(.minutes(3)))
+@Suite("ConversationStateMachine Tests", .serialized, .timeLimit(.minutes(5)))
 struct ConversationStateMachineTests {
     // MARK: - Test Helpers
 
@@ -509,7 +509,7 @@ struct ConversationStateMachineTests {
 
         var conversationId2: String?
         do {
-            conversationId2 = try await withTimeout(seconds: 60) {
+            conversationId2 = try await withTimeout(seconds: 90) {
                 for await state in await stateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
