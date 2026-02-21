@@ -117,6 +117,16 @@ public final class MockInboxesService: SessionManagerProtocol {
         false
     }
 
+    // MARK: - Debug
+
+    public func pendingInviteDetails() throws -> [PendingInviteDetail] {
+        []
+    }
+
+    public func deleteExpiredPendingInvites() async throws -> Int {
+        0
+    }
+
     // MARK: - Asset Renewal
 
     public func makeAssetRenewalManager() async -> AssetRenewalManager {

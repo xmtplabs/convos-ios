@@ -3,7 +3,7 @@ import Foundation
 import GRDB
 import Testing
 
-@Suite("SessionManager Tests", .serialized)
+@Suite("SessionManager Tests", .serialized, .timeLimit(.minutes(3)))
 struct SessionManagerTests {
     // MARK: - Wake Inbox by Conversation ID Tests
 

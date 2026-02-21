@@ -18,7 +18,7 @@ private let testPlatformProviders = PlatformProviders.mock
 /// - Delete and stop flows
 /// - State sequence observation
 /// - Multiple conversation creation
-@Suite("ConversationStateMachine Tests", .serialized)
+@Suite("ConversationStateMachine Tests", .serialized, .timeLimit(.minutes(3)))
 struct ConversationStateMachineTests {
     // MARK: - Test Helpers
 
@@ -444,6 +444,18 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for inbox to be ready before creating conversations
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for inbox to be ready: \(error)")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
+        }
+
         let stateMachine = ConversationStateMachine(
             inboxStateManager: messagingService.inboxStateManager,
             identityStore: fixtures.identityStore,
@@ -457,16 +469,17 @@ struct ConversationStateMachineTests {
         await stateMachine.create()
 
         var conversationId1: String?
-        let timeout1 = ContinuousClock.now + .seconds(10)
-        for await state in await stateMachine.stateSequence {
-            if ContinuousClock.now > timeout1 {
-                Issue.record("Timed out waiting for first conversation to be ready")
-                break
+        do {
+            conversationId1 = try await withTimeout(seconds: 30) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
-            if case .ready(let result) = state {
-                conversationId1 = result.conversationId
-                break
-            }
+        } catch {
+            Issue.record("Timed out waiting for first conversation to be ready: \(error)")
         }
 
         #expect(conversationId1 != nil, "Should have first conversation ID")
@@ -475,31 +488,34 @@ struct ConversationStateMachineTests {
         await stateMachine.stop()
 
         // Wait for uninitialized
-        let timeout2 = ContinuousClock.now + .seconds(5)
-        for await state in await stateMachine.stateSequence {
-            if ContinuousClock.now > timeout2 {
-                Issue.record("Timed out waiting for uninitialized state")
-                break
+        do {
+            _ = try await withTimeout(seconds: 10) {
+                for await state in await stateMachine.stateSequence {
+                    if case .uninitialized = state {
+                        return true
+                    }
+                }
+                return false
             }
-            if case .uninitialized = state {
-                break
-            }
+        } catch {
+            Issue.record("Timed out waiting for uninitialized state: \(error)")
         }
 
         // Create second conversation
         await stateMachine.create()
 
         var conversationId2: String?
-        let timeout3 = ContinuousClock.now + .seconds(10)
-        for await state in await stateMachine.stateSequence {
-            if ContinuousClock.now > timeout3 {
-                Issue.record("Timed out waiting for second conversation to be ready")
-                break
+        do {
+            conversationId2 = try await withTimeout(seconds: 30) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
-            if case .ready(let result) = state {
-                conversationId2 = result.conversationId
-                break
-            }
+        } catch {
+            Issue.record("Timed out waiting for second conversation to be ready: \(error)")
         }
 
         #expect(conversationId2 != nil, "Should have second conversation ID")
@@ -610,6 +626,18 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for inviter inbox to be ready before creating conversation
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            return
+        }
+
         let inviterStateMachine = ConversationStateMachine(
             inboxStateManager: inviterMessagingService.inboxStateManager,
             identityStore: inviterFixtures.identityStore,
@@ -625,7 +653,7 @@ struct ConversationStateMachineTests {
         // Wait for ready state and get conversation ID
         var inviterConversationId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 10) {
+            inviterConversationId = try await withTimeout(seconds: 30) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -680,6 +708,27 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for joiner inbox to be ready before joining
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            await joinerMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            try? await joinerFixtures.cleanup()
+            return
+        }
+
+        // Wait for joiner's sync streams to be fully ready before joining.
+        // The XMTP SDK connection pool must be fully initialized to avoid
+        // "Pool needs to reconnect before use" errors.
+        try await waitUntil(timeout: .seconds(10)) {
+            await joinerMessagingService.inboxStateManager.isSyncReady
+        }
+
         let joinerStateMachine = ConversationStateMachine(
             inboxStateManager: joinerMessagingService.inboxStateManager,
             identityStore: joinerFixtures.identityStore,
@@ -693,10 +742,10 @@ struct ConversationStateMachineTests {
         await joinerStateMachine.join(inviteCode: invite.urlSlug)
 
         // Wait for ready state
-        // Note: Increased timeout from 10s to 30s for CI reliability with ephemeral Fly.io backends
+        // Use 90s timeout - join can be very slow on CI due to network latency with Fly.io
         var joinerConversationId: String?
         do {
-            joinerConversationId = try await withTimeout(seconds: 30) {
+            joinerConversationId = try await withTimeout(seconds: 90) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):
@@ -741,6 +790,20 @@ struct ConversationStateMachineTests {
             environment: testEnvironment
         )
 
+        // Wait for inbox to be fully ready before creating conversation.
+        // In CI, XMTP registration and authentication can take a long time,
+        // so we use a generous timeout (60s) for this step.
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await inviterMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for inviter inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            return
+        }
+
         let inviterStateMachine = ConversationStateMachine(
             inboxStateManager: inviterMessagingService.inboxStateManager,
             identityStore: inviterFixtures.identityStore,
@@ -753,11 +816,12 @@ struct ConversationStateMachineTests {
         // Create conversation as inviter
         await inviterStateMachine.create()
 
-        // Wait for ready state and get conversation ID
+        // Wait for conversation creation to complete.
+        // XMTP publish() can be slow in CI, so use generous timeout.
         var inviterConversationId: String?
         var inviterInboxId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 10) {
+            inviterConversationId = try await withTimeout(seconds: 60) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -766,7 +830,7 @@ struct ConversationStateMachineTests {
                 throw TestError.timeout("Never reached ready state")
             }
         } catch {
-            Issue.record("Timed out waiting for inviter to be ready: \(error)")
+            Issue.record("Timed out waiting for conversation creation: \(error)")
             await inviterMessagingService.stopAndDelete()
             try? await inviterFixtures.cleanup()
         }
@@ -854,12 +918,12 @@ struct ConversationStateMachineTests {
         Log.info("Inviter came back online")
 
         // Wait for joiner to reach ready state (join should be processed automatically)
-        // Note: Increased timeout from 10s to 30s for CI reliability with ephemeral Fly.io backends
+        // Use generous timeout for CI where XMTP operations can be slow.
         var joinerConversationId: String?
         var joinerReachedReady = false
 
         do {
-            joinerConversationId = try await withTimeout(seconds: 30) {
+            joinerConversationId = try await withTimeout(seconds: 60) {
                 for await state in await joinerStateMachine.stateSequence {
                     switch state {
                     case .ready(let result):
@@ -1500,9 +1564,10 @@ struct ConversationStateMachineTests {
         await inviterStateMachine.create()
 
         // Wait for inviter conversation to be ready
+        // XMTP publish() can be slow in CI, so use a generous timeout
         var inviterConversationId: String?
         do {
-            inviterConversationId = try await withTimeout(seconds: 10) {
+            inviterConversationId = try await withTimeout(seconds: 30) {
                 for await state in await inviterStateMachine.stateSequence {
                     if case .ready(let result) = state {
                         return result.conversationId
@@ -1563,6 +1628,25 @@ struct ConversationStateMachineTests {
             environment: testEnvironment,
             backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
+
+        // Wait for joiner inbox to be ready before joining
+        do {
+            _ = try await withTimeout(seconds: 60) {
+                try await joinerMessagingService.inboxStateManager.waitForInboxReadyResult()
+            }
+        } catch {
+            Issue.record("Timed out waiting for joiner inbox to be ready: \(error)")
+            await inviterMessagingService.stopAndDelete()
+            await joinerMessagingService.stopAndDelete()
+            try? await inviterFixtures.cleanup()
+            try? await joinerFixtures.cleanup()
+            return
+        }
+
+        // Wait for joiner's sync streams to be ready before joining
+        try await waitUntil(timeout: .seconds(10)) {
+            await joinerMessagingService.inboxStateManager.isSyncReady
+        }
 
         let joinerStateMachine = ConversationStateMachine(
             inboxStateManager: joinerMessagingService.inboxStateManager,

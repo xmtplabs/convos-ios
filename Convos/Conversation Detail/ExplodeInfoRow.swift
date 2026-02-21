@@ -24,12 +24,9 @@ struct ExplodeInfoRow: View {
                     ZStack {
                         Color(.secondarySystemGroupedBackground)
                         Color.colorCaution
-                            .scaleEffect(
-                                x: isHolding || didFire ? 1.0 : 0.0,
-                                anchor: .leading
-                            )
+                            .opacity(isHolding || didFire ? 1.0 : 0.0)
                     }
-                    .animation(.easeInOut(duration: 0.25), value: isHolding)
+                    .animation(.easeInOut(duration: 0.15), value: isHolding)
                 )
         } else {
             readyContent
