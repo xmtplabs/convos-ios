@@ -217,7 +217,6 @@ class ConversationViewModel {
     var presentingPhotosInfoSheet: Bool = false
     var activeToast: IndicatorToastStyle?
 
-
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
 
