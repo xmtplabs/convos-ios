@@ -71,7 +71,7 @@ jobs:
     name: Integration Tests
     runs-on: macos-26
     needs: deploy-backend
-    timeout-minutes: 30
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code

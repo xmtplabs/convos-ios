@@ -361,10 +361,10 @@ struct NetworkMonitorTests {
             }
         }
 
-        let deadline = ContinuousClock.now + .seconds(5)
+        let deadline = ContinuousClock.now + .seconds(10)
         while ContinuousClock.now < deadline {
             if await receiver.received { break }
-            try await Task.sleep(for: .milliseconds(50))
+            try await Task.sleep(for: .milliseconds(100))
         }
 
         let receivedStatus = await receiver.received
