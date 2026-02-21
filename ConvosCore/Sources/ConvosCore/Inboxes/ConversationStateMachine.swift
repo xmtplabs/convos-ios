@@ -394,7 +394,7 @@ public actor ConversationStateMachine {
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
             }
         } catch is CancellationError {
-            Log.info("Action \(action) cancelled")
+            Log.debug("Action \(action) cancelled")
         } catch {
             Log.error("Failed state transition \(_state) -> \(action): \(error.localizedDescription)")
             let displayableError: Error = (error is DisplayError ? error :
@@ -434,6 +434,7 @@ public actor ConversationStateMachine {
 
         // Transition to ready state with the real XMTP group ID (used for querying)
         // The clientConversationId is stored on DBConversation for stable image caching
+        QAEvent.emit(.conversation, "created", ["id": optimisticConversation.id])
         emitStateChange(.ready(ConversationReadyResult(
             conversationId: optimisticConversation.id,
             origin: .created
@@ -450,7 +451,7 @@ public actor ConversationStateMachine {
 
     private func handleValidate(inviteCode: String, previousResult: ConversationReadyResult?) async throws {
         emitStateChange(.validating(inviteCode: inviteCode))
-        Log.info("Validating invite code '\(inviteCode)'")
+        Log.debug("Validating invite code '\(inviteCode)'")
         let signedInvite: SignedInvite
         do {
             signedInvite = try SignedInvite.fromInviteCode(inviteCode)
@@ -473,7 +474,7 @@ public actor ConversationStateMachine {
         } catch {
             throw ConversationStateMachineError.failedVerifyingSignature
         }
-        Log.info("Recovered signer's public key: \(signerPublicKey.hexEncodedString())")
+        Log.debug("Recovered signer's public key: \(signerPublicKey.hexEncodedString())")
         let existingConversation: Conversation? = try await databaseReader.read { db in
             try DBConversation
                 .filter(DBConversation.Columns.inviteTag == signedInvite.invitePayload.tag)
@@ -499,7 +500,7 @@ public actor ConversationStateMachine {
         }
 
         if let existingConversation, existingIdentity != nil {
-            Log.info("Found existing convo by invite tag...")
+            Log.debug("Found existing convo by invite tag...")
             let prevInboxReady = try await inboxStateManager.waitForInboxReadyResult()
             try await inboxStateManager.delete()
             let inboxReady = try await inboxStateManager.reauthorize(
@@ -516,7 +517,7 @@ public actor ConversationStateMachine {
                     apiClient: prevInboxReady.apiClient
                 )
             } else {
-                Log.info("Waiting for invite approval...")
+                Log.debug("Waiting for invite approval...")
                 if existingConversation.isDraft {
                     // update the placeholder with the signed invite
                     let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
@@ -540,8 +541,8 @@ public actor ConversationStateMachine {
                 enqueueAction(.join)
             }
         } else {
-            Log.info("Existing conversation not found. Creating placeholder...")
-            Log.info("Waiting for inbox ready result...")
+            Log.debug("Existing conversation not found. Creating placeholder...")
+            Log.debug("Waiting for inbox ready result...")
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
             let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
             let conversationWriter = ConversationWriter(
@@ -592,6 +593,7 @@ public actor ConversationStateMachine {
         _ = try await dm.prepare(text: text)
         try await dm.publish()
         Log.info("[PERF] NewConversation.joinRequestSent")
+        QAEvent.emit(.invite, "join_request_sent")
 
         // Clean up previous conversation, do this without matching the `conversationId`.
         // We don't need the created conversation during the 'joining' state and
@@ -618,11 +620,12 @@ public actor ConversationStateMachine {
             observationTask = nil
 
             Log.info("Conversation joined successfully: \(conversationId)")
+            QAEvent.emit(.conversation, "joined", ["id": conversationId])
             await clearInviteJoinErrorHandler()
 
             guard case .joining(let currentInvite, _) = _state,
                   currentInvite.invitePayload.tag == invite.invitePayload.tag else {
-                Log.info("State changed from joining before ready emission, skipping")
+                Log.debug("State changed from joining before ready emission, skipping")
                 return
             }
 
@@ -633,11 +636,11 @@ public actor ConversationStateMachine {
         } catch is CancellationError {
             observationTask = nil
             await clearInviteJoinErrorHandler()
-            Log.info("Conversation join observation cancelled")
+            Log.debug("Conversation join observation cancelled")
             guard case .joinFailed = _state else {
                 throw CancellationError()
             }
-            Log.info("Already in joinFailed state, not propagating cancellation")
+            Log.debug("Already in joinFailed state, not propagating cancellation")
         } catch {
             observationTask = nil
             await clearInviteJoinErrorHandler()
@@ -645,7 +648,7 @@ public actor ConversationStateMachine {
             guard case .joinFailed = _state else {
                 throw ConversationStateMachineError.timedOut
             }
-            Log.info("Already in joinFailed state, not throwing timeout error")
+            Log.debug("Already in joinFailed state, not throwing timeout error")
         }
     }
 
@@ -727,7 +730,7 @@ public actor ConversationStateMachine {
             return
         }
 
-        Log.info("Cleaning up previous conversation: \(previousResult.conversationId)")
+        Log.debug("Cleaning up previous conversation: \(previousResult.conversationId)")
         do {
             try await cleanUp(
                 conversationId: previousResult.conversationId,
@@ -755,7 +758,7 @@ public actor ConversationStateMachine {
             let topic = conversationId.xmtpGroupTopicFormat
             do {
                 try await apiClient.unsubscribeFromTopics(clientId: identity.clientId, topics: [topic])
-                Log.info("Unsubscribed from push topic: \(topic)")
+                Log.debug("Unsubscribed from push topic: \(topic)")
             } catch {
                 Log.error("Failed unsubscribing from topic \(topic): \(error)")
             }
@@ -784,7 +787,7 @@ public actor ConversationStateMachine {
                 .filter(DBConversation.Columns.id == conversationId)
                 .deleteAll(db)
 
-            Log.info("Cleaned up conversation data for conversationId: \(conversationId)")
+            Log.debug("Cleaned up conversation data for conversationId: \(conversationId)")
         }
 
         let inboxId = client.inboxId
@@ -922,7 +925,7 @@ extension ConversationStateMachine: InviteJoinErrorHandler {
     public func handleInviteJoinError(_ error: InviteJoinError) async {
         guard case .joining(let invite, _) = _state,
               error.inviteTag == invite.invitePayload.tag else {
-            Log.info("Ignoring InviteJoinError for non-matching inviteTag or non-joining state")
+            Log.debug("Ignoring InviteJoinError for non-matching inviteTag or non-joining state")
             return
         }
 
@@ -936,7 +939,7 @@ extension ConversationStateMachine: InviteJoinErrorHandler {
 
         guard case .joining(let currentInvite, _) = _state,
               currentInvite.invitePayload.tag == error.inviteTag else {
-            Log.info("State changed after error handler cleanup, not emitting joinFailed")
+            Log.debug("State changed after error handler cleanup, not emitting joinFailed")
             return
         }
 

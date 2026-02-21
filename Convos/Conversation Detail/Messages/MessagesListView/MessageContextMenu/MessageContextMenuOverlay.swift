@@ -460,7 +460,7 @@ struct MessageContextMenuOverlay: View {
         return GlassEffectContainer {
             VStack(spacing: 0) {
                 let replyAction = {
-                    Log.info("[ContextMenu] Reply action fired")
+                    Log.debug("[ContextMenu] Reply action fired")
                     let msg = message
                     dismissMenu()
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.22) {
@@ -479,7 +479,7 @@ struct MessageContextMenuOverlay: View {
 
                 if let attachment = photoAttachment {
                     let saveAction = {
-                        Log.info("[ContextMenu] Save action fired")
+                        Log.debug("[ContextMenu] Save action fired")
                         savePhoto(attachmentKey: attachment.key)
                         dismissMenu()
                     }
@@ -490,13 +490,13 @@ struct MessageContextMenuOverlay: View {
                     let revealCallback = onPhotoRevealed
                     let hideCallback = onPhotoHidden
                     let toggleAction = {
-                        Log.info("[ContextMenu] Toggle action fired, isBlurred=\(isBlurred), key=\(key.prefix(30))...")
+                        Log.debug("[ContextMenu] Toggle action fired, isBlurred=\(isBlurred), key=\(key.prefix(30))...")
                         if isBlurred {
-                            Log.info("[ContextMenu] Calling reveal")
+                            Log.debug("[ContextMenu] Calling reveal")
                             blurOverride = false
                             revealCallback(key)
                         } else {
-                            Log.info("[ContextMenu] Calling hide")
+                            Log.debug("[ContextMenu] Calling hide")
                             blurOverride = true
                             hideCallback(key)
                         }

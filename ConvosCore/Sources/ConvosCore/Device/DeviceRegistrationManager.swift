@@ -80,12 +80,12 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
     /// Protected by isRegistering flag to prevent concurrent registration attempts.
     public func registerDeviceIfNeeded() async {
         if case .tests = environment {
-            Log.info("Skipping device registration for tests environment...")
+            Log.debug("Skipping device registration for tests environment...")
             return
         }
 
         guard !isRegistering else {
-            Log.info("Registration already in progress, skipping")
+            Log.debug("Registration already in progress, skipping")
             return
         }
 
@@ -108,7 +108,7 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
         let shouldRegister = !hasEverRegistered || lastToken != pushToken
 
         guard shouldRegister else {
-            Log.info("Device already registered with this token")
+            Log.debug("Device already registered with this token")
             return
         }
 
@@ -143,7 +143,7 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
         let deviceId = deviceInfo.deviceIdentifier
         UserDefaults.standard.removeObject(forKey: "lastRegisteredDevicePushToken_\(deviceId)")
         UserDefaults.standard.removeObject(forKey: "hasRegisteredDevice_\(deviceId)")
-        Log.info("Cleared device registration state")
+        Log.debug("Cleared device registration state")
     }
 
     /// Returns true if this device has been registered at least once.
@@ -157,7 +157,7 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
     private func setupPushTokenObserver() {
         guard pushTokenObserver == nil else { return }
 
-        Log.info("DeviceRegistrationManager: Setting up push token observer...")
+        Log.debug("DeviceRegistrationManager: Setting up push token observer...")
         pushTokenObserver = NotificationCenter.default.addObserver(
             forName: .convosPushTokenDidChange,
             object: nil,
@@ -175,11 +175,11 @@ public actor DeviceRegistrationManager: DeviceRegistrationManagerProtocol {
         }
         NotificationCenter.default.removeObserver(observer)
         pushTokenObserver = nil
-        Log.info("DeviceRegistrationManager: Removed push token observer")
+        Log.debug("DeviceRegistrationManager: Removed push token observer")
     }
 
     private func handlePushTokenChange() async {
-        Log.info("DeviceRegistrationManager: Push token changed, re-registering device...")
+        Log.debug("DeviceRegistrationManager: Push token changed, re-registering device...")
         await registerDeviceIfNeeded()
     }
 }

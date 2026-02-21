@@ -186,6 +186,34 @@ case "$cmd" in
         echo "ok"
         ;;
 
+    log-event)
+        # Record an app event from [EVENT] log lines.
+        # Usage: cxdb.sh log-event <run_id> <test_id> <timestamp> <event_name> [event_data_json]
+        local_run="${1:?run_id required}"
+        local_test="${2:?test_id required}"
+        local_ts="${3:?timestamp required}"
+        local_name="${4:?event_name required}"
+        local_data="${5:-}"
+        sqlite3 "$DB" "INSERT INTO app_events (run_id, test_id, timestamp, event_name, event_data) VALUES ('$local_run', '$local_test', '$local_ts', '$local_name', '$(echo "$local_data" | sed "s/'/''/g")');"
+        echo "ok"
+        ;;
+
+    events)
+        # List app events for a run, optionally filtered by test or event name.
+        # Usage: cxdb.sh events <run_id> [test_id] [event_name_pattern]
+        local_run="${1:?run_id required}"
+        local_test="${2:-}"
+        local_pattern="${3:-}"
+        local_where="run_id='$local_run'"
+        if [ -n "$local_test" ]; then
+            local_where="$local_where AND test_id='$local_test'"
+        fi
+        if [ -n "$local_pattern" ]; then
+            local_where="$local_where AND event_name LIKE '%$local_pattern%'"
+        fi
+        sqlite3 -header -column "$DB" "SELECT timestamp, event_name, event_data FROM app_events WHERE $local_where ORDER BY timestamp;"
+        ;;
+
     # --- Findings ---
 
     log-bug)
@@ -376,9 +404,11 @@ case "$cmd" in
         echo ""
         echo "Logging:"
         echo "  log-error <run_id> <test_id> <ts> <src> <msg> [is_xmtp:0|1]"
+        echo "  log-event <run_id> <test_id> <ts> <event_name> [event_data_json]"
         echo "  log-bug <run_id> <test_id> <severity> <title> [desc]"
         echo "  log-a11y <run_id> <test_id> <purpose> <recommendation>"
         echo "  log-perf <run_id> <test_id> <metric> <value_ms> <target_ms>"
+        echo "  events <run_id> [test_id] [event_name_pattern]  List app events"
         echo ""
         echo "Reporting:"
         echo "  summary <run_id>                            Print summary"

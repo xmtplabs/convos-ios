@@ -14,14 +14,21 @@ The app emits `[PERF]` log lines at key checkpoints. After each action, use `sim
 
 **Performance log format:**
 ```
-[Convos] [PERF] ConversationViewModel.init: <ms>ms, <count> messages loaded
+[Convos] [PERF] ConversationViewModel.init: <ms>ms, <count> messages loaded (<N> list items)
 [Convos] [PERF] NewConversation.inboxAcquired: <ms>ms
 [Convos] [PERF] NewConversation.creating: <ms>ms
 [Convos] [PERF] NewConversation.joinRequestSent
 [Convos] [PERF] NewConversation.ready: <ms>ms (origin: <created|joined|existing>)
+[ConvosCore] [PERF] message.publish_text: <ms>ms id=<xmtpMessageId>
+[ConvosCore] [PERF] message.publish_photo: <ms>ms id=<xmtpMessageId>
+[ConvosCore] [PERF] message.process: <ms>ms id=<messageId>
+[ConvosCore] [PERF] conversation.sync: <ms>ms id=<conversationId>
+[ConvosCore] [PERF] sync.all_conversations: <ms>ms
 ```
 
 **Note:** `joinRequestSent` has no duration — it's a timestamp marker. Compute `join_approval_to_ready` as the wall-clock delta between `joinRequestSent` and `ready (origin: joined)`.
+
+The `message.publish_*` markers measure network round-trip time for sending. The `message.process` marker measures how long it takes to handle an incoming message from the XMTP stream to the local database. The `sync.all_conversations` marker measures the initial full sync on app startup.
 
 ## Steps
 
@@ -138,8 +145,14 @@ This is a baseline measurement test — there are no hard pass/fail thresholds o
 | `new_convo_ready` | NewConversation.ready (origin: created or existing) | < 1000ms |
 | `join_convo_ready` | NewConversation.ready (origin: joined), total time | informational* |
 | `join_approval_to_ready` | Delta from joinRequestSent to ready (origin: joined) | < 5000ms |
+| `msg_publish_text` | message.publish_text (network round-trip for text) | < 2000ms |
+| `msg_publish_photo` | message.publish_photo (upload + network) | < 5000ms |
+| `msg_process` | message.process (incoming message stream to DB) | < 200ms |
+| `sync_all` | sync.all_conversations (initial full sync) | informational** |
 
 *`join_convo_ready` includes external wait for the creator to approve the join request. The actual app performance metric is `join_approval_to_ready`, which measures from when the join request is published to when the conversation is ready. Use `--watch` on `process-join-requests` to minimize approval delay.
+
+**`sync_all` depends on number of conversations and network conditions. Track it across runs to detect regressions but don't set a hard threshold.
 
 **Regression detection:** If any metric is more than 2x the target, flag it as a potential regression. If it's more than 5x, flag as a critical regression.
 

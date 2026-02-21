@@ -22,6 +22,7 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
         try await updateLocalState(for: conversationId) { state in
             state.with(isUnread: isUnread)
         }
+        QAEvent.emit(.conversation, isUnread ? "marked_unread" : "marked_read", ["id": conversationId])
     }
 
     func setPinned(_ isPinned: Bool, for conversationId: String) async throws {
@@ -68,12 +69,14 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                 .with(pinnedOrder: pinnedOrder)
             try updated.save(db)
         }
+        QAEvent.emit(.conversation, isPinned ? "pinned" : "unpinned", ["id": conversationId])
     }
 
     func setMuted(_ isMuted: Bool, for conversationId: String) async throws {
         try await updateLocalState(for: conversationId) { state in
             state.with(isMuted: isMuted)
         }
+        QAEvent.emit(.conversation, isMuted ? "muted" : "unmuted", ["id": conversationId])
     }
 
     private func updateLocalState(

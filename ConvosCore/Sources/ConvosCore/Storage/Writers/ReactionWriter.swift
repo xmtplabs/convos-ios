@@ -133,7 +133,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         }
 
         if existingReaction != nil {
-            Log.info("Reaction already exists locally, skipping duplicate")
+            Log.debug("Reaction already exists locally, skipping duplicate")
             return
         }
 
@@ -157,7 +157,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
                 update: nil
             )
             try localReaction.save(db)
-            Log.info("Saved local reaction with id: \(reactionClientMessageId)")
+            Log.debug("Saved local reaction with id: \(reactionClientMessageId)")
         }
 
         guard let conversation = try await client.conversation(with: conversationId) else {
@@ -180,6 +180,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
                 visibilityOptions: MessageVisibilityOptions(shouldPush: true)
             )
             Log.info("Sent reaction \(emoji) to message \(dbMessageId)")
+            QAEvent.emit(.reaction, "sent", ["message": dbMessageId, "emoji": emoji])
         } catch {
             Log.error("Failed sending reaction: \(error.localizedDescription)")
             try await markReactionFailed(clientMessageId: reactionClientMessageId)
@@ -240,13 +241,13 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
 
             if let reaction {
                 try reaction.delete(db)
-                Log.info("Optimistically deleted local reaction for message \(dbMessageId)")
+                Log.debug("Optimistically deleted local reaction for message \(dbMessageId)")
             }
             return reaction
         }
 
         guard let deletedReaction else {
-            Log.info("No local reaction to remove; skipping network call")
+            Log.debug("No local reaction to remove; skipping network call")
             return
         }
 
@@ -266,11 +267,12 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
             let encodedContent = try ReactionV2Codec().encode(content: reaction)
             try await conversation.send(encodedContent: encodedContent)
             Log.info("Sent remove reaction \(emoji) for message \(dbMessageId)")
+            QAEvent.emit(.reaction, "removed", ["message": dbMessageId, "emoji": emoji])
         } catch {
             Log.error("Failed sending remove reaction: \(error.localizedDescription)")
             try await databaseWriter.write { db in
                 try deletedReaction.save(db)
-                Log.info("Restored local reaction after failed removal")
+                Log.debug("Restored local reaction after failed removal")
             }
             throw error
         }

@@ -43,6 +43,7 @@ final class ConversationExplosionWriter: ConversationExplosionWriterProtocol, @u
             try await unsafeConversation.sendExplode(expiresAt: expiresAt)
         }
         Log.info("ExplodeSettings message sent successfully")
+        QAEvent.emit(.conversation, "exploded", ["id": conversationId])
 
         do {
             try await metadataWriter.updateExpiresAt(expiresAt, for: conversationId)

@@ -42,7 +42,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     }
 
     func updateUIViewController(_ messagesViewController: MessagesViewController, context: Context) {
-        Log.info("[Representable] updateUIViewController called, setting onPhotoRevealed and onPhotoHidden")
+        Log.debug("[Representable] updateUIViewController called, setting onPhotoRevealed and onPhotoHidden")
         messagesViewController.onUserInteraction = onUserInteraction
         messagesViewController.bottomBarHeight = bottomBarHeight
         messagesViewController.focusCoordinator = focusCoordinator
@@ -55,11 +55,11 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onReply = onReply
         messagesViewController.shouldBlurPhotos = shouldBlurPhotos
         messagesViewController.onPhotoRevealed = { key in
-            Log.info("[Representable] onPhotoRevealed wrapper called with key: \(key.prefix(50))...")
+            Log.debug("[Representable] onPhotoRevealed wrapper called with key: \(key.prefix(50))...")
             self.onPhotoRevealed(key)
         }
         messagesViewController.onPhotoHidden = { key in
-            Log.info("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
+            Log.debug("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
             self.onPhotoHidden(key)
         }
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in

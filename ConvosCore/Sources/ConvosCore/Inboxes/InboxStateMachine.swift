@@ -226,10 +226,10 @@ public actor InboxStateMachine {
 
         // Use provided API client or create a new one
         if let apiClient {
-            Log.info("Using shared API client")
+            Log.debug("Using shared API client")
             self.apiClient = apiClient
         } else {
-            Log.info("Initializing API client (JWT override: \(self.overrideJWTToken != nil))...")
+            Log.debug("Initializing API client (JWT override: \(self.overrideJWTToken != nil))...")
             self.apiClient = ConvosAPIClientFactory.client(
                 environment: environment,
                 overrideJWTToken: self.overrideJWTToken
@@ -252,19 +252,19 @@ public actor InboxStateMachine {
         // }
 
         // XMTP v3
-        Log.info("   Mode = XMTP v3")
-        Log.info("   XMTP_CUSTOM_HOST = \(environment.xmtpEndpoint ?? "nil")")
-        Log.info("   customLocalAddress = \(environment.customLocalAddress ?? "nil")")
-        Log.info("   xmtpEnv = \(environment.xmtpEnv)")
-        Log.info("   isSecure = \(environment.isSecure)")
+        Log.debug("   Mode = XMTP v3")
+        Log.debug("   XMTP_CUSTOM_HOST = \(environment.xmtpEndpoint ?? "nil")")
+        Log.debug("   customLocalAddress = \(environment.customLocalAddress ?? "nil")")
+        Log.debug("   xmtpEnv = \(environment.xmtpEnv)")
+        Log.debug("   isSecure = \(environment.isSecure)")
 
         // Log the actual XMTPEnvironment.customLocalAddress after setting
         if let customHost = environment.customLocalAddress {
-            Log.info("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
+            Log.debug("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
             XMTPEnvironment.customLocalAddress = customHost
-            Log.info("Actual XMTPEnvironment.customLocalAddress = \(XMTPEnvironment.customLocalAddress ?? "nil")")
+            Log.debug("Actual XMTPEnvironment.customLocalAddress = \(XMTPEnvironment.customLocalAddress ?? "nil")")
         } else {
-            Log.info("Using default XMTP endpoints")
+            Log.debug("Using default XMTP endpoints")
         }
     }
 
@@ -372,7 +372,7 @@ public actor InboxStateMachine {
                 try await handleDeleteFromIdle(clientId: clientId)
             case (.deleting, .delete):
                 // Already deleting - ignore duplicate delete request (idempotent)
-                Log.info("Duplicate delete request while already deleting, ignoring")
+                Log.debug("Duplicate delete request while already deleting, ignoring")
             case let (.ready(clientId, result), .enterBackground):
                 try await handleEnterBackground(clientId: clientId, result: result)
 
@@ -393,7 +393,7 @@ public actor InboxStateMachine {
 
             // Ignore lifecycle events when not in appropriate state
             case (_, .enterBackground), (_, .enterForeground):
-                Log.info("Ignoring lifecycle event for transition: \(_state) -> \(action)")
+                Log.debug("Ignoring lifecycle event for transition: \(_state) -> \(action)")
 
             default:
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
@@ -608,10 +608,10 @@ public actor InboxStateMachine {
         // Delete identity - idempotent operation, may already be deleted from previous attempt
         do {
             let deletedIdentity = try await identityStore.delete(clientId: clientId)
-            Log.info("Deleted identity from keychain for clientId: \(clientId)")
+            Log.debug("Deleted identity from keychain for clientId: \(clientId)")
             deleteDatabaseFiles(for: deletedIdentity.inboxId)
         } catch KeychainIdentityStoreError.identityNotFound {
-            Log.info("Identity already deleted for clientId: \(clientId), continuing cleanup")
+            Log.debug("Identity already deleted for clientId: \(clientId), continuing cleanup")
             if let resolvedInboxId {
                 deleteDatabaseFiles(for: resolvedInboxId)
             }
@@ -654,10 +654,10 @@ public actor InboxStateMachine {
         // Delete identity - idempotent operation, may already be deleted
         do {
             let deletedIdentity = try await identityStore.delete(clientId: clientId)
-            Log.info("Deleted identity from keychain for clientId: \(clientId)")
+            Log.debug("Deleted identity from keychain for clientId: \(clientId)")
             deleteDatabaseFiles(for: deletedIdentity.inboxId)
         } catch KeychainIdentityStoreError.identityNotFound {
-            Log.info("Identity already deleted for clientId: \(clientId), continuing cleanup")
+            Log.debug("Identity already deleted for clientId: \(clientId), continuing cleanup")
             if let inboxIdFromDb {
                 deleteDatabaseFiles(for: inboxIdFromDb)
             }
@@ -692,7 +692,7 @@ public actor InboxStateMachine {
         if let client = clientToClose {
             do {
                 try client.dropLocalDatabaseConnection()
-                Log.info("Dropped local database connection for \(clientId)")
+                Log.debug("Dropped local database connection for \(clientId)")
             } catch {
                 Log.error("Failed to drop database connection for \(clientId): \(error)")
             }
@@ -772,7 +772,7 @@ public actor InboxStateMachine {
         // Unsubscribe from welcome topic (inbox-level topic only)
         do {
             try await apiClient.unsubscribeFromTopics(clientId: clientId, topics: [welcomeTopic])
-            Log.info("Unsubscribed from welcome topic: \(welcomeTopic)")
+            Log.debug("Unsubscribed from welcome topic: \(welcomeTopic)")
         } catch {
             Log.error("Failed to unsubscribe from welcome topic: \(error)")
             // Continue with cleanup even if unsubscribe fails
@@ -783,10 +783,10 @@ public actor InboxStateMachine {
         // Unregister installation
         do {
             try await apiClient.unregisterInstallation(clientId: clientId)
-            Log.info("Unregistered installation from backend: \(clientId)")
+            Log.debug("Unregistered installation from backend: \(clientId)")
         } catch {
             // Ignore errors during unregistration (common during account deletion when auth may be invalid)
-            Log.info("Could not unregister installation (likely during account deletion): \(error)")
+            Log.debug("Could not unregister installation (likely during account deletion): \(error)")
         }
 
         try Task.checkCancellation()
@@ -801,9 +801,9 @@ public actor InboxStateMachine {
         // we're likely in a retry scenario from a previous failed deletion attempt
         do {
             _ = try await identityStore.delete(clientId: clientId)
-            Log.info("Deleted identity from keychain for clientId: \(clientId)")
+            Log.debug("Deleted identity from keychain for clientId: \(clientId)")
         } catch KeychainIdentityStoreError.identityNotFound {
-            Log.info("Identity already deleted for clientId: \(clientId), continuing cleanup")
+            Log.debug("Identity already deleted for clientId: \(clientId), continuing cleanup")
         }
 
         try Task.checkCancellation()
@@ -812,7 +812,7 @@ public actor InboxStateMachine {
         // Try SDK method first, fall back to manual file deletion if it fails
         do {
             try client.deleteLocalDatabase()
-            Log.info("Deleted XMTP local database via SDK for inbox: \(client.inboxId)")
+            Log.debug("Deleted XMTP local database via SDK for inbox: \(client.inboxId)")
         } catch {
             Log.warning("SDK deleteLocalDatabase failed, attempting manual file deletion: \(error)")
             deleteDatabaseFiles(for: client.inboxId)
@@ -853,7 +853,7 @@ public actor InboxStateMachine {
             if fileManager.fileExists(atPath: fileURL.path) {
                 do {
                     try fileManager.removeItem(at: fileURL)
-                    Log.info("Deleted XMTP database file: \(filename)")
+                    Log.debug("Deleted XMTP database file: \(filename)")
                 } catch {
                     Log.error("Failed to delete XMTP database file \(filename): \(error)")
                 }
@@ -909,7 +909,7 @@ public actor InboxStateMachine {
         // }
 
         // Direct XMTP v3 connection: we specify env and isSecure
-        Log.info("Using direct XMTP connection with env: \(environment.xmtpEnv)")
+        Log.debug("Using direct XMTP connection with env: \(environment.xmtpEnv)")
         let apiOptions: ClientOptions.Api = .init(
             env: environment.xmtpEnv,
             isSecure: environment.isSecure,
@@ -941,7 +941,7 @@ public actor InboxStateMachine {
     /// Must be called before building/creating XMTP client
     private func setCustomLocalAddress() {
         if let customHost = environment.customLocalAddress {
-            Log.info("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
+            Log.debug("Setting XMTPEnvironment.customLocalAddress = \(customHost)")
             XMTPEnvironment.customLocalAddress = customHost
         } else {
             Log.debug("Clearing XMTPEnvironment.customLocalAddress")
@@ -960,13 +960,13 @@ public actor InboxStateMachine {
     private func buildXmtpClient(inboxId: String,
                                  identity: PublicIdentity,
                                  options: ClientOptions) async throws -> any XMTPClientProvider {
-        Log.info("Building XMTP client for \(inboxId)...")
+        Log.debug("Building XMTP client for \(inboxId)...")
         let client = try await Client.build(
             publicIdentity: identity,
             options: options,
             inboxId: inboxId
         )
-        Log.info("XMTP Client built.")
+        Log.debug("XMTP Client built.")
         return client
     }
 
@@ -981,12 +981,12 @@ public actor InboxStateMachine {
         }
 
         // Explicitly authenticate with backend using Firebase AppCheck
-        Log.info("Getting Firebase AppCheck token...")
+        Log.debug("Getting Firebase AppCheck token...")
         let appCheckToken = try await FirebaseHelperCore.getAppCheckToken()
 
         try Task.checkCancellation()
 
-        Log.info("Authenticating with backend and storing JWT...")
+        Log.debug("Authenticating with backend and storing JWT...")
         _ = try await apiClient.authenticate(appCheckToken: appCheckToken, retryCount: 0)
         Log.info("Successfully authenticated with backend")
     }
@@ -1056,18 +1056,18 @@ public actor InboxStateMachine {
 
         switch status {
         case .connected(let type):
-            Log.info("Network connected (\(type)) - resuming sync")
+            Log.debug("Network connected (\(type)) - resuming sync")
             await handleNetworkConnected()
 
         case .disconnected:
-            Log.info("Network disconnected - pausing sync")
+            Log.debug("Network disconnected - pausing sync")
             await handleNetworkDisconnected()
 
         case .connecting:
-            Log.info("Network connecting...")
+            Log.debug("Network connecting...")
 
         case .unknown:
-            Log.info("Network status unknown...")
+            Log.debug("Network status unknown...")
         }
     }
 

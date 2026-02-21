@@ -115,7 +115,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
             .dropFirst()
             .sink { [weak self] conversationId in
                 guard let self else { return }
-                Log.info("Sending updated conversation id: \(conversationId), resetting pagination")
+                Log.debug("Sending updated conversation id: \(conversationId), resetting pagination")
 
                 self.conversationIdSubject.send(conversationId)
 

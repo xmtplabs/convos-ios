@@ -114,6 +114,17 @@ CREATE TABLE IF NOT EXISTS perf_measurements (
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
 );
 
+-- App events captured from [EVENT] log lines during test execution
+CREATE TABLE IF NOT EXISTS app_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL,
+    test_id TEXT,
+    timestamp TEXT,
+    event_name TEXT NOT NULL,
+    event_data TEXT,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+
 -- Index for common queries
 CREATE INDEX IF NOT EXISTS idx_test_results_run ON test_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_test_results_status ON test_results(run_id, status);
@@ -121,3 +132,5 @@ CREATE INDEX IF NOT EXISTS idx_criteria_results_test ON criteria_results(test_re
 CREATE INDEX IF NOT EXISTS idx_log_entries_run ON log_entries(run_id, test_id);
 CREATE INDEX IF NOT EXISTS idx_log_entries_errors ON log_entries(run_id, is_app_error) WHERE is_app_error = 1;
 CREATE INDEX IF NOT EXISTS idx_perf_measurements_run ON perf_measurements(run_id);
+CREATE INDEX IF NOT EXISTS idx_app_events_run ON app_events(run_id, test_id);
+CREATE INDEX IF NOT EXISTS idx_app_events_name ON app_events(run_id, event_name);

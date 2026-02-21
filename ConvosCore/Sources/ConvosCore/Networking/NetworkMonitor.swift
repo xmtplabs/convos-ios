@@ -86,7 +86,7 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
             }
         }
         newMonitor.start(queue: queue)
-        Log.info("Network monitor started")
+        Log.debug("Network monitor started")
     }
 
     public func stop() async {
@@ -98,7 +98,7 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
         statusContinuations.removeAll()
         _status = .unknown
         _currentPath = nil
-        Log.info("Network monitor stopped")
+        Log.debug("Network monitor stopped")
     }
 
     private func handlePathUpdate(_ path: NWPath) {
@@ -122,13 +122,13 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
         let oldStatus = _status
         _status = newStatus
 
-        Log.info("Network status: \(oldStatus) → \(newStatus)")
+        Log.debug("Network status: \(oldStatus) → \(newStatus)")
 
         if path.isExpensive {
-            Log.info("Network is expensive (cellular/hotspot)")
+            Log.debug("Network is expensive (cellular/hotspot)")
         }
         if path.isConstrained {
-            Log.info("Network is constrained (Low Data Mode)")
+            Log.debug("Network is constrained (Low Data Mode)")
         }
 
         // Emit to all continuations

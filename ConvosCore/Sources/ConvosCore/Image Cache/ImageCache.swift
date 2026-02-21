@@ -354,7 +354,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
             let cost = memoryCost(for: resizedImage)
             cache.setObject(resizedImage, forKey: identifier as NSString, cost: cost)
-            Log.info("Cached image before upload: \(identifier)")
+            Log.debug("Cached image before upload: \(identifier)")
 
             // Save to disk
             await saveDataToDisk(jpegData, identifier: identifier, imageFormat: .jpg)
@@ -396,7 +396,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             cache.setObject(image, forKey: identifier as NSString, cost: cost)
 
             cacheUpdateSubject.send(identifier)
-            Log.info("Updated URL tracking after upload: \(identifier) -> \(url)")
+            Log.debug("Updated URL tracking after upload: \(identifier) -> \(url)")
         }
     }
 
@@ -414,7 +414,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                 let tracking = await urlTracker.track(newURL, for: identifier)
                 if tracking.changed {
                     urlChangeSubject.send(ImageURLChange(identifier: identifier, oldURL: tracking.oldURL, newURL: newURL))
-                    Log.info("URL changed for \(identifier): \(tracking.oldURL?.absoluteString ?? "nil") -> \(url)")
+                    Log.debug("URL changed for \(identifier): \(tracking.oldURL?.absoluteString ?? "nil") -> \(url)")
                 }
             } else {
                 Log.error("Invalid URL for cacheAfterUpload: \(url), caching without URL tracking")
@@ -433,7 +433,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             await saveDataToDisk(jpegData, identifier: identifier, imageFormat: .jpg, forceOverwrite: true)
 
             cacheUpdateSubject.send(identifier)
-            Log.info("Cached image after fetch: \(identifier) -> \(url)")
+            Log.debug("Cached image after fetch: \(identifier) -> \(url)")
         }
     }
 
@@ -468,7 +468,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             await saveDataToDisk(imageData, identifier: identifier, imageFormat: .jpg, forceOverwrite: true)
 
             cacheUpdateSubject.send(identifier)
-            Log.info("Cached image data after fetch: \(identifier) -> \(url)")
+            Log.debug("Cached image data after fetch: \(identifier) -> \(url)")
         }
     }
 
@@ -520,7 +520,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                 // Emit cache update for backward compatibility
                 cacheUpdateSubject.send(identifier)
 
-                Log.info("Successfully loaded image from network: \(identifier)")
+                Log.debug("Successfully loaded image from network: \(identifier)")
                 return image
             } catch {
                 Log.error("Failed to load image from URL: \(url) - \(error)")
@@ -546,12 +546,12 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         guard let key = object.encryptionKey,
               let salt = object.encryptionSalt,
               let nonce = object.encryptionNonce else {
-            Log.info("Cannot inline decrypt - missing encryption params for: \(identifier)")
+            Log.debug("Cannot inline decrypt - missing encryption params for: \(identifier)")
             return nil
         }
 
         do {
-            Log.info("Attempting inline encrypted fetch for: \(identifier)")
+            Log.debug("Attempting inline encrypted fetch for: \(identifier)")
             let decryptedData = try await EncryptedImageLoader.loadAndDecrypt(
                 url: url,
                 salt: salt,
@@ -579,7 +579,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             }
 
             cacheUpdateSubject.send(identifier)
-            Log.info("Successfully loaded encrypted image inline: \(identifier)")
+            Log.debug("Successfully loaded encrypted image inline: \(identifier)")
             return image
         } catch {
             Log.error("Failed to inline decrypt image for \(identifier): \(error)")
@@ -727,7 +727,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     var resourceValues = URLResourceValues()
                     resourceValues.contentAccessDate = Date()
                     try? mutableFileURL.setResourceValues(resourceValues)
-                    Log.info("Successfully loaded \(formatName) image from disk: \(identifier)")
+                    Log.debug("Successfully loaded \(formatName) image from disk: \(identifier)")
                     return image
                 } else {
                     Log.error("Failed to decode image from disk: \(identifier)")
@@ -757,7 +757,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             do {
                 try data.write(to: fileURL, options: .atomic)
                 let formatName = imageFormat == .png ? "PNG" : "JPEG"
-                Log.info("Successfully saved image data to disk: \(identifier) (\(data.count) bytes, format: \(formatName))")
+                Log.debug("Successfully saved image data to disk: \(identifier) (\(data.count) bytes, format: \(formatName))")
                 cache.scheduleCleanupIfNeeded()
             } catch {
                 Log.error("Failed to save image data to disk: \(identifier) - \(error)")
@@ -792,7 +792,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             do {
                 try imageData.write(to: fileURL, options: .atomic)
                 let formatName = imageFormat == .png ? "PNG" : "JPEG"
-                Log.info("Successfully saved image to disk: \(identifier) (\(imageData.count) bytes, format: \(formatName))")
+                Log.debug("Successfully saved image to disk: \(identifier) (\(imageData.count) bytes, format: \(formatName))")
                 cache.scheduleCleanupIfNeeded()
             } catch {
                 Log.error("Failed to save image to disk: \(identifier) - \(error)")
@@ -811,7 +811,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             where cache.fileManager.fileExists(atPath: url.path) {
                 do {
                     try cache.fileManager.removeItem(at: url)
-                    Log.info("Successfully removed \(format) image from disk: \(identifier)")
+                    Log.debug("Successfully removed \(format) image from disk: \(identifier)")
                 } catch {
                     if (error as NSError).code != NSFileNoSuchFileError {
                         Log.error("Failed to remove \(format) image from disk: \(identifier) - \(error)")
@@ -901,13 +901,13 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                         do {
                             try cache.fileManager.removeItem(at: file.url)
                             removedSize += file.size
-                            Log.info("Removed old cached image from disk: \(file.url.lastPathComponent)")
+                            Log.debug("Removed old cached image from disk: \(file.url.lastPathComponent)")
                         } catch {
                             Log.error("Failed to remove cached image: \(file.url.lastPathComponent) - \(error)")
                         }
                     }
 
-                    Log.info("Disk cache cleanup: removed \(removedSize) bytes")
+                    Log.debug("Disk cache cleanup: removed \(removedSize) bytes")
                 }
             } catch {
                 Log.error("Failed to cleanup disk cache: \(error)")
@@ -954,7 +954,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
         let cost = memoryCost(for: image)
         cache.setObject(image, forKey: key as NSString, cost: cost)
-        Log.info("Successfully cached image for \(logContext): \(key)")
+        Log.debug("Successfully cached image for \(logContext): \(key)")
     }
 
     /// Resize, compress, and cache image in memory (for new/original images)
@@ -985,7 +985,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         let cost = memoryCost(for: resizedImage)
         cache.setObject(resizedImage, forKey: key as NSString, cost: cost)
         let formatName = imageFormat == .png ? "PNG" : "JPEG"
-        Log.info("Successfully cached resized image for \(logContext): \(key) (format: \(formatName))")
+        Log.debug("Successfully cached resized image for \(logContext): \(key) (format: \(formatName))")
     }
 
     // MARK: - Testing Support

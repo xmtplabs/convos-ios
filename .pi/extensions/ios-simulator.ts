@@ -6,6 +6,10 @@ import * as os from "node:os";
 
 let cachedIdbPath: string | undefined;
 
+// Xcode developer dir — needed when xcode-select points to CommandLineTools
+const XCODE_DEV_DIR = "/Applications/Xcode.app/Contents/Developer";
+const SIMCTL = path.join(XCODE_DEV_DIR, "usr/bin/simctl");
+
 function findIdb(): string {
   if (cachedIdbPath) return cachedIdbPath;
 
@@ -81,7 +85,7 @@ async function resolveUdid(pi: ExtensionAPI, explicitUdid?: string): Promise<str
     return fs.readFileSync(simIdFile, "utf-8").trim();
   }
 
-  const result = await pi.exec("xcrun", ["simctl", "list", "devices", "booted", "-j"], { timeout: 5000 });
+  const result = await pi.exec(SIMCTL, [ "list", "devices", "booted", "-j"], { timeout: 5000 });
   if (result.code === 0) {
     const data = JSON.parse(result.stdout);
     for (const runtime of Object.values(data.devices) as any[]) {
@@ -164,6 +168,88 @@ function elementCenter(el: AXElement): { x: number; y: number } {
 function formatElementInfo(el: AXElement): string {
   const center = elementCenter(el);
   return `id=${el.AXUniqueId || "none"}, label="${el.AXLabel || ""}", type=${el.type}, center=(${center.x},${center.y}), enabled=${el.enabled}`;
+}
+
+// SwiftUI bottom toolbar items (.toolbar { ToolbarItem(placement: .bottomBar) })
+// are not enumerated by idb describe-all, but they DO exist in the accessibility
+// hierarchy and respond to hit-testing via describe-point. This function finds
+// the "Toolbar" group element in the tree to determine its exact position, then
+// probes a grid of points within that frame. If no Toolbar element exists in the
+// tree, falls back to probing the bottom 80pt of the screen.
+async function probeToolbarElements(
+  pi: ExtensionAPI,
+  idbPath: string,
+  udid: string,
+  signal?: AbortSignal,
+  treeElements?: AXElement[]
+): Promise<AXElement[]> {
+  const found: AXElement[] = [];
+  const seenIds = new Set<string>();
+
+  // Try to find the Toolbar group in the accessibility tree for exact coordinates
+  const elements = treeElements || [];
+  const toolbar = elements.find(el => el.AXLabel === "Toolbar" && el.role === "AXGroup");
+
+  let probePoints: { x: number; y: number }[];
+  if (toolbar && toolbar.frame.width > 0 && toolbar.frame.height > 0) {
+    // Use the actual toolbar frame to generate probe points
+    const f = toolbar.frame;
+    const midY = Math.round(f.y + f.height / 2);
+    const step = 40;
+    probePoints = [];
+    for (let x = f.x + 20; x < f.x + f.width; x += step) {
+      probePoints.push({ x: Math.round(x), y: midY });
+    }
+  } else {
+    // Fallback: probe the bottom toolbar area with hardcoded coordinates.
+    // These are optimized for standard iPhone sizes (375-430pt wide, ~852-932pt tall).
+    probePoints = [
+      { x: 40, y: 822 }, { x: 80, y: 822 }, { x: 120, y: 822 },
+      { x: 160, y: 822 }, { x: 201, y: 822 }, { x: 240, y: 822 },
+      { x: 280, y: 822 }, { x: 320, y: 822 }, { x: 360, y: 822 },
+      { x: 40, y: 843 }, { x: 120, y: 843 }, { x: 201, y: 843 },
+      { x: 280, y: 843 }, { x: 360, y: 843 },
+    ];
+  }
+
+  for (const pt of probePoints) {
+    if (signal?.aborted) break;
+    try {
+      const result = await pi.exec(
+        idbPath,
+        ["ui", "describe-point", "--udid", udid, "--json", String(pt.x), String(pt.y)],
+        { signal, timeout: 3000 }
+      );
+      if (result.code === 0 && result.stdout.trim()) {
+        const info = JSON.parse(result.stdout);
+        const axId = info.AXUniqueId || null;
+        // Skip generic containers and already-seen elements
+        const key = axId || `${info.AXLabel}@${info.frame?.x},${info.frame?.y}`;
+        if (seenIds.has(key)) continue;
+        if (!axId && !info.AXLabel) continue;
+        // Skip the Toolbar group itself
+        if (info.role === "AXGroup" && info.AXLabel === "Toolbar") continue;
+        if (info.role === "AXApplication") continue;
+
+        seenIds.add(key);
+        // Normalize to AXElement shape
+        const frame = info.frame || { x: 0, y: 0, width: 0, height: 0 };
+        found.push({
+          AXUniqueId: axId,
+          AXLabel: info.AXLabel || null,
+          AXValue: info.AXValue || null,
+          type: info.type || "Unknown",
+          role: info.role || "",
+          frame,
+          enabled: info.enabled !== false,
+          custom_actions: info.custom_actions || [],
+        });
+      }
+    } catch {
+      // Ignore probe failures
+    }
+  }
+  return found;
 }
 
 export default function (pi: ExtensionAPI) {
@@ -333,7 +419,7 @@ export default function (pi: ExtensionAPI) {
       const tmpFile = path.join(os.tmpdir(), `sim-screenshot-${Date.now()}.png`);
       const resizedFile = tmpFile.replace(".png", "-resized.jpeg");
       try {
-        const result = await pi.exec("xcrun", ["simctl", "io", udid, "screenshot", tmpFile], {
+        const result = await pi.exec(SIMCTL, [ "io", udid, "screenshot", tmpFile], {
           signal,
           timeout: 10000,
         });
@@ -409,7 +495,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, signal) {
       const udid = await resolveUdid(pi, params.udid);
-      const result = await pi.exec("xcrun", ["simctl", "openurl", udid, params.url], {
+      const result = await pi.exec(SIMCTL, [ "openurl", udid, params.url], {
         signal,
         timeout: 10000,
       });
@@ -435,9 +521,9 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal) {
       const udid = await resolveUdid(pi, params.udid);
       if (params.terminate_first) {
-        await pi.exec("xcrun", ["simctl", "terminate", udid, params.bundle_id], { signal, timeout: 5000 });
+        await pi.exec(SIMCTL, [ "terminate", udid, params.bundle_id], { signal, timeout: 5000 });
       }
-      const result = await pi.exec("xcrun", ["simctl", "launch", udid, params.bundle_id], {
+      const result = await pi.exec(SIMCTL, [ "launch", udid, params.bundle_id], {
         signal,
         timeout: 10000,
       });
@@ -481,7 +567,17 @@ export default function (pi: ExtensionAPI) {
           return { content: [{ type: "text", text: `Error getting accessibility tree: ${e.message}` }], isError: true };
         }
 
-        const el = findElement(elements, params.identifier);
+        let el = findElement(elements, params.identifier);
+
+        // Fallback: probe bottom toolbar area (SwiftUI .bottomBar items are hidden from describe-all)
+        if (!el) {
+          const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal, elements);
+          el = findElement(toolbarElements, params.identifier);
+          if (el) {
+            elements = elements.concat(toolbarElements);
+          }
+        }
+
         if (!el) {
           if (attempt < maxAttempts - 1) continue;
           const available = elements
@@ -627,7 +723,14 @@ export default function (pi: ExtensionAPI) {
           continue;
         }
 
-        const el = findElement(elements, params.identifier);
+        let el = findElement(elements, params.identifier);
+        // Fallback: probe bottom toolbar for hidden elements
+        if (!el) {
+          try {
+            const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal, elements);
+            el = findElement(toolbarElements, params.identifier);
+          } catch { /* best-effort */ }
+        }
         if (el) {
           const elapsed = ((Date.now() - start) / 1000).toFixed(1);
           return {
@@ -670,7 +773,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       udid: Type.Optional(Type.String({ description: "Simulator UDID. Auto-detected if omitted." })),
       lines: Type.Optional(Type.Number({ description: "Maximum number of lines to return (default: 100)" })),
-      level: Type.Optional(Type.String({ description: "Filter level: 'all', 'warning+error' (default), 'error'" })),
+      level: Type.Optional(Type.String({ description: "Filter level: 'all', 'warning+error' (default), 'error', 'events' (only [EVENT] lines)" })),
       since_marker: Type.Optional(Type.String({ description: "Only return logs after this timestamp marker (ISO8601 from a previous call)" })),
     }),
     async execute(_toolCallId, params, signal) {
@@ -696,6 +799,8 @@ export default function (pi: ExtensionAPI) {
         lines = lines.filter(l => l.includes("[warning]") || l.includes("[error]"));
       } else if (level === "error") {
         lines = lines.filter(l => l.includes("[error]"));
+      } else if (level === "events") {
+        lines = lines.filter(l => l.includes("[EVENT]"));
       }
 
       // Filter by since_marker (timestamp comparison)
@@ -812,6 +917,69 @@ export default function (pi: ExtensionAPI) {
     },
   });
 
+  // --- log_events: Get [EVENT] lines from app logs ---
+  pi.registerTool({
+    name: "sim_log_events",
+    label: "Simulator: Get App Events",
+    description:
+      "Read [EVENT] log lines from the Convos app. These are structured QA events emitted " +
+      "at key app milestones (message.sent, conversation.joined, reaction.received, etc.). " +
+      "Use to verify app behavior during QA tests. Each event has a category.action format " +
+      "with key=value parameters. Use event_filter to match specific events.",
+    parameters: Type.Object({
+      udid: Type.Optional(Type.String({ description: "Simulator UDID. Auto-detected if omitted." })),
+      since_marker: Type.Optional(Type.String({ description: "Only return events after this timestamp marker (ISO8601)" })),
+      event_filter: Type.Optional(Type.String({ description: "Filter events by name substring (e.g., 'message.sent', 'conversation', 'reaction')" })),
+      lines: Type.Optional(Type.Number({ description: "Maximum lines to scan from log tail (default: 500)" })),
+    }),
+    async execute(_toolCallId, params, signal) {
+      const udid = await resolveUdid(pi, params.udid);
+      const logFile = findAppLogFile(udid);
+      if (!logFile) {
+        return { content: [{ type: "text", text: "No log file found." }], details: {} };
+      }
+
+      const scanLines = params.lines ?? 500;
+      const result = await pi.exec("tail", ["-n", String(scanLines), logFile], { signal, timeout: 5000 });
+      if (result.code !== 0) {
+        return { content: [{ type: "text", text: `Failed to read log file: ${result.stderr}` }], isError: true };
+      }
+
+      let events = result.stdout.split("\n").filter(l => l.includes("[EVENT]"));
+
+      if (params.since_marker) {
+        const markerTime = params.since_marker;
+        events = events.filter(l => {
+          const match = l.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+          if (!match) return false;
+          return match[1] > markerTime;
+        });
+      }
+
+      if (params.event_filter) {
+        const filter = params.event_filter.toLowerCase();
+        events = events.filter(l => l.toLowerCase().includes(filter));
+      }
+
+      if (events.length === 0) {
+        const marker = new Date().toISOString().replace(/\.\d{3}/, "");
+        return {
+          content: [{ type: "text", text: `No events found${params.event_filter ? ` matching "${params.event_filter}"` : ""}${params.since_marker ? ` since ${params.since_marker}` : ""}.\nmarker: ${marker}` }],
+          details: {},
+        };
+      }
+
+      const lastLine = events[events.length - 1];
+      const tsMatch = lastLine.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+      const marker = tsMatch ? tsMatch[1] : new Date().toISOString().replace(/\.\d{3}/, "");
+
+      return {
+        content: [{ type: "text", text: `${events.length} event(s):\n\n${events.join("\n")}\n\nmarker: ${marker}` }],
+        details: {},
+      };
+    },
+  });
+
   // --- find_elements: Search for elements matching a pattern ---
   pi.registerTool({
     name: "sim_find_elements",
@@ -833,6 +1001,23 @@ export default function (pi: ExtensionAPI) {
         elements = await getAccessibilityTree(pi, idbPath, udid, signal);
       } catch (e: any) {
         return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+      }
+
+      // Also probe bottom toolbar for hidden elements
+      try {
+        const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal, elements);
+        // Merge, avoiding duplicates by checking AXUniqueId
+        const existingIds = new Set(elements.filter(e => e.AXUniqueId).map(e => e.AXUniqueId));
+        for (const te of toolbarElements) {
+          if (te.AXUniqueId && !existingIds.has(te.AXUniqueId)) {
+            elements.push(te);
+            existingIds.add(te.AXUniqueId);
+          } else if (!te.AXUniqueId) {
+            elements.push(te);
+          }
+        }
+      } catch {
+        // Toolbar probe is best-effort
       }
 
       let matches: AXElement[];

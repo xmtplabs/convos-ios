@@ -56,7 +56,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
         let config = CellConfig(
             shouldBlurPhotos: shouldBlurPhotos,
             onTapInvite: { [weak self] invite in
-                Log.info("Tapped invite: \(invite)")
+                Log.debug("Tapped invite: \(invite)")
                 self?.onTapInvite?(invite)
             },
             onTapAvatar: { [weak self] message in
@@ -70,11 +70,11 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             contextMenuState: contextMenuState ?? .init(),
             onPhotoRevealed: { [weak self] attachmentData in
-                Log.info("[DataSource] onPhotoRevealed called with: \(attachmentData.prefix(50))...")
+                Log.debug("[DataSource] onPhotoRevealed called with: \(attachmentData.prefix(50))...")
                 self?.onPhotoRevealed?(attachmentData)
             },
             onPhotoHidden: { [weak self] attachmentData in
-                Log.info("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
+                Log.debug("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
                 self?.onPhotoHidden?(attachmentData)
             },
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
