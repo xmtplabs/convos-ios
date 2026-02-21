@@ -49,6 +49,7 @@ struct AddQuicknameView: View {
         .blur(radius: isDismissing ? Constant.poofBlurRadius : dismissProgress * Constant.maxBlurRadius)
         .opacity(isDismissing ? 0.0 : 1.0)
         .onTapGesture {
+            guard !isDismissing else { return }
             onUseProfile(profile, profileImage)
         }
         .simultaneousGesture(
@@ -69,8 +70,9 @@ struct AddQuicknameView: View {
                         value.predictedEndTranslation.height * value.predictedEndTranslation.height
                     )
 
-                    if distance > Constant.dismissThreshold ||
-                        predictedDistance > Constant.dismissThreshold * 2 {
+                    let shouldDismiss = distance > Constant.dismissThreshold ||
+                        predictedDistance > Constant.dismissThreshold * 2
+                    if onDismiss != nil, shouldDismiss {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             isDismissing = true
                         }
