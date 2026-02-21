@@ -22,7 +22,7 @@ public enum QAEvent {
     ) {
         let paramString = params
             .sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
+            .map { "\($0.key)=\($0.value.replacingOccurrences(of: " ", with: "_"))" }
             .joined(separator: " ")
         let event = paramString.isEmpty
             ? "[EVENT] \(category.rawValue).\(action)"

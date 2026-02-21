@@ -172,28 +172,45 @@ function formatElementInfo(el: AXElement): string {
 
 // SwiftUI bottom toolbar items (.toolbar { ToolbarItem(placement: .bottomBar) })
 // are not enumerated by idb describe-all, but they DO exist in the accessibility
-// hierarchy and respond to hit-testing via describe-point. This function probes
-// a grid of points in the bottom toolbar area to find hidden elements.
+// hierarchy and respond to hit-testing via describe-point. This function finds
+// the "Toolbar" group element in the tree to determine its exact position, then
+// probes a grid of points within that frame. If no Toolbar element exists in the
+// tree, falls back to probing the bottom 80pt of the screen.
 async function probeToolbarElements(
   pi: ExtensionAPI,
   idbPath: string,
   udid: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  treeElements?: AXElement[]
 ): Promise<AXElement[]> {
   const found: AXElement[] = [];
   const seenIds = new Set<string>();
 
-  // Probe the bottom toolbar area: y from 800 to 860 (typical toolbar range
-  // for iPhone screens), x across the width at intervals
-  const probePoints = [
-    // Bottom toolbar — scan horizontally
-    { x: 40, y: 822 }, { x: 80, y: 822 }, { x: 120, y: 822 },
-    { x: 160, y: 822 }, { x: 201, y: 822 }, { x: 240, y: 822 },
-    { x: 280, y: 822 }, { x: 320, y: 822 }, { x: 360, y: 822 },
-    // Also try slightly different y offsets for different device sizes
-    { x: 40, y: 843 }, { x: 120, y: 843 }, { x: 201, y: 843 },
-    { x: 280, y: 843 }, { x: 360, y: 843 },
-  ];
+  // Try to find the Toolbar group in the accessibility tree for exact coordinates
+  const elements = treeElements || [];
+  const toolbar = elements.find(el => el.AXLabel === "Toolbar" && el.role === "AXGroup");
+
+  let probePoints: { x: number; y: number }[];
+  if (toolbar && toolbar.frame.width > 0 && toolbar.frame.height > 0) {
+    // Use the actual toolbar frame to generate probe points
+    const f = toolbar.frame;
+    const midY = Math.round(f.y + f.height / 2);
+    const step = 40;
+    probePoints = [];
+    for (let x = f.x + 20; x < f.x + f.width; x += step) {
+      probePoints.push({ x: Math.round(x), y: midY });
+    }
+  } else {
+    // Fallback: probe the bottom toolbar area with hardcoded coordinates.
+    // These are optimized for standard iPhone sizes (375-430pt wide, ~852-932pt tall).
+    probePoints = [
+      { x: 40, y: 822 }, { x: 80, y: 822 }, { x: 120, y: 822 },
+      { x: 160, y: 822 }, { x: 201, y: 822 }, { x: 240, y: 822 },
+      { x: 280, y: 822 }, { x: 320, y: 822 }, { x: 360, y: 822 },
+      { x: 40, y: 843 }, { x: 120, y: 843 }, { x: 201, y: 843 },
+      { x: 280, y: 843 }, { x: 360, y: 843 },
+    ];
+  }
 
   for (const pt of probePoints) {
     if (signal?.aborted) break;
@@ -554,10 +571,9 @@ export default function (pi: ExtensionAPI) {
 
         // Fallback: probe bottom toolbar area (SwiftUI .bottomBar items are hidden from describe-all)
         if (!el) {
-          const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal);
+          const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal, elements);
           el = findElement(toolbarElements, params.identifier);
           if (el) {
-            // Merge toolbar elements into the list for the "available" output
             elements = elements.concat(toolbarElements);
           }
         }
@@ -711,7 +727,7 @@ export default function (pi: ExtensionAPI) {
         // Fallback: probe bottom toolbar for hidden elements
         if (!el) {
           try {
-            const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal);
+            const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal, elements);
             el = findElement(toolbarElements, params.identifier);
           } catch { /* best-effort */ }
         }
@@ -986,7 +1002,7 @@ export default function (pi: ExtensionAPI) {
 
       // Also probe bottom toolbar for hidden elements
       try {
-        const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal);
+        const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal, elements);
         // Merge, avoiding duplicates by checking AXUniqueId
         const existingIds = new Set(elements.filter(e => e.AXUniqueId).map(e => e.AXUniqueId));
         for (const te of toolbarElements) {
