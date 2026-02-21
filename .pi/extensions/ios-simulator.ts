@@ -961,14 +961,17 @@ export default function (pi: ExtensionAPI) {
         events = events.filter(l => l.toLowerCase().includes(filter));
       }
 
-      const marker = new Date().toISOString().replace(/\.\d{3}/, "");
-
       if (events.length === 0) {
+        const marker = new Date().toISOString().replace(/\.\d{3}/, "");
         return {
           content: [{ type: "text", text: `No events found${params.event_filter ? ` matching "${params.event_filter}"` : ""}${params.since_marker ? ` since ${params.since_marker}` : ""}.\nmarker: ${marker}` }],
           details: {},
         };
       }
+
+      const lastLine = events[events.length - 1];
+      const tsMatch = lastLine.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+      const marker = tsMatch ? tsMatch[1] : new Date().toISOString().replace(/\.\d{3}/, "");
 
       return {
         content: [{ type: "text", text: `${events.length} event(s):\n\n${events.join("\n")}\n\nmarker: ${marker}` }],
