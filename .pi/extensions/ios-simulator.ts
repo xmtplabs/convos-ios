@@ -170,6 +170,71 @@ function formatElementInfo(el: AXElement): string {
   return `id=${el.AXUniqueId || "none"}, label="${el.AXLabel || ""}", type=${el.type}, center=(${center.x},${center.y}), enabled=${el.enabled}`;
 }
 
+// SwiftUI bottom toolbar items (.toolbar { ToolbarItem(placement: .bottomBar) })
+// are not enumerated by idb describe-all, but they DO exist in the accessibility
+// hierarchy and respond to hit-testing via describe-point. This function probes
+// a grid of points in the bottom toolbar area to find hidden elements.
+async function probeToolbarElements(
+  pi: ExtensionAPI,
+  idbPath: string,
+  udid: string,
+  signal?: AbortSignal
+): Promise<AXElement[]> {
+  const found: AXElement[] = [];
+  const seenIds = new Set<string>();
+
+  // Probe the bottom toolbar area: y from 800 to 860 (typical toolbar range
+  // for iPhone screens), x across the width at intervals
+  const probePoints = [
+    // Bottom toolbar — scan horizontally
+    { x: 40, y: 822 }, { x: 80, y: 822 }, { x: 120, y: 822 },
+    { x: 160, y: 822 }, { x: 201, y: 822 }, { x: 240, y: 822 },
+    { x: 280, y: 822 }, { x: 320, y: 822 }, { x: 360, y: 822 },
+    // Also try slightly different y offsets for different device sizes
+    { x: 40, y: 843 }, { x: 120, y: 843 }, { x: 201, y: 843 },
+    { x: 280, y: 843 }, { x: 360, y: 843 },
+  ];
+
+  for (const pt of probePoints) {
+    if (signal?.aborted) break;
+    try {
+      const result = await pi.exec(
+        idbPath,
+        ["ui", "describe-point", "--udid", udid, "--json", String(pt.x), String(pt.y)],
+        { signal, timeout: 3000 }
+      );
+      if (result.code === 0 && result.stdout.trim()) {
+        const info = JSON.parse(result.stdout);
+        const axId = info.AXUniqueId || null;
+        // Skip generic containers and already-seen elements
+        const key = axId || `${info.AXLabel}@${info.frame?.x},${info.frame?.y}`;
+        if (seenIds.has(key)) continue;
+        if (!axId && !info.AXLabel) continue;
+        // Skip the Toolbar group itself
+        if (info.role === "AXGroup" && info.AXLabel === "Toolbar") continue;
+        if (info.role === "AXApplication") continue;
+
+        seenIds.add(key);
+        // Normalize to AXElement shape
+        const frame = info.frame || { x: 0, y: 0, width: 0, height: 0 };
+        found.push({
+          AXUniqueId: axId,
+          AXLabel: info.AXLabel || null,
+          AXValue: info.AXValue || null,
+          type: info.type || "Unknown",
+          role: info.role || "",
+          frame,
+          enabled: info.enabled !== false,
+          custom_actions: info.custom_actions || [],
+        });
+      }
+    } catch {
+      // Ignore probe failures
+    }
+  }
+  return found;
+}
+
 export default function (pi: ExtensionAPI) {
   // --- ui_describe_all: Get full accessibility tree ---
   pi.registerTool({
@@ -485,7 +550,18 @@ export default function (pi: ExtensionAPI) {
           return { content: [{ type: "text", text: `Error getting accessibility tree: ${e.message}` }], isError: true };
         }
 
-        const el = findElement(elements, params.identifier);
+        let el = findElement(elements, params.identifier);
+
+        // Fallback: probe bottom toolbar area (SwiftUI .bottomBar items are hidden from describe-all)
+        if (!el) {
+          const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal);
+          el = findElement(toolbarElements, params.identifier);
+          if (el) {
+            // Merge toolbar elements into the list for the "available" output
+            elements = elements.concat(toolbarElements);
+          }
+        }
+
         if (!el) {
           if (attempt < maxAttempts - 1) continue;
           const available = elements
@@ -631,7 +707,14 @@ export default function (pi: ExtensionAPI) {
           continue;
         }
 
-        const el = findElement(elements, params.identifier);
+        let el = findElement(elements, params.identifier);
+        // Fallback: probe bottom toolbar for hidden elements
+        if (!el) {
+          try {
+            const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal);
+            el = findElement(toolbarElements, params.identifier);
+          } catch { /* best-effort */ }
+        }
         if (el) {
           const elapsed = ((Date.now() - start) / 1000).toFixed(1);
           return {
@@ -899,6 +982,23 @@ export default function (pi: ExtensionAPI) {
         elements = await getAccessibilityTree(pi, idbPath, udid, signal);
       } catch (e: any) {
         return { content: [{ type: "text", text: `Error: ${e.message}` }], isError: true };
+      }
+
+      // Also probe bottom toolbar for hidden elements
+      try {
+        const toolbarElements = await probeToolbarElements(pi, idbPath, udid, signal);
+        // Merge, avoiding duplicates by checking AXUniqueId
+        const existingIds = new Set(elements.filter(e => e.AXUniqueId).map(e => e.AXUniqueId));
+        for (const te of toolbarElements) {
+          if (te.AXUniqueId && !existingIds.has(te.AXUniqueId)) {
+            elements.push(te);
+            existingIds.add(te.AXUniqueId);
+          } else if (!te.AXUniqueId) {
+            elements.push(te);
+          }
+        }
+      } catch {
+        // Toolbar probe is best-effort
       }
 
       let matches: AXElement[];

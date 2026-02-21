@@ -222,7 +222,7 @@ $CXDB finish-test "$TR" "pass"
 - **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
 - If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout.
 - **Never sleep — wait for elements instead.** If you know the accessibility identifier or label of the next element you need, use `sim_wait_for_element` to poll for it. This is faster (returns as soon as the element appears) and more reliable (fails with a clear timeout instead of silently proceeding too early). Only use `sleep` as a last resort when there is genuinely no element to wait for (e.g., after a dismiss gesture where you need the UI to settle). Even then, keep it under 1 second.
-- **SwiftUI bottom toolbar items are hidden from tree traversal.** Buttons inside `.toolbar { ToolbarItem(placement: .bottomBar) }` (e.g., `compose-button`, `scan-button`) have correct accessibility identifiers but `idb ui describe-all` does not enumerate them. The `sim_wait_and_tap` extension handles this automatically by probing toolbar areas with hit-testing when the tree search fails. Use `sim_wait_and_tap` for these elements — it will find them. The built-in `sim_tap_id` and `sim_find_elements` tools cannot find them.
+- **SwiftUI bottom toolbar items are auto-probed.** Buttons inside `.toolbar { ToolbarItem(placement: .bottomBar) }` (e.g., `compose-button`, `scan-button`) have correct accessibility identifiers but `idb ui describe-all` does not enumerate them. The `sim_tap_id`, `sim_find_elements`, and `sim_wait_for_element` tools handle this automatically by probing the bottom toolbar area with hit-testing when the tree search fails. No special workaround is needed — use these tools normally with the element's identifier or label.
 
 ### Verifying Behavior via App Events
 
@@ -419,7 +419,7 @@ Unless the test is specifically about onboarding, complete or dismiss onboarding
 
 ### No Sleep Calls
 
-Never use `sleep` between test steps. All simulator tools (`sim_wait_and_tap`, `sim_find_elements`, `sim_chain`) have built-in timeouts and polling. After a CLI action (e.g., `send-text`), immediately check for the result in the app using `sim_find_elements` — if the message hasn't arrived yet, the tool returns empty and you can retry. The only acceptable blocking wait is the CLI `conversations join` command (without `--no-wait`), which blocks until the app processes the join request.
+Never use `sleep` between test steps. All simulator tools (`sim_tap_id`, `sim_find_elements`, `sim_wait_for_element`) have built-in timeouts and polling. After a CLI action (e.g., `send-text`), immediately check for the result in the app using `sim_find_elements` — if the message hasn't arrived yet, the tool returns empty and you can retry. The only acceptable blocking wait is the CLI `conversations join` command (without `--no-wait`), which blocks until the app processes the join request.
 
 ### CLI Reset Before Each Test
 
@@ -448,7 +448,7 @@ When copying an invite URL from the app's share sheet (via the Copy button), **a
 echo -n "" | xcrun simctl pbcopy $UDID
 
 # 2. Tap the share button, wait for the share sheet, tap Copy
-#    (use sim_wait_and_tap label="Copy")
+#    (use sim_tap_id with label="Copy")
 
 # 3. Read the clean URL from pasteboard
 INVITE_URL=$(xcrun simctl pbpaste $UDID)
