@@ -182,6 +182,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },
             bottomBarHeight: bottomBarHeight,
+            onBottomOverscrollChanged: { _ in },
             scrollToBottomTrigger: { _ in }
         )
         .ignoresSafeArea()

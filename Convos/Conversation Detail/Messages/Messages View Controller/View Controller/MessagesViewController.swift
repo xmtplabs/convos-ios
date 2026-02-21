@@ -176,6 +176,8 @@ final class MessagesViewController: UIViewController {
     var contextMenuState: MessageContextMenuState = .init() {
         didSet { dataSource.contextMenuState = contextMenuState }
     }
+    var onBottomOverscrollChanged: ((CGFloat) -> Void)?
+
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
@@ -612,6 +614,8 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
             interruptCurrentUpdateAnimation()
         }
 
+        reportBottomOverscroll(scrollView)
+
         guard !currentControllerActions.options.contains(.loadingInitialMessages),
               !currentControllerActions.options.contains(.loadingPreviousMessages),
               !currentInterfaceActions.options.contains(.scrollingToTop),
@@ -621,6 +625,23 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
 
         if scrollView.contentOffset.y <= -scrollView.adjustedContentInset.top {
             loadPreviousMessages()
+        }
+    }
+
+    private func reportBottomOverscroll(_ scrollView: UIScrollView) {
+        let topInset = scrollView.adjustedContentInset.top
+        let bottomInset = scrollView.adjustedContentInset.bottom
+        let contentHeight = scrollView.contentSize.height
+        let frameHeight = scrollView.frame.height
+        let minOffset = -topInset
+        let maxOffset = max(minOffset, contentHeight - frameHeight + bottomInset)
+        let topOverscroll = minOffset - scrollView.contentOffset.y
+        let bottomOverscroll = scrollView.contentOffset.y - maxOffset
+        let overscroll = max(topOverscroll, bottomOverscroll)
+        if overscroll > 0, scrollView.isDragging {
+            onBottomOverscrollChanged?(overscroll)
+        } else {
+            onBottomOverscrollChanged?(0.0)
         }
     }
 

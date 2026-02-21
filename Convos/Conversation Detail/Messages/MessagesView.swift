@@ -43,6 +43,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onBottomOverscrollChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -70,6 +71,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             bottomBarHeight: bottomBarHeight,
+            onBottomOverscrollChanged: onBottomOverscrollChanged,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
             }

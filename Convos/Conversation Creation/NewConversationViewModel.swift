@@ -61,8 +61,6 @@ class NewConversationViewModel: Identifiable {
     }
 
     private(set) var isCreatingConversation: Bool = false
-    private(set) var isRequestingAssistant: Bool = false
-    private(set) var hasRequestedAssistantJoin: Bool = false
     private(set) var currentError: Error?
     private(set) var conversationState: ConversationStateMachine.State = .uninitialized
     private var cachedInviteCode: String?
@@ -77,8 +75,6 @@ class NewConversationViewModel: Identifiable {
     private var newConversationTask: Task<Void, Error>?
     @ObservationIgnored
     private var joinConversationTask: Task<Void, Error>?
-    @ObservationIgnored
-    private var assistantJoinTask: Task<Void, Never>?
     @ObservationIgnored
     private var resetTask: Task<Void, Never>?
     @ObservationIgnored
@@ -149,7 +145,6 @@ class NewConversationViewModel: Identifiable {
         inboxAcquisitionTask?.cancel()
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
-        assistantJoinTask?.cancel()
         resetTask?.cancel()
         stateObserverHandle?.cancel()
     }
@@ -272,67 +267,10 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
-    func requestAssistantJoin() {
-        guard !isRequestingAssistant else { return }
-
-        guard let slug = conversationViewModel?.invite.urlSlug,
-              !slug.isEmpty else {
-            displayError = IdentifiableError(
-                title: "Couldn't add assistant",
-                description: "Invite wasn't ready yet. Please try again."
-            )
-            return
-        }
-
-        assistantJoinTask?.cancel()
-        assistantJoinTask = Task { [weak self, session] in
-            guard let self else { return }
-            await MainActor.run {
-                self.isRequestingAssistant = true
-            }
-
-            defer {
-                Task { @MainActor [weak self] in
-                    self?.isRequestingAssistant = false
-                }
-            }
-
-            do {
-                let response = try await session.requestAgentJoin(
-                    slug: slug,
-                    instructions: Constant.defaultAssistantInstructions
-                )
-                guard response.success, response.joined else {
-                    await MainActor.run {
-                        self.displayError = IdentifiableError(
-                            title: "Couldn't add assistant",
-                            description: "Something went wrong. Please try again."
-                        )
-                    }
-                    return
-                }
-                await MainActor.run {
-                    self.displayError = nil
-                    self.hasRequestedAssistantJoin = true
-                }
-            } catch {
-                Log.error("Failed to request assistant join: \(error.localizedDescription)")
-                await MainActor.run {
-                    let fallback = IdentifiableError(
-                        title: "Couldn't add assistant",
-                        description: "Please try again."
-                    )
-                    self.displayError = (error as? DisplayError).map { IdentifiableError(error: $0) } ?? fallback
-                }
-            }
-        }
-    }
-
     func deleteConversation() {
         Log.info("Deleting conversation")
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
-        assistantJoinTask?.cancel()
         let clientId = conversationViewModel?.conversation.clientId ?? acquiredMessagingService?.clientId
         let inboxId = conversationViewModel?.conversation.inboxId
         guard let clientId else { return }
@@ -355,9 +293,6 @@ class NewConversationViewModel: Identifiable {
         isCreatingConversation = false
         conversationViewModel?.isWaitingForInviteAcceptance = false
         inboxAcquisitionTask?.cancel()
-        assistantJoinTask?.cancel()
-        isRequestingAssistant = false
-        hasRequestedAssistantJoin = false
         deleteConversation()
         dismissAction?()
     }
@@ -421,8 +356,6 @@ class NewConversationViewModel: Identifiable {
         messagesTextFieldEnabled = false
         conversationViewModel?.isWaitingForInviteAcceptance = false
         isCreatingConversation = false
-        isRequestingAssistant = false
-        hasRequestedAssistantJoin = false
         currentError = nil
         qrScannerViewModel.resetScanning()
 
@@ -648,10 +581,6 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItem = .share
         }
         .store(in: &cancellables)
-    }
-
-    private enum Constant {
-        static let defaultAssistantInstructions: String = "You're a Convos Assistant"
     }
 }
 

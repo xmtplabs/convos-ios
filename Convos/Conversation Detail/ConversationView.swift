@@ -15,6 +15,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var presentingShareView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
+    @State private var scrollOverscrollAmount: CGFloat = 0.0
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -69,6 +70,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
+            onBottomOverscrollChanged: { overscroll in
+                scrollOverscrollAmount = overscroll
+            },
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
@@ -76,11 +80,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,
                         focusCoordinator: focusCoordinator,
+                        scrollOverscrollAmount: scrollOverscrollAmount,
                         onTapSetupQuickname: {
                             onboardingCoordinator.didTapProfilePhoto()
                             viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
                         },
                         onUseQuickname: viewModel.onUseQuickname(_:_:),
+                        onRequestAssistant: viewModel.requestAssistantJoin,
                         onPresentProfileSettings: viewModel.onProfileSettings
                     )
                 }

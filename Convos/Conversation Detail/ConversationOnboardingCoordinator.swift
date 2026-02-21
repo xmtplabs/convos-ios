@@ -78,9 +78,16 @@ enum ConversationOnboardingState: Equatable {
     /// Notifications denied, prompt to change in settings
     case notificationsDenied
 
+    /// Show the assistant hint (pull up to add assistant)
+    case assistantHint
+
+    /// Assistant was requested, showing brief confirmation
+    case assistantRequested
+
     static let addQuicknameViewDuration: CGFloat = 8.0
     static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
+    static let assistantRequestedDuration: CGFloat = 3.0
     // how long we wait before showing the description string
     static let waitingForInviteAcceptanceDelay: CGFloat = 3.0
 
@@ -93,6 +100,8 @@ enum ConversationOnboardingState: Equatable {
             return Self.savedAsQuicknameSuccessDuration
         case .notificationsEnabled:
             return Self.notificationsEnabledSuccessDuration
+        case .assistantRequested:
+            return Self.assistantRequestedDuration
         default:
             return nil
         }
@@ -133,12 +142,12 @@ final class ConversationOnboardingCoordinator {
         }
     }
 
-    /// Track if we're waiting for invite acceptance (can be true alongside other states)
     var isWaitingForInviteAcceptance: Bool = false
 
-    /// Track if we need to show quickname flow after notifications (for invite acceptance flow)
     private var shouldShowQuicknameAfterNotifications: Bool = false
     private var pendingClientId: String?
+    private var currentClientId: String?
+    private var isConversationCreator: Bool = false
 
     // MARK: - Persistence
 
@@ -146,15 +155,15 @@ final class ConversationOnboardingCoordinator {
     private static let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
     private static let hasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsQuicknameKey: String = "hasSeenAddAsQuickname"
+    private static let hasDismissedAssistantHintPrefix: String = "hasDismissedAssistantHint_"
 
     static func resetUserDefaults() {
         UserDefaults.standard.removeObject(forKey: hasShownQuicknameEditorKey)
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
         UserDefaults.standard.removeObject(forKey: hasSeenAddAsQuicknameKey)
 
-        // Remove all keys with the hasSetQuickname prefix
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
-        for key in allKeys where key.hasPrefix(hasSetQuicknamePrefix) {
+        for key in allKeys where key.hasPrefix(hasSetQuicknamePrefix) || key.hasPrefix(hasDismissedAssistantHintPrefix) {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
@@ -184,7 +193,14 @@ final class ConversationOnboardingCoordinator {
         set { UserDefaults.standard.set(newValue, forKey: Self.hasSeenAddAsQuicknameKey) }
     }
 
-    // Only used in Debug builds
+    private func hasDismissedAssistantHint(for clientId: String) -> Bool {
+        UserDefaults.standard.bool(forKey: Self.hasDismissedAssistantHintPrefix + clientId)
+    }
+
+    private func setHasDismissedAssistantHint(_ value: Bool, for clientId: String) {
+        UserDefaults.standard.set(value, forKey: Self.hasDismissedAssistantHintPrefix + clientId)
+    }
+
     func reset() {
         state = .idle
         quicknameViewModel.delete()
@@ -263,9 +279,8 @@ final class ConversationOnboardingCoordinator {
             case .addQuickname:
                 await addQuicknameDidAutoDismiss()
             case .savedAsQuicknameSuccess:
-                await transitionToNotificationState()
+                await transitionAfterQuickname()
             case .notificationsEnabled:
-                // Check if we need to continue to quickname flow
                 if shouldShowQuicknameAfterNotifications, let clientId = pendingClientId {
                     await startQuicknameFlow(for: clientId)
                     shouldShowQuicknameAfterNotifications = false
@@ -273,6 +288,8 @@ final class ConversationOnboardingCoordinator {
                 } else {
                     await complete()
                 }
+            case .assistantRequested:
+                await transitionToNotificationState()
             default:
                 break
             }
@@ -309,21 +326,19 @@ final class ConversationOnboardingCoordinator {
 
     // MARK: - State Transitions
 
-    /// Initialize the onboarding flow based on current conditions
-    func start(for clientId: String) async {
-        // Only start if we're in idle state
+    func start(for clientId: String, isConversationCreator: Bool = false) async {
         guard case .idle = state else {
             return
         }
 
-        // prevent starting again before we know the next state
+        self.currentClientId = clientId
+        self.isConversationCreator = isConversationCreator
+
         state = .started
 
         if isWaitingForInviteAcceptance {
-            // Notifications first, then quickname
             await startNotificationFlow(for: clientId)
         } else {
-            // Quickname first, then notifications
             await startQuicknameFlow(for: clientId)
         }
     }
@@ -384,8 +399,7 @@ final class ConversationOnboardingCoordinator {
             state = .addQuickname(settings: quicknameSettings, profileImage: profileImage)
             handleStateChange()
         } else {
-            // Already set quickname for this conversation, go to notifications
-            await transitionToNotificationState()
+            await transitionAfterQuickname()
         }
     }
 
@@ -426,21 +440,20 @@ final class ConversationOnboardingCoordinator {
         handleStateChange()
     }
 
-    /// User selected a quickname to use
     func didSelectQuickname() async {
         shouldAnimateAvatarForQuicknameSetup = false
-        await transitionToNotificationState()
+        await transitionAfterQuickname()
     }
 
     func skipAddQuickname() {
         guard case .addQuickname = state else { return }
         Task {
-            await transitionToNotificationState()
+            await transitionAfterQuickname()
         }
     }
 
     private func addQuicknameDidAutoDismiss() async {
-        await transitionToNotificationState()
+        await transitionAfterQuickname()
     }
 
     /// Handle when display name editing ends
@@ -503,16 +516,45 @@ final class ConversationOnboardingCoordinator {
         }
     }
 
-    /// Complete the onboarding flow
     func complete() async {
         hasCompletedOnboarding = true
         state = .idle
         handleStateChange()
     }
 
-    /// Skip remaining onboarding steps
     func skip() async {
         await complete()
+    }
+
+    func assistantWasRequested() {
+        if let clientId = currentClientId {
+            setHasDismissedAssistantHint(true, for: clientId)
+        }
+        state = .assistantRequested
+        handleStateChange()
+    }
+
+    func dismissAssistantHint() {
+        if let clientId = currentClientId {
+            setHasDismissedAssistantHint(true, for: clientId)
+        }
+        Task {
+            await transitionToNotificationState()
+        }
+    }
+
+    private func shouldShowAssistantHint() -> Bool {
+        guard isConversationCreator, let clientId = currentClientId else { return false }
+        return !hasDismissedAssistantHint(for: clientId)
+    }
+
+    private func transitionAfterQuickname() async {
+        if shouldShowAssistantHint() {
+            state = .assistantHint
+            handleStateChange()
+        } else {
+            await transitionToNotificationState()
+        }
     }
 
     /// Reset onboarding state (useful for testing)
@@ -558,10 +600,8 @@ final class ConversationOnboardingCoordinator {
             state = .notificationsDenied
             handleStateChange()
         case .authorized, .provisional, .ephemeral:
-            // Already granted, complete onboarding
             await complete()
         @unknown default:
-            // Unknown state, treat as completed
             await complete()
         }
     }

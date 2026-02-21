@@ -217,6 +217,10 @@ class ConversationViewModel {
     var presentingPhotosInfoSheet: Bool = false
     var activeToast: IndicatorToastStyle?
 
+
+    @ObservationIgnored
+    private var assistantJoinTask: Task<Void, Never>?
+
     var autoRevealPhotos: Bool = false {
         didSet {
             guard oldValue != autoRevealPhotos else { return }
@@ -285,6 +289,7 @@ class ConversationViewModel {
     deinit {
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
+        assistantJoinTask?.cancel()
     }
 
     // MARK: - Init
@@ -520,7 +525,8 @@ class ConversationViewModel {
     func startOnboarding() {
         Task { @MainActor in
             await onboardingCoordinator.start(
-                for: conversation.clientId
+                for: conversation.clientId,
+                isConversationCreator: conversation.creator.isCurrentUser
             )
         }
     }
@@ -817,6 +823,23 @@ extension ConversationViewModel {
                 try await metadataWriter.updateIncludeInfoInPublicPreview(enabled, for: conversation.id)
             } catch {
                 Log.error("Error updating public preview setting: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func requestAssistantJoin() {
+        let slug = invite.urlSlug
+        guard !slug.isEmpty else { return }
+
+        assistantJoinTask?.cancel()
+        assistantJoinTask = Task { [session] in
+            do {
+                _ = try await session.requestAgentJoin(
+                    slug: slug,
+                    instructions: "You're a Convos Assistant"
+                )
+            } catch {
+                Log.error("Failed to request assistant join: \(error.localizedDescription)")
             }
         }
     }
