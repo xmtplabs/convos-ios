@@ -306,11 +306,17 @@ struct ConversationStateMachineTests {
         await stateMachine.create()
 
         var conversationId: String?
-        for await state in await stateMachine.stateSequence {
-            if case .ready(let result) = state {
-                conversationId = result.conversationId
-                break
+        do {
+            conversationId = try await withTimeout(seconds: 120) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
+        } catch {
+            Issue.record("Timed out waiting for conversation creation: \(error)")
         }
 
         guard let convId = conversationId else {
@@ -385,11 +391,17 @@ struct ConversationStateMachineTests {
         await stateMachine.create()
 
         var conversationId: String?
-        for await state in await stateMachine.stateSequence {
-            if case .ready(let result) = state {
-                conversationId = result.conversationId
-                break
+        do {
+            conversationId = try await withTimeout(seconds: 120) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
+        } catch {
+            Issue.record("Timed out waiting for conversation creation: \(error)")
         }
 
         guard let convId = conversationId else {
@@ -1208,11 +1220,17 @@ struct ConversationStateMachineTests {
         await createStateMachine.create()
 
         var createdConversationId: String?
-        for await state in await createStateMachine.stateSequence {
-            if case .ready(let result) = state {
-                createdConversationId = result.conversationId
-                break
+        do {
+            createdConversationId = try await withTimeout(seconds: 120) {
+                for await state in await createStateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
+        } catch {
+            Issue.record("Timed out waiting for conversation creation: \(error)")
         }
 
         guard let conversationId = createdConversationId else {
@@ -1241,22 +1259,25 @@ struct ConversationStateMachineTests {
 
         // Wait for ready state
         var result: ConversationReadyResult?
-        for await state in await stateMachine.stateSequence {
-            switch state {
-            case .ready(let readyResult):
-                result = readyResult
-            case .error(let error):
-                Issue.record("UseExisting failed: \(error)")
-                await messagingService.stopAndDelete()
-                try? await fixtures.cleanup()
-                return
-            default:
-                continue
+        do {
+            result = try await withTimeout(seconds: 120) {
+                for await state in await stateMachine.stateSequence {
+                    switch state {
+                    case .ready(let readyResult):
+                        return readyResult
+                    case .error(let error):
+                        throw error
+                    default:
+                        continue
+                    }
+                }
+                return nil
             }
-
-            if result != nil {
-                break
-            }
+        } catch {
+            Issue.record("UseExisting timed out or failed: \(error)")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
         }
 
         #expect(result != nil, "Should reach ready state")
@@ -1297,11 +1318,17 @@ struct ConversationStateMachineTests {
         await createStateMachine.create()
 
         var createdConversationId: String?
-        for await state in await createStateMachine.stateSequence {
-            if case .ready(let result) = state {
-                createdConversationId = result.conversationId
-                break
+        do {
+            createdConversationId = try await withTimeout(seconds: 120) {
+                for await state in await createStateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
+        } catch {
+            Issue.record("Timed out waiting for conversation creation: \(error)")
         }
 
         guard let conversationId = createdConversationId else {
@@ -1325,10 +1352,20 @@ struct ConversationStateMachineTests {
         await stateMachine.useExisting(conversationId: conversationId)
 
         // Wait for ready state
-        for await state in await stateMachine.stateSequence {
-            if case .ready = state {
-                break
+        do {
+            _ = try await withTimeout(seconds: 120) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready = state {
+                        return true
+                    }
+                }
+                return false
             }
+        } catch {
+            Issue.record("UseExisting timed out: \(error)")
+            await messagingService.stopAndDelete()
+            try? await fixtures.cleanup()
+            return
         }
 
         // Send messages after useExisting
@@ -1384,11 +1421,17 @@ struct ConversationStateMachineTests {
         await createStateMachine.create()
 
         var createdConversationId: String?
-        for await state in await createStateMachine.stateSequence {
-            if case .ready(let result) = state {
-                createdConversationId = result.conversationId
-                break
+        do {
+            createdConversationId = try await withTimeout(seconds: 120) {
+                for await state in await createStateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
+        } catch {
+            Issue.record("Timed out waiting for conversation creation: \(error)")
         }
 
         guard let conversationId = createdConversationId else {
@@ -1490,11 +1533,17 @@ struct ConversationStateMachineTests {
         await stateMachine.create()
 
         var conversationId: String?
-        for await state in await stateMachine.stateSequence {
-            if case .ready(let result) = state {
-                conversationId = result.conversationId
-                break
+        do {
+            conversationId = try await withTimeout(seconds: 120) {
+                for await state in await stateMachine.stateSequence {
+                    if case .ready(let result) = state {
+                        return result.conversationId
+                    }
+                }
+                return nil
             }
+        } catch {
+            Issue.record("Timed out waiting for conversation creation: \(error)")
         }
 
         guard let convId = conversationId else {
@@ -1508,10 +1557,17 @@ struct ConversationStateMachineTests {
         await stateMachine.stop()
 
         // Wait for uninitialized state
-        for await state in await stateMachine.stateSequence {
-            if case .uninitialized = state {
-                break
+        do {
+            _ = try await withTimeout(seconds: 10) {
+                for await state in await stateMachine.stateSequence {
+                    if case .uninitialized = state {
+                        return true
+                    }
+                }
+                return false
             }
+        } catch {
+            Issue.record("Timed out waiting for uninitialized: \(error)")
         }
 
         // Now use useExisting with the same conversation
