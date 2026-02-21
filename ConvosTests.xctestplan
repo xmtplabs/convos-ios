@@ -1,0 +1,24 @@
+{
+  "configurations" : [
+    {
+      "id" : "E535AD0C-3A74-4430-8417-17DE1DDF21C1",
+      "name" : "Test Scheme Action",
+      "options" : {
+
+      }
+    }
+  ],
+  "defaultOptions" : {
+    "performanceAntipatternCheckerEnabled" : true
+  },
+  "testTargets" : [
+    {
+      "target" : {
+        "containerPath" : "container:Convos.xcodeproj",
+        "identifier" : "7ACA8BA22DE16DE200848799",
+        "name" : "ConvosTests"
+      }
+    }
+  ],
+  "version" : 1
+}
