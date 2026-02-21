@@ -140,12 +140,15 @@ actor StreamProcessor: StreamProcessorProtocol {
             }
         }
 
+        let perfStart = CFAbsoluteTimeGetCurrent()
         Log.info("Syncing conversation: \(conversation.id)")
         try await conversationWriter.storeWithLatestMessages(
             conversation: conversation,
             inboxId: params.client.inboxId,
             clientConversationId: clientConversationId
         )
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)")
 
         // Subscribe to push notifications
         await subscribeToConversationTopics(
@@ -160,6 +163,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         activeConversationId: String?
     ) async {
+        let perfStart = CFAbsoluteTimeGetCurrent()
         do {
             guard let conversation = try await params.client.conversationsProvider.findConversation(
                 conversationId: message.conversationId
@@ -214,7 +218,8 @@ actor StreamProcessor: StreamProcessorProtocol {
                         try await localStateWriter.setUnread(true, for: conversation.id)
                     }
 
-                    Log.debug("Processed message: \(message.id)")
+                    let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+                    Log.info("[PERF] message.process: \(perfElapsed)ms id=\(message.id)")
                 } catch {
                     Log.error("Failed processing group message: \(error.localizedDescription)")
                 }

@@ -347,16 +347,20 @@ actor SyncingManager: SyncingManagerProtocol {
         Log.debug("Streams subscribed - calling syncAllConversations...")
         syncTask = Task { [weak self, params] in
             guard let self else { return }
+            let syncStart = CFAbsoluteTimeGetCurrent()
             do {
                 try Task.checkCancellation()
                 _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
                 try Task.checkCancellation()
+                let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
+                Log.info("[PERF] sync.all_conversations: \(syncElapsed)ms")
                 // Route sync completion through the action queue for consistent state transitions
                 await self.enqueueAction(.syncComplete(params))
             } catch is CancellationError {
                 Log.debug("syncAllConversations cancelled")
             } catch {
-                Log.error("syncAllConversations failed: \(error)")
+                let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
+                Log.error("syncAllConversations failed after \(syncElapsed)ms: \(error)")
                 // Transition to ready state anyway - streams are already running
                 // and will continue to receive updates. The initial sync failure
                 // shouldn't block the app from functioning.

@@ -572,6 +572,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     // MARK: - Network Publishing (Sequential)
 
     private func publishText(_ queued: QueuedTextMessage) async throws {
+        let perfStart = CFAbsoluteTimeGetCurrent()
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         let client = inboxReady.client
 
@@ -619,7 +620,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             Log.error("Failed to update message status after successful publish: \(error)")
         }
         sentMessageSubject.send(queued.text)
-        Log.info("Published text message with id: \(xmtpMessageId)")
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        Log.info("[PERF] message.publish_text: \(perfElapsed)ms id=\(xmtpMessageId)")
         QAEvent.emit(.message, "sent", ["id": xmtpMessageId, "conversation": conversationId, "type": "text"])
     }
 
@@ -705,6 +707,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         inboxReady: InboxReadyResult,
         replyContext: ReplyContext? = nil
     ) async throws {
+        let perfStart = CFAbsoluteTimeGetCurrent()
         let tracker = PhotoUploadProgressTracker.shared
 
         guard let sender = try await inboxReady.client.messageSender(for: conversationId) else {
@@ -807,7 +810,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         } catch {
             Log.error("Failed to update photo message status after successful publish: \(error)")
         }
-        Log.info("Published photo message with id: \(publishResult.xmtpMessageId)")
+        let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
+        Log.info("[PERF] message.publish_photo: \(perfElapsed)ms id=\(publishResult.xmtpMessageId)")
         QAEvent.emit(.message, "sent", ["id": publishResult.xmtpMessageId, "conversation": conversationId, "type": "photo"])
 
         try? await pendingUploadWriter.delete(taskId: prepared.taskId)
