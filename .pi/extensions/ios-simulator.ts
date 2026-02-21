@@ -6,6 +6,10 @@ import * as os from "node:os";
 
 let cachedIdbPath: string | undefined;
 
+// Xcode developer dir — needed when xcode-select points to CommandLineTools
+const XCODE_DEV_DIR = "/Applications/Xcode.app/Contents/Developer";
+const SIMCTL = path.join(XCODE_DEV_DIR, "usr/bin/simctl");
+
 function findIdb(): string {
   if (cachedIdbPath) return cachedIdbPath;
 
@@ -81,7 +85,7 @@ async function resolveUdid(pi: ExtensionAPI, explicitUdid?: string): Promise<str
     return fs.readFileSync(simIdFile, "utf-8").trim();
   }
 
-  const result = await pi.exec("xcrun", ["simctl", "list", "devices", "booted", "-j"], { timeout: 5000 });
+  const result = await pi.exec(SIMCTL, [ "list", "devices", "booted", "-j"], { timeout: 5000 });
   if (result.code === 0) {
     const data = JSON.parse(result.stdout);
     for (const runtime of Object.values(data.devices) as any[]) {
@@ -333,7 +337,7 @@ export default function (pi: ExtensionAPI) {
       const tmpFile = path.join(os.tmpdir(), `sim-screenshot-${Date.now()}.png`);
       const resizedFile = tmpFile.replace(".png", "-resized.jpeg");
       try {
-        const result = await pi.exec("xcrun", ["simctl", "io", udid, "screenshot", tmpFile], {
+        const result = await pi.exec(SIMCTL, [ "io", udid, "screenshot", tmpFile], {
           signal,
           timeout: 10000,
         });
@@ -409,7 +413,7 @@ export default function (pi: ExtensionAPI) {
     }),
     async execute(_toolCallId, params, signal) {
       const udid = await resolveUdid(pi, params.udid);
-      const result = await pi.exec("xcrun", ["simctl", "openurl", udid, params.url], {
+      const result = await pi.exec(SIMCTL, [ "openurl", udid, params.url], {
         signal,
         timeout: 10000,
       });
@@ -435,9 +439,9 @@ export default function (pi: ExtensionAPI) {
     async execute(_toolCallId, params, signal) {
       const udid = await resolveUdid(pi, params.udid);
       if (params.terminate_first) {
-        await pi.exec("xcrun", ["simctl", "terminate", udid, params.bundle_id], { signal, timeout: 5000 });
+        await pi.exec(SIMCTL, [ "terminate", udid, params.bundle_id], { signal, timeout: 5000 });
       }
-      const result = await pi.exec("xcrun", ["simctl", "launch", udid, params.bundle_id], {
+      const result = await pi.exec(SIMCTL, [ "launch", udid, params.bundle_id], {
         signal,
         timeout: 10000,
       });
