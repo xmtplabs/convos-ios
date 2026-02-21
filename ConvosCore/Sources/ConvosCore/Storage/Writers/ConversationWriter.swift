@@ -174,7 +174,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
             try conversationMember.save(db)
 
-            Log.info("Created placeholder conversation for invite")
+            Log.debug("Created placeholder conversation for invite")
             return conversation
         }
 
@@ -246,7 +246,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 message: lastMessage,
                 for: dbConversation
             )
-            Log.info("Saved last message: \(result)")
+            Log.debug("Saved last message: \(result)")
         }
 
         return dbConversation
@@ -409,10 +409,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let preferredClientConversationId: String
             if DBConversation.isDraft(id: dbConversation.clientConversationId) {
                 preferredClientConversationId = dbConversation.clientConversationId
-                Log.info("Using incoming draft ID \(dbConversation.clientConversationId)")
+                Log.debug("Using incoming draft ID \(dbConversation.clientConversationId)")
             } else {
                 preferredClientConversationId = localConversation.clientConversationId
-                Log.info("Keeping existing ID \(localConversation.clientConversationId)")
+                Log.debug("Keeping existing ID \(localConversation.clientConversationId)")
             }
 
             conversationToSave = conversationToSave
@@ -449,7 +449,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         if firstTimeSeeingConversationExpired {
-            Log.info("Encountered expired conversation for the first time.")
+            Log.debug("Encountered expired conversation for the first time.")
         }
 
         return (actualClientConversationId, oldImageURL)
@@ -474,7 +474,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         for conversation: XMTPiOS.Group,
         dbConversation: DBConversation
     ) async throws {
-        Log.info("Attempting to fetch latest messages...")
+        Log.debug("Attempting to fetch latest messages...")
 
         // Get the timestamp of the last stored message
         let lastMessageNs = try await getLastMessageTimestamp(for: conversation.id)
@@ -483,17 +483,17 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let messages = try await conversation.messages(afterNs: lastMessageNs)
         guard !messages.isEmpty else { return }
 
-        Log.info("Found \(messages.count) new messages, catching up...")
+        Log.debug("Found \(messages.count) new messages, catching up...")
 
         // Store messages and track if conversation should be marked unread
         var marksConversationAsUnread = false
         for message in messages {
-            Log.info("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
+            Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread {
                 marksConversationAsUnread = true
             }
-            Log.info("Saved caught up message sent at: \(message.sentAt.nanosecondsSince1970)")
+            Log.debug("Saved caught up message sent at: \(message.sentAt.nanosecondsSince1970)")
         }
 
         // Update unread status if needed
@@ -528,7 +528,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         Task.detached(priority: .background) {
             guard let groupKey else {
-                Log.info("No image encryption key for group, skipping prefetch")
+                Log.debug("No image encryption key for group, skipping prefetch")
                 return
             }
 
@@ -562,7 +562,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
                 // Use data-based overload to avoid re-compression quality loss
                 ImageCacheContainer.shared.cacheAfterUpload(decryptedData, for: cacheId, url: urlString)
-                Log.info("Prefetched encrypted group image for conversation: \(cacheId)")
+                Log.debug("Prefetched encrypted group image for conversation: \(cacheId)")
             } catch {
                 Log.error("Failed to prefetch encrypted group image: \(error)")
             }

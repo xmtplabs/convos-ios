@@ -161,7 +161,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     guard let self else { return }
                     do {
                         try await self.deleteInbox(clientId: clientId, inboxId: inboxId)
-                        Log.info("Deleted inbox after explosion: \(clientId)")
+                        Log.debug("Deleted inbox after explosion: \(clientId)")
                     } catch {
                         Log.error("Failed to delete inbox after explosion: \(error.localizedDescription)")
                     }
@@ -248,7 +248,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     // Delete all from database
                     continuation.yield(.deletingFromDatabase)
                     let inboxWriter = InboxWriter(dbWriter: self.databaseWriter)
-                    Log.info("Deleting all inboxes from database")
+                    Log.debug("Deleting all inboxes from database")
                     try await inboxWriter.deleteAll()
 
                     continuation.yield(.completed)
@@ -361,7 +361,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
             // Suppress notification if it's for a conversation in the active inbox
             if conversationClientId == activeClientId {
-                Log.info("Suppressing notification for conversation in active inbox: \(conversationId)")
+                Log.debug("Suppressing notification for conversation in active inbox: \(conversationId)")
                 return false
             }
         } catch {
@@ -386,7 +386,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         do {
             // wake() handles eviction automatically when at capacity
             _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .pushNotification)
-            Log.info("Woke inbox for push notification: \(clientId)")
+            Log.debug("Woke inbox for push notification: \(clientId)")
         } catch {
             Log.error("Failed to wake inbox for notification: \(error)")
         }
@@ -407,7 +407,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
             // wake() handles eviction automatically when at capacity
             _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .pushNotification)
-            Log.info("Woke inbox for push notification: clientId=\(clientId), conversationId=\(conversationId)")
+            Log.debug("Woke inbox for push notification: clientId=\(clientId), conversationId=\(conversationId)")
         } catch {
             Log.error("Failed to wake inbox for notification (conversationId: \(conversationId)): \(error)")
         }
@@ -475,14 +475,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
             do {
                 let identity = try await identityStore.delete(clientId: clientId)
-                Log.info("Deleted keychain identity for expired invite inbox: \(identity.inboxId)")
+                Log.debug("Deleted keychain identity for expired invite inbox: \(identity.inboxId)")
             } catch {
                 Log.warning("Could not delete keychain identity for clientId \(clientId): \(error)")
             }
 
             do {
                 try await inboxWriter.delete(clientId: clientId)
-                Log.info("Deleted inbox record for expired invite clientId: \(clientId)")
+                Log.debug("Deleted inbox record for expired invite clientId: \(clientId)")
             } catch {
                 Log.warning("Could not delete inbox record for clientId \(clientId): \(error)")
             }
@@ -499,7 +499,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
 
         if !clientIdsToKeep.isEmpty {
-            Log.info("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
+            Log.debug("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
         }
 
         Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")

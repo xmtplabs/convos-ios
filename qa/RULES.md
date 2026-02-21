@@ -52,8 +52,9 @@ You have direct access to simulator tools for interacting with the Convos iOS ap
 
 **Log monitoring tools** — use these to detect app errors during testing:
 
-- `sim_log_tail` — read recent app log lines, filtered by level (default: warning+error). Returns a `marker` timestamp for incremental reads.
+- `sim_log_tail` — read recent app log lines, filtered by level (default: warning+error). Returns a `marker` timestamp for incremental reads. Supports `level: "events"` to get only `[EVENT]` lines.
 - `sim_log_check_errors` — quick check for new errors since a marker. Returns errors if any, or confirms clean.
+- `sim_log_events` — read `[EVENT]` log lines emitted at key app milestones. Use `event_filter` to match specific events (e.g., "message.sent", "conversation.joined"). Use to verify app behavior during tests.
 
 **Low-level tools** — use these when the high-level tools don't fit (e.g., tapping at a specific coordinate, swiping):
 
@@ -222,6 +223,56 @@ $CXDB finish-test "$TR" "pass"
 - If a UI element is not immediately visible, try scrolling or use `sim_wait_for_element` with a timeout.
 - **Never sleep — wait for elements instead.** If you know the accessibility identifier or label of the next element you need, use `sim_wait_for_element` to poll for it. This is faster (returns as soon as the element appears) and more reliable (fails with a clear timeout instead of silently proceeding too early). Only use `sleep` as a last resort when there is genuinely no element to wait for (e.g., after a dismiss gesture where you need the UI to settle). Even then, keep it under 1 second.
 - **SwiftUI bottom toolbar items are hidden from tree traversal.** Buttons inside `.toolbar { ToolbarItem(placement: .bottomBar) }` (e.g., `compose-button`, `scan-button`) have correct accessibility identifiers but `idb ui describe-all` does not enumerate them. The `sim_wait_and_tap` extension handles this automatically by probing toolbar areas with hit-testing when the tree search fails. Use `sim_wait_and_tap` for these elements — it will find them. The built-in `sim_tap_id` and `sim_find_elements` tools cannot find them.
+
+### Verifying Behavior via App Events
+
+The app emits structured `[EVENT]` log lines at key milestones. Use `sim_log_events` to verify that the app performed the expected action, not just that the UI updated. This provides a positive signal channel — instead of only checking "no errors happened," you can verify "the expected events fired."
+
+**Available events:**
+
+| Event | Description |
+|-------|-------------|
+| `app.launched` | App started (includes environment) |
+| `message.sent` | Message published to network (includes id, conversation, type) |
+| `message.received` | New incoming message stored (includes id, conversation, sender, type) |
+| `reaction.sent` | Reaction published (includes message, emoji) |
+| `reaction.received` | Incoming reaction stored (includes message, emoji, sender, conversation) |
+| `reaction.removed` | Reaction removal published (includes message, emoji) |
+| `conversation.created` | New conversation published (includes id) |
+| `conversation.joined` | Successfully joined a conversation (includes id) |
+| `conversation.locked` | Conversation locked (includes id) |
+| `conversation.unlocked` | Conversation unlocked (includes id) |
+| `conversation.exploded` | Conversation exploded (includes id) |
+| `conversation.pinned` | Conversation pinned (includes id) |
+| `conversation.unpinned` | Conversation unpinned (includes id) |
+| `conversation.muted` | Conversation muted (includes id) |
+| `conversation.unmuted` | Conversation unmuted (includes id) |
+| `conversation.marked_read` | Conversation marked as read (includes id) |
+| `conversation.marked_unread` | Conversation marked as unread (includes id) |
+| `conversation.image_updated` | Conversation image changed (includes id) |
+| `profile.name_updated` | Display name changed (includes conversation, name) |
+| `member.added` | Members added to conversation (includes conversation, count) |
+| `member.removed` | Members removed from conversation (includes conversation, count) |
+| `invite.join_request_sent` | Join request sent to inviter |
+| `invite.member_accepted` | Join request processed, member added (includes conversation, member) |
+| `sync.completed` | Full sync completed |
+
+**Usage pattern:**
+```
+# Get a log marker before the action
+LOG_MARKER=<marker from sim_log_tail>
+
+# Perform the action (e.g., send a message)
+sim_tap_id("send-message-button")
+
+# Verify the event fired
+sim_log_events(since_marker=LOG_MARKER, event_filter="message.sent")
+
+# Log the event to CXDB
+$CXDB log-event "$RUN" "02" "$TIMESTAMP" "message.sent" '{"id":"abc","conversation":"xyz","type":"text"}'
+```
+
+Events complement UI verification — use the accessibility tree to check what the user sees, and events to confirm what the app did internally. Both should agree. If the UI shows a message but no `message.sent` event fired, that may indicate a caching or optimistic update issue.
 
 ### Verifying Results: Accessibility Tree vs Screenshots
 

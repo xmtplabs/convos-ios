@@ -55,14 +55,14 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
         task.taskDescription = taskId
         task.resume()
 
-        Log.info("Started background upload task \(task.taskIdentifier) for \(taskId)")
+        Log.debug("Started background upload task \(task.taskIdentifier) for \(taskId)")
     }
 
     public func cancelUpload(taskId: String) async {
         let tasks = await backgroundSession.allTasks
         if let task = tasks.first(where: { $0.taskDescription == taskId }) {
             task.cancel()
-            Log.info("Cancelled upload task \(taskId)")
+            Log.debug("Cancelled upload task \(taskId)")
         }
     }
 
@@ -79,7 +79,7 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
             backgroundCompletionHandler = completionHandler
         }
 
-        Log.info("Handling background URLSession events for \(identifier)")
+        Log.debug("Handling background URLSession events for \(identifier)")
     }
 
     public func waitForCompletion(taskId: String) async -> BackgroundUploadResult {
@@ -93,12 +93,12 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
         }
 
         if let result = existingResult {
-            Log.info("waitForCompletion: Found existing result for \(taskId)")
+            Log.debug("waitForCompletion: Found existing result for \(taskId)")
             return result
         }
 
         // Wait for completion via continuation
-        Log.info("waitForCompletion: Waiting for \(taskId)")
+        Log.debug("waitForCompletion: Waiting for \(taskId)")
         return await withCheckedContinuation { continuation in
             lock.withLock {
                 // Double-check in case result arrived between check and continuation setup
@@ -152,7 +152,7 @@ extension BackgroundUploadManager: URLSessionTaskDelegate, URLSessionDataDelegat
             }
             result = .failure(taskId: taskId, error: uploadError)
         } else if let httpResponse = task.response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-            Log.info("Background upload completed for \(taskId)")
+            Log.debug("Background upload completed for \(taskId)")
             result = .success(taskId: taskId)
         } else {
             let statusCode = (task.response as? HTTPURLResponse)?.statusCode ?? -1
@@ -174,7 +174,7 @@ extension BackgroundUploadManager: URLSessionTaskDelegate, URLSessionDataDelegat
         }
 
         if let continuation {
-            Log.info("Background upload notifying waiter for \(taskId)")
+            Log.debug("Background upload notifying waiter for \(taskId)")
             continuation.resume(returning: result)
         }
 

@@ -52,11 +52,11 @@ public actor SleepingInboxMessageChecker {
     /// Starts periodic checks for new messages in sleeping inboxes
     public func startPeriodicChecks() {
         guard !isRunning else {
-            Log.info("SleepingInboxMessageChecker: already running")
+            Log.debug("SleepingInboxMessageChecker: already running")
             return
         }
         isRunning = true
-        Log.info("SleepingInboxMessageChecker: starting periodic checks (interval: \(checkInterval)s)")
+        Log.debug("SleepingInboxMessageChecker: starting periodic checks (interval: \(checkInterval)s)")
 
         let notificationName = appLifecycle.willEnterForegroundNotification
 
@@ -65,7 +65,7 @@ public actor SleepingInboxMessageChecker {
             let foregroundNotifications = NotificationCenter.default.notifications(named: notificationName)
             for await _ in foregroundNotifications {
                 guard !Task.isCancelled else { break }
-                Log.info("SleepingInboxMessageChecker: app entered foreground, checking now")
+                Log.debug("SleepingInboxMessageChecker: app entered foreground, checking now")
                 await self?.checkNow()
             }
         }
@@ -82,7 +82,7 @@ public actor SleepingInboxMessageChecker {
 
     /// Stops periodic checks
     public func stopPeriodicChecks() {
-        Log.info("SleepingInboxMessageChecker: stopping periodic checks")
+        Log.debug("SleepingInboxMessageChecker: stopping periodic checks")
         isRunning = false
         periodicCheckTask?.cancel()
         periodicCheckTask = nil
@@ -154,7 +154,7 @@ public actor SleepingInboxMessageChecker {
 
             // Only wake if the message arrived AFTER the inbox was put to sleep
             if newestMessageDate > sleepTime {
-                Log.info("SleepingInboxMessageChecker: inbox \(clientId) has new message (message: \(newestMessageDate), slept: \(sleepTime)), waking")
+                Log.debug("SleepingInboxMessageChecker: inbox \(clientId) has new message (message: \(newestMessageDate), slept: \(sleepTime)), waking")
 
                 // Get the inbox ID for this client (using pre-fetched dictionary)
                 guard let activity = activitiesByClientId[clientId] else {

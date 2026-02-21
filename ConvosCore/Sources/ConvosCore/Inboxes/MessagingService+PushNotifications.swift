@@ -12,7 +12,7 @@ extension MessagingService {
     func processPushNotification(
         payload: PushNotificationPayload
     ) async throws -> DecodedNotificationContent? {
-        Log.info("processPushNotification called")
+        Log.debug("processPushNotification called")
         let inboxReadyResult = try await inboxStateManager.waitForInboxReadyResult()
 
         return try await self.handlePushNotification(
@@ -68,7 +68,7 @@ extension MessagingService {
                 return nil
             }
 
-            Log.info("Handling welcome message notification (no encrypted content)")
+            Log.debug("Handling welcome message notification (no encrypted content)")
             return try await handleWelcomeMessage(
                 contentTopic: contentTopic,
                 client: client,
@@ -107,7 +107,7 @@ extension MessagingService {
         client: any XMTPClientProvider,
         userInfo: [AnyHashable: Any]
     ) async throws -> DecodedNotificationContent? {
-        Log.info("Syncing conversations after receiving welcome message")
+        Log.debug("Syncing conversations after receiving welcome message")
 
         // Capture timestamp first to avoid missing messages
         let processTime = Date()
@@ -115,7 +115,7 @@ extension MessagingService {
         // Get last processed time
         let lastProcessed = getLastWelcomeProcessed(for: client.inboxId)
         if let lastProcessed {
-            Log.info("Last processed welcome message \(lastProcessed.relativeShort()) ago...")
+            Log.debug("Last processed welcome message \(lastProcessed.relativeShort()) ago...")
         }
 
         // Get existing group IDs before sync to detect new groups we've been added to
@@ -255,7 +255,7 @@ extension MessagingService {
         case .dm:
             // Check if message is from self - DMs from self should be dropped
             if decodedMessage.senderInboxId == currentInboxId {
-                Log.info("Dropping DM notification - message from self")
+                Log.debug("Dropping DM notification - message from self")
                 return .droppedMessage
             }
 
@@ -640,7 +640,7 @@ extension MessagingService {
     ) async {
         let timeInterval = expiresAt.timeIntervalSinceNow
         guard timeInterval > 0 else {
-            Log.info("NSE: Skipping explosion notification for \(conversationId), already expired")
+            Log.debug("NSE: Skipping explosion notification for \(conversationId), already expired")
             return
         }
 
@@ -665,7 +665,7 @@ extension MessagingService {
 
         do {
             try await UNUserNotificationCenter.current().add(request)
-            Log.info("NSE: Scheduled explosion notification for \(conversationId) at \(expiresAt)")
+            Log.debug("NSE: Scheduled explosion notification for \(conversationId) at \(expiresAt)")
         } catch {
             Log.error("NSE: Failed to schedule explosion notification: \(error.localizedDescription)")
         }

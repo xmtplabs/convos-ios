@@ -88,7 +88,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
 
         // Check if we have an unused inbox ID in keychain
         if let unusedInboxId = getUnusedInboxFromKeychain() {
-            Log.info("Found unused inbox ID in keychain: \(unusedInboxId)")
+            Log.debug("Found unused inbox ID in keychain: \(unusedInboxId)")
             do {
                 try await authorizeUnusedInbox(
                     inboxId: unusedInboxId,
@@ -106,7 +106,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             }
         } else {
             // No unused inbox exists, create a new one
-            Log.info("No unused inbox found, creating new one")
+            Log.debug("No unused inbox found, creating new one")
             await createNewUnusedInbox(
                 databaseWriter: databaseWriter,
                 databaseReader: databaseReader,
@@ -123,7 +123,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
     ) async -> any MessagingServiceProtocol {
         // Check if we have a pre-created unused messaging service
         if let unusedService = unusedMessagingService {
-            Log.info("Using pre-created unused messaging service")
+            Log.debug("Using pre-created unused messaging service")
 
             // Clear references immediately (both service and keychain)
             // This must happen before any await points to prevent concurrent access
@@ -137,7 +137,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
                 let identity = try await identityStore.identity(for: inboxId)
                 let inboxWriter = InboxWriter(dbWriter: databaseWriter)
                 try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-                Log.info("Saved consumed unused inbox to database: \(inboxId)")
+                Log.debug("Saved consumed unused inbox to database: \(inboxId)")
             } catch {
                 Log.error("Failed to save consumed inbox to database: \(error)")
             }
@@ -160,7 +160,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
 
         // Check for an unused inbox ID in keychain (fallback)
         if let unusedInboxId = getUnusedInboxFromKeychain() {
-            Log.info("Using unused inbox ID from keychain: \(unusedInboxId)")
+            Log.debug("Using unused inbox ID from keychain: \(unusedInboxId)")
 
             // Clear keychain
             clearUnusedInboxFromKeychain()
@@ -213,7 +213,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
         }
 
         // No unused inbox available, create a new one
-        Log.info("No unused inbox available, creating new one")
+        Log.debug("No unused inbox available, creating new one")
         return await createFreshMessagingService(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
@@ -339,7 +339,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             // Store it as the unused messaging service
             unusedMessagingService = messagingService
 
-            Log.info("Successfully authorized unused inbox: \(inboxId)")
+            Log.debug("Successfully authorized unused inbox: \(inboxId)")
         } catch {
             Log.error("Failed to authorize unused inbox: \(error)")
             // Clear the invalid inbox ID from keychain
@@ -374,7 +374,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
         isCreatingUnusedInbox = true
         defer { isCreatingUnusedInbox = false }
 
-        Log.info("Creating new unused inbox in background")
+        Log.debug("Creating new unused inbox in background")
 
         let authorizationOperation = AuthorizeInboxOperation.register(
             identityStore: identityStore,
@@ -405,7 +405,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
             // Store the messaging service instance
             unusedMessagingService = tempMessagingService
 
-            Log.info("Successfully created unused inbox: \(inboxId)")
+            Log.debug("Successfully created unused inbox: \(inboxId)")
         } catch {
             Log.error("Failed to create unused inbox: \(error)")
             // Clean up on error
@@ -430,7 +430,7 @@ public actor UnusedInboxCache: UnusedInboxCacheProtocol {
                 inboxId,
                 account: KeychainAccount.unusedInbox
             )
-            Log.info("Saved unused inbox to keychain: \(inboxId)")
+            Log.debug("Saved unused inbox to keychain: \(inboxId)")
         } catch {
             Log.error("Failed to save unused inbox to keychain: \(error)")
         }

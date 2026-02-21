@@ -104,6 +104,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
                 return nil
             }
             Log.info("Successfully added \(message.senderInboxId) to conversation \(result.conversationId)")
+            QAEvent.emit(.invite, "member_accepted", ["conversation": result.conversationId, "member": message.senderInboxId])
             return result
         } catch InviteJoinRequestError.missingTextContent,
                 InviteJoinRequestError.invalidInviteFormat,
@@ -140,13 +141,13 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
         let senderInboxId = message.senderInboxId
 
         guard senderInboxId != client.inboxId else {
-            Log.info("Ignoring outgoing join request...")
+            Log.debug("Ignoring outgoing join request...")
             return nil
         }
 
         let dbMessage = try message.dbRepresentation()
         guard let text = dbMessage.text else {
-            Log.info("Message has no text content, not a join request")
+            Log.debug("Message has no text content, not a join request")
             await blockDMConversation(client: client, conversationId: message.conversationId, senderInboxId: senderInboxId)
             throw InviteJoinRequestError.missingTextContent
         }
@@ -156,7 +157,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
         do {
             signedInvite = try SignedInvite.fromURLSafeSlug(text)
         } catch {
-            Log.info("Message text is not a valid signed invite format")
+            Log.debug("Message text is not a valid signed invite format")
             throw InviteJoinRequestError.invalidInviteFormat
         }
 
@@ -217,7 +218,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
 
         switch conversation {
         case .group(let group):
-            Log.info("Adding \(senderInboxId) to group \(group.id)...")
+            Log.debug("Adding \(senderInboxId) to group \(group.id)...")
 
             try await group.add(members: [senderInboxId])
 
@@ -249,7 +250,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
             orderBy: .lastActivity
         )
 
-        Log.info("Found \(dms.count) possible DMs containing outgoing join requests")
+        Log.debug("Found \(dms.count) possible DMs containing outgoing join requests")
 
         for dm in dms {
             guard let invite = await dm.lastMessageAsSignedInvite(sentBy: client.inboxId) else {
@@ -272,7 +273,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
         var results: [JoinRequestResult] = []
 
         do {
-            Log.info("Listing all DMs for join requests...")
+            Log.debug("Listing all DMs for join requests...")
 
             // List all DMs with consent states .unknown
             let dms = try client.conversationsProvider.listDms(
@@ -285,7 +286,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
                 orderBy: .lastActivity
             )
 
-            Log.info("Found \(dms.count) DMs to check for join requests")
+            Log.debug("Found \(dms.count) DMs to check for join requests")
 
             // Process each DM sequentially
             for dm in dms {
@@ -298,7 +299,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
                 }
             }
 
-            Log.info("Completed DM sync for join requests")
+            Log.debug("Completed DM sync for join requests")
         } catch {
             Log.error("Error syncing DMs: \(error)")
         }
@@ -318,7 +319,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
                 }
                 return true
             }
-        Log.info("Found \(messages.count) messages as possible join requests")
+        Log.debug("Found \(messages.count) messages as possible join requests")
 
         // Process each message and return first successful result for this DM
         for message in messages {
@@ -349,7 +350,7 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
 
         do {
             try await dmConversation.updateConsentState(state: .denied)
-            Log.info("Set consent state to .denied for DM with \(senderInboxId)")
+            Log.debug("Set consent state to .denied for DM with \(senderInboxId)")
         } catch {
             Log.error("Failed to set consent state to .denied for DM with \(senderInboxId): \(error)")
         }
@@ -372,7 +373,7 @@ extension XMTPiOS.Dm {
             return nil
         }
 
-        Log.info("Received last message: \(text) sender: \(lastMessage.senderInboxId)")
+        Log.debug("Received last message: \(text) sender: \(lastMessage.senderInboxId)")
         return invite
     }
 }

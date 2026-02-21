@@ -23,14 +23,14 @@ class ConversationViewModel {
 
     private var cachedMessageWriter: any OutgoingMessageWriterProtocol {
         if _cachedMessageWriterConversationId != conversation.id {
-            Log.info("[EagerUpload] Creating new message writer for conversation: \(conversation.id)")
+            Log.debug("[EagerUpload] Creating new message writer for conversation: \(conversation.id)")
             _cachedMessageWriter = messagingService.messageWriter(
                 for: conversation.id,
                 backgroundUploadManager: backgroundUploadManager
             )
             _cachedMessageWriterConversationId = conversation.id
         } else {
-            Log.info("[EagerUpload] Reusing cached message writer for conversation: \(conversation.id)")
+            Log.debug("[EagerUpload] Reusing cached message writer for conversation: \(conversation.id)")
         }
         return _cachedMessageWriter ?? messagingService.messageWriter(
             for: conversation.id,

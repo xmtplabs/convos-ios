@@ -20,7 +20,7 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
         self.dbReader = dbReader
         self.conversationId = conversationId
         self.conversationIdPublisher = conversationIdPublisher
-        Log.info("Initializing DraftConversationRepository with conversationId: \(conversationId)")
+        Log.debug("Initializing DraftConversationRepository with conversationId: \(conversationId)")
         messagesRepository = MessagesRepository(
             dbReader: dbReader,
             conversationId: conversationId,
@@ -36,11 +36,11 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
 
     lazy var conversationPublisher: AnyPublisher<Conversation?, Never> = {
         let dbReader = dbReader
-        Log.info("Creating conversationPublisher for conversationId: \(conversationId)")
+        Log.debug("Creating conversationPublisher for conversationId: \(conversationId)")
         return conversationIdPublisher
             .removeDuplicates()
             .flatMap { conversationId -> AnyPublisher<Conversation?, Never> in
-                Log.info("Conversation ID changed to: \(conversationId)")
+                Log.debug("Conversation ID changed to: \(conversationId)")
                 return ValueObservation
                     .tracking { db in
                         do {
@@ -48,7 +48,7 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
 
                             let conversation = try db.composeConversation(for: conversationId)
                             if conversation != nil {
-                                Log.info(
+                                Log.debug(
                                     "Composed conversation: \(conversationId) with kind: \(conversation?.kind ?? .dm)"
                                 )
                             } else {
@@ -68,7 +68,7 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
     }()
 
     func fetchConversation() throws -> Conversation? {
-        Log.info("Fetching conversation for ID: \(conversationId)")
+        Log.debug("Fetching conversation for ID: \(conversationId)")
         do {
             let conversation: Conversation? = try dbReader.read { [weak self] db in
                 guard let self else {
@@ -78,7 +78,7 @@ class DraftConversationRepository: DraftConversationRepositoryProtocol {
                 return try db.composeConversation(for: self.conversationId)
             }
             if conversation != nil {
-                Log.info("Successfully fetched conversation: \(conversationId)")
+                Log.debug("Successfully fetched conversation: \(conversationId)")
             } else {
                 Log.debug("No conversation found for ID: \(conversationId)")
             }

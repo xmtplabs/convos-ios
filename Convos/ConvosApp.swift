@@ -31,6 +31,7 @@ struct ConvosApp: App {
             )
         }
         Log.info("App starting with environment: \(environment)")
+        QAEvent.emit(.app, "launched", ["environment": environment.name])
 
         // Configure Firebase before creating ConvosClient
         // This prevents SessionManager trying to use AppCheck before it's configured

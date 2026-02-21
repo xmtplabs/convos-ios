@@ -190,7 +190,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             account: KeychainAccount.jwt(deviceId: deviceId)
         ), !existingToken.isEmpty,
            isJWTValid(existingToken) {
-            Log.info("Using existing JWT token from keychain")
+            Log.debug("Using existing JWT token from keychain")
             return existingToken
         }
 
@@ -227,7 +227,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             }
             // Use exponential backoff for rate limit retries
             let delay = TimeInterval.calculateExponentialBackoff(for: retryCount)
-            Log.info("Auth rate limited - retrying in \(delay)s (attempt \(retryCount + 1) of \(maxRetryCount))")
+            Log.debug("Auth rate limited - retrying in \(delay)s (attempt \(retryCount + 1) of \(maxRetryCount))")
 
             // Sleep and then retry
             try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
@@ -293,7 +293,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         do {
             let (data, response) = try await session.data(for: request)
 
-            Log.info("\(request.url?.path(percentEncoded: false) ?? "nil") received response: \(data.prettyPrintedJSONString ?? "nil data")")
+            Log.debug("\(request.url?.path(percentEncoded: false) ?? "nil") received response: \(data.prettyPrintedJSONString ?? "nil data")")
 
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw APIError.invalidResponse
@@ -348,7 +348,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
                 // Try to re-authenticate and retry the request
                 do {
-                    Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
+                    Log.debug("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
                     let freshJWT = try await reAuthenticate()
                     guard !freshJWT.isEmpty else {
                         throw APIError.notAuthenticated
@@ -381,8 +381,8 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         contentType: String = "image/jpeg",
         acl: String = "public-read"
     ) async throws -> String {
-        Log.info("Starting attachment upload process for file: \(filename)")
-        Log.info("File data size: \(data.count) bytes")
+        Log.debug("Starting attachment upload process for file: \(filename)")
+        Log.debug("File data size: \(data.count) bytes")
 
         // Get presigned URL from Convos API
         let presignedRequest = try authenticatedRequest(
@@ -399,7 +399,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
 
         let presignedResponse: PresignedResponse = try await performRequest(presignedRequest)
-        Log.info("Received presigned response for objectKey: \(presignedResponse.objectKey)")
+        Log.debug("Received presigned response for objectKey: \(presignedResponse.objectKey)")
 
         // Upload to S3 using presigned URL
         guard let s3URL = URL(string: presignedResponse.uploadUrl) else {
@@ -412,7 +412,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         s3Request.setValue(contentType, forHTTPHeaderField: "Content-Type")
         s3Request.httpBody = data
 
-        Log.info("Uploading \(data.count) bytes to S3")
+        Log.debug("Uploading \(data.count) bytes to S3")
 
         let (s3Data, s3Response) = try await URLSession.shared.data(for: s3Request)
 
@@ -421,7 +421,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             throw APIError.invalidResponse
         }
 
-        Log.info("S3 upload response status: \(s3HttpResponse.statusCode)")
+        Log.debug("S3 upload response status: \(s3HttpResponse.statusCode)")
 
         guard s3HttpResponse.statusCode == 200 else {
             Log.error("S3 upload failed with status: \(s3HttpResponse.statusCode)")
@@ -436,7 +436,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
 
         let assetPath = assetUrl.absoluteString
-        Log.info("Successfully uploaded to S3, assetUrl: \(assetPath)")
+        Log.debug("Successfully uploaded to S3, assetUrl: \(assetPath)")
         return assetPath
     }
 
@@ -445,7 +445,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         filename: String,
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String {
-        Log.info("Starting chained upload and execute process for file: \(filename)")
+        Log.debug("Starting chained upload and execute process for file: \(filename)")
 
         // Upload the attachment and get the URL
         let uploadedURL = try await uploadAttachment(
@@ -457,9 +457,9 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         Log.info("Upload completed successfully, URL: \(uploadedURL)")
 
         // Execute the provided closure with the URL
-        Log.info("Executing post-upload action with URL: \(uploadedURL)")
+        Log.debug("Executing post-upload action with URL: \(uploadedURL)")
         try await afterUpload(uploadedURL)
-        Log.info("Post-upload action completed successfully")
+        Log.debug("Post-upload action completed successfully")
 
         return uploadedURL
     }
@@ -468,7 +468,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         filename: String,
         contentType: String
     ) async throws -> (uploadURL: String, assetURL: String) {
-        Log.info("Getting presigned URL for file: \(filename)")
+        Log.debug("Getting presigned URL for file: \(filename)")
 
         let presignedRequest = try authenticatedRequest(
             for: "v2/attachments/presigned",
@@ -483,7 +483,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
 
         let response: PresignedResponse = try await performRequest(presignedRequest)
-        Log.info("Received presigned URL for objectKey: \(response.objectKey)")
+        Log.debug("Received presigned URL for objectKey: \(response.objectKey)")
 
         return (uploadURL: response.uploadUrl, assetURL: response.assetUrl)
     }

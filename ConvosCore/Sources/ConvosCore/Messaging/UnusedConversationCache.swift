@@ -114,7 +114,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         }
 
         if let unusedConversationId = getUnusedConversationFromKeychain() {
-            Log.info("Found unused conversation ID in keychain: \(unusedConversationId)")
+            Log.debug("Found unused conversation ID in keychain: \(unusedConversationId)")
             let conversationExists = await validateUnusedConversationExists(
                 conversationId: unusedConversationId,
                 databaseReader: databaseReader
@@ -144,7 +144,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 clearUnusedFromKeychain()
             }
         } else if let unusedInboxId = getUnusedInboxFromKeychain() {
-            Log.info("Found unused inbox ID in keychain (no conversation): \(unusedInboxId)")
+            Log.debug("Found unused inbox ID in keychain (no conversation): \(unusedInboxId)")
             do {
                 try await authorizeUnusedInbox(
                     inboxId: unusedInboxId,
@@ -164,7 +164,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             }
         }
 
-        Log.info("No unused conversation found, creating new one")
+        Log.debug("No unused conversation found, creating new one")
         await createNewUnusedConversation(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
@@ -180,10 +180,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
         if isCreatingUnused {
             if let task = backgroundCreationTask {
-                Log.info("Waiting for in-flight unused conversation creation to complete...")
+                Log.debug("Waiting for in-flight unused conversation creation to complete...")
                 await task.value
             } else {
-                Log.info("Unused conversation creation in progress without waitable task, creating fresh")
+                Log.debug("Unused conversation creation in progress without waitable task, creating fresh")
                 let service = await createFreshMessagingService(
                     databaseWriter: databaseWriter,
                     databaseReader: databaseReader,
@@ -230,7 +230,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             )
         }
 
-        Log.info("No unused inbox available, creating new one")
+        Log.debug("No unused inbox available, creating new one")
         let service = await createFreshMessagingService(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
@@ -275,10 +275,10 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     ) async -> any MessagingServiceProtocol {
         if isCreatingUnused {
             if let task = backgroundCreationTask {
-                Log.info("Waiting for in-flight unused conversation creation to complete (inbox-only)...")
+                Log.debug("Waiting for in-flight unused conversation creation to complete (inbox-only)...")
                 await task.value
             } else {
-                Log.info("Unused conversation creation in progress without waitable task, creating fresh (inbox-only)")
+                Log.debug("Unused conversation creation in progress without waitable task, creating fresh (inbox-only)")
                 return await createFreshMessagingService(
                     databaseWriter: databaseWriter,
                     databaseReader: databaseReader,
@@ -288,7 +288,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         }
 
         if let unusedService = unusedMessagingService {
-            Log.info("Consuming cached inbox only, leaving pre-created conversation as unused until inbox cleanup")
+            Log.debug("Consuming cached inbox only, leaving pre-created conversation as unused until inbox cleanup")
             unusedMessagingService = nil
 
             clearUnusedFromKeychain()
@@ -299,7 +299,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 let identity = try await identityStore.identity(for: inboxId)
                 let inboxWriter = InboxWriter(dbWriter: databaseWriter)
                 try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-                Log.info("Saved consumed inbox-only: \(inboxId)")
+                Log.debug("Saved consumed inbox-only: \(inboxId)")
             } catch {
                 Log.error("Failed to save consumed inbox-only: \(error)")
             }
@@ -314,7 +314,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         }
 
         if let unusedInboxId = getUnusedInboxFromKeychain() {
-            Log.info("Consuming keychain inbox only: \(unusedInboxId)")
+            Log.debug("Consuming keychain inbox only: \(unusedInboxId)")
 
             clearUnusedFromKeychain()
 
@@ -345,7 +345,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
                 let inboxWriter = InboxWriter(dbWriter: databaseWriter)
                 try await inboxWriter.save(inboxId: unusedInboxId, clientId: identity.clientId)
-                Log.info("Saved consumed keychain inbox-only: \(unusedInboxId)")
+                Log.debug("Saved consumed keychain inbox-only: \(unusedInboxId)")
 
                 scheduleBackgroundCreation(
                     databaseWriter: databaseWriter,
@@ -359,7 +359,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             }
         }
 
-        Log.info("No cached inbox available, creating fresh (inbox-only)")
+        Log.debug("No cached inbox available, creating fresh (inbox-only)")
         return await createFreshMessagingService(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
@@ -414,7 +414,7 @@ extension UnusedConversationCache {
         databaseReader: any DatabaseReader,
         environment: AppEnvironment
     ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        Log.info("Using pre-created unused conversation: \(conversationId)")
+        Log.debug("Using pre-created unused conversation: \(conversationId)")
 
         unusedMessagingService = nil
 
@@ -431,7 +431,7 @@ extension UnusedConversationCache {
             )
 
             clearUnusedFromKeychain()
-            Log.info("Consumed unused conversation: \(conversationId)")
+            Log.debug("Consumed unused conversation: \(conversationId)")
         } catch {
             Log.error("Failed to finalize consumed conversation, keeping keychain state for retry: \(error)")
         }
@@ -451,7 +451,7 @@ extension UnusedConversationCache {
         databaseReader: any DatabaseReader,
         environment: AppEnvironment
     ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
-        Log.info("Using pre-created unused inbox (no conversation)")
+        Log.debug("Using pre-created unused inbox (no conversation)")
 
         unusedMessagingService = nil
         clearUnusedFromKeychain()
@@ -462,7 +462,7 @@ extension UnusedConversationCache {
             let identity = try await identityStore.identity(for: inboxId)
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-            Log.info("Saved consumed unused inbox: \(inboxId)")
+            Log.debug("Saved consumed unused inbox: \(inboxId)")
         } catch {
             Log.error("Failed to save consumed inbox: \(error)")
         }
@@ -483,7 +483,7 @@ extension UnusedConversationCache {
         environment: AppEnvironment
     ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
         let unusedConversationId = getUnusedConversationFromKeychain()
-        Log.info("Using unused inbox from keychain: \(inboxId), conversation: \(unusedConversationId ?? "none")")
+        Log.debug("Using unused inbox from keychain: \(inboxId), conversation: \(unusedConversationId ?? "none")")
 
         if let conversationId = unusedConversationId {
             if let result = await handleStaleUnusedConversation(
@@ -525,7 +525,7 @@ extension UnusedConversationCache {
             _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
-            Log.info("Saved consumed keychain inbox: \(inboxId)")
+            Log.debug("Saved consumed keychain inbox: \(inboxId)")
 
             if let conversationId = unusedConversationId {
                 try await markConversationAsUsed(
@@ -605,7 +605,7 @@ extension UnusedConversationCache {
         if changesCount == 0 {
             Log.warning("markConversationAsUsed: no conversation found with id \(conversationId)")
         } else {
-            Log.info("Marked conversation as used: \(conversationId)")
+            Log.debug("Marked conversation as used: \(conversationId)")
         }
     }
 
@@ -620,7 +620,7 @@ extension UnusedConversationCache {
                     arguments: [conversationId, true]
                 )
             }
-            Log.info("Cleaned up orphaned unused conversation: \(conversationId)")
+            Log.debug("Cleaned up orphaned unused conversation: \(conversationId)")
         } catch {
             Log.error("Failed to clean up orphaned conversation: \(error)")
         }
@@ -714,7 +714,7 @@ extension UnusedConversationCache {
         do {
             _ = try await messagingService.inboxStateManager.waitForInboxReadyResult()
             unusedMessagingService = messagingService
-            Log.info("Successfully authorized unused inbox: \(inboxId)")
+            Log.debug("Successfully authorized unused inbox: \(inboxId)")
         } catch {
             Log.error("Failed to authorize unused inbox: \(error)")
             clearUnusedFromKeychain()
@@ -746,7 +746,7 @@ extension UnusedConversationCache {
         isCreatingUnused = true
         defer { isCreatingUnused = false }
 
-        Log.info("Creating new unused conversation in background")
+        Log.debug("Creating new unused conversation in background")
 
         let authorizationOperation = AuthorizeInboxOperation.register(
             identityStore: identityStore,
@@ -774,7 +774,7 @@ extension UnusedConversationCache {
             saveUnusedInboxToKeychain(inboxId)
             unusedMessagingService = tempMessagingService
 
-            Log.info("Successfully created unused inbox: \(inboxId)")
+            Log.debug("Successfully created unused inbox: \(inboxId)")
 
             await createConversationForExistingInbox(
                 databaseWriter: databaseWriter,
@@ -809,7 +809,7 @@ extension UnusedConversationCache {
             try await optimisticConversation.publish()
 
             let conversationId = optimisticConversation.id
-            Log.info("Created unused conversation: \(conversationId)")
+            Log.debug("Created unused conversation: \(conversationId)")
 
             let identity = try await identityStore.identity(for: inboxId)
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
@@ -838,11 +838,11 @@ extension UnusedConversationCache {
                     expiresAt: nil,
                     expiresAfterUse: false
                 )
-                Log.info("Generated invite for unused conversation: \(conversationId)")
+                Log.debug("Generated invite for unused conversation: \(conversationId)")
             }
 
             saveUnusedConversationToKeychain(conversationId)
-            Log.info("Successfully created unused conversation with invite: \(conversationId)")
+            Log.debug("Successfully created unused conversation with invite: \(conversationId)")
         } catch {
             Log.error("Failed to create conversation for unused inbox (keeping inbox): \(error)")
         }
@@ -919,7 +919,7 @@ extension UnusedConversationCache {
             )
             try localState.save(db)
 
-            Log.info("Saved unused conversation to database: \(conversationId)")
+            Log.debug("Saved unused conversation to database: \(conversationId)")
         }
     }
 }
@@ -938,14 +938,14 @@ extension UnusedConversationCache {
     private func saveUnusedInboxToKeychain(_ inboxId: String) {
         do {
             try keychainService.saveString(inboxId, account: KeychainAccount.unusedInbox)
-            Log.info("Saved unused inbox to keychain: \(inboxId)")
+            Log.debug("Saved unused inbox to keychain: \(inboxId)")
         } catch { Log.error("Failed to save unused inbox to keychain: \(error)") }
     }
 
     private func saveUnusedConversationToKeychain(_ conversationId: String) {
         do {
             try keychainService.saveString(conversationId, account: KeychainAccount.unusedConversation)
-            Log.info("Saved unused conversation to keychain: \(conversationId)")
+            Log.debug("Saved unused conversation to keychain: \(conversationId)")
         } catch { Log.error("Failed to save unused conversation to keychain: \(error)") }
     }
 }

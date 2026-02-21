@@ -670,7 +670,7 @@ export default function (pi: ExtensionAPI) {
     parameters: Type.Object({
       udid: Type.Optional(Type.String({ description: "Simulator UDID. Auto-detected if omitted." })),
       lines: Type.Optional(Type.Number({ description: "Maximum number of lines to return (default: 100)" })),
-      level: Type.Optional(Type.String({ description: "Filter level: 'all', 'warning+error' (default), 'error'" })),
+      level: Type.Optional(Type.String({ description: "Filter level: 'all', 'warning+error' (default), 'error', 'events' (only [EVENT] lines)" })),
       since_marker: Type.Optional(Type.String({ description: "Only return logs after this timestamp marker (ISO8601 from a previous call)" })),
     }),
     async execute(_toolCallId, params, signal) {
@@ -696,6 +696,8 @@ export default function (pi: ExtensionAPI) {
         lines = lines.filter(l => l.includes("[warning]") || l.includes("[error]"));
       } else if (level === "error") {
         lines = lines.filter(l => l.includes("[error]"));
+      } else if (level === "events") {
+        lines = lines.filter(l => l.includes("[EVENT]"));
       }
 
       // Filter by since_marker (timestamp comparison)
@@ -807,6 +809,66 @@ export default function (pi: ExtensionAPI) {
 
       return {
         content: [{ type: "text", text: `✅ No errors or warnings since ${markerTime}\nmarker: ${newMarker}` }],
+        details: {},
+      };
+    },
+  });
+
+  // --- log_events: Get [EVENT] lines from app logs ---
+  pi.registerTool({
+    name: "sim_log_events",
+    label: "Simulator: Get App Events",
+    description:
+      "Read [EVENT] log lines from the Convos app. These are structured QA events emitted " +
+      "at key app milestones (message.sent, conversation.joined, reaction.received, etc.). " +
+      "Use to verify app behavior during QA tests. Each event has a category.action format " +
+      "with key=value parameters. Use event_filter to match specific events.",
+    parameters: Type.Object({
+      udid: Type.Optional(Type.String({ description: "Simulator UDID. Auto-detected if omitted." })),
+      since_marker: Type.Optional(Type.String({ description: "Only return events after this timestamp marker (ISO8601)" })),
+      event_filter: Type.Optional(Type.String({ description: "Filter events by name substring (e.g., 'message.sent', 'conversation', 'reaction')" })),
+      lines: Type.Optional(Type.Number({ description: "Maximum lines to scan from log tail (default: 500)" })),
+    }),
+    async execute(_toolCallId, params, signal) {
+      const udid = await resolveUdid(pi, params.udid);
+      const logFile = findAppLogFile(udid);
+      if (!logFile) {
+        return { content: [{ type: "text", text: "No log file found." }], details: {} };
+      }
+
+      const scanLines = params.lines ?? 500;
+      const result = await pi.exec("tail", ["-n", String(scanLines), logFile], { signal, timeout: 5000 });
+      if (result.code !== 0) {
+        return { content: [{ type: "text", text: `Failed to read log file: ${result.stderr}` }], isError: true };
+      }
+
+      let events = result.stdout.split("\n").filter(l => l.includes("[EVENT]"));
+
+      if (params.since_marker) {
+        const markerTime = params.since_marker;
+        events = events.filter(l => {
+          const match = l.match(/^\[(\d{4}-\d{2}-\d{2}T[\d:]+Z)\]/);
+          if (!match) return false;
+          return match[1] > markerTime;
+        });
+      }
+
+      if (params.event_filter) {
+        const filter = params.event_filter.toLowerCase();
+        events = events.filter(l => l.toLowerCase().includes(filter));
+      }
+
+      const marker = new Date().toISOString().replace(/\.\d{3}/, "");
+
+      if (events.length === 0) {
+        return {
+          content: [{ type: "text", text: `No events found${params.event_filter ? ` matching "${params.event_filter}"` : ""}${params.since_marker ? ` since ${params.since_marker}` : ""}.\nmarker: ${marker}` }],
+          details: {},
+        };
+      }
+
+      return {
+        content: [{ type: "text", text: `${events.length} event(s):\n\n${events.join("\n")}\n\nmarker: ${marker}` }],
         details: {},
       };
     },

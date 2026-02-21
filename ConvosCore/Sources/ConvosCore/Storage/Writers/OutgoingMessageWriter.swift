@@ -140,7 +140,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         // If this text depends on a photo that hasn't been published yet, defer it
         if let photoKey = trackingKey, !publishedPhotoKeys.contains(photoKey) {
             pendingTexts.append(queued)
-            Log.info("Text message \(clientMessageId) deferred, waiting for photo \(photoKey)")
+            Log.debug("Text message \(clientMessageId) deferred, waiting for photo \(photoKey)")
         } else {
             messageQueue.append(.text(queued))
             startProcessingIfNeeded()
@@ -183,7 +183,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let localCacheURL = try photoService.localCacheURL(for: filename)
         let trackingKey = localCacheURL.absoluteString
 
-        Log.info("Starting eager upload for trackingKey: \(trackingKey)")
+        Log.debug("Starting eager upload for trackingKey: \(trackingKey)")
 
         // Cache the image but do NOT save to database yet - that happens when user taps Send
         ImageCacheContainer.shared.cacheImage(image, for: trackingKey)
@@ -266,7 +266,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let tracker = PhotoUploadProgressTracker.shared
         let result = await backgroundUploadManager.waitForCompletion(taskId: taskId)
 
-        Log.info("handleUploadCompletion: Received result for taskId: \(taskId), success: \(result.success)")
+        Log.debug("handleUploadCompletion: Received result for taskId: \(taskId), success: \(result.success)")
 
         if result.success {
             try? await pendingUploadWriter.updateState(taskId: taskId, state: .sending, errorMessage: nil)
@@ -275,12 +275,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 let continuation = state.waitingContinuation
                 state.waitingContinuation = nil
                 eagerUploads[trackingKey] = state
-                Log.info("handleUploadCompletion: Upload succeeded, has continuation: \(continuation != nil)")
+                Log.debug("handleUploadCompletion: Upload succeeded, has continuation: \(continuation != nil)")
                 continuation?.resume()
             } else {
                 Log.warning("handleUploadCompletion: No state found for trackingKey: \(trackingKey)")
             }
-            Log.info("Eager upload completed successfully for: \(trackingKey)")
+            Log.debug("Eager upload completed successfully for: \(trackingKey)")
         } else {
             tracker.setStage(.failed, for: trackingKey)
             try? await pendingUploadWriter.updateState(
@@ -334,19 +334,19 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         // If upload is still in progress, wait for it using continuation
         if !state.uploadCompleted && state.uploadError == nil {
-            Log.info("processEagerPhoto: Upload not complete, waiting for continuation...")
+            Log.debug("processEagerPhoto: Upload not complete, waiting for continuation...")
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
                 state.waitingContinuation = continuation
                 eagerUploads[trackingKey] = state
-                Log.info("processEagerPhoto: Continuation stored, suspending...")
+                Log.debug("processEagerPhoto: Continuation stored, suspending...")
             }
-            Log.info("processEagerPhoto: Continuation resumed!")
+            Log.debug("processEagerPhoto: Continuation resumed!")
             guard let updatedState = eagerUploads[trackingKey] else {
                 throw OutgoingMessageWriterError.eagerUploadNotFound
             }
             state = updatedState
         } else {
-            Log.info("processEagerPhoto: Upload already complete, proceeding immediately")
+            Log.debug("processEagerPhoto: Upload already complete, proceeding immediately")
         }
 
         if let error = state.uploadError {
@@ -378,7 +378,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     func cancelEagerUpload(trackingKey: String) async {
         guard let state = eagerUploads[trackingKey] else { return }
 
-        Log.info("Cancelling eager upload for: \(trackingKey)")
+        Log.debug("Cancelling eager upload for: \(trackingKey)")
 
         await backgroundUploadManager.cancelUpload(taskId: state.prepared.taskId)
 
@@ -521,7 +521,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 update: nil
             )
             try localMessage.save(db)
-            Log.info("Saved text message optimistically with id: \(clientMessageId) sortId=\(sortId)")
+            Log.debug("Saved text message optimistically with id: \(clientMessageId) sortId=\(sortId)")
         }
     }
 
@@ -565,7 +565,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 update: nil
             )
             try localMessage.save(db)
-            Log.info("Saved photo message optimistically with clientMessageId: \(clientMessageId) sortId=\(sortId)")
+            Log.debug("Saved photo message optimistically with clientMessageId: \(clientMessageId) sortId=\(sortId)")
         }
     }
 
@@ -587,7 +587,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         } else {
             xmtpMessageId = try await sender.prepare(text: queued.text)
         }
-        Log.info("Text prepare() returned xmtpMessageId=\(xmtpMessageId), clientMessageId=\(queued.clientMessageId), same=\(xmtpMessageId == queued.clientMessageId)")
+        Log.debug("Text prepare() returned xmtpMessageId=\(xmtpMessageId), clientMessageId=\(queued.clientMessageId), same=\(xmtpMessageId == queued.clientMessageId)")
 
         if xmtpMessageId != queued.clientMessageId {
             try await databaseWriter.write { db in
@@ -601,7 +601,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                     sql: "UPDATE message SET sourceMessageId = ? WHERE sourceMessageId = ?",
                     arguments: [xmtpMessageId, queued.clientMessageId]
                 )
-                Log.info("Updated text message id from \(queued.clientMessageId) to \(xmtpMessageId)")
+                Log.debug("Updated text message id from \(queued.clientMessageId) to \(xmtpMessageId)")
             }
         }
 
@@ -620,6 +620,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         sentMessageSubject.send(queued.text)
         Log.info("Published text message with id: \(xmtpMessageId)")
+        QAEvent.emit(.message, "sent", ["id": xmtpMessageId, "conversation": conversationId, "type": "text"])
     }
 
     private func publishPhoto(_ queued: QueuedPhotoMessage) async throws {
@@ -738,7 +739,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             } else {
                 messageId = try await sender.prepare(remoteAttachment: remoteAttachment)
             }
-            Log.info("Prepared photo message - XMTP id: \(messageId), clientMessageId: \(queued.clientMessageId)")
+            Log.debug("Prepared photo message - XMTP id: \(messageId), clientMessageId: \(queued.clientMessageId)")
 
             let storedAttachment = StoredRemoteAttachment(
                 url: remoteAttachment.url,
@@ -764,8 +765,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             let attachmentUrlsString = String(data: attachmentUrlsJSON, encoding: .utf8) ?? "[]"
 
             let oldAttachmentKey = queued.localCacheURL.absoluteString
-            Log.info("[OutgoingMessageWriter] About to update DB. Old key: \(oldAttachmentKey.prefix(60))...")
-            Log.info("[OutgoingMessageWriter] New key (storedJSON): \(json.prefix(80))...")
+            Log.debug("[OutgoingMessageWriter] About to update DB. Old key: \(oldAttachmentKey.prefix(60))...")
+            Log.debug("[OutgoingMessageWriter] New key (storedJSON): \(json.prefix(80))...")
 
             let clientMessageId = queued.clientMessageId
             try await databaseWriter.write { db in
@@ -781,7 +782,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                     sql: "UPDATE message SET sourceMessageId = ? WHERE sourceMessageId = ?",
                     arguments: [messageId, clientMessageId]
                 )
-                Log.info("Updated photo message - id: \(messageId), clientMessageId: \(clientMessageId)")
+                Log.debug("Updated photo message - id: \(messageId), clientMessageId: \(clientMessageId)")
             }
 
             try await attachmentLocalStateWriter.migrateKey(from: oldAttachmentKey, to: json)
@@ -807,6 +808,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             Log.error("Failed to update photo message status after successful publish: \(error)")
         }
         Log.info("Published photo message with id: \(publishResult.xmtpMessageId)")
+        QAEvent.emit(.message, "sent", ["id": publishResult.xmtpMessageId, "conversation": conversationId, "type": "photo"])
 
         try? await pendingUploadWriter.delete(taskId: prepared.taskId)
         try? FileManager.default.removeItem(at: prepared.encryptedFileURL)
@@ -827,7 +829,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             }
             let updated = message.with(status: .published)
             try updated.save(db)
-            Log.info("Marked message as published: \(messageId) dateNs=\(updated.dateNs)")
+            Log.debug("Marked message as published: \(messageId) dateNs=\(updated.dateNs)")
         }
     }
 
@@ -860,7 +862,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         // Insert at front in reverse order so they end up in the correct order
         for text in released.reversed() {
             messageQueue.insert(.text(text), at: 0)
-            Log.info("Released text message \(text.clientMessageId) after photo \(trackingKey) published (inserted at front)")
+            Log.debug("Released text message \(text.clientMessageId) after photo \(trackingKey) published (inserted at front)")
         }
 
         // Continue processing if we released any texts

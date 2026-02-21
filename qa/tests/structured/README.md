@@ -86,6 +86,17 @@ and makes the appropriate tool calls.
 | `clipboard_contains: "X"` | Clipboard text includes "X" |
 | `visual_check: "description"` | Screenshot required — agent judges visually |
 
+### Event verification
+
+| Check | How |
+|-------|-----|
+| `expect_event: "message.sent"` | After the step, check `sim_log_events` for this event |
+| `expect_events: ["message.sent", "sync.completed"]` | Multiple events expected |
+| `expect_event_with: { name: "message.sent", conversation: "$conversation_id" }` | Event with specific params |
+
+Events provide a positive verification channel — they confirm the app performed an action
+internally, not just that the UI updated. Use alongside `verify` checks for stronger assertions.
+
 ### Special fields
 
 | Field | Purpose |
@@ -97,6 +108,8 @@ and makes the appropriate tool calls.
 | `optional: true` | Step failure doesn't fail the test |
 | `gesture: "description"` | Documents which gesture pattern to use |
 | `on_system_dialog: "action"` | How to handle system dialogs (notifications, photos, etc.) |
+| `expect_event: "event.name"` | Verify the app emitted this [EVENT] after the step |
+| `expect_events: [...]` | Verify multiple [EVENT]s after the step |
 
 ## File Naming
 
