@@ -71,6 +71,9 @@ struct ConversationOnboardingView: View {
                         Task {
                             await coordinator.didSelectQuickname()
                         }
+                    },
+                    onDismiss: {
+                        coordinator.skipAddQuickname()
                     }
                 )
                 .transition(.blurReplace)

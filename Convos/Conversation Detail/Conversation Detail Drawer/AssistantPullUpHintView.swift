@@ -19,6 +19,7 @@ struct AssistantPullUpHintView: View {
         VStack(spacing: DesignConstants.Spacing.stepX) {
             Image(systemName: "chevron.up")
                 .foregroundStyle(.colorTextTertiary)
+                .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                 .opacity(isAtThreshold ? 0.0 : 1.0)
                 .scaleEffect(isAtThreshold ? 0.5 : 1.0)
 
@@ -33,6 +34,7 @@ struct AssistantPullUpHintView: View {
         .onTapGesture {
             onDismiss()
         }
+        .padding(.vertical, DesignConstants.Spacing.step4x)
         .onChange(of: isAtThreshold) { _, atThreshold in
             if atThreshold {
                 wasAtThreshold = true
@@ -51,7 +53,7 @@ struct AssistantPullUpHintView: View {
     }
 
     private enum Constant {
-        static let triggerThreshold: CGFloat = 150.0
+        static let triggerThreshold: CGFloat = 100.0
         static let liftMultiplier: CGFloat = 0.3
     }
 }
@@ -67,6 +69,7 @@ struct AssistantRequestedView: View {
         }
         .font(.caption)
         .frame(maxWidth: .infinity)
+        .padding(.vertical, DesignConstants.Spacing.step4x)
     }
 }
 

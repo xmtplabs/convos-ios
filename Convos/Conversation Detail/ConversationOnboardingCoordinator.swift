@@ -87,7 +87,7 @@ enum ConversationOnboardingState: Equatable {
     static let addQuicknameViewDuration: CGFloat = 8.0
     static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
-    static let assistantRequestedDuration: CGFloat = 3.0
+    static let assistantRequestedDuration: CGFloat = 2.0
     // how long we wait before showing the description string
     static let waitingForInviteAcceptanceDelay: CGFloat = 3.0
 
