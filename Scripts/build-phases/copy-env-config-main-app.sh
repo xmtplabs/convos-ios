@@ -55,18 +55,18 @@ HEADER_EOF
     # Use .env values if present, otherwise auto-detect
     if [ -n "$CONVOS_API_BASE_URL" ]; then
         echo "🔧 Using CONVOS_API_BASE_URL from .env"
-        echo "    static let CONVOS_API_BASE_URL = \\"$CONVOS_API_BASE_URL\\"" >> "$SECRETS_FILE"
+        echo "    static let CONVOS_API_BASE_URL = \"$CONVOS_API_BASE_URL\"" >> "$SECRETS_FILE"
     else
         echo "🔍 Auto-detecting CONVOS_API_BASE_URL"
-        echo "    static let CONVOS_API_BASE_URL = \\"http://$LOCAL_IP:4000/api\\"" >> "$SECRETS_FILE"
+        echo "    static let CONVOS_API_BASE_URL = \"http://$LOCAL_IP:4000/api\"" >> "$SECRETS_FILE"
     fi
 
     if [ -n "$XMTP_CUSTOM_HOST" ]; then
         echo "🔧 Using XMTP_CUSTOM_HOST from .env"
-        echo "    static let XMTP_CUSTOM_HOST = \\"$XMTP_CUSTOM_HOST\\"" >> "$SECRETS_FILE"
+        echo "    static let XMTP_CUSTOM_HOST = \"$XMTP_CUSTOM_HOST\"" >> "$SECRETS_FILE"
     else
         echo "🔍 Auto-detecting XMTP_CUSTOM_HOST"
-        echo "    static let XMTP_CUSTOM_HOST = \\"$LOCAL_IP\\"" >> "$SECRETS_FILE"
+        echo "    static let XMTP_CUSTOM_HOST = \"$LOCAL_IP\"" >> "$SECRETS_FILE"
     fi
     
     # Add other secrets from .env if available
