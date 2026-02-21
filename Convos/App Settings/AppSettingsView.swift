@@ -15,6 +15,7 @@ struct ConvosToolbarButton: View {
                     .renderingMode(.template)
                     .foregroundStyle(.colorFillPrimary)
                     .frame(width: 16.0, height: 20.0)
+                    .balloonSway()
                     .frame(width: 24.0, height: 24.0)
                     .accessibilityHidden(true)
 
