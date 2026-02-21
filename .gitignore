@@ -128,3 +128,4 @@ qa/reports/
 qa/cxdb/qa.sqlite
 qa/cxdb/qa.sqlite-wal
 qa/cxdb/qa.sqlite-shm
+.DS_Store

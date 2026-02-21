@@ -21,6 +21,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let bottomBarHeight: CGFloat
+    let onBottomOverscrollChanged: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
 
     class Coordinator {
@@ -62,6 +63,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             Log.debug("[Representable] onPhotoHidden wrapper called with key: \(key.prefix(50))...")
             self.onPhotoHidden(key)
         }
+        messagesViewController.onBottomOverscrollChanged = onBottomOverscrollChanged
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
@@ -108,6 +110,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
         bottomBarHeight: bottomBarHeight,
+        onBottomOverscrollChanged: { _ in },
         scrollToBottomTrigger: { _ in }
     )
     .ignoresSafeArea()

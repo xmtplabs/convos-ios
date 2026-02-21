@@ -15,6 +15,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var presentingShareView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
+    @State private var scrollOverscrollAmount: CGFloat = 0.0
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -69,6 +70,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
+            onBottomOverscrollChanged: { overscroll in
+                scrollOverscrollAmount = overscroll
+            },
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
@@ -76,11 +80,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,
                         focusCoordinator: focusCoordinator,
+                        scrollOverscrollAmount: scrollOverscrollAmount,
                         onTapSetupQuickname: {
                             onboardingCoordinator.didTapProfilePhoto()
                             viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
                         },
                         onUseQuickname: viewModel.onUseQuickname(_:_:),
+                        onRequestAssistant: viewModel.requestAssistantJoin,
                         onPresentProfileSettings: viewModel.onProfileSettings
                     )
                 }
@@ -133,23 +139,30 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 } else {
                     switch messagesTopBarTrailingItem {
                     case .share:
-                        Button {
-                            if viewModel.isFull {
-                                showingFullInfo = true
-                            } else {
-                                presentingShareView = true
+                        AddToConversationMenu(
+                            isFull: viewModel.isFull,
+                            isEnabled: messagesTopBarTrailingItemEnabled,
+                            onNewAssistant: {
+                                viewModel.requestAssistantJoin()
+                                onboardingCoordinator.assistantWasRequested()
+                            },
+                            onConvoCode: {
+                                if viewModel.isFull {
+                                    showingFullInfo = true
+                                } else {
+                                    presentingShareView = true
+                                }
+                            },
+                            onMenuOpen: {
+                                if onboardingCoordinator.state == .assistantHint {
+                                    onboardingCoordinator.dismissAssistantHint()
+                                }
                             }
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
-                        }
-                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
-                        .accessibilityIdentifier("share-invite-button")
+                        )
                         .fullScreenCover(isPresented: $presentingShareView) {
                             ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
                                 .presentationBackground(.clear)
                         }
-                        .disabled(!messagesTopBarTrailingItemEnabled)
                         .transaction { transaction in
                             transaction.disablesAnimations = true
                         }
