@@ -139,23 +139,30 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 } else {
                     switch messagesTopBarTrailingItem {
                     case .share:
-                        Button {
-                            if viewModel.isFull {
-                                showingFullInfo = true
-                            } else {
-                                presentingShareView = true
+                        AddToConversationMenu(
+                            isFull: viewModel.isFull,
+                            isEnabled: messagesTopBarTrailingItemEnabled,
+                            onNewAssistant: {
+                                viewModel.requestAssistantJoin()
+                                onboardingCoordinator.assistantWasRequested()
+                            },
+                            onConvoCode: {
+                                if viewModel.isFull {
+                                    showingFullInfo = true
+                                } else {
+                                    presentingShareView = true
+                                }
+                            },
+                            onMenuOpen: {
+                                if onboardingCoordinator.state == .assistantHint {
+                                    onboardingCoordinator.dismissAssistantHint()
+                                }
                             }
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
-                        }
-                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
-                        .accessibilityIdentifier("share-invite-button")
+                        )
                         .fullScreenCover(isPresented: $presentingShareView) {
                             ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
                                 .presentationBackground(.clear)
                         }
-                        .disabled(!messagesTopBarTrailingItemEnabled)
                         .transaction { transaction in
                             transaction.disablesAnimations = true
                         }

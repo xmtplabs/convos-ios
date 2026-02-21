@@ -439,16 +439,21 @@ struct ConversationInfoView: View {
                         .accessibilityLabel("Conversation locked")
                         .accessibilityIdentifier("info-lock-button")
                     } else {
-                        Button {
-                            if viewModel.isFull {
-                                showingFullInfo = true
-                            } else {
-                                presentingShareView = true
+                        AddToConversationMenu(
+                            isFull: viewModel.isFull,
+                            isEnabled: true,
+                            onNewAssistant: {
+                                viewModel.requestAssistantJoin()
+                                viewModel.onboardingCoordinator.assistantWasRequested()
+                            },
+                            onConvoCode: {
+                                if viewModel.isFull {
+                                    showingFullInfo = true
+                                } else {
+                                    presentingShareView = true
+                                }
                             }
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
-                        }
+                        )
                         .fullScreenCover(isPresented: $presentingShareView) {
                             ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
                                 .presentationBackground(.clear)
@@ -456,8 +461,7 @@ struct ConversationInfoView: View {
                         .transaction { transaction in
                             transaction.disablesAnimations = true
                         }
-                        .accessibilityLabel(viewModel.isFull ? "Conversation full" : "Share conversation invite")
-                        .accessibilityIdentifier("info-share-button")
+                        .accessibilityIdentifier("info-add-button")
                     }
                 }
             }
