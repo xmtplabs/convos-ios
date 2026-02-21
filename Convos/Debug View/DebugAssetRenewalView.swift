@@ -2,7 +2,7 @@ import ConvosCore
 import SwiftUI
 
 struct DebugAssetRenewalView: View {
-    let environment: AppEnvironment
+    let session: any SessionManagerProtocol
 
     @State private var assets: [RenewableAsset] = []
     @State private var isLoading: Bool = true
@@ -34,7 +34,7 @@ struct DebugAssetRenewalView: View {
             } else {
                 Section(header: Text("Profile Avatars (\(profileAvatars.count))")) {
                     ForEach(profileAvatars, id: \.url) { asset in
-                        AssetRow(asset: asset, environment: environment) { message in
+                        AssetRow(asset: asset, session: session) { message in
                             renewalAlertMessage = message
                             showingRenewalAlert = true
                             refreshTrigger.toggle()
@@ -44,7 +44,7 @@ struct DebugAssetRenewalView: View {
 
                 Section(header: Text("Group Images (\(groupImages.count))")) {
                     ForEach(groupImages, id: \.url) { asset in
-                        AssetRow(asset: asset, environment: environment) { message in
+                        AssetRow(asset: asset, session: session) { message in
                             renewalAlertMessage = message
                             showingRenewalAlert = true
                             refreshTrigger.toggle()
@@ -83,12 +83,8 @@ struct DebugAssetRenewalView: View {
         errorMessage = nil
 
         do {
-            let env = environment
-            let loadedAssets = try await Task.detached {
-                let dbManager = DatabaseManager.makeForDebug(environment: env)
-                let collector = AssetRenewalURLCollector(databaseReader: dbManager.dbReader)
-                return try collector.collectRenewableAssets()
-            }.value
+            let manager = await session.makeAssetRenewalManager()
+            let loadedAssets = try await manager.collectAllAssets()
             guard !Task.isCancelled else { return }
             assets = loadedAssets
         } catch {
@@ -103,7 +99,7 @@ struct DebugAssetRenewalView: View {
 
 private struct AssetRow: View {
     let asset: RenewableAsset
-    let environment: AppEnvironment
+    let session: any SessionManagerProtocol
     let onRenewalComplete: (String) -> Void
 
     @State private var isRenewing: Bool = false
@@ -172,18 +168,8 @@ private struct AssetRow: View {
         guard !isRenewing else { return }
         isRenewing = true
 
-        let env = environment
-        let assetToRenew = asset
-        let result = await Task.detached {
-            let dbManager = DatabaseManager.makeForDebug(environment: env)
-            let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
-            let renewalManager = AssetRenewalManager(
-                databaseWriter: dbManager.dbWriter,
-                apiClient: ConvosAPIClientFactory.client(environment: env),
-                recoveryHandler: recoveryHandler
-            )
-            return await renewalManager.renewSingleAsset(assetToRenew)
-        }.value
+        let renewalManager = await session.makeAssetRenewalManager()
+        let result = await renewalManager.renewSingleAsset(asset)
 
         isRenewing = false
 
@@ -203,6 +189,6 @@ private struct AssetRow: View {
 
 #Preview {
     NavigationStack {
-        DebugAssetRenewalView(environment: .tests)
+        DebugAssetRenewalView(session: MockInboxesService())
     }
 }

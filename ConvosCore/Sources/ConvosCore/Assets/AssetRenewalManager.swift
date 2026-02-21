@@ -133,7 +133,7 @@ public actor AssetRenewalManager {
         return try collector.collectStaleAssets(olderThan: threshold)
     }
 
-    private func collectAllAssets() throws -> [RenewableAsset] {
+    public func collectAllAssets() throws -> [RenewableAsset] {
         let collector = AssetRenewalURLCollector(databaseReader: databaseWriter)
         return try collector.collectRenewableAssets()
     }

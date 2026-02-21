@@ -209,15 +209,6 @@ extension SharedDatabaseMigrator {
             }
         }
 
-        migrator.registerMigration("addAssetRenewalColumns") { db in
-            try db.alter(table: "memberProfile") { t in
-                t.add(column: "avatarLastRenewed", .datetime)
-            }
-            try db.alter(table: "conversation") { t in
-                t.add(column: "imageLastRenewed", .datetime)
-            }
-        }
-
         migrator.registerMigration("deduplicateReactions") { db in
             try db.execute(sql: """
                 DELETE FROM message
@@ -357,6 +348,15 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addIsUnusedToConversation") { db in
             try db.alter(table: "conversation") { t in
                 t.add(column: "isUnused", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("addAssetRenewalColumns") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "avatarLastRenewed", .datetime)
+            }
+            try db.alter(table: "conversation") { t in
+                t.add(column: "imageLastRenewed", .datetime)
             }
         }
 

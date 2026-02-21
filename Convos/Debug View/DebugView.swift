@@ -18,6 +18,7 @@ extension Client {
 
 struct DebugViewSection: View {
     let environment: AppEnvironment
+    let session: any SessionManagerProtocol
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var notificationAuthGranted: Bool = false
     @State private var lastDeviceToken: String = ""
@@ -185,7 +186,7 @@ struct DebugViewSection: View {
 
             Section("Asset Renewal") {
                 NavigationLink {
-                    DebugAssetRenewalView(environment: environment)
+                    DebugAssetRenewalView(session: session)
                 } label: {
                     Text("View Renewable Assets")
                         .foregroundStyle(.colorTextPrimary)
@@ -251,7 +252,7 @@ struct DebugViewSection: View {
 
 #Preview {
     List {
-        DebugViewSection(environment: .tests)
+        DebugViewSection(environment: .tests, session: MockInboxesService())
     }
 }
 
@@ -314,14 +315,7 @@ extension DebugViewSection {
         guard !isRenewingAssets else { return }
         isRenewingAssets = true
 
-        let dbManager = DatabaseManager.makeForDebug(environment: environment)
-        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
-        let renewalManager = AssetRenewalManager(
-            databaseWriter: dbManager.dbWriter,
-            apiClient: ConvosAPIClientFactory.client(environment: environment),
-            recoveryHandler: recoveryHandler
-        )
-
+        let renewalManager = await session.makeAssetRenewalManager()
         let result = await renewalManager.forceRenewal()
 
         isRenewingAssets = false

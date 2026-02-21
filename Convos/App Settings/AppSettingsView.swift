@@ -169,7 +169,7 @@ struct AppSettingsView: View {
 
                     if !ConfigManager.shared.currentEnvironment.isProduction {
                         NavigationLink {
-                            DebugExportView(environment: ConfigManager.shared.currentEnvironment)
+                            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
                         } label: {
                             Text("Debug")
                         }
