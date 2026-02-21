@@ -336,6 +336,10 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
     func unregisterInstallation(clientId: String) async throws {
     }
 
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
+    }
+
     func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
         ("https://mock-api.example.com/upload/\(filename)", "https://mock-api.example.com/assets/\(filename)")
     }

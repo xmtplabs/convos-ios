@@ -5,8 +5,8 @@ protocol ConvosAPIClientFactoryType {
     static func client(environment: AppEnvironment, overrideJWTToken: String?) -> any ConvosAPIClientProtocol
 }
 
-enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
-    static func client(environment: AppEnvironment, overrideJWTToken: String? = nil) -> any ConvosAPIClientProtocol {
+public enum ConvosAPIClientFactory: ConvosAPIClientFactoryType {
+    public static func client(environment: AppEnvironment, overrideJWTToken: String? = nil) -> any ConvosAPIClientProtocol {
         guard !environment.isTestingEnvironment else {
             return MockAPIClient()
         }
@@ -49,6 +49,9 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws
     func unregisterInstallation(clientId: String) async throws
+
+    // Asset renewal
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
 }
 
 /// HTTP client for Convos backend API
@@ -519,6 +522,28 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let path = "v2/notifications/unregister/\(clientId)"
         let request = try authenticatedRequest(for: path, method: "DELETE")
         let _: EmptyResponse = try await performRequest(request)
+    }
+
+    // MARK: - Asset Renewal
+
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        var request = try authenticatedRequest(for: "v2/assets/renew-batch", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ConvosAPI.BatchRenewRequest(assetKeys: assetKeys)
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let response: ConvosAPI.BatchRenewResponse = try await performRequest(request)
+
+        let expiredKeys = response.results
+            .filter { !$0.success && $0.error == "not_found" }
+            .map { $0.key }
+
+        return AssetRenewalResult(
+            renewed: response.renewed,
+            failed: response.failed,
+            expiredKeys: expiredKeys
+        )
     }
 
     // MARK: - Helper Methods

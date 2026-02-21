@@ -46,6 +46,7 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
         }
@@ -118,6 +119,7 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
         }
@@ -158,6 +160,7 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
         }
@@ -206,6 +209,7 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
 
@@ -232,6 +236,7 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
         }
@@ -284,6 +289,7 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
 
@@ -310,6 +316,7 @@ struct SessionManagerTests {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: false
             ).insert(db)
         }

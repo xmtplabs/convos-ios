@@ -195,6 +195,7 @@ struct PendingInviteRepositoryTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            imageLastRenewed: nil,
             isUnused: false
         )
     }

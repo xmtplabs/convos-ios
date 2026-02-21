@@ -62,6 +62,7 @@ struct MessagesRepositoryBenchmarkTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            imageLastRenewed: nil,
             isUnused: false
         ).insert(db)
 

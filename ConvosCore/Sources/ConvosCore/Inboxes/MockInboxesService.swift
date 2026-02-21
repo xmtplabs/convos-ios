@@ -126,4 +126,16 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func deleteExpiredPendingInvites() async throws -> Int {
         0
     }
+
+    // MARK: - Asset Renewal
+
+    public func makeAssetRenewalManager() async -> AssetRenewalManager {
+        let dbManager = MockDatabaseManager.shared
+        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
+        return AssetRenewalManager(
+            databaseWriter: dbManager.dbWriter,
+            apiClient: MockAPIClient(),
+            recoveryHandler: recoveryHandler
+        )
+    }
 }

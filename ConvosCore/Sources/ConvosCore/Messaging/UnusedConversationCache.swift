@@ -887,6 +887,7 @@ extension UnusedConversationCache {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                imageLastRenewed: nil,
                 isUnused: true
             )
             try dbConversation.save(db)

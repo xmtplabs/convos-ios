@@ -1432,6 +1432,7 @@ struct InboxLifecycleManagerStaleExpiryTests {
             imageSalt: nil,
             imageNonce: nil,
             imageEncryptionKey: nil,
+            imageLastRenewed: nil,
             isUnused: false
         )
     }

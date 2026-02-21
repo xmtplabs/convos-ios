@@ -351,6 +351,15 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addAssetRenewalColumns") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "avatarLastRenewed", .datetime)
+            }
+            try db.alter(table: "conversation") { t in
+                t.add(column: "imageLastRenewed", .datetime)
+            }
+        }
+
         return migrator
     }
 }

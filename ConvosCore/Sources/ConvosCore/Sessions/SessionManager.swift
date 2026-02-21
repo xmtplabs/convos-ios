@@ -29,6 +29,7 @@ enum SessionManagerError: Error {
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var leftConversationObserver: Any?
     private var foregroundObserverTask: Task<Void, Never>?
+    private var assetRenewalTask: Task<Void, Never>?
 
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -107,6 +108,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 guard let self, !Task.isCancelled else { return }
                 await self.lifecycleManager.prepareUnusedConversationIfNeeded()
             }
+
+            guard !Task.isCancelled else { return }
+            self.assetRenewalTask = Task(priority: .utility) { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
+                let renewalManager = AssetRenewalManager(
+                    databaseWriter: self.databaseWriter,
+                    apiClient: self.apiClient,
+                    recoveryHandler: recoveryHandler
+                )
+                await renewalManager.performRenewalIfNeeded()
+            }
         }
     }
 
@@ -114,6 +127,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         unusedInboxPrepTask?.cancel()
         foregroundObserverTask?.cancel()
+        assetRenewalTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -506,5 +520,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             Log.error("Failed to look up inboxId for conversationId \(conversationId): \(error)")
             return nil
         }
+    }
+
+    // MARK: - Asset Renewal
+
+    public func makeAssetRenewalManager() async -> AssetRenewalManager {
+        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
+        return AssetRenewalManager(
+            databaseWriter: databaseWriter,
+            apiClient: apiClient,
+            recoveryHandler: recoveryHandler
+        )
     }
 }
