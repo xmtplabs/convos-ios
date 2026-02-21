@@ -79,4 +79,8 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
         AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
     }
+
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        .init(success: true, joined: true)
+    }
 }

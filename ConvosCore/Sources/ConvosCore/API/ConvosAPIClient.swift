@@ -52,6 +52,9 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 
     // Asset renewal
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
+
+    // Agents
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse
 }
 
 /// HTTP client for Convos backend API
@@ -375,6 +378,41 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
     }
 
+    private func performRawRequestWithAuthenticationRetry(
+        _ request: URLRequest,
+        retryCount: Int = 0
+    ) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        if httpResponse.statusCode != 401 {
+            return (data, httpResponse)
+        }
+
+        guard overrideJWTToken == nil else {
+            Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
+            throw APIError.notAuthenticated
+        }
+
+        guard retryCount < maxRetryCount else {
+            Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
+            throw APIError.notAuthenticated
+        }
+
+        Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
+        let freshJWT = try await reAuthenticate()
+        guard !freshJWT.isEmpty else {
+            throw APIError.notAuthenticated
+        }
+
+        var newRequest = request
+        newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
+        return try await performRawRequestWithAuthenticationRetry(newRequest, retryCount: retryCount + 1)
+    }
+
     func uploadAttachment(
         data: Data,
         filename: String,
@@ -546,12 +584,52 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         )
     }
 
+    // MARK: - Agents
+
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentJoinRequest(
+                slug: slug,
+                instructions: instructions
+            )
+        )
+
+        let (data, httpResponse) = try await performRawRequestWithAuthenticationRetry(request)
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            let decoder = JSONDecoder()
+            return try decoder.decode(ConvosAPI.AgentJoinResponse.self, from: data)
+        case 502:
+            throw APIError.agentProvisionFailed
+        case 503:
+            throw APIError.noAgentsAvailable
+        case 504:
+            throw APIError.agentPoolTimeout
+        case 400:
+            throw APIError.badRequest(parseErrorMessage(from: data))
+        case 403:
+            throw APIError.forbidden
+        case 404:
+            throw APIError.notFound
+        default:
+            throw APIError.serverError(parseErrorMessage(from: data))
+        }
+    }
+
     // MARK: - Helper Methods
 
     private func parseErrorMessage(from data: Data) -> String? {
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let message = json["message"] as? String {
-            return message
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let message = json["message"] as? String {
+                return message
+            }
+            if let error = json["error"] as? String {
+                return error
+            }
         }
         return String(data: data, encoding: .utf8)
     }
@@ -571,6 +649,9 @@ enum APIError: Error {
     case invalidRequest
     case serverError(String?)
     case rateLimitExceeded
+    case noAgentsAvailable
+    case agentPoolTimeout
+    case agentProvisionFailed
 }
 
 extension APIError: DisplayError {
@@ -598,6 +679,12 @@ extension APIError: DisplayError {
             return "Server error"
         case .rateLimitExceeded:
             return "Too many requests"
+        case .noAgentsAvailable:
+            return "No assistants available"
+        case .agentPoolTimeout:
+            return "Assistant timed out"
+        case .agentProvisionFailed:
+            return "Couldn't add assistant"
         }
     }
 
@@ -625,6 +712,12 @@ extension APIError: DisplayError {
             return message ?? "The server encountered an error."
         case .rateLimitExceeded:
             return "Too many requests. Please try again later."
+        case .noAgentsAvailable:
+            return "No assistants are available right now. Please try again later."
+        case .agentPoolTimeout:
+            return "Assistant setup took too long. Please try again."
+        case .agentProvisionFailed:
+            return "Something went wrong while adding an assistant. Please try again."
         }
     }
 }

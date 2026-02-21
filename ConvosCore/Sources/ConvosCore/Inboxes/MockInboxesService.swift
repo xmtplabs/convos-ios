@@ -81,6 +81,10 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockInviteRepository()
     }
 
+    public func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        .init(success: true, joined: true)
+    }
+
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }

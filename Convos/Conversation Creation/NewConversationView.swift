@@ -8,6 +8,7 @@ struct NewConversationView: View {
     @State private var presentingJoiningStateInfo: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
+    @State private var assistantHintLift: CGFloat = 0.0
 
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -42,6 +43,50 @@ struct NewConversationView: View {
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled
                         ) {
+                            if !viewModel.hasRequestedAssistantJoin {
+                                let tapAction = {
+                                    viewModel.requestAssistantJoin()
+                                }
+                                let pullUpAction = {
+                                    viewModel.requestAssistantJoin()
+                                }
+                                Button(action: tapAction) {
+                                    VStack(spacing: DesignConstants.Spacing.stepX) {
+                                        if viewModel.isRequestingAssistant {
+                                            ProgressView()
+                                                .tint(.colorTextTertiary)
+                                            Text("Adding Assistant...")
+                                                .foregroundStyle(.colorTextSecondary)
+                                        } else {
+                                            Image(systemName: "chevron.compact.up")
+                                                .foregroundStyle(.colorTextTertiary)
+                                            Text("Pull up to add an Assistant")
+                                                .foregroundStyle(.colorTextSecondary)
+                                        }
+                                    }
+                                    .font(.caption)
+                                    .frame(maxWidth: .infinity)
+                                    .contentShape(.rect)
+                                }
+                                .disabled(viewModel.isRequestingAssistant)
+                                .offset(y: -assistantHintLift)
+                                .simultaneousGesture(
+                                    DragGesture(minimumDistance: Constant.pullGestureMinimumDistance)
+                                        .onChanged { value in
+                                            let pullDistance = max(0.0, -value.translation.height)
+                                            assistantHintLift = min(pullDistance * Constant.pullLiftMultiplier, Constant.maximumLift)
+                                        }
+                                        .onEnded { value in
+                                            let pullDistance = max(0.0, -value.translation.height)
+                                            if pullDistance >= Constant.pullTriggerDistance {
+                                                pullUpAction()
+                                            }
+                                            withAnimation(.spring(response: 0.22, dampingFraction: 0.82)) {
+                                                assistantHintLift = 0.0
+                                            }
+                                        }
+                                )
+                            }
                         }
                     } else {
                         EmptyView()
@@ -99,6 +144,13 @@ struct NewConversationView: View {
         .onChange(of: horizontalSizeClass) { _, newSizeClass in
             focusCoordinator.horizontalSizeClass = newSizeClass
         }
+    }
+
+    private enum Constant {
+        static let pullGestureMinimumDistance: CGFloat = 6.0
+        static let pullTriggerDistance: CGFloat = 20.0
+        static let pullLiftMultiplier: CGFloat = 0.45
+        static let maximumLift: CGFloat = 12.0
     }
 }
 

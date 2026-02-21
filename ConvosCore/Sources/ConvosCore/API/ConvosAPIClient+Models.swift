@@ -129,6 +129,29 @@ public enum ConvosAPI {
     // Returns: 200 with empty body on success
     // Errors: 400 (invalid params), 404 (client not found), 500 (server error)
 
+    // MARK: - v2/agents/join
+    // POST /v2/agents/join
+
+    public struct AgentJoinRequest: Codable {
+        public let slug: String
+        public let instructions: String
+
+        public init(slug: String, instructions: String) {
+            self.slug = slug
+            self.instructions = instructions
+        }
+    }
+
+    public struct AgentJoinResponse: Codable {
+        public let success: Bool
+        public let joined: Bool
+
+        public init(success: Bool, joined: Bool) {
+            self.success = success
+            self.joined = joined
+        }
+    }
+
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {

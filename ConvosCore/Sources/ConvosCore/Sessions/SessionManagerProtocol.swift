@@ -26,6 +26,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Factory methods for repositories
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse
 
     func conversationRepository(
         for conversationId: String,

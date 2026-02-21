@@ -343,6 +343,10 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
     func getPresignedUploadURL(filename: String, contentType: String) async throws -> (uploadURL: String, assetURL: String) {
         ("https://mock-api.example.com/upload/\(filename)", "https://mock-api.example.com/assets/\(filename)")
     }
+
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        .init(success: true, joined: true)
+    }
 }
 
 /// Comprehensive tests for SyncingManager state machine
