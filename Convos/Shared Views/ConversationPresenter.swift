@@ -50,7 +50,8 @@ struct ConversationPresenter<Content: View>: View {
                     isPresented: Binding(
                         get: { viewModel.presentingShareView },
                         set: { viewModel.presentingShareView = $0 }
-                    )
+                    ),
+                    topSafeAreaInset: insetsTopSafeArea ? safeAreaInsets.top : DesignConstants.Spacing.step3x
                 )
                 .ignoresSafeArea()
                 .zIndex(2000)

@@ -481,7 +481,8 @@ struct ConversationInfoView: View {
                     ConversationShareOverlay(
                         conversation: viewModel.conversation,
                         invite: viewModel.invite,
-                        isPresented: $presentingShareView
+                        isPresented: $presentingShareView,
+                        topSafeAreaInset: 0
                     )
                 }
             }

@@ -6,12 +6,33 @@ struct ConversationShareOverlay: View {
     let conversation: Conversation
     let invite: Invite
     @Binding var isPresented: Bool
+    let topSafeAreaInset: CGFloat
 
     @State private var showCard: Bool = false
     @State private var isShareSheetPresented: Bool = false
     @State private var conversationImage: Image = Image("convosIcon")
     @State private var qrCodeImage: UIImage?
     @Environment(\.displayScale) private var displayScale: CGFloat
+
+    private static let headerHeight: CGFloat = 40.0
+    private static let cardPadding: CGFloat = 40.0
+    private static let maxQRSize: CGFloat = 220.0
+    private static let shareSheetFraction: CGFloat = 0.45
+
+    private var qrDisplaySize: CGFloat {
+        let screenHeight = UIScreen.main.bounds.height
+        let availableHeight = screenHeight * (1.0 - Self.shareSheetFraction)
+            - topSafeAreaInset
+            - DesignConstants.Spacing.step4x
+            - Self.headerHeight
+            - Self.cardPadding
+            - DesignConstants.Spacing.step10x
+        let availableWidth = UIScreen.main.bounds.width
+            - DesignConstants.Spacing.step10x * 2
+            - Self.cardPadding * 2
+        let maxFit = min(availableHeight, availableWidth)
+        return min(max(maxFit, 120.0), Self.maxQRSize)
+    }
 
     var body: some View {
         ZStack {
@@ -27,11 +48,11 @@ struct ConversationShareOverlay: View {
 
             if showCard {
                 VStack(spacing: 0.0) {
-                    convoCodeCard
-                        .padding(.top, DesignConstants.Spacing.step16x)
+                    convoCodeCard(qrSize: qrDisplaySize)
 
                     Spacer()
                 }
+                .padding(.top, topSafeAreaInset + DesignConstants.Spacing.step4x)
                 .transition(
                     .asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
@@ -61,7 +82,7 @@ struct ConversationShareOverlay: View {
             guard let inviteURL = invite.inviteURL else { return }
             let options = QRCodeGenerator.Options(
                 scale: displayScale,
-                displaySize: 220.0,
+                displaySize: Self.maxQRSize,
                 foregroundColor: UIColor(.colorTextPrimary),
                 backgroundColor: UIColor(.colorBackgroundSurfaceless)
             )
@@ -78,9 +99,12 @@ struct ConversationShareOverlay: View {
         }
     }
 
-    @ViewBuilder
-    private var convoCodeCard: some View {
-        VStack(spacing: 0.0) {
+    private func convoCodeCard(qrSize: CGFloat) -> some View {
+        let centerImageSize: CGFloat = qrSize * (50.0 / Self.maxQRSize)
+        let centerBackgroundSize: CGFloat = qrSize * (55.0 / Self.maxQRSize)
+        let cardInternalPadding: CGFloat = qrSize * (Self.cardPadding / Self.maxQRSize)
+
+        return VStack(spacing: 0.0) {
             HStack(alignment: .center) {
                 Text("Convos code")
                     .kerning(1.0)
@@ -98,19 +122,19 @@ struct ConversationShareOverlay: View {
             .foregroundStyle(.colorTextSecondary)
             .textCase(.uppercase)
             .font(.caption)
-            .frame(height: DesignConstants.Spacing.step10x)
+            .frame(height: Self.headerHeight)
 
             if let qrCodeImage {
                 ZStack {
                     Image(uiImage: qrCodeImage)
                         .resizable()
                         .aspectRatio(1.0, contentMode: .fit)
-                        .frame(width: 220.0, height: 220.0)
+                        .frame(width: qrSize, height: qrSize)
 
                     ZStack {
                         Rectangle()
                             .fill(.colorBackgroundSurfaceless)
-                            .frame(width: 55.0, height: 55.0)
+                            .frame(width: centerBackgroundSize, height: centerBackgroundSize)
 
                         ZStack {
                             Rectangle()
@@ -119,11 +143,11 @@ struct ConversationShareOverlay: View {
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
                         }
-                        .frame(width: 50.0, height: 50.0)
+                        .frame(width: centerImageSize, height: centerImageSize)
                         .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
                     }
                 }
-                .padding([.leading, .trailing, .bottom], DesignConstants.Spacing.step10x)
+                .padding([.leading, .trailing, .bottom], cardInternalPadding)
                 .accessibilityLabel("Share QR code for conversation invite")
                 .accessibilityIdentifier("share-qr-code")
             }
@@ -190,7 +214,8 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
             ConversationShareOverlay(
                 conversation: .mock(),
                 invite: .mock(),
-                isPresented: $isPresented
+                isPresented: $isPresented,
+                topSafeAreaInset: 59.0
             )
         }
     }
