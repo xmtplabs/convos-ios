@@ -11,12 +11,17 @@ struct ConversationPresenter<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
 
+    private var isShowingShareOverlay: Bool {
+        viewModel?.presentingShareView == true
+    }
+
     var body: some View {
         ZStack {
             content($focusState, focusCoordinator)
+                .toolbar(isShowingShareOverlay ? .hidden : .automatic, for: .navigationBar)
 
             VStack {
-                if let viewModel = viewModel, viewModel.showsInfoView {
+                if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay {
                     ConversationIndicatorWrapper(
                         viewModel: viewModel,
                         focusState: $focusState,
@@ -37,6 +42,19 @@ struct ConversationPresenter<Content: View>: View {
             .ignoresSafeArea()
             .allowsHitTesting(true)
             .zIndex(1000)
+
+            if let viewModel, viewModel.presentingShareView {
+                ConversationShareOverlay(
+                    conversation: viewModel.conversation,
+                    invite: viewModel.invite,
+                    isPresented: Binding(
+                        get: { viewModel.presentingShareView },
+                        set: { viewModel.presentingShareView = $0 }
+                    )
+                )
+                .ignoresSafeArea()
+                .zIndex(2000)
+            }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear {
