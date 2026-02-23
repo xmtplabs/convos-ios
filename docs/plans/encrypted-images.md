@@ -1,5 +1,9 @@
 # Encrypted Profile Pictures and Group Images
 
+> **Status**: Implemented
+> **Canonical ADR**: `docs/adr/009-encrypted-conversation-images.md`
+> **Related ADR**: `docs/adr/010-public-preview-image-toggle.md`
+
 ## Summary
 
 Encrypt user profile pictures (PFPs) and group images so only group members can decrypt them. Uses the **lean approach** recommended by Nick: a single AES-256 encryption key per group, with per-image salt/nonce stored in metadata.
