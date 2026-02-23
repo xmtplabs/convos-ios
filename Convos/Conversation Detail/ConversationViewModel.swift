@@ -645,6 +645,8 @@ extension ConversationViewModel {
 
         guard hasText || hasAttachment else { return }
 
+        onboardingCoordinator.skipAddQuickname()
+
         let prevMessageText = messageText
         let replyTarget = replyingToMessage
         let prevAttachmentImage = selectedAttachmentImage
