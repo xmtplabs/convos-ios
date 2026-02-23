@@ -79,13 +79,12 @@ struct MessageContextMenuOverlay: View {
                 ZStack(alignment: .topLeading) {
                     backgroundDimming
 
-                    // Reactions drawer hidden for now, re-enable after polish
-                    // reactionsBar(
-                    //     messageId: message.base.id,
-                    //     bubbleRect: activeBubble,
-                    //     sourceBubble: localBubble
-                    // )
-                    // .zIndex(1)
+                    reactionsBar(
+                        messageId: message.base.id,
+                        bubbleRect: activeBubble,
+                        sourceBubble: localBubble
+                    )
+                    .zIndex(1)
 
                     actionMenu(
                         message: message,
@@ -271,10 +270,16 @@ struct MessageContextMenuOverlay: View {
             .glassEffect(.regular.interactive(), in: .capsule)
         }
         .frame(width: currentWidth, height: currentHeight)
-        .offset(x: barX, y: barY)
+        .scaleEffect(
+            (appeared ? 1.0 : 0.01) * (1.0 - dragDismissProgress * 0.5),
+            anchor: state.isOutgoing ? .bottomTrailing : .bottomLeading
+        )
+        .offset(x: barX, y: barY + dragOffset * C.menuDragFollowRatio)
+        .opacity(isDragDismissing ? 0.0 : (appeared ? 1.0 : 0.0) * (1.0 - dragDismissProgress))
         .animation(.spring(response: 0.28, dampingFraction: 0.78), value: appeared)
         .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
         .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
+        .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.7), value: dragOffset)
         .emojiPicker(
             isPresented: $showingEmojiPicker,
             onPick: { emoji in
