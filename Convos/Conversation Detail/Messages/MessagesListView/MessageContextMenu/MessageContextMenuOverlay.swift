@@ -315,7 +315,6 @@ struct MessageContextMenuOverlay: View {
     private func selectReaction(_ emoji: String, messageId: String) {
         selectedEmoji = emoji
         onReaction(emoji, messageId)
-        showingEmojiPicker = false
 
         withAnimation(.spring(response: 0.14, dampingFraction: 0.5)) {
             popScale = 1.2
