@@ -158,7 +158,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                 }
                             }
                         )
-                        
                     case .scan:
                         Button {
                             onScanInviteCode()
@@ -230,7 +229,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 PhotosInfoSheet()
             }
         )
-        
     }
 }
 
