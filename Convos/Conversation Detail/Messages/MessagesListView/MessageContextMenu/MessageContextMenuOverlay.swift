@@ -24,6 +24,7 @@ struct MessageContextMenuOverlay: View {
     @State private var dragOffset: CGFloat = 0
     @State private var isDragDismissing: Bool = false
     @State private var isPoofDismissing: Bool = false
+    @State private var keyboardHeight: CGFloat = 0
 
     private var message: AnyMessage? { state.presentedMessage }
 
@@ -75,6 +76,10 @@ struct MessageContextMenuOverlay: View {
                     isPhoto: isPhoto && !state.isReplyParent
                 )
                 let activeBubble = appeared ? endBubble : localBubble
+                let keyboardTop = keyboardHeight > 0 ? screenSize.height - keyboardHeight : screenSize.height
+                let bubbleBottom = activeBubble.maxY + C.sectionSpacing
+                let keyboardOverlap = max(bubbleBottom - keyboardTop + C.sectionSpacing, 0)
+                let keyboardAdjustment = showingEmojiPicker ? keyboardOverlap : 0
 
                 ZStack(alignment: .topLeading) {
                     backgroundDimming
@@ -82,7 +87,8 @@ struct MessageContextMenuOverlay: View {
                     reactionsBar(
                         messageId: message.base.id,
                         bubbleRect: activeBubble,
-                        sourceBubble: localBubble
+                        sourceBubble: localBubble,
+                        keyboardAdjustment: keyboardAdjustment
                     )
                     .zIndex(1)
 
@@ -95,7 +101,8 @@ struct MessageContextMenuOverlay: View {
                     bubblePreview(
                         message: message,
                         sourceBubble: localBubble,
-                        endBubble: endBubble
+                        endBubble: endBubble,
+                        keyboardAdjustment: keyboardAdjustment
                     )
                     .zIndex(3)
                 }
@@ -119,6 +126,17 @@ struct MessageContextMenuOverlay: View {
                             emojiAppeared[index] = true
                         }
                     }
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+                guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    keyboardHeight = frame.height
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    keyboardHeight = 0
                 }
             }
         }
@@ -151,7 +169,8 @@ struct MessageContextMenuOverlay: View {
     private func reactionsBar(
         messageId: String,
         bubbleRect: CGRect,
-        sourceBubble: CGRect
+        sourceBubble: CGRect,
+        keyboardAdjustment: CGFloat
     ) -> some View {
         let startSize: CGFloat = min(sourceBubble.height, sourceBubble.width)
         let drawerWidth: CGFloat = drawerExpanded ? C.expandedWidth : (selectedEmoji != nil ? C.collapsedWidth : C.compactWidth)
@@ -228,8 +247,8 @@ struct MessageContextMenuOverlay: View {
 
                             Image(systemName: "face.smiling")
                                 .font(.system(size: C.faceSmilingFontSize))
-                                .tint(.black)
-                                .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil && showMoreAppeared ? 0.2 : 0)
+                                .foregroundStyle(.colorTextSecondary)
+                                .opacity(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
                                 .blur(radius: !drawerExpanded ? 0 : C.blurRadius)
                                 .rotationEffect(.degrees(!drawerExpanded ? 0 : -30))
                                 .scaleEffect(!drawerExpanded && selectedEmoji == nil && customEmoji == nil ? 1.0 : 0)
@@ -274,12 +293,13 @@ struct MessageContextMenuOverlay: View {
             (appeared ? 1.0 : 0.01) * (1.0 - dragDismissProgress * 0.5),
             anchor: state.isOutgoing ? .bottomTrailing : .bottomLeading
         )
-        .offset(x: barX, y: barY + dragOffset * C.menuDragFollowRatio)
+        .offset(x: barX, y: barY + dragOffset * C.menuDragFollowRatio - keyboardAdjustment)
         .opacity(isDragDismissing ? 0.0 : (appeared ? 1.0 : 0.0) * (1.0 - dragDismissProgress))
         .animation(.spring(response: 0.28, dampingFraction: 0.78), value: appeared)
         .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
         .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
         .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.7), value: dragOffset)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: keyboardAdjustment)
         .emojiPicker(
             isPresented: $showingEmojiPicker,
             onPick: { emoji in
@@ -358,7 +378,8 @@ struct MessageContextMenuOverlay: View {
     private func bubblePreview(
         message: AnyMessage,
         sourceBubble: CGRect,
-        endBubble: CGRect
+        endBubble: CGRect,
+        keyboardAdjustment: CGFloat
     ) -> some View {
         let dismissToSource = !isPoofDismissing
         let rect = appeared ? endBubble : (dismissToSource ? sourceBubble : endBubble)
@@ -412,7 +433,7 @@ struct MessageContextMenuOverlay: View {
         .clipped()
         .blur(radius: !appeared && isPoofDismissing ? 8 : 0)
         .opacity(!appeared && isPoofDismissing ? 0 : 1)
-        .offset(x: rect.minX, y: rect.minY + dragOffset)
+        .offset(x: rect.minX, y: rect.minY + dragOffset - keyboardAdjustment)
         .shadow(
             color: .black.opacity(appeared ? 0.25 * (1.0 - dragDismissProgress) : 0.0),
             radius: appeared ? 32 * (1.0 - dragDismissProgress) : 0,
@@ -420,6 +441,7 @@ struct MessageContextMenuOverlay: View {
             y: appeared ? 12 * (1.0 - dragDismissProgress) : 0
         )
         .animation(.spring(response: 0.28, dampingFraction: 0.8), value: appeared)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: keyboardAdjustment)
         .onTapGesture {
             dismissMenu()
         }
@@ -527,15 +549,16 @@ struct MessageContextMenuOverlay: View {
         }
         .fixedSize()
         .scaleEffect(
-            (appeared ? 1.0 : 0.01) * (1.0 - dragDismissProgress * 0.5),
+            (appeared && !showingEmojiPicker ? 1.0 : 0.01) * (1.0 - dragDismissProgress * 0.5),
             anchor: state.isOutgoing ? .topTrailing : .topLeading
         )
         .offset(
             x: state.isOutgoing ? anchorX - C.menuWidth : anchorX,
             y: (appeared ? finalY : bubbleRect.midY) + dragOffset * C.menuDragFollowRatio
         )
-        .opacity(isDragDismissing ? 0.0 : (appeared ? 1.0 : 0.0) * (1.0 - dragDismissProgress))
+        .opacity(isDragDismissing ? 0.0 : (appeared && !showingEmojiPicker ? 1.0 : 0.0) * (1.0 - dragDismissProgress))
         .animation(.spring(response: 0.28, dampingFraction: 0.78).delay(0.012), value: appeared)
+        .animation(.spring(response: 0.29, dampingFraction: 0.8), value: showingEmojiPicker)
         .animation(.interactiveSpring(response: 0.35, dampingFraction: 0.7), value: dragOffset)
     }
 
