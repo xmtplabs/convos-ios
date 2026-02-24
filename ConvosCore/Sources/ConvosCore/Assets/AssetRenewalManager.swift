@@ -44,7 +44,7 @@ public actor AssetRenewalManager {
                 await recoveryHandler.handleExpiredAsset(asset)
             }
 
-            if result.renewed > 0 {
+            if result.renewedKeys.contains(key) {
                 do {
                     try await recordRenewalInDatabase(for: [asset])
                 } catch {
@@ -95,10 +95,8 @@ public actor AssetRenewalManager {
                     totalFailed += result.failed
                     allExpiredKeys.append(contentsOf: result.expiredKeys)
 
-                    let batchExpiredSet = Set(result.expiredKeys)
-                    let renewedAssets = batch
-                        .filter { !batchExpiredSet.contains($0) }
-                        .compactMap { keyToAsset[$0] }
+                    let renewedKeySet = Set(result.renewedKeys)
+                    let renewedAssets = renewedKeySet.compactMap { keyToAsset[$0] }
 
                     for expiredKey in result.expiredKeys {
                         if let asset = keyToAsset[expiredKey] {

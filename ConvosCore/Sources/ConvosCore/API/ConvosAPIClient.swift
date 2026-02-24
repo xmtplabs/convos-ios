@@ -528,10 +528,15 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
             .filter { !$0.success && $0.error == "not_found" }
             .map { $0.key }
 
+        let renewedKeys = response.results
+            .filter(\.success)
+            .map(\.key)
+
         return AssetRenewalResult(
             renewed: response.renewed,
             failed: response.failed,
-            expiredKeys: expiredKeys
+            expiredKeys: expiredKeys,
+            renewedKeys: renewedKeys
         )
     }
 

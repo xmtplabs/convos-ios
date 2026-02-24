@@ -197,10 +197,17 @@ public struct AssetRenewalResult: Sendable {
     public let renewed: Int
     public let failed: Int
     public let expiredKeys: [String]
+    public let renewedKeys: [String]
 
-    public init(renewed: Int, failed: Int, expiredKeys: [String]) {
+    public init(
+        renewed: Int,
+        failed: Int,
+        expiredKeys: [String],
+        renewedKeys: [String] = []
+    ) {
         self.renewed = renewed
         self.failed = failed
         self.expiredKeys = expiredKeys
+        self.renewedKeys = renewedKeys
     }
 }
