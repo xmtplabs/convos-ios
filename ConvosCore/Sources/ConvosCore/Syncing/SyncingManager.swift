@@ -440,6 +440,12 @@ actor SyncingManager: SyncingManagerProtocol {
             var discoveredCount: Int = 0
             for group in groups where !existingIds.contains(group.id) {
                 do {
+                    let creatorInboxId = try await group.creatorInboxId()
+                    let memberCount = try await group.members.count
+                    if creatorInboxId == params.client.inboxId && memberCount <= 1 {
+                        Log.debug("Skipping self-created single-member group: \(group.id)")
+                        continue
+                    }
                     try await streamProcessor.processConversation(group, params: params)
                     discoveredCount += 1
                 } catch {
