@@ -284,6 +284,63 @@ struct AssetRenewalManagerTests {
         #expect(conversation?.imageLastRenewed != nil)
     }
 
+    @Test("Batch renewal can over-record timestamps when non-expired failures exist")
+    func testBatchRenewalCanOverRecordTimestampsForUnknownFailures() async throws {
+        let fixtures = try await makeTestFixtures()
+        fixtures.mockAPI.renewResult = AssetRenewalResult(
+            renewed: 1,
+            failed: 2,
+            expiredKeys: ["avatar-1.bin"]
+        )
+
+        try await fixtures.dbWriter.write { db in
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: Date()).insert(db)
+            try DBMember(inboxId: "inbox-1").insert(db)
+            try makeDBConversation(id: "convo-1", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try makeDBConversation(id: "convo-2", inboxId: "inbox-1", clientId: "client-1").insert(db)
+            try makeDBConversation(
+                id: "convo-3",
+                inboxId: "inbox-1",
+                clientId: "client-1",
+                kind: .group,
+                imageURL: "https://example.com/group.bin"
+            ).insert(db)
+
+            try DBMemberProfile(
+                conversationId: "convo-1",
+                inboxId: "inbox-1",
+                name: "Avatar 1",
+                avatar: "https://example.com/avatar-1.bin",
+                avatarLastRenewed: nil
+            ).insert(db)
+
+            try DBMemberProfile(
+                conversationId: "convo-2",
+                inboxId: "inbox-1",
+                name: "Avatar 2",
+                avatar: "https://example.com/avatar-2.bin",
+                avatarLastRenewed: nil
+            ).insert(db)
+        }
+
+        let result = await fixtures.manager.forceRenewal()
+
+        let renewedProfilesCount = try await fixtures.dbWriter.read { db in
+            try DBMemberProfile
+                .filter(DBMemberProfile.Columns.avatarLastRenewed != nil)
+                .fetchCount(db)
+        }
+        let renewedConversationsCount = try await fixtures.dbWriter.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.imageLastRenewed != nil)
+                .fetchCount(db)
+        }
+        let timestampedAssetCount = renewedProfilesCount + renewedConversationsCount
+
+        #expect(result?.renewed == 1)
+        #expect(timestampedAssetCount > (result?.renewed ?? 0))
+    }
+
     @Test("Batch renewal handles API error gracefully")
     func testBatchRenewalHandlesApiError() async throws {
         let fixtures = try await makeTestFixtures()

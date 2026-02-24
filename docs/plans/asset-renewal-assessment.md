@@ -15,11 +15,12 @@ Validate (with reproducible evidence) the deep findings from review before imple
 
 | Finding | Severity | Hypothesis | Status | Evidence | Verdict |
 |---|---|---|---|---|---|
-| F1: Compile regression in asset recovery path | blocker | API/enum drift caused compile failure | done | `swift test --package-path ConvosCore --filter AssetRenewalURLCollectorTests` fails in `ExpiredAssetRecoveryHandler` + `SessionManager`; `rg` confirms stale enum destructuring call sites | confirmed |
-| F2: Batch renewal marks failed keys as renewed | high | non-`not_found` failures still get timestamps | not started |  |  |
-| F3: `avatarLastRenewed` lost during conversation sync | high | member profile rows are recreated without preserving timestamp | not started |  |  |
-| F4: Startup path cannot auto re-upload expired assets | medium | startup recovery handler lacks cache/writers | not started |  |  |
-| F5: Test coverage gaps around recovery/integration | medium | missing tests fail to protect core recovery behavior | not started |  |  |
+| F1: Compile regression in asset recovery path | blocker | API/enum drift caused compile failure | done | fixed by updating enum destructuring + cache identifier lookups; `swift test --package-path ConvosCore --filter AssetRenewalURLCollectorTests` now builds/runs | confirmed |
+| F2: Batch renewal marks failed keys as renewed | high | non-`not_found` failures still get timestamps | done | added test `testBatchRenewalCanOverRecordTimestampsForUnknownFailures` proving timestamped assets can exceed `result.renewed` | confirmed |
+| F3: `avatarLastRenewed` lost during conversation sync | high | member profile rows are recreated without preserving timestamp | done | static trace: profile rows are deleted/reinserted in `ConversationWriter`, and XMTP profile mapping initializes `avatarLastRenewed` as nil | confirmed |
+| F4: Startup path cannot auto re-upload expired assets | medium | startup recovery handler lacks cache/writers | done | `SessionManager` startup injects only `databaseWriter`; manual path injects cache + profile/group writers | confirmed |
+| F5: Test coverage gaps around recovery/integration | medium | missing tests fail to protect core recovery behavior | done | inventory shows no direct tests for `ExpiredAssetRecoveryHandler` or startup renewal wiring behavior | confirmed |
+
 
 ---
 
@@ -88,10 +89,15 @@ rg -n "\\.profileAvatar\\(|\\.groupImage\\(" ConvosCore/Sources/ConvosCore
 ### Verdict
 - Confirmed? ☑ yes
 - Why:
-  - Compile is currently blocked by concrete API/enum mismatch errors in both recovery and re-upload call paths.
-  - `rg` confirms stale enum destructuring patterns in:
+  - Compile was blocked by concrete API/enum mismatch errors in both recovery and re-upload call paths.
+  - `rg` confirmed stale enum destructuring patterns in:
     - `ConvosCore/Sources/ConvosCore/Assets/ExpiredAssetRecoveryHandler.swift`
     - `ConvosCore/Sources/ConvosCore/Sessions/SessionManager.swift`
+  - Applied fix:
+    - switched cache lookup to identifier-based `image(for: asset.url)`
+    - updated enum case destructuring to include `lastRenewed`
+    - simplified ambiguous async tuple construction in `SessionManager.forceReuploadAssetFromCache`
+  - Re-check: `swift test --package-path ConvosCore --filter AssetRenewalURLCollectorTests` passes.
 
 ---
 
@@ -114,13 +120,20 @@ Batch logic records timestamps for keys that failed renewal with errors other th
 | k2 | not_found | no |
 | k3 | internal_error | no |
 
-### Evidence to record
-- Failing test (current behavior)
-- Expected vs actual key-level outcome table
+### Evidence recorded
+- Added test in `ConvosCore/Tests/ConvosCoreTests/Assets/AssetRenewalManagerTests.swift`:
+  - `testBatchRenewalCanOverRecordTimestampsForUnknownFailures`
+- Test setup:
+  - API result: `renewed: 1`, `failed: 2`, `expiredKeys: ["avatar-1.bin"]`
+  - Assets under test: profile avatar 1, profile avatar 2, group image
+- Observed outcome:
+  - `result.renewed == 1`
+  - `timestampedAssetCount > result.renewed` (timestamps written to more assets than explicitly renewed)
 
-### Verdict template
-- Confirmed? ☐ yes ☐ no ☐ partial
+### Verdict
+- Confirmed? ☑ yes
 - Why:
+  - Current logic treats `batch - expiredKeys` as renewed, which includes unknown failures that are not in `expiredKeys`.
 
 ---
 
@@ -136,13 +149,19 @@ Conversation sync/store path drops `avatarLastRenewed` due to profile delete/rei
    - verify `avatarLastRenewed` remains unchanged
 2. Trace where loss happens if test fails.
 
-### Evidence to record
-- Before/after DB values for `avatarLastRenewed`
-- Exact writer path where reset occurs
+### Evidence recorded
+- `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationWriter.swift`
+  - member profiles are deleted per conversation before re-save:
+    - `DBMemberProfile.filter(...conversationId...).deleteAll(db)`
+  - then profiles are re-saved from `memberProfiles` input.
+- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift`
+  - `memberProfiles` mapping creates `DBMemberProfile` without passing `avatarLastRenewed` (defaults to nil).
+- There is explicit preservation logic for `conversation.imageLastRenewed` but no equivalent for `memberProfile.avatarLastRenewed`.
 
-### Verdict template
-- Confirmed? ☐ yes ☐ no ☐ partial
+### Verdict
+- Confirmed? ☑ yes
 - Why:
+  - Conversation sync path structurally recreates profile rows with no carry-over of `avatarLastRenewed`, so renewal timestamps are dropped.
 
 ---
 
@@ -163,16 +182,19 @@ Startup renewal cannot auto-reupload because recovery handler is instantiated wi
 
 | Path | imageCache | myProfileWriter | conversationMetadataWriter | Expected behavior |
 |---|---|---|---|---|
-| Startup task |  |  |  | clear URL fallback |
-| Manual force reupload |  |  |  | cache re-upload possible |
+| Startup task | no | no | no | clear URL fallback |
+| Manual force reupload | yes | yes | yes | cache re-upload possible |
 
-### Evidence to record
-- Source references (file+line)
-- Behavior outcome for each path
+### Evidence recorded
+- Startup path wiring (`SessionManager` init task):
+  - `let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)`
+- Manual path wiring (`forceReuploadAssetFromCache`):
+  - injects `ImageCacheContainer.shared`, `MyProfileWriter`, and `ConversationMetadataWriter`.
 
-### Verdict template
-- Confirmed? ☐ yes ☐ no ☐ partial
+### Verdict
+- Confirmed? ☑ yes
 - Why:
+  - Expired assets in startup renewal path cannot be re-uploaded from cache because required dependencies are not injected.
 
 ---
 
@@ -192,15 +214,16 @@ Current tests do not cover recovery handler behavior and startup integration eno
 
 | Risk | Existing tests | Missing tests |
 |---|---|---|
-| Compile drift on enum/image cache API |  |  |
-| Per-key renewal success accounting |  |  |
-| Profile timestamp preservation |  |  |
-| Expired asset recovery paths |  |  |
-| Startup integration behavior |  |  |
+| Compile drift on enum/image cache API | `AssetRenewalManagerTests`, `AssetRenewalURLCollectorTests` compile indirectly | Direct tests for `ExpiredAssetRecoveryHandler` pattern matching/cache lookup API usage |
+| Per-key renewal success accounting | `AssetRenewalManagerTests` includes stale/expired/success paths | Per-key API result mapping test once API returns explicit success keys |
+| Profile timestamp preservation | none | Regression test for `avatarLastRenewed` preservation through conversation sync |
+| Expired asset recovery paths | none | Unit tests for recovery success/fallback clear-url logic |
+| Startup integration behavior | none | Integration test validating startup renewal dependency injection behavior |
 
-### Verdict template
-- Confirmed gaps? ☐ yes ☐ no ☐ partial
+### Verdict
+- Confirmed gaps? ☑ yes
 - Why:
+  - Current coverage is strong for collector and manager basics, but weak around recovery handler and end-to-end startup recovery behavior.
 
 ---
 
