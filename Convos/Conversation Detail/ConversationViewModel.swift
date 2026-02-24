@@ -213,6 +213,7 @@ class ConversationViewModel {
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var replyingToMessage: AnyMessage?
+    var presentingShareView: Bool = false
     var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
     var activeToast: IndicatorToastStyle?

@@ -12,7 +12,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTextFieldEnabled: Bool
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
-    @State private var presentingShareView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
@@ -150,7 +149,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                 if viewModel.isFull {
                                     showingFullInfo = true
                                 } else {
-                                    presentingShareView = true
+                                    viewModel.presentingShareView = true
                                 }
                             },
                             onMenuOpen: {
@@ -159,13 +158,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                 }
                             }
                         )
-                        .fullScreenCover(isPresented: $presentingShareView) {
-                            ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
-                                .presentationBackground(.clear)
-                        }
-                        .transaction { transaction in
-                            transaction.disablesAnimations = true
-                        }
                     case .scan:
                         Button {
                             onScanInviteCode()
