@@ -20,6 +20,8 @@ After the app joins, generate a new invite URL from the CLI. Save this URL for t
 1. In the app, open the conversation and verify no lock icon appears in the toolbar.
 2. Open conversation info and verify the lock toggle is off.
 
+**Note:** The lock toggle is inside a custom row view. Tapping the center of the row (via `sim_tap_id`) may not activate the toggle — it opens a confirmation sheet when you tap directly on the switch control itself (right side of the row). Use `sim_ui_tap` with x-coordinate offset to the right, or tap directly on the switch at approximately `x: row_center_x + 100`.
+
 ### Generate an invite before locking
 
 3. Use the CLI to generate an invite. Save the invite URL.
