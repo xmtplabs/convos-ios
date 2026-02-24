@@ -443,11 +443,15 @@ actor SyncingManager: SyncingManagerProtocol {
             // AsyncStream doesn't respond to task cancellation, so we must finish the
             // continuations to unblock the waiting tasks when timeout fires.
             group.addTask {
-                try? await Task.sleep(for: .seconds(10))
-                Log.warning("Stream ready timeout - proceeding anyway")
-                // Finish continuations so waiting tasks complete (AsyncStream ignores cancelAll)
-                messageStreamReadyContinuation?.finish()
-                conversationStreamReadyContinuation?.finish()
+                do {
+                    try await Task.sleep(for: .seconds(10))
+                    Log.warning("Stream ready timeout - proceeding anyway")
+                    // Finish continuations so waiting tasks complete (AsyncStream ignores cancelAll)
+                    messageStreamReadyContinuation?.finish()
+                    conversationStreamReadyContinuation?.finish()
+                } catch {
+                    // Task was cancelled because streams signaled ready in time - no warning needed
+                }
             }
 
             // Wait for both streams to be ready OR timeout
