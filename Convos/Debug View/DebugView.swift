@@ -184,6 +184,15 @@ struct DebugViewSection: View {
                 }
             }
 
+            Section("Pending Invites") {
+                NavigationLink {
+                    PendingInviteDebugView(session: session)
+                } label: {
+                    Text("View Pending Invites")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+
             Section("Asset Renewal") {
                 NavigationLink {
                     DebugAssetRenewalView(session: session)
