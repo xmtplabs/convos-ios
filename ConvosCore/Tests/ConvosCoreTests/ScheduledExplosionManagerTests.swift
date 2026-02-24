@@ -167,6 +167,68 @@ struct ScheduledExplosionManagerTests {
         #expect(removedIds.contains("explosion-\(conversationId)"))
     }
 
+    @Test("Posts conversationExpired at expiresAt after scheduling")
+    func testPostsConversationExpiredAtExpiry() async throws {
+        let fixtures = ScheduledExplosionTestFixtures()
+        let expiresAt = Date().addingTimeInterval(1.0)
+
+        let capture = NotificationCapture()
+        capture.startCapturing(.conversationExpired)
+        defer { capture.stopCapturing() }
+
+        let conversationId = fixtures.conversationId
+
+        await MainActor.run {
+            NotificationCenter.default.post(
+                name: .conversationScheduledExplosion,
+                object: nil,
+                userInfo: [
+                    "conversationId": conversationId,
+                    "expiresAt": expiresAt
+                ]
+            )
+        }
+
+        try await waitUntil(timeout: .seconds(3)) {
+            capture.hasNotification(.conversationExpired)
+        }
+
+        let notifications = capture.notifications(named: .conversationExpired)
+        let matched = notifications.contains {
+            ($0.userInfo?["conversationId"] as? String) == conversationId
+        }
+        #expect(matched, "Should post conversationExpired for scheduled conversation")
+    }
+
+    @Test("App active rescan schedules deterministic expiry cleanup")
+    func testRescanSchedulesExpiryCleanup() async throws {
+        let fixtures = ScheduledExplosionTestFixtures()
+        let expiresAt = Date().addingTimeInterval(1.0)
+        try await fixtures.setupConversation(expiresAt: expiresAt)
+
+        let capture = NotificationCapture()
+        capture.startCapturing(.conversationExpired)
+        defer { capture.stopCapturing() }
+
+        let activeNotification = fixtures.appLifecycle.didBecomeActiveNotification
+        let conversationId = fixtures.conversationId
+
+        await MainActor.run {
+            NotificationCenter.default.post(name: activeNotification, object: nil)
+        }
+
+        try await waitUntil(timeout: .seconds(3)) {
+            capture.notifications(named: .conversationExpired).contains {
+                ($0.userInfo?["conversationId"] as? String) == conversationId
+            }
+        }
+
+        let matched = capture.notifications(named: .conversationExpired).contains {
+            ($0.userInfo?["conversationId"] as? String) == conversationId
+        }
+        #expect(matched, "Should post conversationExpired after app-active rescan when expiresAt is reached")
+    }
+
     @Test("Notification content has correct format")
     func testNotificationContentFormat() async throws {
         let fixtures = ScheduledExplosionTestFixtures()
