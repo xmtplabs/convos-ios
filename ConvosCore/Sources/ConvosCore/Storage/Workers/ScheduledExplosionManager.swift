@@ -6,8 +6,8 @@ public protocol ScheduledExplosionManagerProtocol {}
 
 /// @unchecked Sendable: Protocol dependencies (DatabaseReader, AppLifecycle)
 /// are all Sendable. The `observers` array is only modified during init and deinit.
-/// The `schedulingTasks` and `expirationTasks` dictionaries are protected by `taskLock`
-/// to prevent data races from concurrent notification callbacks.
+/// The `schedulingTasks` dictionary is protected by `taskLock` to prevent data races
+/// from concurrent notification callbacks.
 final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unchecked Sendable {
     private let databaseReader: any DatabaseReader
     private let appLifecycle: any AppLifecycleProviding
@@ -15,7 +15,6 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
     private let taskLock: NSLock = NSLock()
     private var _schedulingTasks: [String: Task<Void, Never>] = [:]
-    private var _expirationTasks: [String: Task<Void, Never>] = [:]
 
     private enum Constant {
         static let reminderIdentifierPrefix: String = "explosion-reminder-"
@@ -85,8 +84,6 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
             self.removeSchedulingTask(for: conversationId)
         }
         taskLock.unlock()
-
-        scheduleExpirationTask(conversationId: conversationId, expiresAt: expiresAt)
     }
 
     private nonisolated func removeSchedulingTask(for conversationId: String) {
@@ -95,42 +92,6 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         taskLock.unlock()
     }
 
-    private nonisolated func removeExpirationTask(for conversationId: String) {
-        taskLock.lock()
-        _expirationTasks[conversationId] = nil
-        taskLock.unlock()
-    }
-
-    private func scheduleExpirationTask(conversationId: String, expiresAt: Date) {
-        taskLock.lock()
-        _expirationTasks[conversationId]?.cancel()
-        _expirationTasks[conversationId] = Task { [weak self] in
-            guard let self else { return }
-
-            let interval = expiresAt.timeIntervalSinceNow
-            guard interval > 0 else {
-                await self.postConversationExpired(conversationId: conversationId)
-                self.removeExpirationTask(for: conversationId)
-                return
-            }
-
-            try? await Task.sleep(for: .seconds(interval))
-            guard !Task.isCancelled else { return }
-
-            await self.postConversationExpired(conversationId: conversationId)
-            self.removeExpirationTask(for: conversationId)
-        }
-        taskLock.unlock()
-    }
-
-    @MainActor
-    private func postConversationExpired(conversationId: String) {
-        NotificationCenter.default.post(
-            name: .conversationExpired,
-            object: nil,
-            userInfo: ["conversationId": conversationId]
-        )
-    }
 
     func hasSchedulingTask(for conversationId: String) -> Bool {
         taskLock.lock()
@@ -182,10 +143,6 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
                     expiresAt: conversation.expiresAt,
                     conversationName: conversation.name
                 )
-                scheduleExpirationTask(
-                    conversationId: conversation.conversationId,
-                    expiresAt: conversation.expiresAt
-                )
             }
         } catch {
             Log.error("Failed to query scheduled explosions: \(error)")
@@ -199,7 +156,6 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     ) async {
         let reminderDate = expiresAt.addingTimeInterval(-Constant.oneHourInSeconds)
 
-        // Capture interval BEFORE any async operations to avoid time drift
         let reminderInterval = reminderDate.timeIntervalSinceNow
         guard reminderInterval > 0 else {
             Log.info("ScheduledExplosionManager: Skipping reminder for \(conversationId), less than 1 hour away")
@@ -297,9 +253,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     private func cancelAllTasks() {
         taskLock.lock()
         _schedulingTasks.values.forEach { $0.cancel() }
-        _expirationTasks.values.forEach { $0.cancel() }
         _schedulingTasks.removeAll()
-        _expirationTasks.removeAll()
         taskLock.unlock()
     }
 
@@ -307,8 +261,6 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         taskLock.lock()
         _schedulingTasks[conversationId]?.cancel()
         _schedulingTasks[conversationId] = nil
-        _expirationTasks[conversationId]?.cancel()
-        _expirationTasks[conversationId] = nil
         taskLock.unlock()
         let reminderIdentifier = "\(Constant.reminderIdentifierPrefix)\(conversationId)"
         let explosionIdentifier = "\(Constant.explosionIdentifierPrefix)\(conversationId)"
