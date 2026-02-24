@@ -129,12 +129,15 @@ actor SyncingManager: SyncingManagerProtocol {
 
     // MARK: - Initialization
 
+    private let databaseReader: any DatabaseReader
+
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
          deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
          notificationCenter: any UserNotificationCenterProtocol) {
         self.identityStore = identityStore
+        self.databaseReader = databaseReader
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
@@ -389,6 +392,11 @@ actor SyncingManager: SyncingManagerProtocol {
             Log.info("syncAllConversations completed, sync ready")
             QAEvent.emit(.sync, "completed")
 
+            // Discover any XMTP groups that the conversation stream missed.
+            // This handles cases where the joiner was added to a group while
+            // the inbox was paused, stopped, or the stream had a timeout.
+            await discoverNewConversations(params: params)
+
             // Process any join requests that may have been missed during stream startup.
             // This handles the race condition where a joiner sends a DM before the message
             // stream has fully subscribed to the XMTP network.
@@ -400,6 +408,50 @@ actor SyncingManager: SyncingManagerProtocol {
         let results = await joinRequestsManager.processJoinRequests(since: nil, client: params.client)
         if !results.isEmpty {
             Log.info("Processed \(results.count) join requests after sync complete")
+        }
+    }
+
+    /// Lists all XMTP groups and processes any that are missing from the local database.
+    ///
+    /// After syncAllConversations syncs the XMTP data layer, the local DB may still be
+    /// missing groups that the conversation stream failed to deliver (e.g., stream timeout,
+    /// inbox paused during approval, app backgrounded). This method provides a fallback
+    /// by listing all groups and storing any that aren't already in the DB.
+    private func discoverNewConversations(params: SyncClientParams) async {
+        do {
+            let groups = try params.client.conversationsProvider.listGroups(
+                createdAfterNs: nil,
+                createdBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                lastActivityBeforeNs: nil,
+                limit: nil,
+                consentStates: params.consentStates,
+                orderBy: .lastActivity
+            )
+
+            let existingIds: Set<String> = try await databaseReader.read { db in
+                let ids = try String.fetchAll(
+                    db,
+                    DBConversation.select(DBConversation.Columns.id)
+                )
+                return Set(ids)
+            }
+
+            var discoveredCount: Int = 0
+            for group in groups where !existingIds.contains(group.id) {
+                do {
+                    try await streamProcessor.processConversation(group, params: params)
+                    discoveredCount += 1
+                } catch {
+                    Log.error("Failed to process discovered conversation \(group.id): \(error)")
+                }
+            }
+
+            if discoveredCount > 0 {
+                Log.info("Discovered \(discoveredCount) new conversations after sync")
+            }
+        } catch {
+            Log.error("Failed to discover new conversations: \(error)")
         }
     }
 
@@ -539,8 +591,23 @@ actor SyncingManager: SyncingManagerProtocol {
         Log.debug("Waiting for streams to subscribe after resume...")
         await waitForStreamsToBeReady(messageStream: streams.messageStream, conversationStream: streams.conversationStream)
 
+        // Re-sync to pick up any changes that occurred while paused/backgrounded.
+        // The conversation stream only delivers new groups created after subscription,
+        // so groups added while paused would be missed without this.
+        do {
+            let syncStart = CFAbsoluteTimeGetCurrent()
+            _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+            let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
+            Log.info("[PERF] sync.resume_conversations: \(syncElapsed)ms")
+        } catch {
+            Log.error("syncAllConversations on resume failed: \(error)")
+        }
+
         emitStateChange(.ready(params))
         Log.info("Sync resumed")
+
+        await discoverNewConversations(params: params)
+        await processJoinRequestsAfterSync(params: params)
     }
 
     private func handleStop() async throws {

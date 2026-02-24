@@ -53,6 +53,7 @@ struct NewConversationView: View {
                             Button(role: .close) {
                                 dismiss()
                             }
+                            .accessibilityIdentifier("close-new-conversation")
                         }
                     }
                 }

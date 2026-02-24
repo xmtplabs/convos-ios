@@ -447,6 +447,62 @@ public actor ConversationStateMachine {
             conversationId: conversationId,
             origin: .existing
         )))
+
+        if DBConversation.isDraft(id: conversationId) {
+            startPendingInviteObservationIfNeeded(draftConversationId: conversationId)
+        }
+    }
+
+    /// For draft conversations with an inviteTag, starts a background observation
+    /// that watches for the matching non-draft conversation to appear in the DB.
+    /// When it appears (written by SyncingManager's discoverNewConversations or
+    /// the conversation stream), this transitions the state to the real conversation.
+    private func startPendingInviteObservationIfNeeded(draftConversationId: String) {
+        let inviteTag: String? = try? databaseReader.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.id == draftConversationId)
+                .select(DBConversation.Columns.inviteTag)
+                .fetchOne(db)
+        }
+
+        guard let inviteTag, !inviteTag.isEmpty else { return }
+
+        Log.info("Starting pending invite observation for draft \(draftConversationId) with inviteTag")
+
+        observationTask?.cancel()
+        let task = waitForJoinedConversation(inviteTag: inviteTag)
+        observationTask = task
+
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let conversationId = try await task.value
+                await self.handlePendingInviteResolved(
+                    conversationId: conversationId,
+                    draftConversationId: draftConversationId
+                )
+            } catch is CancellationError {
+                // expected when navigating away or stopping
+            } catch {
+                Log.error("Pending invite observation failed: \(error)")
+            }
+        }
+    }
+
+    private func handlePendingInviteResolved(conversationId: String, draftConversationId: String) {
+        observationTask = nil
+        guard case .ready(let result) = _state,
+              result.conversationId == draftConversationId else {
+            Log.debug("State no longer matches draft \(draftConversationId), skipping")
+            return
+        }
+        Log.info("Pending invite resolved to conversation: \(conversationId)")
+        cachedMessageWriter = nil
+        QAEvent.emit(.conversation, "joined", ["id": conversationId])
+        emitStateChange(.ready(ConversationReadyResult(
+            conversationId: conversationId,
+            origin: .joined
+        )))
     }
 
     private func handleValidate(inviteCode: String, previousResult: ConversationReadyResult?) async throws {
@@ -680,10 +736,12 @@ public actor ConversationStateMachine {
             throw ConversationStateMachineError.timedOut
         }
     }
+}
 
+// MARK: - Cleanup
+
+extension ConversationStateMachine {
     private func handleDelete() async throws {
-        // For invites, we need the external conversation ID if available,
-        // capture before changing state
         let conversationId: String? = switch _state {
         case .ready(let result):
             result.conversationId
@@ -693,18 +751,14 @@ public actor ConversationStateMachine {
 
         emitStateChange(.deleting)
 
-        // Unregister error handler if we were in joining state
         await clearInviteJoinErrorHandler()
 
-        // Cancel observation tasks and stop accepting new messages
-        // Note: currentTask is already cancelled by delete() - don't cancel ourselves!
         messageStreamContinuation?.finish()
         messageProcessingTask?.cancel()
         observationTask?.cancel()
         observationTask = nil
 
         if let conversationId {
-            // Get the inbox state to access the API client for unsubscribing
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
             try await cleanUp(
@@ -747,9 +801,6 @@ public actor ConversationStateMachine {
         client: any XMTPClientProvider,
         apiClient: any ConvosAPIClientProtocol
     ) async throws {
-        // nonisolated(unsafe) is used because XMTP types are not Sendable. This is safe
-        // here because findConversation() is a one-shot operation, not a long-running
-        // stream that could overlap with other XMTP operations.
         nonisolated(unsafe) let conversationsProvider = client.conversationsProvider
         let externalConversation = try await conversationsProvider.findConversation(conversationId: conversationId)
         try await externalConversation?.updateConsentState(state: .denied)
