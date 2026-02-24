@@ -7,7 +7,23 @@ struct AddToConversationMenu: View {
     let onConvoCode: () -> Void
     var onMenuOpen: (() -> Void)?
 
+    private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled }
+
     var body: some View {
+        if isAssistantEnabled {
+            menuView
+        } else {
+            Button(action: onConvoCode) {
+                Image(systemName: "plus")
+                    .foregroundStyle(isFull ? .colorTextSecondary : .colorTextPrimary)
+            }
+            .disabled(!isEnabled)
+            .accessibilityLabel("Add to conversation")
+            .accessibilityIdentifier("add-to-conversation-button")
+        }
+    }
+
+    private var menuView: some View {
         Menu {
             Section {
                 EmptyView()

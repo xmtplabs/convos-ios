@@ -544,6 +544,7 @@ final class ConversationOnboardingCoordinator {
     }
 
     private func shouldShowAssistantHint() -> Bool {
+        guard FeatureFlags.shared.isAssistantEnabled else { return false }
         guard isConversationCreator, let clientId = currentClientId else { return false }
         return !hasDismissedAssistantHint(for: clientId)
     }

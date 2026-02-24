@@ -66,6 +66,10 @@ struct DebugViewSection: View {
 
     var body: some View {
         Group {
+            Section("Features") {
+                Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
+            }
+
             Section(header: Text("Push Notifications")) {
                 HStack {
                     Text("Auth Status")
