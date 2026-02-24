@@ -160,13 +160,6 @@ struct AppSettingsView: View {
                     }
                     .foregroundStyle(.colorTextPrimary)
 
-                    NavigationLink {
-                        PendingInviteDebugView(session: session)
-                    } label: {
-                        Text("Pending Invites")
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
                     if !ConfigManager.shared.currentEnvironment.isProduction {
                         NavigationLink {
                             DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
