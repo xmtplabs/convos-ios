@@ -1,8 +1,6 @@
 # ADR 002: Per-Conversation Identity Model with Privacy-Preserving Push Notifications
 
-## Status
-
-Accepted
+> **Status**: Accepted
 
 ## Context
 

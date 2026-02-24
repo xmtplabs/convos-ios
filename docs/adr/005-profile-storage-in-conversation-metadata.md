@@ -1,8 +1,6 @@
 # ADR 005: Profile Storage in Conversation Metadata
 
-## Status
-
-Accepted
+> **Status**: Accepted
 
 ## Context
 
