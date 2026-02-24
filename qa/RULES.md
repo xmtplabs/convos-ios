@@ -217,6 +217,7 @@ $CXDB finish-test "$TR" "pass"
 ### Interacting with the App
 
 - **Use `sim_tap_id` to tap elements** — pass the accessibility identifier or label text. Do not manually look up coordinates and call `sim_ui_tap` unless there is no identifier available.
+- **SwiftUI Toggle controls require direct taps on the switch.** Toggles inside custom row views (like `FeatureRowItem`) have accessibility identifiers on the row, but tapping the center of the row may not activate the toggle. Instead, tap the right edge of the row where the switch control is located. If `sim_tap_id` doesn't work, use `sim_ui_tap` with coordinates offset to the right side (x + ~100-150 from center).
 - **Use `sim_type_in_field` to enter text** — pass the text field's accessibility identifier and the text to type. Do not manually tap then type.
 - **Use `sim_wait_for_element` after navigation or network actions** — it polls until the element appears, avoiding manual sleep + screenshot loops.
 - **Use `sim_find_elements` to check what's on screen** — search by pattern or list all identifiable elements. More targeted than `sim_ui_describe_all`.
