@@ -15,11 +15,11 @@ Validate (with reproducible evidence) the deep findings from review before imple
 
 | Finding | Severity | Hypothesis | Status | Evidence | Verdict |
 |---|---|---|---|---|---|
-| F1: Compile regression in asset recovery path | blocker | API/enum drift caused compile failure | done | fixed by updating enum destructuring + cache identifier lookups; `swift test --package-path ConvosCore --filter AssetRenewalURLCollectorTests` now builds/runs | confirmed |
-| F2: Batch renewal marks failed keys as renewed | high | non-`not_found` failures still get timestamps | done | added test `testBatchRenewalCanOverRecordTimestampsForUnknownFailures` proving timestamped assets can exceed `result.renewed` | confirmed |
-| F3: `avatarLastRenewed` lost during conversation sync | high | member profile rows are recreated without preserving timestamp | done | static trace: profile rows are deleted/reinserted in `ConversationWriter`, and XMTP profile mapping initializes `avatarLastRenewed` as nil | confirmed |
+| F1: Compile regression in asset recovery path | blocker | API/enum drift caused compile failure | done | fixed by updating enum destructuring + cache identifier lookups; `swift test --package-path ConvosCore --filter AssetRenewalURLCollectorTests` now builds/runs | confirmed + fixed |
+| F2: Batch renewal marks failed keys as renewed | high | non-`not_found` failures still get timestamps | done | added/updated test `testBatchRenewalRecordsOnlyExplicitlyRenewedKeys`; introduced `renewedKeys` in `AssetRenewalResult` and use it in manager | confirmed + fixed |
+| F3: `avatarLastRenewed` lost during conversation sync | high | member profile rows are recreated without preserving timestamp | done | fixed in `ConversationWriter` via preservation helper; added `AvatarRenewalPreservationTests` | confirmed + fixed |
 | F4: Startup path cannot auto re-upload expired assets | medium | startup recovery handler lacks cache/writers | done | `SessionManager` startup injects only `databaseWriter`; manual path injects cache + profile/group writers | confirmed |
-| F5: Test coverage gaps around recovery/integration | medium | missing tests fail to protect core recovery behavior | done | inventory shows no direct tests for `ExpiredAssetRecoveryHandler` or startup renewal wiring behavior | confirmed |
+| F5: Test coverage gaps around recovery/integration | medium | missing tests fail to protect core recovery behavior | done | added manager/accounting tests + avatar renewal preservation tests; recovery/startup integration tests still missing | confirmed (partially addressed) |
 
 
 ---
@@ -121,19 +121,19 @@ Batch logic records timestamps for keys that failed renewal with errors other th
 | k3 | internal_error | no |
 
 ### Evidence recorded
-- Added test in `ConvosCore/Tests/ConvosCoreTests/Assets/AssetRenewalManagerTests.swift`:
-  - `testBatchRenewalCanOverRecordTimestampsForUnknownFailures`
-- Test setup:
-  - API result: `renewed: 1`, `failed: 2`, `expiredKeys: ["avatar-1.bin"]`
-  - Assets under test: profile avatar 1, profile avatar 2, group image
-- Observed outcome:
-  - `result.renewed == 1`
-  - `timestampedAssetCount > result.renewed` (timestamps written to more assets than explicitly renewed)
+- Initial repro test showed over-record risk when renewal success was inferred by `batch - expiredKeys`.
+- Fix implemented:
+  - `AssetRenewalResult` now carries `renewedKeys` (derived from backend `results.success`).
+  - `AssetRenewalManager` records timestamps using `renewedKeys` only.
+- Verification test:
+  - `testBatchRenewalRecordsOnlyExplicitlyRenewedKeys`
+  - Scenario: one explicit renewed key, one expired key, one unknown failure key.
+  - Observed: only explicit renewed key gets timestamp.
 
 ### Verdict
 - Confirmed? ☑ yes
 - Why:
-  - Current logic treats `batch - expiredKeys` as renewed, which includes unknown failures that are not in `expiredKeys`.
+  - The bug existed under inferred-success logic and is now corrected with key-level success accounting.
 
 ---
 
@@ -150,18 +150,22 @@ Conversation sync/store path drops `avatarLastRenewed` due to profile delete/rei
 2. Trace where loss happens if test fails.
 
 ### Evidence recorded
-- `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationWriter.swift`
-  - member profiles are deleted per conversation before re-save:
-    - `DBMemberProfile.filter(...conversationId...).deleteAll(db)`
-  - then profiles are re-saved from `memberProfiles` input.
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift`
-  - `memberProfiles` mapping creates `DBMemberProfile` without passing `avatarLastRenewed` (defaults to nil).
-- There is explicit preservation logic for `conversation.imageLastRenewed` but no equivalent for `memberProfile.avatarLastRenewed`.
+- Initial issue:
+  - `ConversationWriter` deleted and recreated `DBMemberProfile` rows per conversation.
+  - Incoming profiles from XMTP mapping had `avatarLastRenewed` defaulting to nil.
+- Fix implemented:
+  - Added `ConversationWriter.preservingAvatarLastRenewed(incomingProfile:existingProfile:)`.
+  - During save, existing profile rows are fetched first and `avatarLastRenewed` is preserved only when avatar URL is unchanged.
+- Tests added:
+  - `AvatarRenewalPreservationTests`
+    - preserves when URL unchanged
+    - clears when URL changes
+    - clears when incoming avatar is nil
 
 ### Verdict
 - Confirmed? ☑ yes
 - Why:
-  - Conversation sync path structurally recreates profile rows with no carry-over of `avatarLastRenewed`, so renewal timestamps are dropped.
+  - Issue reproduced by code path analysis and fixed with explicit preservation logic plus focused tests.
 
 ---
 
@@ -215,8 +219,8 @@ Current tests do not cover recovery handler behavior and startup integration eno
 | Risk | Existing tests | Missing tests |
 |---|---|---|
 | Compile drift on enum/image cache API | `AssetRenewalManagerTests`, `AssetRenewalURLCollectorTests` compile indirectly | Direct tests for `ExpiredAssetRecoveryHandler` pattern matching/cache lookup API usage |
-| Per-key renewal success accounting | `AssetRenewalManagerTests` includes stale/expired/success paths | Per-key API result mapping test once API returns explicit success keys |
-| Profile timestamp preservation | none | Regression test for `avatarLastRenewed` preservation through conversation sync |
+| Per-key renewal success accounting | `AssetRenewalManagerTests` now includes explicit renewed-key accounting test | Additional integration coverage across API client parsing + manager path |
+| Profile timestamp preservation | `AvatarRenewalPreservationTests` | Full integration test through `ConversationWriter.store` + DB migration state |
 | Expired asset recovery paths | none | Unit tests for recovery success/fallback clear-url logic |
 | Startup integration behavior | none | Integration test validating startup renewal dependency injection behavior |
 
