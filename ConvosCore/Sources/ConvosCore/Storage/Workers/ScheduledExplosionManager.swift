@@ -92,7 +92,6 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
         taskLock.unlock()
     }
 
-
     func hasSchedulingTask(for conversationId: String) -> Bool {
         taskLock.lock()
         defer { taskLock.unlock() }

@@ -99,6 +99,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     private var collapsedInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
             MessagesMediaInputView(isPhotoPickerPresented: $isPhotoPickerPresented)
+                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
                 .clipShape(.circle)
                 .glassEffect(.regular.interactive(), in: .circle)
@@ -118,12 +119,14 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage
             )
+            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
             .clipShape(.rect(cornerRadius: 26.0))
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
         }
+        .disabled(!messagesTextFieldEnabled)
     }
 
     @ViewBuilder

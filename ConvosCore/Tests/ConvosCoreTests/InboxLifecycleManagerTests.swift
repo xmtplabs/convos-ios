@@ -1241,20 +1241,20 @@ extension InboxLifecycleManager {
 @Suite("InboxLifecycleManager Stale Expiry Tests", .serialized)
 struct InboxLifecycleManagerStaleExpiryTests {
 
-    @Test("Stale pending invites are detected but not deleted on app launch")
-    func testStalePendingInvitesDetectedButNotDeleted() async throws {
+    @Test("Stale pending invites are deleted on app launch")
+    func testStalePendingInvitesDeletedOnAppLaunch() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
-        let eightDaysAgo = Date().addingTimeInterval(-8 * 24 * 60 * 60)
+        let twoDaysAgo = Date().addingTimeInterval(-2 * 24 * 60 * 60)
 
         try await dbManager.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: eightDaysAgo).insert(db)
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: twoDaysAgo).insert(db)
 
             try makeDBConversation(
                 id: "draft-stale",
                 inboxId: "inbox-1",
                 clientId: "client-1",
                 inviteTag: "stale-tag",
-                createdAt: eightDaysAgo
+                createdAt: twoDaysAgo
             ).insert(db)
         }
 
@@ -1279,23 +1279,23 @@ struct InboxLifecycleManagerStaleExpiryTests {
 
         let verifyRepo = PendingInviteRepository(databaseReader: dbManager.dbReader)
         let hasPendingAfter = try verifyRepo.hasPendingInvites(clientId: "client-1")
-        #expect(hasPendingAfter == true, "Stale pending invite should still exist (deletion temporarily disabled)")
+        #expect(hasPendingAfter == false, "Stale pending invite should be deleted after 24 hours")
     }
 
     @Test("Recent pending invites are not deleted on app launch")
     func testRecentPendingInvitesNotDeleted() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
-        let twoDaysAgo = Date().addingTimeInterval(-2 * 24 * 60 * 60)
+        let oneHourAgo = Date().addingTimeInterval(-1 * 60 * 60)
 
         try await dbManager.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: twoDaysAgo).insert(db)
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: oneHourAgo).insert(db)
 
             try makeDBConversation(
                 id: "draft-recent",
                 inboxId: "inbox-1",
                 clientId: "client-1",
                 inviteTag: "recent-tag",
-                createdAt: twoDaysAgo
+                createdAt: oneHourAgo
             ).insert(db)
         }
 
@@ -1326,19 +1326,19 @@ struct InboxLifecycleManagerStaleExpiryTests {
     @Test("stalePendingInviteClientIds correctly identifies stale vs recent invites")
     func testStalePendingInviteIdentification() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
-        let tenDaysAgo = Date().addingTimeInterval(-10 * 24 * 60 * 60)
-        let oneDayAgo = Date().addingTimeInterval(-1 * 24 * 60 * 60)
+        let twoDaysAgo = Date().addingTimeInterval(-2 * 24 * 60 * 60)
+        let twoHoursAgo = Date().addingTimeInterval(-2 * 60 * 60)
 
         try await dbManager.dbWriter.write { db in
-            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: tenDaysAgo).insert(db)
-            try DBInbox(inboxId: "inbox-2", clientId: "client-2", createdAt: oneDayAgo).insert(db)
+            try DBInbox(inboxId: "inbox-1", clientId: "client-1", createdAt: twoDaysAgo).insert(db)
+            try DBInbox(inboxId: "inbox-2", clientId: "client-2", createdAt: twoHoursAgo).insert(db)
 
             try makeDBConversation(
                 id: "draft-stale",
                 inboxId: "inbox-1",
                 clientId: "client-1",
                 inviteTag: "stale-tag",
-                createdAt: tenDaysAgo
+                createdAt: twoDaysAgo
             ).insert(db)
 
             try makeDBConversation(
@@ -1346,7 +1346,7 @@ struct InboxLifecycleManagerStaleExpiryTests {
                 inboxId: "inbox-2",
                 clientId: "client-2",
                 inviteTag: "recent-tag",
-                createdAt: oneDayAgo
+                createdAt: twoHoursAgo
             ).insert(db)
         }
 
@@ -1354,8 +1354,8 @@ struct InboxLifecycleManagerStaleExpiryTests {
         let cutoff = Date().addingTimeInterval(-InboxLifecycleManager.stalePendingInviteInterval)
         let staleIds = try repo.stalePendingInviteClientIds(olderThan: cutoff)
 
-        #expect(staleIds.contains("client-1"), "10-day-old invite should be stale")
-        #expect(!staleIds.contains("client-2"), "1-day-old invite should not be stale")
+        #expect(staleIds.contains("client-1"), "2-day-old invite should be stale")
+        #expect(!staleIds.contains("client-2"), "2-hour-old invite should not be stale")
     }
 
     @Test("Non-draft conversations are not affected by stale cleanup")

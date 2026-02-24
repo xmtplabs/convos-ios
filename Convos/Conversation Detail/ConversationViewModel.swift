@@ -67,6 +67,9 @@ class ConversationViewModel {
                 applyPendingDraftEdits()
                 _editingIncludeInfoInPublicPreview = nil
             }
+            if oldValue.isPendingInvite, !conversation.isPendingInvite {
+                inviteWasAccepted()
+            }
             if !isEditingConversationName { editingConversationName = conversation.name ?? "" }
             if !isEditingDescription { editingDescription = conversation.description ?? "" }
         }
@@ -103,6 +106,9 @@ class ConversationViewModel {
     var conversationInfoSubtitle: String {
         if let expiresAt = scheduledExplosionDate {
             return ExplosionDurationFormatter.countdown(until: expiresAt)
+        }
+        if isWaitingForInviteAcceptance {
+            return conversation.membersCountString
         }
         return conversation.shouldShowQuickEdit ? "Customize" : conversation.membersCountString
     }
@@ -384,6 +390,9 @@ class ConversationViewModel {
         observe()
         loadPhotoPreferences()
 
+        if conversation.isPendingInvite {
+            onboardingCoordinator.isWaitingForInviteAcceptance = true
+        }
         startOnboarding()
     }
 
@@ -538,6 +547,7 @@ class ConversationViewModel {
     }
 
     func onConversationInfoTap(focusCoordinator: FocusCoordinator) {
+        guard !isWaitingForInviteAcceptance else { return }
         if conversation.shouldShowQuickEdit {
             focusCoordinator.moveFocus(to: .conversationName)
         } else {
@@ -546,6 +556,7 @@ class ConversationViewModel {
     }
 
     func onConversationInfoLongPress(focusCoordinator: FocusCoordinator) {
+        guard !isWaitingForInviteAcceptance else { return }
         UIImpactFeedbackGenerator(style: .medium).impactOccurred()
         focusCoordinator.moveFocus(to: .conversationName)
     }

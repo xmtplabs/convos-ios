@@ -75,7 +75,7 @@ public protocol InboxLifecycleManagerProtocol: Actor {
 public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     public let maxAwakeInboxes: Int
     public let maxAwakePendingInvites: Int
-    public static let stalePendingInviteInterval: TimeInterval = 7 * 24 * 60 * 60
+    public static let stalePendingInviteInterval: TimeInterval = 24 * 60 * 60
 
     private var awakeInboxes: [String: any MessagingServiceProtocol] = [:] {
         didSet { syncAwakeServiceCache() }
@@ -542,9 +542,78 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             let staleClientIds = try pendingInviteRepository.stalePendingInviteClientIds(olderThan: cutoff)
             guard !staleClientIds.isEmpty else { return }
 
-            Log.debug("Found \(staleClientIds.count) stale pending invite(s) older than 7 days (not deleting yet)")
+            let expiredInvites: [DBConversation] = try await databaseReader.read { db in
+                let sql = """
+                    SELECT c.*
+                    FROM conversation c
+                    WHERE c.id LIKE 'draft-%'
+                        AND c.inviteTag IS NOT NULL
+                        AND length(c.inviteTag) > 0
+                        AND c.createdAt < ?
+                        AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) <= 1
+                    """
+                return try DBConversation.fetchAll(db, sql: sql, arguments: [cutoff])
+            }
+
+            guard !expiredInvites.isEmpty else { return }
+
+            let expiredConversationIds = Set(expiredInvites.map { $0.id })
+            let expiredClientIds = Set(expiredInvites.map { $0.clientId })
+
+            let clientIdsToKeep: Set<String> = try await databaseReader.read { db in
+                let placeholders = expiredClientIds.map { _ in "?" }.joined(separator: ",")
+                let expiredIdPlaceholders = expiredConversationIds.map { _ in "?" }.joined(separator: ",")
+                let sql = """
+                    SELECT DISTINCT c.clientId
+                    FROM conversation c
+                    WHERE c.clientId IN (\(placeholders))
+                        AND (
+                            (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) > 1
+                            OR c.id NOT IN (\(expiredIdPlaceholders))
+                        )
+                    """
+                let arguments = StatementArguments(Array(expiredClientIds) + Array(expiredConversationIds))
+                return Set(try String.fetchAll(db, sql: sql, arguments: arguments))
+            }
+
+            let safeToDeleteClientIds = expiredClientIds.subtracting(clientIdsToKeep)
+            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
+
+            for clientId in safeToDeleteClientIds {
+                await forceRemove(clientId: clientId)
+
+                do {
+                    let identity = try await identityStore.delete(clientId: clientId)
+                    Log.debug("Deleted keychain identity for expired invite inbox: \(identity.inboxId)")
+                } catch {
+                    Log.warning("Could not delete keychain identity for clientId \(clientId): \(error)")
+                }
+
+                do {
+                    try await inboxWriter.delete(clientId: clientId)
+                    Log.debug("Deleted inbox record for expired invite clientId: \(clientId)")
+                } catch {
+                    Log.warning("Could not delete inbox record for clientId \(clientId): \(error)")
+                }
+            }
+
+            let safeToDeleteConversationIds = expiredInvites
+                .filter { safeToDeleteClientIds.contains($0.clientId) }
+                .map { $0.id }
+
+            let deletedCount = try await databaseWriter.write { db in
+                try DBConversation
+                    .filter(safeToDeleteConversationIds.contains(DBConversation.Columns.id))
+                    .deleteAll(db)
+            }
+
+            if !clientIdsToKeep.isEmpty {
+                Log.debug("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
+            }
+
+            Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")
         } catch {
-            Log.error("Failed to check stale pending invites: \(error)")
+            Log.error("Failed to cleanup stale pending invites: \(error)")
         }
     }
 

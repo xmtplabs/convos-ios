@@ -72,8 +72,11 @@ struct ConversationsListItem: View {
     private var lastMessage: MessagePreview? { conversation.lastMessage }
     private var createdAt: Date { conversation.createdAt }
 
+    private var isPendingInvite: Bool { conversation.isPendingInvite }
+
     private var accessibilityDescription: String {
         var parts: [String] = [title]
+        if isPendingInvite { parts.append("verifying") }
         if isUnread { parts.append("unread") }
         if isMuted { parts.append("muted") }
         if let message = lastMessage {
@@ -85,14 +88,18 @@ struct ConversationsListItem: View {
     var body: some View {
         ListItemView(
             title: title,
-            isMuted: isMuted,
-            isUnread: isUnread,
+            isMuted: isPendingInvite ? false : isMuted,
+            isUnread: isPendingInvite ? false : isUnread,
             leadingContent: {
                 ConversationAvatarView(conversation: conversation, conversationImage: nil)
             },
             subtitle: {
                 HStack(spacing: DesignConstants.Spacing.stepX) {
-                    if let message = lastMessage {
+                    if isPendingInvite {
+                        RelativeDateLabel(date: createdAt)
+                        Text("·").foregroundStyle(.colorTextTertiary)
+                        Text("Verifying")
+                    } else if let message = lastMessage {
                         RelativeDateLabel(date: message.createdAt)
                         Text("·").foregroundStyle(.colorTextTertiary)
                         Text(message.text)
@@ -113,6 +120,10 @@ struct ConversationsListItem: View {
     }
 }
 
-#Preview {
+#Preview("Regular") {
     ConversationsListItem(conversation: .mock())
+}
+
+#Preview("Pending Invite") {
+    ConversationsListItem(conversation: .mockPendingInvite())
 }

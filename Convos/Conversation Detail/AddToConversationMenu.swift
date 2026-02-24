@@ -9,13 +9,20 @@ struct AddToConversationMenu: View {
 
     private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled }
 
+    private var labelColor: Color {
+        if !isEnabled {
+            return .colorTextSecondary.opacity(0.4)
+        }
+        return isFull ? .colorTextSecondary : .colorTextPrimary
+    }
+
     var body: some View {
         if isAssistantEnabled {
             menuView
         } else {
             Button(action: onConvoCode) {
                 Image(systemName: "plus")
-                    .foregroundStyle(isFull ? .colorTextSecondary : .colorTextPrimary)
+                    .foregroundStyle(labelColor)
             }
             .disabled(!isEnabled)
             .accessibilityLabel("Add to conversation")
@@ -63,7 +70,7 @@ struct AddToConversationMenu: View {
             }
         } label: {
             Image(systemName: "plus")
-                .foregroundStyle(isFull ? .colorTextSecondary : .colorTextPrimary)
+                .foregroundStyle(labelColor)
         }
         .disabled(!isEnabled)
         .accessibilityLabel("Add to conversation")

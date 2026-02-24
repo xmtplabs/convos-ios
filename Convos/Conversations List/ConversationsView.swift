@@ -137,7 +137,7 @@ struct ConversationsView: View {
                 .tint(.colorCaution)
                 .accessibilityLabel("Delete conversation")
 
-                if conversation.creator.isCurrentUser {
+                if !conversation.isPendingInvite && conversation.creator.isCurrentUser {
                     let explodeAction = { conversationPendingExplosion = conversation }
                     let iconColor: Color = colorScheme == .dark ? .black : .white
                     Button(action: explodeAction) {
@@ -151,22 +151,24 @@ struct ConversationsView: View {
                 }
             }
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
-                let readIconColor: Color = colorScheme == .dark ? .black : .white
-                Button(action: toggleReadAction) {
-                    Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
-                        .symbolRenderingMode(.palette)
-                        .foregroundStyle(readIconColor, readIconColor)
-                }
-                .tint(.colorBackgroundInverted)
-                .accessibilityLabel(conversation.isUnread ? "Mark as read" : "Mark as unread")
+                if !conversation.isPendingInvite {
+                    let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
+                    let readIconColor: Color = colorScheme == .dark ? .black : .white
+                    Button(action: toggleReadAction) {
+                        Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
+                            .symbolRenderingMode(.palette)
+                            .foregroundStyle(readIconColor, readIconColor)
+                    }
+                    .tint(.colorBackgroundInverted)
+                    .accessibilityLabel(conversation.isUnread ? "Mark as read" : "Mark as unread")
 
-                let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
-                Button(action: toggleMuteAction) {
-                    Image(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
+                    let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
+                    Button(action: toggleMuteAction) {
+                        Image(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
+                    }
+                    .tint(.colorPurpleMute)
+                    .accessibilityLabel(conversation.isMuted ? "Unmute" : "Mute")
                 }
-                .tint(.colorPurpleMute)
-                .accessibilityLabel(conversation.isMuted ? "Unmute" : "Mute")
             }
             .confirmationDialog(
                 "This convo will be deleted immediately.",
@@ -304,6 +306,17 @@ struct ConversationsView: View {
                                     Text("Exploding")
                                 }
                             }
+
+                            let pendingAction = {
+                                viewModel.activeFilter = viewModel.activeFilter == .pendingInvites ? .all : .pendingInvites
+                            }
+                            Button(action: pendingAction) {
+                                if viewModel.activeFilter == .pendingInvites {
+                                    Label("Pending invites", systemImage: "checkmark")
+                                } else {
+                                    Text("Pending invites")
+                                }
+                            }
                         } label: {
                             Image(systemName: "line.3.horizontal.decrease")
                                 .foregroundStyle(viewModel.activeFilter != .all ? .colorTextPrimaryInverted : .colorFillPrimary)
@@ -360,8 +373,8 @@ struct ConversationsView: View {
                         onScanInviteCode: {},
                         onDeleteConversation: {},
                         messagesTopBarTrailingItem: .share,
-                        messagesTopBarTrailingItemEnabled: true,
-                        messagesTextFieldEnabled: true,
+                        messagesTopBarTrailingItemEnabled: !conversationViewModel.conversation.isPendingInvite,
+                        messagesTextFieldEnabled: !conversationViewModel.conversation.isPendingInvite,
                         bottomBarContent: { EmptyView() }
                     )
                 } else if horizontalSizeClass != .compact {
@@ -407,7 +420,6 @@ struct ConversationsView: View {
                 quicknameViewModel: quicknameViewModel
             )
             .background(.colorBackgroundSurfaceless)
-            .interactiveDismissDisabled(newConvoViewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true)
             .navigationTransition(
                 .zoom(
                     sourceID: "composer-transition-source",
@@ -470,7 +482,8 @@ struct ConversationsView: View {
             Conversation.mock(id: "convo-7", name: "Convo 21Z", isUnread: false),
             Conversation.mock(id: "convo-8", name: "Weekend Plans", isUnread: true),
             Conversation.mock(id: "convo-9", name: "Project Team", isUnread: false),
-            Conversation.mock(id: "convo-10", name: "Random Chat", isUnread: false)
+            Conversation.mock(id: "convo-10", name: "Random Chat", isUnread: false),
+            Conversation.mockPendingInvite(id: "draft-pending-1", name: "Secret Club")
         ]
     )
     let quicknameViewModel = QuicknameSettingsViewModel.shared
