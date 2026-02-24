@@ -36,16 +36,15 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
             return false
         }
 
-        // Try to get image from cache using the URL
-        guard let url = URL(string: asset.url),
-              let cachedImage = imageCache.image(for: url) else {
+        // Try to get image from cache using the URL string as identifier
+        guard let cachedImage = imageCache.image(for: asset.url) else {
             Log.info("Image not found in cache for \(asset.url)")
             return false
         }
 
         do {
             switch asset {
-            case let .profileAvatar(_, conversationId, _):
+            case let .profileAvatar(_, conversationId, _, _):
                 guard let myProfileWriter else {
                     Log.info("No profile writer available for recovery")
                     return false
@@ -55,7 +54,7 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
                 Log.info("Auto-recovered profile avatar for conversation \(conversationId)")
                 return true
 
-            case let .groupImage(_, conversationId):
+            case let .groupImage(_, conversationId, _):
                 guard let conversationMetadataWriter else {
                     Log.info("No conversation metadata writer available for recovery")
                     return false

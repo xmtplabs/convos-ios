@@ -544,27 +544,30 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     public func forceReuploadAssetFromCache(_ asset: RenewableAsset) async throws -> Bool {
         // Get clientId and inboxId for the asset
-        let (clientId, inboxId): (String, String) = try await {
-            switch asset {
-            case let .profileAvatar(_, conversationId, inboxId):
-                // Look up clientId from conversation
-                guard let conv = try await databaseReader.read({ db in
-                    try DBConversation.fetchOne(db, key: conversationId)
-                }) else {
-                    throw SessionManagerError.inboxNotFound
-                }
-                return (conv.clientId, inboxId)
+        let clientId: String
+        let inboxId: String
 
-            case let .groupImage(_, conversationId):
-                // Look up both clientId and inboxId from conversation
-                guard let conv = try await databaseReader.read({ db in
-                    try DBConversation.fetchOne(db, key: conversationId)
-                }) else {
-                    throw SessionManagerError.inboxNotFound
-                }
-                return (conv.clientId, conv.inboxId)
+        switch asset {
+        case let .profileAvatar(_, conversationId, assetInboxId, _):
+            // Look up clientId from conversation
+            guard let conv = try await databaseReader.read({ db in
+                try DBConversation.fetchOne(db, key: conversationId)
+            }) else {
+                throw SessionManagerError.inboxNotFound
             }
-        }()
+            clientId = conv.clientId
+            inboxId = assetInboxId
+
+        case let .groupImage(_, conversationId, _):
+            // Look up both clientId and inboxId from conversation
+            guard let conv = try await databaseReader.read({ db in
+                try DBConversation.fetchOne(db, key: conversationId)
+            }) else {
+                throw SessionManagerError.inboxNotFound
+            }
+            clientId = conv.clientId
+            inboxId = conv.inboxId
+        }
 
         // Get the messaging service (this wakes the inbox if needed)
         let service = try await messagingService(for: clientId, inboxId: inboxId)
@@ -593,8 +596,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         )
 
         // Check if image is in cache
-        guard let url = URL(string: asset.url),
-              ImageCacheContainer.shared.image(for: url) != nil else {
+        guard ImageCacheContainer.shared.image(for: asset.url) != nil else {
             Log.info("Image not found in cache for re-upload: \(asset.url)")
             return false
         }
