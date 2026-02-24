@@ -866,7 +866,7 @@ public actor InboxStateMachine {
 
         Log.info("Cleaning up all data for inbox clientId: \(clientId)")
 
-        try await databaseWriter.write { db in
+        let attachmentKeys: [String] = try await databaseWriter.write { db in
             let conversationIds = try DBConversation
                 .filter(DBConversation.Columns.clientId == clientId)
                 .fetchAll(db)
@@ -874,7 +874,15 @@ public actor InboxStateMachine {
 
             Log.info("Found \(conversationIds.count) conversations to clean up for inbox clientId: \(clientId)")
 
+            var allAttachmentKeys: [String] = []
             for conversationId in conversationIds {
+                let messages = try DBMessage
+                    .filter(DBMessage.Columns.conversationId == conversationId)
+                    .fetchAll(db)
+                for message in messages {
+                    allAttachmentKeys.append(contentsOf: message.attachmentUrls)
+                }
+
                 try DBMessage.filter(DBMessage.Columns.conversationId == conversationId).deleteAll(db)
                 try DBConversationMember.filter(DBConversationMember.Columns.conversationId == conversationId).deleteAll(db)
                 try ConversationLocalState.filter(ConversationLocalState.Columns.conversationId == conversationId).deleteAll(db)
@@ -890,6 +898,12 @@ public actor InboxStateMachine {
             try DBInbox.filter(DBInbox.Columns.clientId == clientId).deleteAll(db)
 
             Log.info("Successfully cleaned up all data for inbox clientId: \(clientId)")
+            return allAttachmentKeys
+        }
+
+        if !attachmentKeys.isEmpty {
+            Log.info("Removing \(attachmentKeys.count) persistent photo(s) for inbox clientId: \(clientId)")
+            ImageCacheContainer.shared.removePersistentImages(for: attachmentKeys)
         }
     }
 

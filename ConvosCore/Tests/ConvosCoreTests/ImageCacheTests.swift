@@ -997,4 +997,332 @@ struct DiskCacheOverwriteTests {
     }
 }
 
+// MARK: - Persistent Storage Tier Tests
+
+@Suite("Persistent Storage Tier Tests", .serialized)
+struct PersistentStorageTierTests {
+    init() {
+        configureTestEnvironment()
+    }
+
+    @Test("cacheData with persistent tier stores in memory")
+    func cacheDataPersistentStoresInMemory() async throws {
+        let cache = ImageCache()
+        let identifier = "persistent-data-mem-\(UUID().uuidString)"
+        let testImage = createTestImage()
+        let data = testImage.jpegData(compressionQuality: 0.8)!
+
+        cache.cacheData(data, for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        let cached = cache.image(for: identifier)
+        #expect(cached != nil)
+    }
+
+    @Test("cacheImage with persistent tier stores in memory")
+    func cacheImagePersistentStoresInMemory() async throws {
+        let cache = ImageCache()
+        let identifier = "persistent-img-mem-\(UUID().uuidString)"
+        let testImage = createTestImage()
+
+        cache.cacheImage(testImage, for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        let cached = cache.image(for: identifier)
+        #expect(cached != nil)
+    }
+
+    @Test("cacheData with persistent tier survives fresh cache instance")
+    func cacheDataPersistentSurvivesFreshInstance() async throws {
+        let identifier = "persistent-data-disk-\(UUID().uuidString)"
+        let testImage = createTestImage(color: .blue)
+        let data = testImage.jpegData(compressionQuality: 0.8)!
+
+        let cache1 = ImageCache()
+        cache1.cacheData(data, for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache2 = ImageCache()
+        let memoryImage = cache2.image(for: identifier)
+        #expect(memoryImage == nil, "Memory cache should be empty in fresh instance")
+
+        let diskImage = await cache2.imageAsync(for: identifier)
+        #expect(diskImage != nil, "Image should load from persistent store")
+
+        cache2.removeImage(for: identifier)
+    }
+
+    @Test("cacheImage with persistent tier survives fresh cache instance")
+    func cacheImagePersistentSurvivesFreshInstance() async throws {
+        let identifier = "persistent-img-disk-\(UUID().uuidString)"
+        let testImage = createTestImage(color: .green)
+
+        let cache1 = ImageCache()
+        cache1.cacheImage(testImage, for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache2 = ImageCache()
+        let diskImage = await cache2.imageAsync(for: identifier)
+        #expect(diskImage != nil, "Image should load from persistent store")
+
+        cache2.removeImage(for: identifier)
+    }
+
+    @Test("cacheData with persistent tier emits cacheUpdates")
+    func cacheDataPersistentEmitsCacheUpdates() async throws {
+        let cache = ImageCache()
+        var receivedIdentifiers: [String] = []
+        let cancellable = cache.cacheUpdates.sink { identifier in
+            receivedIdentifiers.append(identifier)
+        }
+        defer { cancellable.cancel() }
+
+        let identifier = "persistent-notify-\(UUID().uuidString)"
+        let data = createTestImage().jpegData(compressionQuality: 0.8)!
+
+        cache.cacheData(data, for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        #expect(receivedIdentifiers.contains(identifier))
+    }
+
+    @Test("cacheImage with persistent tier emits cacheUpdates")
+    func cacheImagePersistentEmitsCacheUpdates() async throws {
+        let cache = ImageCache()
+        var receivedIdentifiers: [String] = []
+        let cancellable = cache.cacheUpdates.sink { identifier in
+            receivedIdentifiers.append(identifier)
+        }
+        defer { cancellable.cancel() }
+
+        let identifier = "persistent-img-notify-\(UUID().uuidString)"
+        let testImage = createTestImage()
+
+        cache.cacheImage(testImage, for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        #expect(receivedIdentifiers.contains(identifier))
+    }
+
+    @Test("removePersistentImages removes from persistent store")
+    func removePersistentImagesRemovesFiles() async throws {
+        let cache = ImageCache()
+        let id1 = "persistent-rm-1-\(UUID().uuidString)"
+        let id2 = "persistent-rm-2-\(UUID().uuidString)"
+
+        cache.cacheImage(createTestImage(color: .red), for: id1, storageTier: .persistent)
+        cache.cacheImage(createTestImage(color: .blue), for: id2, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache2 = ImageCache()
+        let img1Before = await cache2.imageAsync(for: id1)
+        let img2Before = await cache2.imageAsync(for: id2)
+        #expect(img1Before != nil)
+        #expect(img2Before != nil)
+
+        cache2.removePersistentImages(for: [id1, id2])
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache3 = ImageCache()
+        let img1After = await cache3.imageAsync(for: id1)
+        let img2After = await cache3.imageAsync(for: id2)
+        #expect(img1After == nil, "Image should be removed from persistent store")
+        #expect(img2After == nil, "Image should be removed from persistent store")
+    }
+
+    @Test("removePersistentImages also clears memory cache")
+    func removePersistentImagesClearsMemory() async throws {
+        let cache = ImageCache()
+        let identifier = "persistent-rm-mem-\(UUID().uuidString)"
+
+        cache.cacheImage(createTestImage(), for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        #expect(cache.image(for: identifier) != nil)
+
+        cache.removePersistentImages(for: [identifier])
+
+        #expect(cache.image(for: identifier) == nil)
+    }
+
+    @Test("removePersistentImages with empty array is a no-op")
+    func removePersistentImagesEmptyArray() async throws {
+        let cache = ImageCache()
+        cache.removePersistentImages(for: [])
+    }
+
+    @Test("removeAllPersistentImages clears all persistent files")
+    func removeAllPersistentImagesClears() async throws {
+        let cache = ImageCache()
+        let id1 = "persistent-all-1-\(UUID().uuidString)"
+        let id2 = "persistent-all-2-\(UUID().uuidString)"
+        let id3 = "persistent-all-3-\(UUID().uuidString)"
+
+        cache.cacheImage(createTestImage(color: .red), for: id1, storageTier: .persistent)
+        cache.cacheImage(createTestImage(color: .green), for: id2, storageTier: .persistent)
+        cache.cacheImage(createTestImage(color: .blue), for: id3, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        cache.removeAllPersistentImages()
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache2 = ImageCache()
+        let img1 = await cache2.imageAsync(for: id1)
+        let img2 = await cache2.imageAsync(for: id2)
+        let img3 = await cache2.imageAsync(for: id3)
+        #expect(img1 == nil)
+        #expect(img2 == nil)
+        #expect(img3 == nil)
+    }
+
+    @Test("Persistent and cache tiers are independent")
+    func persistentAndCacheTiersIndependent() async throws {
+        let cache = ImageCache()
+        let persistentId = "tier-persistent-\(UUID().uuidString)"
+        let cacheId = "tier-cache-\(UUID().uuidString)"
+
+        cache.cacheImage(createTestImage(color: .red), for: persistentId, storageTier: .persistent)
+        cache.cacheImage(createTestImage(color: .blue), for: cacheId)
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        cache.removePersistentImages(for: [persistentId])
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache2 = ImageCache()
+        let persistentImg = await cache2.imageAsync(for: persistentId)
+        let cacheImg = await cache2.imageAsync(for: cacheId)
+
+        #expect(persistentImg == nil, "Persistent image should be removed")
+        #expect(cacheImg != nil, "Cache image should still exist")
+
+        cache2.removeImage(for: cacheId)
+    }
+
+    @Test("loadImageFromDisk checks persistent store first")
+    func loadImageFromDiskChecksPersistentFirst() async throws {
+        let cache = ImageCache()
+        let identifier = "persistent-priority-\(UUID().uuidString)"
+
+        cache.cacheImage(createTestImage(color: .purple), for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache2 = ImageCache()
+        let loaded = await cache2.imageAsync(for: identifier)
+        #expect(loaded != nil, "Should find image in persistent store")
+
+        cache2.removeImage(for: identifier)
+    }
+
+    @Test("removeImage clears from both persistent and cache directories")
+    func removeImageClearsBothDirectories() async throws {
+        let cache = ImageCache()
+        let identifier = "remove-both-\(UUID().uuidString)"
+
+        cache.cacheImage(createTestImage(), for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        cache.removeImage(for: identifier)
+
+        try await Task.sleep(nanoseconds: 300_000_000)
+
+        let cache2 = ImageCache()
+        let diskImage = await cache2.imageAsync(for: identifier)
+        #expect(diskImage == nil, "removeImage should clear from persistent store too")
+    }
+
+    @Test("Concurrent persistent cache operations are safe")
+    func concurrentPersistentCacheOperations() async throws {
+        let cache = ImageCache()
+        let baseId = "concurrent-persistent-\(UUID().uuidString)"
+
+        await withTaskGroup(of: Void.self) { group in
+            for i in 0..<15 {
+                group.addTask {
+                    let image = createTestImage(color: UIColor(
+                        red: CGFloat(i) / 15.0,
+                        green: 0.3,
+                        blue: 0.7,
+                        alpha: 1.0
+                    ))
+                    cache.cacheImage(image, for: "\(baseId)-\(i)", storageTier: .persistent)
+                }
+            }
+        }
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        for i in 0..<15 {
+            let cached = cache.image(for: "\(baseId)-\(i)")
+            #expect(cached != nil, "Concurrent persistent cache item \(i) should exist")
+        }
+
+        let identifiers = (0..<15).map { "\(baseId)-\($0)" }
+        cache.removePersistentImages(for: identifiers)
+    }
+
+    @Test("Invalid data for cacheData does not crash")
+    func invalidDataForCacheDataHandled() async throws {
+        let cache = ImageCache()
+        let identifier = "invalid-persistent-\(UUID().uuidString)"
+
+        cache.cacheData(Data([0x00, 0x01, 0x02]), for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 100_000_000)
+
+        let cached = cache.image(for: identifier)
+        #expect(cached == nil, "Invalid data should not produce a cached image")
+    }
+
+    @Test("removeAllPersistentImages clears memory cache")
+    func removeAllPersistentImagesClearsMemory() async throws {
+        let cache = ImageCache()
+        let id1 = "mem-clear-1-\(UUID().uuidString)"
+        let id2 = "mem-clear-2-\(UUID().uuidString)"
+
+        cache.cacheImage(createTestImage(color: .red), for: id1, storageTier: .persistent)
+        cache.cacheImage(createTestImage(color: .green), for: id2, storageTier: .persistent)
+
+        #expect(cache.image(for: id1) != nil, "Image should be in memory before removal")
+        #expect(cache.image(for: id2) != nil, "Image should be in memory before removal")
+
+        cache.removeAllPersistentImages()
+
+        #expect(cache.image(for: id1) == nil, "Memory cache should be cleared immediately")
+        #expect(cache.image(for: id2) == nil, "Memory cache should be cleared immediately")
+    }
+
+    @Test("removePersistentImages removes both jpg and png files")
+    func removePersistentImagesRemovesBothFormats() async throws {
+        let cache = ImageCache()
+        let identifier = "png-cleanup-\(UUID().uuidString)"
+
+        cache.cacheImage(createTestImage(color: .red), for: identifier, storageTier: .persistent)
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        cache.removePersistentImages(for: [identifier])
+
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache2 = ImageCache()
+        let img = await cache2.imageAsync(for: identifier)
+        #expect(img == nil, "Persistent image should be fully removed")
+    }
+}
+
 #endif

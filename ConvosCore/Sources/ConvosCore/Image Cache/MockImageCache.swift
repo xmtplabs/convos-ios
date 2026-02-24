@@ -39,6 +39,16 @@ public final class MockImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     public func removeImage(for identifier: String) {}
 
+    // MARK: - Persistent Storage
+
+    public func cacheData(_ data: Data, for identifier: String, storageTier: ImageStorageTier) {}
+
+    public func cacheImage(_ image: ImageType, for identifier: String, storageTier: ImageStorageTier) {}
+
+    public func removePersistentImages(for identifiers: [String]) {}
+
+    public func removeAllPersistentImages() {}
+
     // MARK: - URL Change Detection
 
     public func hasURLChanged(_ url: String?, for identifier: String) async -> Bool { false }

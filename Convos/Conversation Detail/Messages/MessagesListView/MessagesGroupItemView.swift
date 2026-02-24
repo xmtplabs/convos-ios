@@ -321,7 +321,7 @@ private struct AttachmentPlaceholder: View {
 
             if let image = UIImage(data: imageData) {
                 loadedImage = image
-                ImageCache.shared.cacheImage(image, for: cacheKey)
+                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .persistent)
 
                 if attachment.width == nil {
                     onDimensionsLoaded(Int(image.size.width), Int(image.size.height))

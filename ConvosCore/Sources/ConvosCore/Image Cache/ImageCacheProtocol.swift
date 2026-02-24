@@ -48,6 +48,20 @@ public protocol ImageCacheProtocol: AnyObject, Sendable {
     /// Remove cached image by identifier
     func removeImage(for identifier: String)
 
+    // MARK: - Persistent Storage (chat photo attachments)
+
+    /// Cache image data to a specific storage tier
+    func cacheData(_ data: Data, for identifier: String, storageTier: ImageStorageTier)
+
+    /// Cache image to a specific storage tier
+    func cacheImage(_ image: ImageType, for identifier: String, storageTier: ImageStorageTier)
+
+    /// Remove persistent images by their identifiers (used for conversation cleanup)
+    func removePersistentImages(for identifiers: [String])
+
+    /// Remove all persistent images (used for "Delete All Data")
+    func removeAllPersistentImages()
+
     // MARK: - URL Change Detection
 
     /// Check if the URL has changed for an identifier (without updating tracker)
