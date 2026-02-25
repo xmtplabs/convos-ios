@@ -9,7 +9,7 @@
 |----------|------|--------|--------|
 | 1 | [Document inbox lifecycle state machine](#1-document-inbox-lifecycle-state-machine) | S | ✅ Done (PR #525) |
 | 2 | [Extract explosion handling from ConversationViewModel](#2-extract-explosion-handling-from-conversationviewmodel) | S | ✅ Done (PR #526) |
-| 3 | [Extract photo handling from ConversationViewModel](#3-extract-photo-handling-from-conversationviewmodel) | M | 🔲 TODO |
+| 3 | [Extract photo handling from ConversationViewModel](#3-extract-photo-handling-from-conversationviewmodel) | M | ❌ Dropped (not worth the risk) |
 | 4 | [Audit UnusedConversationCache for edge cases](#4-audit-unusedconversationcache-for-edge-cases) | M | ✅ Done (no issues found) |
 | 5 | [Add integration tests for inbox state transitions](#5-add-integration-tests-for-inbox-state-transitions) | M | ✅ Done (already covered) |
 | 6 | [Review Agent POC architecture](#6-review-agent-poc-architecture) | L | 🔲 TODO |
@@ -75,24 +75,15 @@ Create `ConversationExplosionViewModel` or `ExplosionCoordinator` that:
 **Effort:** Medium  
 **Files:** `ConversationViewModel.swift`, related photo views
 
-**Problem:**  
-Photo sending/receiving was a major 1.1.0 feature that added significant complexity to ConversationViewModel:
-- Photo picker state
-- Upload progress tracking
-- Photo message composition
-- Photo preferences (blur, visibility)
+**Status:** ❌ **Dropped - not worth the risk**
 
-**Deliverable:**  
-Create `ConversationMediaViewModel` that:
-- Manages photo picker presentation
-- Tracks upload progress
-- Handles photo preferences
-- Coordinates with `PhotoAttachmentService`
+**Assessment (2026-02-24):**
+- Would only save ~100-150 lines (1186 → ~1050)
+- Photo state is intertwined with conversation state (e.g., `selectedAttachmentImage` affects `sendButtonEnabled`)
+- Risk of introducing bugs in a working feature outweighs the benefit
+- Unlike explosion handling (self-contained state machine), photo handling has unclear boundaries
 
-**Success criteria:**  
-- ConversationViewModel reduced by ~100-150 lines
-- Photo logic testable in isolation
-- Clear separation of concerns
+**Conclusion:** The juice isn't worth the squeeze.
 
 ---
 
@@ -185,3 +176,24 @@ Clear go/no-go decision with documented rationale
 - Agent POC
 - Reactions v2 codec
 - Accessibility improvements
+
+---
+
+## Retrospective (2026-02-24)
+
+**Final tally: 2 of 6 items were actually needed**
+
+| Item | Outcome |
+|------|---------|
+| 1. Document inbox lifecycle | ✅ Done - Added state diagrams to ADR 003 |
+| 2. Extract explosion handling | ✅ Done - Created ExplosionCoordinator |
+| 3. Extract photo handling | ❌ Dropped - Risk outweighs benefit |
+| 4. Audit UnusedConversationCache | ✅ Already good - comprehensive test coverage |
+| 5. Inbox state integration tests | ✅ Already good - 4,341 lines of tests exist |
+| 6. Review Agent POC | 🔲 Deferred - still behind feature flag |
+
+**Lessons learned:**
+1. "Churn" in git history doesn't always indicate technical debt - sometimes it's just iteration
+2. Existing test coverage was better than assumed
+3. Refactoring for the sake of smaller files can introduce more risk than it solves
+4. Audit before acting - most "debt" items turned out to be non-issues
