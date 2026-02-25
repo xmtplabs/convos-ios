@@ -1,4 +1,4 @@
-@testable import ConvosCore
+@testable import ConvosInvites
 import Foundation
 import Testing
 import XMTPiOS

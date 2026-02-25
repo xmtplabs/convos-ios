@@ -103,7 +103,7 @@ public enum AppDataError: Error, LocalizedError {
 
 extension Data {
     /// Encode data to URL-safe base64 string without padding
-    func base64URLEncoded() -> String {
+    public func base64URLEncoded() -> String {
         base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_")
@@ -113,7 +113,7 @@ extension Data {
 
 extension String {
     /// Decode URL-safe base64 string to data
-    func base64URLDecoded() throws -> Data {
+    public func base64URLDecoded() throws -> Data {
         var base64 = self
             .replacingOccurrences(of: "-", with: "+")
             .replacingOccurrences(of: "_", with: "/")

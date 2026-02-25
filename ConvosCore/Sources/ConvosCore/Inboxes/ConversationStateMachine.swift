@@ -1,4 +1,5 @@
 import Combine
+import ConvosAppData
 import ConvosInvites
 import Foundation
 import GRDB
@@ -535,7 +536,7 @@ public actor ConversationStateMachine {
         } catch {
             throw ConversationStateMachineError.failedVerifyingSignature
         }
-        Log.debug("Recovered signer's public key: \(signerPublicKey.hexEncodedString())")
+        Log.debug("Recovered signer's public key: \(signerPublicKey.toHexString())")
         let existingConversation: Conversation? = try await databaseReader.read { db in
             try DBConversation
                 .filter(DBConversation.Columns.inviteTag == signedInvite.invitePayload.tag)

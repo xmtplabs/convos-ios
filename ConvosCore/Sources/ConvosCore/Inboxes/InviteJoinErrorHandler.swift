@@ -1,3 +1,4 @@
+import ConvosInvites
 import Foundation
 
 public protocol InviteJoinErrorHandler: Sendable {

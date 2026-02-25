@@ -142,14 +142,49 @@ public enum JoinRequestError: Error, Sendable {
 }
 
 /// Error types sent back to joiners when their request fails
-public enum InviteJoinErrorType: String, Codable, Sendable {
+public enum InviteJoinErrorType: Equatable, Sendable {
     case conversationExpired
     case genericFailure
-    case unknown
+    case unknown(String)
+
+    public var rawValue: String {
+        switch self {
+        case .conversationExpired:
+            return "conversation_expired"
+        case .genericFailure:
+            return "generic_failure"
+        case .unknown(let value):
+            return value
+        }
+    }
+
+    public init(rawValue: String) {
+        switch rawValue {
+        case "conversation_expired":
+            self = .conversationExpired
+        case "generic_failure":
+            self = .genericFailure
+        default:
+            self = .unknown(rawValue)
+        }
+    }
+}
+
+extension InviteJoinErrorType: Codable {
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        let rawValue = try container.decode(String.self)
+        self.init(rawValue: rawValue)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(rawValue)
+    }
 }
 
 /// Error feedback sent to a joiner when their request fails
-public struct InviteJoinError: Codable, Sendable {
+public struct InviteJoinError: Codable, Equatable, Sendable {
     public let errorType: InviteJoinErrorType
     public let inviteTag: String
     public let timestamp: Date
@@ -158,5 +193,14 @@ public struct InviteJoinError: Codable, Sendable {
         self.errorType = errorType
         self.inviteTag = inviteTag
         self.timestamp = timestamp
+    }
+
+    public var userFacingMessage: String {
+        switch errorType {
+        case .conversationExpired:
+            return "This conversation is no longer available"
+        case .genericFailure, .unknown:
+            return "Failed to join conversation"
+        }
     }
 }

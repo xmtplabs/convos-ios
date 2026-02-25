@@ -1,4 +1,5 @@
 import Combine
+import ConvosAppData
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -12,7 +13,7 @@ extension PrivateKey {
 
         let hash = publicKeyData.sha3(.keccak256)
         let address = hash.subdata(in: 12..<hash.count)
-        return "0x" + address.toHex.lowercased()
+        return "0x" + address.toHexString()
     }
 }
 

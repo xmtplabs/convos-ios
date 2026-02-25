@@ -1,4 +1,5 @@
 import Combine
+import ConvosInvites
 import Foundation
 
 /// Mock implementation of InboxStateManagerProtocol for testing
