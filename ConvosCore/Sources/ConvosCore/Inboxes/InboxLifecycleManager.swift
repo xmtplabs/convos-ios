@@ -455,8 +455,6 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
         await cleanupStalePendingInvites()
 
-        await cleanupStalePendingInvites()
-
         do {
             let allActivities = try activityRepository.allInboxActivities()
             let allPendingInvites = try pendingInviteRepository.allPendingInvites()
