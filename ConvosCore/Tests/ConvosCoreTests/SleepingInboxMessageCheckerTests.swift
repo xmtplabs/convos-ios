@@ -649,9 +649,11 @@ actor TestableInboxLifecycleManager: InboxLifecycleManagerProtocol {
         fatalError("Not implemented for tests")
     }
 
-    func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async {
+    @discardableResult
+    func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async -> Bool {
         _awakeClientIds.insert(clientId)
         _sleepingClientIds.remove(clientId)
+        return true
     }
 
     func prepareUnusedConversationIfNeeded() async {}

@@ -172,6 +172,7 @@ public actor ConversationStateMachine {
         messageStreamContinuation?.finish()
         messageProcessingTask?.cancel()
         observationTask?.cancel()
+        discoveryTask?.cancel()
     }
 
     private func setupMessageStream() {
