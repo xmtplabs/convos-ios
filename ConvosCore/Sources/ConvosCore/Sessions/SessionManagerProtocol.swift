@@ -12,7 +12,8 @@ public enum InboxDeletionProgress: Sendable, Equatable {
 public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Inbox Management
 
-    func addInbox() async -> AnyMessagingService
+    func addInbox() async -> (service: AnyMessagingService, conversationId: String?)
+    func addInboxOnly() async -> AnyMessagingService
     func deleteInbox(clientId: String, inboxId: String) async throws
     func deleteAllInboxes() async throws
     func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, Error>
@@ -20,10 +21,12 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Messaging Services
 
     func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService
+    func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService
 
     // MARK: Factory methods for repositories
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse
 
     func conversationRepository(
         for conversationId: String,
@@ -32,6 +35,11 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     ) async throws -> any ConversationRepositoryProtocol
 
     func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol
+
+    func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol
+    func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol
+
+    func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
     func conversationsCountRepo(
@@ -64,4 +72,8 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func pendingInviteDetails() throws -> [PendingInviteDetail]
     func deleteExpiredPendingInvites() async throws -> Int
+
+    // MARK: Asset Renewal
+
+    func makeAssetRenewalManager() async -> AssetRenewalManager
 }

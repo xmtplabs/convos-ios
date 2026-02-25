@@ -3,36 +3,44 @@ import SwiftUI
 
 struct FeatureRowItem<AccessoryView: View>: View {
     let imageName: String?
-    let symbolName: String
+    let symbolName: String?
     let title: String
     let subtitle: String?
     var iconBackgroundColor: Color = .colorOrange
     var iconForegroundColor: Color = .white
     @ViewBuilder let accessoryView: () -> AccessoryView
 
-    var image: Image {
+    private var hasIcon: Bool {
+        imageName != nil || symbolName != nil
+    }
+
+    var image: Image? {
         if let imageName {
             Image(imageName)
-        } else {
+        } else if let symbolName {
             Image(systemName: symbolName)
+        } else {
+            nil
         }
     }
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            Group {
-                image
-                    .font(.headline)
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .padding(.vertical, 10.0)
-                    .foregroundStyle(iconForegroundColor)
+            if let image {
+                Group {
+                    image
+                        .font(.headline)
+                        .padding(.horizontal, DesignConstants.Spacing.step2x)
+                        .padding(.vertical, DesignConstants.Spacing.step3x)
+                        .foregroundStyle(iconForegroundColor)
+                }
+                .frame(width: DesignConstants.Spacing.step10x, height: DesignConstants.Spacing.step10x)
+                .background(
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                        .fill(iconBackgroundColor)
+                        .aspectRatio(1.0, contentMode: .fit)
+                )
             }
-            .frame(width: 40.0, height: 40.0)
-            .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                    .fill(iconBackgroundColor)
-                    .aspectRatio(1.0, contentMode: .fit)
-            )
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
                 Text(title)
@@ -66,11 +74,11 @@ struct ConversationInfoView: View {
     let focusCoordinator: FocusCoordinator
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @State private var showingExplodeConfirmation: Bool = false
+    @State private var showingExplodeSheet: Bool = false
     @State private var presentingEditView: Bool = false
-    @State private var showingLockConfirmation: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
+    @State private var presentingShareView: Bool = false
     @State private var exportedLogsURL: URL?
 
     private let maxMembersToShow: Int = 6
@@ -84,29 +92,31 @@ struct ConversationInfoView: View {
 
     @ViewBuilder
     private var convoCodeRow: some View {
-        let isUnavailable = viewModel.isLocked || viewModel.isFull
-        let subtitle = if isUnavailable {
-            "None"
+        if viewModel.isLocked && !viewModel.isCurrentUserSuperAdmin {
+            EmptyView()
         } else {
-            "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
-        }
-
-        if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
-            // Entire row is ShareLink when available
-            ShareLink(item: inviteURL) {
-                convoCodeRowContent(subtitle: subtitle, showShareIcon: true)
+            let isUnavailable = viewModel.isLocked || viewModel.isFull
+            let subtitle = if isUnavailable {
+                "None"
+            } else {
+                "\(ConfigManager.shared.currentEnvironment.relyingPartyIdentifier)/\(viewModel.invite.urlSlug)"
             }
-            .buttonStyle(.plain)
-        } else {
-            // Row with tap gesture for "full" alert
-            convoCodeRowContent(subtitle: subtitle, showShareIcon: false)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if viewModel.isFull {
-                        showingFullInfo = true
-                    }
+
+            if !isUnavailable, let inviteURL = viewModel.invite.inviteURL {
+                ShareLink(item: inviteURL) {
+                    convoCodeRowContent(subtitle: subtitle, showShareIcon: true)
                 }
-                .opacity(viewModel.isLocked ? 0.5 : 1.0)
+                .buttonStyle(.plain)
+            } else {
+                convoCodeRowContent(subtitle: subtitle, showShareIcon: false)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if viewModel.isFull {
+                            showingFullInfo = true
+                        }
+                    }
+                    .opacity(viewModel.isLocked ? 0.5 : 1.0)
+            }
         }
     }
 
@@ -148,35 +158,25 @@ struct ConversationInfoView: View {
 
     @ViewBuilder
     private var lockRow: some View {
-        FeatureRowItem(
-            imageName: nil,
-            symbolName: "lock.fill",
-            title: "Lock",
-            subtitle: "Nobody new can join",
-            iconBackgroundColor: .colorFillMinimal,
-            iconForegroundColor: .colorTextPrimary
-        ) {
-            if viewModel.isCurrentUserSuperAdmin {
+        if viewModel.isCurrentUserSuperAdmin {
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "lock.fill",
+                title: "Lock",
+                subtitle: "Nobody new can join",
+                iconBackgroundColor: .colorFillMinimal,
+                iconForegroundColor: .colorTextPrimary
+            ) {
                 Toggle("", isOn: Binding(
                     get: { viewModel.isLocked },
-                    set: { newValue in
-                        if newValue {
-                            showingLockConfirmation = true
-                        } else {
-                            showingLockedInfo = true
-                        }
+                    set: { _ in
+                        showingLockedInfo = true
                     }
                 ))
                 .labelsHidden()
-            } else {
-                Toggle("", isOn: .constant(viewModel.isLocked))
-                    .labelsHidden()
-                    .disabled(true)
-                    .onTapGesture {
-                        if viewModel.isLocked {
-                            showingLockedInfo = true
-                        }
-                    }
+                .accessibilityLabel("Lock conversation")
+                .accessibilityValue(viewModel.isLocked ? "locked" : "unlocked")
+                .accessibilityIdentifier("lock-toggle")
             }
         }
     }
@@ -214,6 +214,8 @@ struct ConversationInfoView: View {
                                 .buttonStyle(.bordered)
                                 .hoverEffect(.lift)
                                 .padding(.top, DesignConstants.Spacing.step2x)
+                                .accessibilityLabel("Edit conversation info")
+                                .accessibilityIdentifier("edit-info-button")
                                 .sheet(isPresented: $presentingEditView) {
                                     ConversationInfoEditView(viewModel: viewModel, focusCoordinator: focusCoordinator)
                                 }
@@ -249,9 +251,16 @@ struct ConversationInfoView: View {
                     convoCodeRow
 
                     lockRow
-                } footer: {
-                    Text("No one new can join the convo when it's locked")
-                        .foregroundStyle(.colorTextSecondary)
+                }
+
+                if viewModel.canRemoveMembers {
+                    Section {
+                        ExplodeInfoRow(
+                            scheduledExplosionDate: viewModel.scheduledExplosionDate,
+                            onTap: { showingExplodeSheet = true },
+                            onExplodeNow: { viewModel.explodeConvo() }
+                        )
+                    }
                 }
 
                 Section {
@@ -263,6 +272,22 @@ struct ConversationInfoView: View {
                     ) {
                         Toggle("", isOn: $viewModel.notificationsEnabled)
                             .labelsHidden()
+                            .accessibilityLabel("Notifications")
+                            .accessibilityValue(viewModel.notificationsEnabled ? "on" : "off")
+                            .accessibilityIdentifier("notifications-toggle")
+                    }
+
+                    FeatureRowItem(
+                        imageName: nil,
+                        symbolName: "eye.circle.fill",
+                        title: "Reveal mode",
+                        subtitle: "Blur incoming pics"
+                    ) {
+                        Toggle("", isOn: Binding(
+                            get: { !viewModel.autoRevealPhotos },
+                            set: { viewModel.setAutoReveal(!$0) }
+                        ))
+                        .labelsHidden()
                     }
 
                     FeatureRowItem(
@@ -293,7 +318,7 @@ struct ConversationInfoView: View {
                     }
                 } header: {
                     Text("Personal preferences")
-                        .font(.footnote.weight(.semibold))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -308,7 +333,7 @@ struct ConversationInfoView: View {
                     }
                 } header: {
                     Text("Convo rules")
-                        .font(.footnote.weight(.semibold))
+                        .font(.footnote.weight(.medium))
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -380,7 +405,7 @@ struct ConversationInfoView: View {
                         }
                     } header: {
                         Text("Debug info")
-                            .font(.footnote.weight(.semibold))
+                            .font(.footnote.weight(.medium))
                             .foregroundStyle(.colorTextSecondary)
                     }
                     .task {
@@ -393,30 +418,9 @@ struct ConversationInfoView: View {
                         }
                     }
                 }
-
-                if viewModel.canRemoveMembers {
-                    Section {
-                        Button {
-                            showingExplodeConfirmation = true
-                        } label: {
-                            Text("Explode now")
-                                .foregroundStyle(.colorCaution)
-                        }
-                        .confirmationDialog("", isPresented: $showingExplodeConfirmation) {
-                            Button("Explode", role: .destructive) {
-                                viewModel.explodeConvo()
-                            }
-
-                            Button("Cancel") {
-                                showingExplodeConfirmation = false
-                            }
-                        }
-                    } footer: {
-                        Text("Irrecoverably delete the convo for everyone")
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                }
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundRaisedSecondary)
             .toolbarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -424,23 +428,41 @@ struct ConversationInfoView: View {
                         dismiss()
                     }
                 }
-            }
-            .selfSizingSheet(isPresented: $showingLockConfirmation) {
-                LockConvoConfirmationView(
-                    onLock: {
-                        viewModel.toggleLock()
-                        showingLockConfirmation = false
-                    },
-                    onCancel: {
-                        showingLockConfirmation = false
+                ToolbarItem(placement: .topBarTrailing) {
+                    if viewModel.isLocked {
+                        Button {
+                            showingLockedInfo = true
+                        } label: {
+                            Image(systemName: "lock.fill")
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                        .accessibilityLabel("Conversation locked")
+                        .accessibilityIdentifier("info-lock-button")
+                    } else {
+                        AddToConversationMenu(
+                            isFull: viewModel.isFull,
+                            isEnabled: true,
+                            onNewAssistant: {
+                                viewModel.requestAssistantJoin()
+                                viewModel.onboardingCoordinator.assistantWasRequested()
+                            },
+                            onConvoCode: {
+                                if viewModel.isFull {
+                                    showingFullInfo = true
+                                } else {
+                                    presentingShareView = true
+                                }
+                            }
+                        )
+                        .accessibilityIdentifier("info-add-button")
                     }
-                )
-                .background(.colorBackgroundRaised)
+                }
             }
             .selfSizingSheet(isPresented: $showingLockedInfo) {
                 LockedConvoInfoView(
                     isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                    onUnlock: {
+                    isLocked: viewModel.isLocked,
+                    onLock: {
                         viewModel.toggleLock()
                         showingLockedInfo = false
                     },
@@ -448,13 +470,43 @@ struct ConversationInfoView: View {
                         showingLockedInfo = false
                     }
                 )
-                .background(.colorBackgroundRaised)
             }
             .selfSizingSheet(isPresented: $showingFullInfo) {
                 FullConvoInfoView(onDismiss: {
                     showingFullInfo = false
                 })
-                .background(.colorBackgroundRaised)
+            }
+            .overlay {
+                if presentingShareView {
+                    ConversationShareOverlay(
+                        conversation: viewModel.conversation,
+                        invite: viewModel.invite,
+                        isPresented: $presentingShareView,
+                        topSafeAreaInset: 0
+                    )
+                }
+            }
+            .background {
+                Color.clear
+                    .fullScreenCover(isPresented: $showingExplodeSheet) {
+                        ExplodeConvoSheet(
+                            isScheduled: viewModel.scheduledExplosionDate != nil,
+                            onSchedule: { date in
+                                viewModel.scheduleExplosion(at: date)
+                                showingExplodeSheet = false
+                            },
+                            onExplodeNow: {
+                                viewModel.explodeConvo()
+                            },
+                            onDismiss: {
+                                showingExplodeSheet = false
+                            }
+                        )
+                        .presentationBackground(.clear)
+                    }
+                    .transaction { transaction in
+                        transaction.disablesAnimations = true
+                    }
             }
         }
     }

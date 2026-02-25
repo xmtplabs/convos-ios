@@ -40,6 +40,8 @@ struct QRScannerView: UIViewRepresentable {
         let view = UIView()
         view.backgroundColor = .black
         view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+        view.accessibilityLabel = NSLocalizedString("QR code scanner camera view", comment: "")
+        view.accessibilityIdentifier = "qr-scanner-camera"
         context.coordinator.parentView = view
 
         // Set up the internal callback for camera setup

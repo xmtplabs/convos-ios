@@ -8,6 +8,8 @@ protocol MessagesListRepositoryProtocol {
     var messagesListPublisher: AnyPublisher<[MessagesListItemType], Never> { get }
     var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> { get }
 
+    func startObserving()
+
     /// Fetches the initial page of messages (most recent messages)
     func fetchInitial() throws -> [MessagesListItemType]
 
@@ -47,10 +49,15 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     // MARK: - Initialization
 
+    private var hasStartedObserving: Bool = false
+
     init(messagesRepository: any MessagesRepositoryProtocol) {
         self.messagesRepository = messagesRepository
+    }
 
-        // Subscribe to messages and transform them once when they change
+    func startObserving() {
+        guard !hasStartedObserving else { return }
+        hasStartedObserving = true
         messagesRepository.messagesPublisher
             .map { [weak self] messages in
                 self?.processMessages(messages) ?? []

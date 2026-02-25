@@ -140,7 +140,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -172,7 +174,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
             try conversationMember.save(db)
 
-            Log.info("Created placeholder conversation for invite")
+            Log.debug("Created placeholder conversation for invite")
             return conversation
         }
 
@@ -194,24 +196,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let dbMembers = members.map { $0.dbRepresentation(conversationId: conversation.id) }
         let memberProfiles = try conversation.memberProfiles
 
-        // Get old image URL before saving (for change detection)
-        let oldImageURL = try await databaseWriter.read { db -> String? in
-            let oldConversation = try DBConversation.fetchOne(db, key: conversation.id)
-            return oldConversation?.imageURLString
-        }
-
-        // Create database representation
+        // Create database representation (imageLastRenewed will be determined inside the write transaction
+        // to avoid race conditions with concurrent asset renewal)
         let dbConversation = try await createDBConversation(
             from: conversation,
             metadata: metadata,
             inboxId: inboxId,
-            clientConversationId: clientConversationId
+            clientConversationId: clientConversationId,
+            imageLastRenewed: nil
         )
 
         // Save to database. Capture the actual clientConversationId used (may be a draft ID
         // like "draft-XXX" instead of the XMTP group ID) so cache notifications match
         // the ID that ViewModels subscribe to.
-        let actualClientConversationId = try await saveConversationToDatabase(
+        // Also returns the old image URL for cache invalidation.
+        let (actualClientConversationId, oldImageURL) = try await saveConversationToDatabase(
             dbConversation: dbConversation,
             dbMembers: dbMembers,
             memberProfiles: memberProfiles
@@ -247,7 +246,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 message: lastMessage,
                 for: dbConversation
             )
-            Log.info("Saved last message: \(result)")
+            Log.debug("Saved last message: \(result)")
         }
 
         return dbConversation
@@ -294,7 +293,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         from conversation: XMTPiOS.Group,
         metadata: ConversationMetadata,
         inboxId: String,
-        clientConversationId: String? = nil
+        clientConversationId: String? = nil,
+        imageLastRenewed: Date? = nil
     ) async throws -> DBConversation {
         // Look up clientId from inbox
         let clientId = try await databaseWriter.read { db in
@@ -324,22 +324,26 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             isLocked: metadata.isLocked,
             imageSalt: metadata.imageSalt,
             imageNonce: metadata.imageNonce,
-            imageEncryptionKey: metadata.imageEncryptionKey
+            imageEncryptionKey: metadata.imageEncryptionKey,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: false
         )
     }
 
-    /// Returns the actual clientConversationId used (may differ from input if a local draft exists)
+    /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
+    /// and the old image URL for cache invalidation purposes.
     private func saveConversationToDatabase(
         dbConversation: DBConversation,
         dbMembers: [DBConversationMember],
         memberProfiles: [DBMemberProfile]
-    ) async throws -> String {
+    ) async throws -> (clientConversationId: String, oldImageURL: String?) {
         try await databaseWriter.write { [self] db in
             let creator = DBMember(inboxId: dbConversation.creatorId)
             try creator.save(db)
 
             // Save conversation (handle local conversation updates)
-            let actualClientConversationId = try self.saveConversation(dbConversation, in: db)
+            // This also handles imageLastRenewed preservation inside the transaction
+            let (actualClientConversationId, oldImageURL) = try self.saveConversation(dbConversation, in: db)
 
             // Save local state
             let localState = ConversationLocalState(
@@ -365,16 +369,40 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 try profile.save(db)
             }
 
-            return actualClientConversationId
+            return (actualClientConversationId, oldImageURL)
         }
     }
 
-    /// Returns the actual clientConversationId used (may differ from input if a local draft exists)
-    private func saveConversation(_ dbConversation: DBConversation, in db: Database) throws -> String {
+    /// Returns the actual clientConversationId used (may differ from input if a local draft exists),
+    /// and the old image URL for cache invalidation purposes.
+    /// Also handles preserving imageLastRenewed inside the transaction (GRDB's serialized write queue
+    /// ensures atomic read-modify-write, preventing concurrent asset renewal from losing timestamps).
+    private func saveConversation(
+        _ dbConversation: DBConversation,
+        in db: Database
+    ) throws -> (clientConversationId: String, oldImageURL: String?) {
         let firstTimeSeeingConversationExpired: Bool
         let actualClientConversationId: String
+        let oldImageURL: String?
 
-        if let localConversation = try DBConversation
+        // Fetch current conversation state inside the transaction to avoid race conditions
+        // with concurrent asset renewal that might update imageLastRenewed
+        let existingConversation = try DBConversation.fetchOne(db, key: dbConversation.id)
+        oldImageURL = existingConversation?.imageURLString
+
+        // Preserve imageLastRenewed if the image URL hasn't changed
+        let imageLastRenewed: Date?
+        if oldImageURL == dbConversation.imageURLString {
+            imageLastRenewed = existingConversation?.imageLastRenewed
+        } else {
+            imageLastRenewed = nil
+        }
+
+        // Apply the preserved timestamp
+        var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
+
+        if !dbConversation.inviteTag.isEmpty,
+           let localConversation = try DBConversation
             .filter(DBConversation.Columns.inviteTag == dbConversation.inviteTag)
             .filter(DBConversation.Columns.clientConversationId != dbConversation.clientConversationId)
             .fetchOne(db) {
@@ -382,33 +410,50 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             let preferredClientConversationId: String
             if DBConversation.isDraft(id: dbConversation.clientConversationId) {
                 preferredClientConversationId = dbConversation.clientConversationId
-                Log.info("Using incoming draft ID \(dbConversation.clientConversationId)")
+                Log.debug("Using incoming draft ID \(dbConversation.clientConversationId)")
             } else {
                 preferredClientConversationId = localConversation.clientConversationId
-                Log.info("Keeping existing ID \(localConversation.clientConversationId)")
+                Log.debug("Keeping existing ID \(localConversation.clientConversationId)")
             }
 
-            let updatedConversation = dbConversation
+            conversationToSave = conversationToSave
                 .with(clientConversationId: preferredClientConversationId)
-            try updatedConversation.save(db, onConflict: .replace)
-            firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != localConversation.expiresAt
+            try conversationToSave.save(db, onConflict: .replace)
+            firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
+            actualClientConversationId = preferredClientConversationId
+        } else if let existingConversation {
+            let preferredClientConversationId: String
+            if dbConversation.clientConversationId != existingConversation.clientConversationId {
+                if DBConversation.isDraft(id: dbConversation.clientConversationId) {
+                    preferredClientConversationId = dbConversation.clientConversationId
+                } else {
+                    preferredClientConversationId = existingConversation.clientConversationId
+                }
+            } else {
+                preferredClientConversationId = dbConversation.clientConversationId
+            }
+
+            var updatedConversation = conversationToSave.with(clientConversationId: preferredClientConversationId)
+            if existingConversation.isUnused {
+                updatedConversation = updatedConversation.with(isUnused: true)
+            }
+            if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
+                updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
+            }
+            try updatedConversation.save(db)
+            firstTimeSeeingConversationExpired = updatedConversation.isExpired && updatedConversation.expiresAt != existingConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
         } else {
-            do {
-                try dbConversation.save(db)
-                firstTimeSeeingConversationExpired = dbConversation.isExpired
-                actualClientConversationId = dbConversation.clientConversationId
-            } catch {
-                Log.error("Failed saving incoming conversation \(dbConversation.id): \(error)")
-                throw error
-            }
+            try conversationToSave.save(db)
+            firstTimeSeeingConversationExpired = conversationToSave.isExpired
+            actualClientConversationId = conversationToSave.clientConversationId
         }
 
         if firstTimeSeeingConversationExpired {
-            Log.info("Encountered expired conversation for the first time.")
+            Log.debug("Encountered expired conversation for the first time.")
         }
 
-        return actualClientConversationId
+        return (actualClientConversationId, oldImageURL)
     }
 
     private func saveMembers(_ dbMembers: [DBConversationMember], in db: Database) throws {
@@ -430,7 +475,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         for conversation: XMTPiOS.Group,
         dbConversation: DBConversation
     ) async throws {
-        Log.info("Attempting to fetch latest messages...")
+        Log.debug("Attempting to fetch latest messages...")
 
         // Get the timestamp of the last stored message
         let lastMessageNs = try await getLastMessageTimestamp(for: conversation.id)
@@ -439,17 +484,17 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let messages = try await conversation.messages(afterNs: lastMessageNs)
         guard !messages.isEmpty else { return }
 
-        Log.info("Found \(messages.count) new messages, catching up...")
+        Log.debug("Found \(messages.count) new messages, catching up...")
 
         // Store messages and track if conversation should be marked unread
         var marksConversationAsUnread = false
         for message in messages {
-            Log.info("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
+            Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread {
                 marksConversationAsUnread = true
             }
-            Log.info("Saved caught up message sent at: \(message.sentAt.nanosecondsSince1970)")
+            Log.debug("Saved caught up message sent at: \(message.sentAt.nanosecondsSince1970)")
         }
 
         // Update unread status if needed
@@ -484,7 +529,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         Task.detached(priority: .background) {
             guard let groupKey else {
-                Log.info("No image encryption key for group, skipping prefetch")
+                Log.debug("No image encryption key for group, skipping prefetch")
                 return
             }
 
@@ -518,7 +563,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
                 // Use data-based overload to avoid re-compression quality loss
                 ImageCacheContainer.shared.cacheAfterUpload(decryptedData, for: cacheId, url: urlString)
-                Log.info("Prefetched encrypted group image for conversation: \(cacheId)")
+                Log.debug("Prefetched encrypted group image for conversation: \(cacheId)")
             } catch {
                 Log.error("Failed to prefetch encrypted group image: \(error)")
             }

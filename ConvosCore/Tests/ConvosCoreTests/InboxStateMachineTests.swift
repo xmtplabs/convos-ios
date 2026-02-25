@@ -18,7 +18,7 @@ private let testAppLifecycle = MockAppLifecycleProvider()
 /// - Stop flow (ready → stopping → idle)
 /// - Database cleanup on deletion
 /// - Keychain management
-@Suite("InboxStateMachine Tests", .serialized)
+@Suite("InboxStateMachine Tests", .serialized, .timeLimit(.minutes(2)))
 struct InboxStateMachineTests {
     // MARK: - Registration Tests
 

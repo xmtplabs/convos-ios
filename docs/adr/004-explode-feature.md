@@ -1,8 +1,6 @@
 # ADR 004: Conversation Explode Feature
 
-## Status
-
-Accepted
+> **Status**: Accepted
 
 ## Context
 

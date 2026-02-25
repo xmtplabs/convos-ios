@@ -1,9 +1,11 @@
 # Asset Uploads
 
-> **Status**: Approved
+> **Status**: Implemented
 > **Author**: @lourou
 > **Created**: 2026-01-16
-> **Updated**: 2026-01-23
+> **Updated**: 2026-02-23
+> **Canonical ADR**: `docs/adr/008-asset-lifecycle-and-renewal.md`
+> **Related ADRs**: `docs/adr/009-encrypted-conversation-images.md`, `docs/adr/010-public-preview-image-toggle.md`
 
 ## Overview
 

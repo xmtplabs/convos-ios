@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import os
 
 public enum WakeReason: String, Sendable {
     case userInteraction
@@ -35,7 +36,13 @@ public protocol InboxLifecycleManagerProtocol: Actor {
 
     /// Creates a new inbox using the unused inbox cache, registering it with the lifecycle manager.
     /// All inbox creation goes through this method. The new inbox is automatically set as active.
-    func createNewInbox() async -> any MessagingServiceProtocol
+    /// Returns the messaging service and optionally a pre-created conversation ID if one was consumed.
+    func createNewInbox() async -> (service: any MessagingServiceProtocol, conversationId: String?)
+
+    /// Creates a new inbox without consuming the pre-created conversation.
+    /// Used for join flows where we need a fast inbox but will use a different conversation.
+    /// The new inbox is automatically set as active.
+    func createNewInboxOnly() async -> any MessagingServiceProtocol
 
     /// Wakes an inbox, evicting LRU inbox if at capacity.
     /// This is the primary method for waking inboxes from user-initiated operations
@@ -53,24 +60,41 @@ public protocol InboxLifecycleManagerProtocol: Actor {
     func getOrCreateService(clientId: String, inboxId: String) -> any MessagingServiceProtocol
 
     func getOrWake(clientId: String, inboxId: String) async throws -> any MessagingServiceProtocol
+    @discardableResult
+    func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async -> Bool
     func isAwake(clientId: String) -> Bool
     func isSleeping(clientId: String) -> Bool
     func rebalance() async
     func initializeOnAppLaunch() async
     func stopAll() async
-    func prepareUnusedInboxIfNeeded() async
-    func clearUnusedInbox() async
+    func prepareUnusedConversationIfNeeded() async
+    func clearUnusedConversation() async
+
+    nonisolated func getAwakeService(clientId: String) -> (any MessagingServiceProtocol)?
 }
 
 public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     public let maxAwakeInboxes: Int
     public let maxAwakePendingInvites: Int
-    public static let stalePendingInviteInterval: TimeInterval = 7 * 24 * 60 * 60
+    public static let stalePendingInviteInterval: TimeInterval = 24 * 60 * 60
 
-    private var awakeInboxes: [String: any MessagingServiceProtocol] = [:]
+    private var awakeInboxes: [String: any MessagingServiceProtocol] = [:] {
+        didSet { syncAwakeServiceCache() }
+    }
     private var _sleepingClientIds: Set<String> = []
     private var _sleepTimes: [String: Date] = [:]
     private var _activeClientId: String?
+
+    private nonisolated let _awakeServiceCache: OSAllocatedUnfairLock<[String: any MessagingServiceProtocol]> = .init(initialState: [:])
+
+    private func syncAwakeServiceCache() {
+        let snapshot = awakeInboxes
+        _awakeServiceCache.withLock { $0 = snapshot }
+    }
+
+    public nonisolated func getAwakeService(clientId: String) -> (any MessagingServiceProtocol)? {
+        _awakeServiceCache.withLock { $0[clientId] }
+    }
 
     private let databaseReader: any DatabaseReader
     private let databaseWriter: any DatabaseWriter
@@ -79,7 +103,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     private let platformProviders: PlatformProviders
     private let activityRepository: any InboxActivityRepositoryProtocol
     private let pendingInviteRepository: any PendingInviteRepositoryProtocol
-    private let unusedInboxCache: any UnusedInboxCacheProtocol
+    private let unusedConversationCache: any UnusedConversationCacheProtocol
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let apiClient: (any ConvosAPIClientProtocol)?
 
@@ -113,7 +137,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         platformProviders: PlatformProviders,
         activityRepository: (any InboxActivityRepositoryProtocol)? = nil,
         pendingInviteRepository: (any PendingInviteRepositoryProtocol)? = nil,
-        unusedInboxCache: (any UnusedInboxCacheProtocol)? = nil,
+        unusedConversationCache: (any UnusedConversationCacheProtocol)? = nil,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
         apiClient: (any ConvosAPIClientProtocol)? = nil
     ) {
@@ -126,7 +150,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         self.platformProviders = platformProviders
         self.activityRepository = activityRepository ?? InboxActivityRepository(databaseReader: databaseReader)
         self.pendingInviteRepository = pendingInviteRepository ?? PendingInviteRepository(databaseReader: databaseReader)
-        self.unusedInboxCache = unusedInboxCache ?? UnusedInboxCache(
+        self.unusedConversationCache = unusedConversationCache ?? UnusedConversationCache(
             identityStore: identityStore,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
@@ -138,20 +162,20 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
     public func setActiveClientId(_ clientId: String?) {
         _activeClientId = clientId
-        Log.info("Active client ID set to: \(clientId ?? "nil")")
+        Log.debug("Active client ID set to: \(clientId ?? "nil")")
     }
 
-    public func createNewInbox() async -> any MessagingServiceProtocol {
+    public func createNewInbox() async -> (service: any MessagingServiceProtocol, conversationId: String?) {
         // If at capacity, free a slot first
         if awakeInboxes.count >= maxAwakeInboxes {
-            Log.info("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for new inbox")
+            Log.debug("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for new inbox")
             let freed = await sleepLeastRecentlyUsed(excluding: [])
             if !freed {
                 Log.warning("Could not free capacity for new inbox - will exceed maxAwakeInboxes")
             }
         }
 
-        let messagingService = await unusedInboxCache.consumeOrCreateMessagingService(
+        let (messagingService, conversationId) = await unusedConversationCache.consumeOrCreateMessagingService(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             environment: environment
@@ -162,20 +186,50 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         awakeInboxes[clientId] = messagingService
         _sleepingClientIds.remove(clientId)
         _activeClientId = clientId
-        Log.info("New inbox created, registered, and set as active: \(clientId), total awake: \(awakeInboxes.count)")
+
+        if let conversationId {
+            Log.debug("New inbox created with pre-created conversation: \(conversationId), clientId: \(clientId), total awake: \(awakeInboxes.count)")
+        } else {
+            Log.debug("New inbox created (no pre-created conversation), clientId: \(clientId), total awake: \(awakeInboxes.count)")
+        }
+
+        return (service: messagingService, conversationId: conversationId)
+    }
+
+    public func createNewInboxOnly() async -> any MessagingServiceProtocol {
+        if awakeInboxes.count >= maxAwakeInboxes {
+            Log.debug("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for new inbox-only")
+            let freed = await sleepLeastRecentlyUsed(excluding: [])
+            if !freed {
+                Log.warning("Could not free capacity for new inbox-only - will exceed maxAwakeInboxes")
+            }
+        }
+
+        let messagingService = await unusedConversationCache.consumeInboxOnly(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment
+        )
+
+        let clientId = messagingService.clientId
+        awakeInboxes[clientId] = messagingService
+        _sleepingClientIds.remove(clientId)
+        _activeClientId = clientId
+
+        Log.debug("New inbox-only created, clientId: \(clientId), total awake: \(awakeInboxes.count)")
 
         return messagingService
     }
 
     public func wake(clientId: String, inboxId: String, reason: WakeReason) async throws -> any MessagingServiceProtocol {
         if let existing = awakeInboxes[clientId] {
-            Log.info("Inbox already awake: \(clientId)")
+            Log.debug("Inbox already awake: \(clientId)")
             return existing
         }
 
         // If at capacity, free a slot first
         if awakeInboxes.count >= maxAwakeInboxes {
-            Log.info("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for \(clientId)")
+            Log.debug("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for \(clientId)")
             let freed = await sleepLeastRecentlyUsed(excluding: [clientId])
             if !freed {
                 Log.warning("Could not free capacity - attemptWake may fail unless inbox has pending invite")
@@ -186,10 +240,10 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     }
 
     private func attemptWake(clientId: String, inboxId: String, reason: WakeReason) async throws -> any MessagingServiceProtocol {
-        Log.info("Attempting wake for inbox clientId: \(clientId), reason: \(reason.rawValue)")
+        Log.debug("Attempting wake for inbox clientId: \(clientId), reason: \(reason.rawValue)")
 
         if let existing = awakeInboxes[clientId] {
-            Log.info("Inbox already awake: \(clientId)")
+            Log.debug("Inbox already awake: \(clientId)")
             _sleepTimes.removeValue(forKey: clientId)
             return existing
         }
@@ -223,7 +277,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         _sleepingClientIds.remove(clientId)
         _sleepTimes.removeValue(forKey: clientId)
 
-        Log.info("Inbox woke successfully: \(clientId), total awake: \(awakeInboxes.count)")
+        Log.debug("Inbox woke successfully: \(clientId), total awake: \(awakeInboxes.count)")
         return service
     }
 
@@ -234,7 +288,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
     public func sleep(clientId: String) async {
         guard let service = awakeInboxes.removeValue(forKey: clientId) else {
-            Log.info("Inbox not awake, cannot sleep: \(clientId)")
+            Log.debug("Inbox not awake, cannot sleep: \(clientId)")
             return
         }
 
@@ -252,29 +306,29 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                 awakeInboxes[clientId] = service
                 return
             }
-            Log.info("Pending invite inbox over cap (\(awakePendingCount)/\(maxAwakePendingInvites)), allowing sleep: \(clientId)")
+            Log.debug("Pending invite inbox over cap (\(awakePendingCount)/\(maxAwakePendingInvites)), allowing sleep: \(clientId)")
         }
 
-        Log.info("Sleeping inbox: \(clientId)")
+        Log.debug("Sleeping inbox: \(clientId)")
         let sleepTime = Date()
         await service.stop()
 
         guard awakeInboxes[clientId] == nil else {
-            Log.info("Inbox was re-woken during stop, not marking as sleeping: \(clientId)")
+            Log.debug("Inbox was re-woken during stop, not marking as sleeping: \(clientId)")
             return
         }
 
         _sleepingClientIds.insert(clientId)
         _sleepTimes[clientId] = sleepTime
-        Log.info("Inbox slept successfully: \(clientId), total awake: \(awakeInboxes.count)")
+        Log.debug("Inbox slept successfully: \(clientId), total awake: \(awakeInboxes.count)")
     }
 
     public func forceRemove(clientId: String) async {
         if let service = awakeInboxes.removeValue(forKey: clientId) {
             await service.stop()
-            Log.info("Stopped and force removed inbox from tracking: \(clientId)")
+            Log.debug("Stopped and force removed inbox from tracking: \(clientId)")
         } else {
-            Log.info("Force removed inbox from tracking (was not awake): \(clientId)")
+            Log.debug("Force removed inbox from tracking (was not awake): \(clientId)")
         }
         _sleepingClientIds.remove(clientId)
         _sleepTimes.removeValue(forKey: clientId)
@@ -299,6 +353,29 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         return try await wake(clientId: clientId, inboxId: inboxId, reason: .userInteraction)
     }
 
+    @discardableResult
+    public func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async -> Bool {
+        guard awakeInboxes[clientId] == nil else {
+            Log.debug("Inbox already tracked, skipping external registration: \(clientId)")
+            return false
+        }
+        if awakeInboxes.count >= maxAwakeInboxes {
+            let freed = await sleepLeastRecentlyUsed(excluding: [clientId])
+            if !freed {
+                Log.warning("Could not free capacity for external service registration: \(clientId)")
+            }
+        }
+        guard awakeInboxes[clientId] == nil else {
+            Log.debug("Inbox registered by another task during eviction, skipping: \(clientId)")
+            return false
+        }
+        awakeInboxes[clientId] = service
+        _sleepingClientIds.remove(clientId)
+        _sleepTimes.removeValue(forKey: clientId)
+        Log.debug("Registered external service: \(clientId), total awake: \(awakeInboxes.count)")
+        return true
+    }
+
     public func isAwake(clientId: String) -> Bool {
         awakeInboxes[clientId] != nil
     }
@@ -314,14 +391,14 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
             // Filter out unused inboxes - they're reserved for createNewInbox() and should not be
             // woken by rebalance. This prevents dual-tracking where the same inbox exists in both
-            // awakeInboxes and unusedInboxCache.
+            // awakeInboxes and unusedConversationCache.
             var eligibleActivities: [InboxActivity] = []
             for activity in allActivities {
-                let isUnused = await unusedInboxCache.isUnusedInbox(activity.inboxId)
+                let isUnused = await unusedConversationCache.isUnusedInbox(activity.inboxId)
                 if !isUnused {
                     eligibleActivities.append(activity)
                 } else {
-                    Log.info("Rebalance: skipping unused inbox \(activity.clientId)")
+                    Log.debug("Rebalance: skipping unused inbox \(activity.clientId)")
                 }
             }
 
@@ -346,7 +423,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             // Sleep inboxes - free capacity before waking
             let awakeClientIdsCopy = Set(awakeInboxes.keys)
             for clientId in awakeClientIdsCopy where !shouldBeAwake.contains(clientId) {
-                Log.info("Rebalance: sleeping inbox \(clientId)")
+                Log.debug("Rebalance: sleeping inbox \(clientId)")
                 await sleep(clientId: clientId)
             }
 
@@ -355,7 +432,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             for activity in eligibleActivities where shouldBeAwake.contains(activity.clientId) {
                 if !awakeInboxes.keys.contains(activity.clientId) {
                     do {
-                        Log.info("Rebalance: waking inbox \(activity.clientId) (lastActivity: \(activity.lastActivity?.description ?? "nil"))")
+                        Log.debug("Rebalance: waking inbox \(activity.clientId) (lastActivity: \(activity.lastActivity?.description ?? "nil"))")
                         _ = try await attemptWake(clientId: activity.clientId, inboxId: activity.inboxId, reason: .activityRanking)
                     } catch {
                         failedWakeCount += 1
@@ -367,14 +444,14 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             if failedWakeCount > 0 {
                 Log.warning("Rebalance: \(failedWakeCount) inbox(es) failed to wake")
             }
-            Log.info("Rebalance complete: \(awakeInboxes.count) awake, \(_sleepingClientIds.count) sleeping")
+            Log.debug("Rebalance complete: \(awakeInboxes.count) awake, \(_sleepingClientIds.count) sleeping")
         } catch {
             Log.error("Rebalance failed: \(error)")
         }
     }
 
     public func initializeOnAppLaunch() async {
-        Log.info("Initializing InboxLifecycleManager on app launch")
+        Log.debug("Initializing InboxLifecycleManager on app launch")
 
         await cleanupStalePendingInvites()
 
@@ -383,7 +460,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             let allPendingInvites = try pendingInviteRepository.allPendingInvites()
             let activityClientIds = Set(allActivities.map { $0.clientId })
 
-            Log.info("Found \(allActivities.count) inboxes with activity, \(allPendingInvites.count) with pending invites")
+            Log.debug("Found \(allActivities.count) inboxes with activity, \(allPendingInvites.count) with pending invites")
 
             let pendingInviteClientIds = Set(
                 allPendingInvites
@@ -410,7 +487,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                     } else {
                         _sleepingClientIds.insert(activity.clientId)
                         _sleepTimes[activity.clientId] = Date()
-                        Log.info("Pending invite inbox over cap, marked sleeping: \(activity.clientId)")
+                        Log.debug("Pending invite inbox over cap, marked sleeping: \(activity.clientId)")
                     }
                 } else if awakeInboxes.count < maxAwakeInboxes {
                     do {
@@ -425,7 +502,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                 } else {
                     _sleepingClientIds.insert(activity.clientId)
                     _sleepTimes[activity.clientId] = Date()
-                    Log.info("Inbox marked as sleeping: \(activity.clientId)")
+                    Log.debug("Inbox marked as sleeping: \(activity.clientId)")
                 }
             }
 
@@ -434,7 +511,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                 let inboxId = pendingInvite.inboxId
                 if !activityClientIds.contains(clientId) && !awakeInboxes.keys.contains(clientId) {
                     if awakePendingInviteCount < maxAwakePendingInvites {
-                        Log.info("Waking pending invite inbox with no activity record: \(clientId)")
+                        Log.debug("Waking pending invite inbox with no activity record: \(clientId)")
                         do {
                             _ = try await attemptWake(
                                 clientId: clientId,
@@ -448,12 +525,12 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                     } else {
                         _sleepingClientIds.insert(clientId)
                         _sleepTimes[clientId] = Date()
-                        Log.info("Pending invite inbox (no activity) over cap, marked sleeping: \(clientId)")
+                        Log.debug("Pending invite inbox (no activity) over cap, marked sleeping: \(clientId)")
                     }
                 }
             }
 
-            Log.info(
+            Log.debug(
                 "App launch initialization complete: \(awakeInboxes.count) awake, " +
                 "\(_sleepingClientIds.count) sleeping, \(awakePendingInviteCount) pending invite inboxes awake"
             )
@@ -468,18 +545,86 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             let staleClientIds = try pendingInviteRepository.stalePendingInviteClientIds(olderThan: cutoff)
             guard !staleClientIds.isEmpty else { return }
 
-            // TODO: re-enable deletion once we've validated via the debug view in production
-            Log.info("Found \(staleClientIds.count) stale pending invite(s) older than 7 days (not deleting yet)")
+            let expiredInvites: [DBConversation] = try await databaseReader.read { db in
+                let sql = """
+                    SELECT c.*
+                    FROM conversation c
+                    WHERE c.id LIKE 'draft-%'
+                        AND c.inviteTag IS NOT NULL
+                        AND length(c.inviteTag) > 0
+                        AND c.createdAt < ?
+                        AND (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) <= 1
+                    """
+                return try DBConversation.fetchAll(db, sql: sql, arguments: [cutoff])
+            }
+
+            guard !expiredInvites.isEmpty else { return }
+
+            let expiredConversationIds = Set(expiredInvites.map { $0.id })
+            let expiredClientIds = Set(expiredInvites.map { $0.clientId })
+
+            let clientIdsToKeep: Set<String> = try await databaseReader.read { db in
+                let placeholders = expiredClientIds.map { _ in "?" }.joined(separator: ",")
+                let expiredIdPlaceholders = expiredConversationIds.map { _ in "?" }.joined(separator: ",")
+                let sql = """
+                    SELECT DISTINCT c.clientId
+                    FROM conversation c
+                    WHERE c.clientId IN (\(placeholders))
+                        AND (
+                            (SELECT COUNT(*) FROM conversation_members cm WHERE cm.conversationId = c.id) > 1
+                            OR c.id NOT IN (\(expiredIdPlaceholders))
+                        )
+                    """
+                let arguments = StatementArguments(Array(expiredClientIds) + Array(expiredConversationIds))
+                return Set(try String.fetchAll(db, sql: sql, arguments: arguments))
+            }
+
+            let safeToDeleteClientIds = expiredClientIds.subtracting(clientIdsToKeep)
+            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
+
+            for clientId in safeToDeleteClientIds {
+                await forceRemove(clientId: clientId)
+
+                do {
+                    let identity = try await identityStore.delete(clientId: clientId)
+                    Log.debug("Deleted keychain identity for expired invite inbox: \(identity.inboxId)")
+                } catch {
+                    Log.warning("Could not delete keychain identity for clientId \(clientId): \(error)")
+                }
+
+                do {
+                    try await inboxWriter.delete(clientId: clientId)
+                    Log.debug("Deleted inbox record for expired invite clientId: \(clientId)")
+                } catch {
+                    Log.warning("Could not delete inbox record for clientId \(clientId): \(error)")
+                }
+            }
+
+            let safeToDeleteConversationIds = expiredInvites
+                .filter { safeToDeleteClientIds.contains($0.clientId) }
+                .map { $0.id }
+
+            let deletedCount = try await databaseWriter.write { db in
+                try DBConversation
+                    .filter(safeToDeleteConversationIds.contains(DBConversation.Columns.id))
+                    .deleteAll(db)
+            }
+
+            if !clientIdsToKeep.isEmpty {
+                Log.debug("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
+            }
+
+            Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")
         } catch {
-            Log.error("Failed to check stale pending invites: \(error)")
+            Log.error("Failed to cleanup stale pending invites: \(error)")
         }
     }
 
     public func stopAll() async {
-        Log.info("Stopping all inboxes")
+        Log.debug("Stopping all inboxes")
 
         for (clientId, service) in awakeInboxes {
-            Log.info("Stopping inbox: \(clientId)")
+            Log.debug("Stopping inbox: \(clientId)")
             await service.stop()
         }
 
@@ -488,53 +633,47 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         _sleepTimes.removeAll()
         _activeClientId = nil
 
-        Log.info("All inboxes stopped")
+        Log.debug("All inboxes stopped")
     }
 
-    public func prepareUnusedInboxIfNeeded() async {
-        await unusedInboxCache.prepareUnusedInboxIfNeeded(
+    public func prepareUnusedConversationIfNeeded() async {
+        await unusedConversationCache.prepareUnusedConversationIfNeeded(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
             environment: environment
         )
     }
 
-    public func clearUnusedInbox() async {
-        await unusedInboxCache.clearUnusedInboxFromKeychain()
+    public func clearUnusedConversation() async {
+        await unusedConversationCache.clearUnusedFromKeychain()
     }
 
     /// Attempts to sleep the least recently used inbox to free capacity.
     ///
-    /// Inboxes with `nil` lastActivity are treated as "newly created" and protected from eviction
-    /// for `newInboxProtectionWindow` seconds after creation. This prevents newly created inboxes
-    /// (which haven't received messages yet) from being immediately evicted.
-    ///
-    /// Note: This differs from `SleepingInboxMessageChecker.findOldestAwakeLastActivity()` which
-    /// treats `nil` lastActivity as `.distantPast` for message timestamp comparisons. The semantics
-    /// differ because eviction protection (here) and message recency comparison (there) have
-    /// different goals.
+    /// Inboxes with `nil` lastActivity are treated as "never used" and are preferred eviction
+    /// candidates since they have no message activity to lose. The activity repository returns
+    /// inboxes sorted by lastActivity (oldest first, nil treated as distantPast), so iterating
+    /// from the end finds the most recently used inbox that can be evicted.
     ///
     /// - Returns: `true` if an inbox was successfully slept, `false` otherwise.
     @discardableResult
     private func sleepLeastRecentlyUsed(excluding excludedClientIds: Set<String>) async -> Bool {
         do {
             let activities = try activityRepository.allInboxActivities()
-            let newInboxThreshold = Date().addingTimeInterval(-SleepingInboxMessageChecker.newInboxProtectionWindow)
 
             let sleepCandidate = activities.last { activity in
                 awakeInboxes[activity.clientId] != nil &&
                 !excludedClientIds.contains(activity.clientId) &&
                 !pendingInviteClientIds.contains(activity.clientId) &&
-                activity.clientId != _activeClientId &&
-                (activity.lastActivity != nil || activity.createdAt < newInboxThreshold)
+                activity.clientId != _activeClientId
             }
 
             if let candidate = sleepCandidate {
-                Log.info("LRU sleep candidate: \(candidate.clientId), lastActivity: \(candidate.lastActivity?.description ?? "nil"), createdAt: \(candidate.createdAt)")
+                Log.debug("LRU sleep candidate: \(candidate.clientId), lastActivity: \(candidate.lastActivity?.description ?? "nil"), createdAt: \(candidate.createdAt)")
                 await sleep(clientId: candidate.clientId)
                 return true
             } else {
-                Log.warning("No suitable inbox found for LRU sleep - all inboxes are protected, active, have pending invites, or are newly created")
+                Log.warning("No suitable inbox found for LRU sleep - all inboxes are active or have pending invites")
                 return false
             }
         } catch {

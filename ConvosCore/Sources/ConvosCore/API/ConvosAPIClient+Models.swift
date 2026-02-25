@@ -129,6 +129,29 @@ public enum ConvosAPI {
     // Returns: 200 with empty body on success
     // Errors: 400 (invalid params), 404 (client not found), 500 (server error)
 
+    // MARK: - v2/agents/join
+    // POST /v2/agents/join
+
+    public struct AgentJoinRequest: Codable {
+        public let slug: String
+        public let instructions: String
+
+        public init(slug: String, instructions: String) {
+            self.slug = slug
+            self.instructions = instructions
+        }
+    }
+
+    public struct AgentJoinResponse: Codable {
+        public let success: Bool
+        public let joined: Bool
+
+        public init(success: Bool, joined: Bool) {
+            self.success = success
+            self.joined = joined
+        }
+    }
+
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {
@@ -143,5 +166,41 @@ public enum ConvosAPI {
         public let received: String?
         public let path: [String]
         public let message: String
+    }
+
+    // MARK: - v2/assets/renew-batch
+    // POST /v2/assets/renew-batch
+    // Purpose: Renew (copy-to-self) multiple S3 assets to reset their lifecycle expiration
+    // Returns: 200 with BatchRenewResponse body
+    // Errors: 400 (invalid body), 401 (unauthorized), 500 (server error)
+
+    struct BatchRenewRequest: Codable {
+        let assetKeys: [String]
+    }
+
+    struct BatchRenewResponse: Codable {
+        let renewed: Int
+        let failed: Int
+        let results: [AssetResult]
+
+        struct AssetResult: Codable {
+            let key: String
+            let success: Bool
+            let error: String?
+        }
+    }
+}
+
+// MARK: - Asset Renewal Result
+
+public struct AssetRenewalResult: Sendable {
+    public let renewed: Int
+    public let failed: Int
+    public let expiredKeys: [String]
+
+    public init(renewed: Int, failed: Int, expiredKeys: [String]) {
+        self.renewed = renewed
+        self.failed = failed
+        self.expiredKeys = expiredKeys
     }
 }

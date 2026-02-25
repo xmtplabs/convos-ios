@@ -170,3 +170,71 @@ public final class MockDraftConversationRepository: DraftConversationRepositoryP
         mockConversation
     }
 }
+
+// MARK: - Mock Photo Preferences Repository
+
+public final class MockPhotoPreferencesRepository: PhotoPreferencesRepositoryProtocol, @unchecked Sendable {
+    public var mockPreferences: PhotoPreferences?
+
+    public init(preferences: PhotoPreferences? = nil) {
+        self.mockPreferences = preferences
+    }
+
+    public func preferences(for conversationId: String) async throws -> PhotoPreferences? {
+        mockPreferences
+    }
+
+    public func preferencesPublisher(for conversationId: String) -> AnyPublisher<PhotoPreferences?, Never> {
+        Just(mockPreferences).eraseToAnyPublisher()
+    }
+}
+
+// MARK: - Mock Photo Preferences Writer
+
+public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @unchecked Sendable {
+    public var autoRevealValues: [String: Bool] = [:]
+    public var hasRevealedFirstValues: [String: Bool] = [:]
+
+    public init() {}
+
+    public func setAutoReveal(_ autoReveal: Bool, for conversationId: String) async throws {
+        autoRevealValues[conversationId] = autoReveal
+    }
+
+    public func setHasRevealedFirst(_ hasRevealedFirst: Bool, for conversationId: String) async throws {
+        hasRevealedFirstValues[conversationId] = hasRevealedFirst
+    }
+}
+
+// MARK: - Mock Attachment Local State Writer
+
+public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterProtocol, @unchecked Sendable {
+    public var revealedAttachments: [String: String] = [:]
+    public var hiddenKeys: Set<String> = []
+
+    public init() {}
+
+    public func markRevealed(attachmentKey: String, conversationId: String) async throws {
+        revealedAttachments[attachmentKey] = conversationId
+    }
+
+    public func markHidden(attachmentKey: String, conversationId: String) async throws {
+        hiddenKeys.insert(attachmentKey)
+        revealedAttachments.removeValue(forKey: attachmentKey)
+    }
+
+    public func saveWithDimensions(
+        attachmentKey: String,
+        conversationId: String,
+        width: Int,
+        height: Int
+    ) async throws {
+        // No-op for mock
+    }
+
+    public func migrateKey(from oldKey: String, to newKey: String) async throws {
+        if let conversationId = revealedAttachments.removeValue(forKey: oldKey) {
+            revealedAttachments[newKey] = conversationId
+        }
+    }
+}

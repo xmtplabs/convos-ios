@@ -39,7 +39,7 @@ struct PendingInviteDebugView: View {
                         .font(.system(.body, design: .monospaced))
                 }
                 HStack {
-                    Text("Expired (> 7 days)")
+                    Text("Expired (> 24 hours)")
                     Spacer()
                     Text("\(expiredDetails.count)")
                         .foregroundStyle(expiredDetails.isEmpty ? .colorTextSecondary : .red)

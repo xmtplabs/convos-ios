@@ -10,6 +10,7 @@ public protocol SyncingManagerProtocol: Actor {
     func stop() async
     func pause() async
     func resume() async
+    func requestDiscovery() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
 }
 
@@ -106,6 +107,10 @@ actor SyncingManager: SyncingManagerProtocol {
 
     private var activeConversationId: String?
 
+    // Stream readiness tracking - used to wait for streams to subscribe before signaling ready
+    private var messageStreamReadyContinuation: AsyncStream<Void>.Continuation?
+    private var conversationStreamReadyContinuation: AsyncStream<Void>.Continuation?
+
     // State machine
     private var _state: State = .idle
     private var actionQueue: [Action] = []
@@ -125,16 +130,21 @@ actor SyncingManager: SyncingManagerProtocol {
 
     // MARK: - Initialization
 
+    private let databaseReader: any DatabaseReader
+
     init(identityStore: any KeychainIdentityStoreProtocol,
          databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
-         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil) {
+         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+         notificationCenter: any UserNotificationCenterProtocol) {
         self.identityStore = identityStore
+        self.databaseReader = databaseReader
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
-            deviceRegistrationManager: deviceRegistrationManager
+            deviceRegistrationManager: deviceRegistrationManager,
+            notificationCenter: notificationCenter
         )
         self.joinRequestsManager = InviteJoinRequestsManager(
             identityStore: identityStore,
@@ -219,12 +229,12 @@ actor SyncingManager: SyncingManagerProtocol {
 
             case (.starting, .start):
                 // Already starting - ignore duplicate start
-                Log.info("Already starting, ignoring duplicate start request")
+                Log.debug("Already starting, ignoring duplicate start request")
 
             case let (.starting(stateParams, pauseOnComplete), .syncComplete(actionParams)):
                 // Validate this syncComplete is for the current starting session
                 guard stateParams.client.inboxId == actionParams.client.inboxId else {
-                    Log.info("Ignoring stale syncComplete for old session (expected \(stateParams.client.inboxId), got \(actionParams.client.inboxId))")
+                    Log.debug("Ignoring stale syncComplete for old session (expected \(stateParams.client.inboxId), got \(actionParams.client.inboxId))")
                     break
                 }
                 try await handleSyncComplete(params: actionParams, pauseOnComplete: pauseOnComplete)
@@ -232,14 +242,14 @@ actor SyncingManager: SyncingManagerProtocol {
             case let (.ready(readyParams), .start(startParams)):
                 if readyParams.client.inboxId != startParams.client.inboxId {
                     // stop first, then start
-                    Log.info("Starting with different client params")
+                    Log.debug("Starting with different client params")
                     try await handleStop()
                     try await handleStart(
                         client: startParams.client,
                         apiClient: startParams.apiClient
                     )
                 } else {
-                    Log.info("Already ready, ignoring duplicate start request")
+                    Log.debug("Already ready, ignoring duplicate start request")
                 }
             case (.paused, .start(let params)):
                 // Already running - stop first, then start
@@ -258,12 +268,12 @@ actor SyncingManager: SyncingManagerProtocol {
 
             case (.starting(let params, _), .pause):
                 // Pause requested during starting - will pause once sync completes
-                Log.info("Pause requested while starting - will pause once sync completes")
+                Log.debug("Pause requested while starting - will pause once sync completes")
                 emitStateChange(.starting(params, pauseOnComplete: true))
 
             case (.starting(let params, _), .resume):
                 // User changed their mind - cancel the pending pause
-                Log.info("Resume requested while starting - cancelling pending pause")
+                Log.debug("Resume requested while starting - cancelling pending pause")
                 emitStateChange(.starting(params, pauseOnComplete: false))
 
             case (.ready, .streamFailed), (.starting, .streamFailed):
@@ -284,7 +294,7 @@ actor SyncingManager: SyncingManagerProtocol {
             case (.idle, .syncComplete(_)):
                 // Sync completed but stop was already processed - ignore
                 // This can happen if syncAllConversations completes just before cancellation
-                Log.info("Sync completed after stop - ignoring")
+                Log.debug("Sync completed after stop - ignoring")
 
             default:
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
@@ -316,6 +326,10 @@ actor SyncingManager: SyncingManagerProtocol {
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
+        // Set up stream readiness tracking BEFORE creating tasks to avoid race conditions.
+        // If we create tasks first, they might signal readiness before continuations are set up.
+        let streams = setupStreamReadinessTracking()
+
         messageStreamTask = Task { [weak self, params] in
             guard let self else { return }
             await self.runMessageStream(params: params)
@@ -326,20 +340,31 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
-        // Now call syncAllConversations after streams are setup
-        Log.info("Streams started - calling syncAllConversations...")
+        // Wait for streams to enter their async iteration loops before proceeding.
+        // This ensures streams are actually subscribed to the XMTP network before
+        // we signal isSyncReady, preventing race conditions where messages sent
+        // immediately after isSyncReady could be missed.
+        Log.debug("Waiting for streams to subscribe...")
+        await waitForStreamsToBeReady(messageStream: streams.messageStream, conversationStream: streams.conversationStream)
+
+        // Now call syncAllConversations after streams are subscribed
+        Log.debug("Streams subscribed - calling syncAllConversations...")
         syncTask = Task { [weak self, params] in
             guard let self else { return }
+            let syncStart = CFAbsoluteTimeGetCurrent()
             do {
                 try Task.checkCancellation()
                 _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
                 try Task.checkCancellation()
+                let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
+                Log.info("[PERF] sync.all_conversations: \(syncElapsed)ms")
                 // Route sync completion through the action queue for consistent state transitions
                 await self.enqueueAction(.syncComplete(params))
             } catch is CancellationError {
-                Log.info("syncAllConversations cancelled")
+                Log.debug("syncAllConversations cancelled")
             } catch {
-                Log.error("syncAllConversations failed: \(error)")
+                let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
+                Log.error("syncAllConversations failed after \(syncElapsed)ms: \(error)")
                 // Transition to ready state anyway - streams are already running
                 // and will continue to receive updates. The initial sync failure
                 // shouldn't block the app from functioning.
@@ -362,10 +387,16 @@ actor SyncingManager: SyncingManagerProtocol {
                 conversationStreamTask = nil
             }
             emitStateChange(.paused(params))
-            Log.info("syncAllConversations completed, transitioned to paused (pause was requested during starting)")
+            Log.debug("syncAllConversations completed, transitioned to paused (pause was requested during starting)")
         } else {
             emitStateChange(.ready(params))
             Log.info("syncAllConversations completed, sync ready")
+            QAEvent.emit(.sync, "completed")
+
+            // Discover any XMTP groups that the conversation stream missed.
+            // This handles cases where the joiner was added to a group while
+            // the inbox was paused, stopped, or the stream had a timeout.
+            await discoverNewConversations(params: params)
 
             // Process any join requests that may have been missed during stream startup.
             // This handles the race condition where a joiner sends a DM before the message
@@ -379,6 +410,139 @@ actor SyncingManager: SyncingManagerProtocol {
         if !results.isEmpty {
             Log.info("Processed \(results.count) join requests after sync complete")
         }
+    }
+
+    /// Lists all XMTP groups and processes any that are missing from the local database.
+    ///
+    /// After syncAllConversations syncs the XMTP data layer, the local DB may still be
+    /// missing groups that the conversation stream failed to deliver (e.g., stream timeout,
+    /// inbox paused during approval, app backgrounded). This method provides a fallback
+    /// by listing all groups and storing any that aren't already in the DB.
+    private func discoverNewConversations(params: SyncClientParams) async {
+        do {
+            let groups = try params.client.conversationsProvider.listGroups(
+                createdAfterNs: nil,
+                createdBeforeNs: nil,
+                lastActivityAfterNs: nil,
+                lastActivityBeforeNs: nil,
+                limit: nil,
+                consentStates: params.consentStates,
+                orderBy: .lastActivity
+            )
+
+            let existingIds: Set<String> = try await databaseReader.read { db in
+                let ids = try String.fetchAll(
+                    db,
+                    DBConversation.select(DBConversation.Columns.id)
+                )
+                return Set(ids)
+            }
+
+            var discoveredCount: Int = 0
+            for group in groups where !existingIds.contains(group.id) {
+                do {
+                    let creatorInboxId = try await group.creatorInboxId()
+                    let memberCount = try await group.members.count
+                    if creatorInboxId == params.client.inboxId && memberCount <= 1 {
+                        Log.debug("Skipping self-created single-member group: \(group.id)")
+                        continue
+                    }
+                    try await streamProcessor.processConversation(group, params: params)
+                    discoveredCount += 1
+                } catch {
+                    Log.error("Failed to process discovered conversation \(group.id): \(error)")
+                }
+            }
+
+            if discoveredCount > 0 {
+                Log.info("Discovered \(discoveredCount) new conversations after sync")
+            }
+        } catch {
+            Log.error("Failed to discover new conversations: \(error)")
+        }
+    }
+
+    /// Waits for both message and conversation streams to signal they're ready.
+    /// Sets up stream readiness tracking by creating continuations that stream tasks will signal.
+    /// Must be called BEFORE creating stream tasks to avoid race conditions.
+    /// Returns the streams to wait on.
+    private func setupStreamReadinessTracking() -> (messageStream: AsyncStream<Void>, conversationStream: AsyncStream<Void>) {
+        let (messageReadyStream, messageReadyContinuation) = AsyncStream<Void>.makeStream()
+        let (conversationReadyStream, conversationReadyContinuation) = AsyncStream<Void>.makeStream()
+
+        messageStreamReadyContinuation = messageReadyContinuation
+        conversationStreamReadyContinuation = conversationReadyContinuation
+
+        return (messageReadyStream, conversationReadyStream)
+    }
+
+    /// Waits for streams to signal they've entered their async iteration loops.
+    /// Uses continuations that are resumed by the stream functions when they enter their async loops.
+    /// Includes a timeout to prevent indefinite blocking if streams fail to start.
+    private func waitForStreamsToBeReady(
+        messageStream: AsyncStream<Void>,
+        conversationStream: AsyncStream<Void>
+    ) async {
+        await withTaskGroup(of: Void.self) { [messageStreamReadyContinuation, conversationStreamReadyContinuation] group in
+            // Wait for message stream to signal ready
+            group.addTask {
+                for await _ in messageStream {
+                    break
+                }
+            }
+
+            // Wait for conversation stream to signal ready
+            group.addTask {
+                for await _ in conversationStream {
+                    break
+                }
+            }
+
+            // Timeout after 10 seconds to prevent indefinite blocking.
+            // AsyncStream doesn't respond to task cancellation, so we must finish the
+            // continuations to unblock the waiting tasks when timeout fires.
+            group.addTask {
+                do {
+                    try await Task.sleep(for: .seconds(10))
+                    Log.warning("Stream ready timeout - proceeding anyway")
+                    // Finish continuations so waiting tasks complete (AsyncStream ignores cancelAll)
+                    messageStreamReadyContinuation?.finish()
+                    conversationStreamReadyContinuation?.finish()
+                } catch {
+                    // Task was cancelled because streams signaled ready in time - no warning needed
+                }
+            }
+
+            // Wait for both streams to be ready OR timeout
+            var completedCount = 0
+            for await _ in group {
+                completedCount += 1
+                if completedCount >= 2 {
+                    // At least 2 tasks completed: either both streams ready,
+                    // or one stream + timeout (acceptable fallback)
+                    group.cancelAll()
+                    break
+                }
+            }
+        }
+
+        // Clean up continuations
+        messageStreamReadyContinuation = nil
+        conversationStreamReadyContinuation = nil
+    }
+
+    /// Signals that the message stream has entered its async iteration loop.
+    private func signalMessageStreamReady() {
+        messageStreamReadyContinuation?.yield()
+        messageStreamReadyContinuation?.finish()
+        messageStreamReadyContinuation = nil
+    }
+
+    /// Signals that the conversation stream has entered its async iteration loop.
+    private func signalConversationStreamReady() {
+        conversationStreamReadyContinuation?.yield()
+        conversationStreamReadyContinuation?.finish()
+        conversationStreamReadyContinuation = nil
     }
 
     private func handlePause() async throws {
@@ -417,6 +581,9 @@ actor SyncingManager: SyncingManagerProtocol {
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
 
+        // Set up stream readiness tracking BEFORE creating tasks to avoid race conditions.
+        let streams = setupStreamReadinessTracking()
+
         messageStreamTask = Task { [weak self, params] in
             guard let self else { return }
             await self.runMessageStream(params: params)
@@ -427,8 +594,43 @@ actor SyncingManager: SyncingManagerProtocol {
             await self.runConversationStream(params: params)
         }
 
+        // Wait for streams to subscribe before transitioning to ready
+        Log.debug("Waiting for streams to subscribe after resume...")
+        await waitForStreamsToBeReady(messageStream: streams.messageStream, conversationStream: streams.conversationStream)
+
+        // Re-sync to pick up any changes that occurred while paused/backgrounded.
+        // The conversation stream only delivers new groups created after subscription,
+        // so groups added while paused would be missed without this.
+        do {
+            let syncStart = CFAbsoluteTimeGetCurrent()
+            _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+            let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
+            Log.info("[PERF] sync.resume_conversations: \(syncElapsed)ms")
+        } catch {
+            Log.error("syncAllConversations on resume failed: \(error)")
+        }
+
         emitStateChange(.ready(params))
         Log.info("Sync resumed")
+
+        await discoverNewConversations(params: params)
+        await processJoinRequestsAfterSync(params: params)
+    }
+
+    func requestDiscovery() async {
+        guard case .ready(let params) = _state else {
+            Log.debug("requestDiscovery ignored - not in ready state (\(_state))")
+            return
+        }
+        do {
+            let syncStart = CFAbsoluteTimeGetCurrent()
+            _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+            let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
+            Log.info("[PERF] sync.requestDiscovery: \(syncElapsed)ms")
+            await discoverNewConversations(params: params)
+        } catch {
+            Log.error("requestDiscovery failed: \(error)")
+        }
     }
 
     private func handleStop() async throws {
@@ -479,7 +681,12 @@ actor SyncingManager: SyncingManagerProtocol {
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
 
-                Log.info("Starting message stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+                Log.debug("Starting message stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+
+                // Signal that we're about to subscribe to the stream (only on first attempt)
+                if retryCount == 0 {
+                    signalMessageStreamReady()
+                }
 
                 // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
                 var isFirstMessage = true
@@ -487,7 +694,7 @@ actor SyncingManager: SyncingManagerProtocol {
                     type: .all,
                     consentStates: params.consentStates,
                     onClose: {
-                        Log.info("Message stream closed via onClose callback")
+                        Log.debug("Message stream closed via onClose callback")
                     }
                 )
                 for try await message in stream {
@@ -510,9 +717,9 @@ actor SyncingManager: SyncingManagerProtocol {
 
                 // Stream ended (onClose was called and continuation finished)
                 retryCount += 1
-                Log.info("Message stream ended...")
+                Log.debug("Message stream ended...")
             } catch is CancellationError {
-                Log.info("Message stream cancelled")
+                Log.debug("Message stream cancelled")
                 break
             } catch {
                 retryCount += 1
@@ -536,14 +743,19 @@ actor SyncingManager: SyncingManagerProtocol {
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                 }
 
-                Log.info("Starting conversation stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+                Log.debug("Starting conversation stream (attempt \(retryCount + 1)/\(maxStreamRetries))")
+
+                // Signal that we're about to subscribe to the stream (only on first attempt)
+                if retryCount == 0 {
+                    signalConversationStreamReady()
+                }
 
                 // Stream conversations - the loop will exit when onClose is called
                 var isFirstConversation = true
                 let stream = params.client.conversationsProvider.stream(
                     type: .groups,
                     onClose: {
-                        Log.info("Conversation stream closed via onClose callback")
+                        Log.debug("Conversation stream closed via onClose callback")
                     }
                 )
                 for try await conversation in stream {
@@ -569,9 +781,9 @@ actor SyncingManager: SyncingManagerProtocol {
 
                 // Stream ended (onClose was called and continuation finished)
                 retryCount += 1
-                Log.info("Conversation stream ended, will retry...")
+                Log.debug("Conversation stream ended, will retry...")
             } catch is CancellationError {
-                Log.info("Conversation stream cancelled")
+                Log.debug("Conversation stream cancelled")
                 break
             } catch {
                 retryCount += 1

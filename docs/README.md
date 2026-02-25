@@ -10,7 +10,7 @@ docs/
 ├── TEMPLATE_PRD.md     # Template for new feature PRDs
 ├── TEMPLATE_ADR.md     # Template for Architecture Decision Records
 ├── plans/              # Feature PRDs and implementation plans
-└── architecture/       # Architecture Decision Records (ADRs)
+└── adr/                # Architecture Decision Records (ADRs)
 ```
 
 ## PRD Workflow
@@ -57,7 +57,7 @@ Create an ADR when:
 
 ### Creating a New ADR
 
-1. Copy `TEMPLATE_ADR.md` to `architecture/adr-[number]-[short-title].md`
+1. Copy `TEMPLATE_ADR.md` to `adr/[number]-[short-title].md`
 2. Use the next sequential number (check existing ADRs)
 3. Fill in all sections, especially the alternatives considered
 4. Set status to "Proposed" for team review
@@ -72,13 +72,28 @@ Create an ADR when:
 | **Deprecated** | No longer applies (but kept for history) |
 | **Superseded** | Replaced by a newer ADR (link to it) |
 
+### ADR Index
+
+| ADR | Title | File |
+|-----|-------|------|
+| 001 | Decentralized Invite System with Cryptographic Tokens | `docs/adr/001-invite-system-architecture.md` |
+| 002 | Per-Conversation Identity Model with Privacy-Preserving Push Notifications | `docs/adr/002-per-conversation-identity-model.md` |
+| 003 | Inbox Lifecycle Management with LRU Eviction | `docs/adr/003-inbox-lifecycle-management.md` |
+| 004 | Conversation Explode Feature | `docs/adr/004-explode-feature.md` |
+| 005 | Profile Storage in Conversation Metadata | `docs/adr/005-profile-storage-in-conversation-metadata.md` |
+| 006 | Lock Convo Feature | `docs/adr/006-lock-convo-feature.md` |
+| 007 | Default Conversation Display Name and Emoji | `docs/adr/007-default-conversation-display-name.md` |
+| 008 | Asset Lifecycle and Renewal Strategy | `docs/adr/008-asset-lifecycle-and-renewal.md` |
+| 009 | Encrypted Conversation Images | `docs/adr/009-encrypted-conversation-images.md` |
+| 010 | Public Preview Image Toggle for Invite Links | `docs/adr/010-public-preview-image-toggle.md` |
+
 ### Using ADRs with Claude Code
 
 The `swift-architect` agent can help with ADRs:
 
 1. **Drafting**: "Help me write an ADR for our [system/decision]"
 2. **Reviewing**: "Review this ADR for completeness"
-3. **Understanding**: "Explain the decisions in architecture/adr-001-*.md"
+3. **Understanding**: "Explain the decisions in docs/adr/001-*.md"
 
 ### ADR Examples
 

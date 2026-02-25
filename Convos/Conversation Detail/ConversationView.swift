@@ -12,9 +12,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
     let messagesTextFieldEnabled: Bool
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
-    @State private var presentingShareView: Bool = false
     @State private var showingLockedInfo: Bool = false
     @State private var showingFullInfo: Bool = false
+    @State private var scrollOverscrollAmount: CGFloat = 0.0
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     var body: some View {
@@ -31,6 +31,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             conversationImage: $viewModel.conversationImage,
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
+            selectedAttachmentImage: $viewModel.selectedAttachmentImage,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -51,13 +52,26 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onReaction: viewModel.onReaction(emoji:messageId:),
+            onToggleReaction: viewModel.onReaction(emoji:messageId:),
             onTapReactions: viewModel.onTapReactions(_:),
-            onDoubleTap: viewModel.onDoubleTap(_:),
+            onReply: { message in
+                viewModel.onReply(message)
+                focusCoordinator.moveFocus(to: .message)
+            },
+            replyingToMessage: viewModel.replyingToMessage,
+            onCancelReply: viewModel.cancelReply,
             onDisplayNameEndedEditing: {
                 viewModel.onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .quickEditor)
             },
             onProfileSettings: viewModel.onProfileSettings,
             onLoadPreviousMessages: viewModel.loadPreviousMessages,
+            shouldBlurPhotos: viewModel.shouldBlurPhotos,
+            onPhotoRevealed: viewModel.onPhotoRevealed(_:),
+            onPhotoHidden: viewModel.onPhotoHidden(_:),
+            onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
+            onBottomOverscrollChanged: { overscroll in
+                scrollOverscrollAmount = overscroll
+            },
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
@@ -65,24 +79,32 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,
                         focusCoordinator: focusCoordinator,
+                        scrollOverscrollAmount: scrollOverscrollAmount,
                         onTapSetupQuickname: {
                             onboardingCoordinator.didTapProfilePhoto()
                             viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
                         },
                         onUseQuickname: viewModel.onUseQuickname(_:_:),
+                        onRequestAssistant: viewModel.requestAssistantJoin,
                         onPresentProfileSettings: viewModel.onProfileSettings
                     )
                 }
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         )
+        .onChange(of: viewModel.selectedAttachmentImage) { oldValue, newValue in
+            if let image = newValue {
+                viewModel.onPhotoSelected(image)
+            } else if oldValue != nil {
+                viewModel.onPhotoRemoved()
+            }
+        }
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
             ConversationForkedInfoView {
                 viewModel.leaveConvo()
             }
-            .background(.colorBackgroundRaised)
         }
         .sheet(isPresented: $viewModel.presentingProfileSettings) {
             MyInfoView(
@@ -110,27 +132,32 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         Image(systemName: "lock.fill")
                             .foregroundStyle(.colorTextSecondary)
                     }
+                    .accessibilityLabel("Conversation locked")
+                    .accessibilityHint("Tap for lock details")
+                    .accessibilityIdentifier("lock-info-button")
                 } else {
                     switch messagesTopBarTrailingItem {
                     case .share:
-                        Button {
-                            if viewModel.isFull {
-                                showingFullInfo = true
-                            } else {
-                                presentingShareView = true
+                        AddToConversationMenu(
+                            isFull: viewModel.isFull,
+                            isEnabled: messagesTopBarTrailingItemEnabled,
+                            onNewAssistant: {
+                                viewModel.requestAssistantJoin()
+                                onboardingCoordinator.assistantWasRequested()
+                            },
+                            onConvoCode: {
+                                if viewModel.isFull {
+                                    showingFullInfo = true
+                                } else {
+                                    viewModel.presentingShareView = true
+                                }
+                            },
+                            onMenuOpen: {
+                                if onboardingCoordinator.state == .assistantHint {
+                                    onboardingCoordinator.dismissAssistantHint()
+                                }
                             }
-                        } label: {
-                            Image(systemName: "square.and.arrow.up")
-                                .foregroundStyle(viewModel.isFull ? .colorTextSecondary : .colorTextPrimary)
-                        }
-                        .fullScreenCover(isPresented: $presentingShareView) {
-                            ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
-                                .presentationBackground(.clear)
-                        }
-                        .disabled(!messagesTopBarTrailingItemEnabled)
-                        .transaction { transaction in
-                            transaction.disablesAnimations = true
-                        }
+                        )
                     case .scan:
                         Button {
                             onScanInviteCode()
@@ -139,6 +166,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         }
                         .buttonBorderShape(.circle)
                         .disabled(!messagesTopBarTrailingItemEnabled)
+                        .accessibilityLabel("Scan invite code")
+                        .accessibilityIdentifier("scan-invite-button")
                     }
                 }
             }
@@ -148,8 +177,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel: viewModel,
                 quicknameViewModel: quicknameViewModel
             )
-            .background(.colorBackgroundPrimary)
-            .interactiveDismissDisabled(viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance)
+            .background(.colorBackgroundSurfaceless)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
             NavigationStack {
@@ -171,7 +199,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $showingLockedInfo) {
             LockedConvoInfoView(
                 isCurrentUserSuperAdmin: viewModel.isCurrentUserSuperAdmin,
-                onUnlock: {
+                isLocked: viewModel.isLocked,
+                onLock: {
                     viewModel.toggleLock()
                     showingLockedInfo = false
                 },
@@ -179,14 +208,26 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     showingLockedInfo = false
                 }
             )
-            .background(.colorBackgroundRaised)
         }
         .selfSizingSheet(isPresented: $showingFullInfo) {
             FullConvoInfoView(onDismiss: {
                 showingFullInfo = false
             })
-            .background(.colorBackgroundRaised)
         }
+        .selfSizingSheet(
+            isPresented: $viewModel.presentingRevealMediaInfoSheet,
+            onDismiss: { viewModel.showRevealSettingsToast() },
+            content: {
+                RevealMediaInfoSheet()
+            }
+        )
+        .selfSizingSheet(
+            isPresented: $viewModel.presentingPhotosInfoSheet,
+            onDismiss: { focusCoordinator.moveFocus(to: .message) },
+            content: {
+                PhotosInfoSheet()
+            }
+        )
     }
 }
 

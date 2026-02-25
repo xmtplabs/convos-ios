@@ -1,4 +1,5 @@
 import ConvosCore
+import ConvosCoreiOS
 import UIKit
 import UserNotifications
 
@@ -9,11 +10,18 @@ import UserNotifications
 class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     var session: (any SessionManagerProtocol)?
     var pushNotificationRegistrar: (any PushNotificationRegistrarProtocol)?
+    private var leftConversationObserver: Any?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         SentryConfiguration.configure()
         UNUserNotificationCenter.current().delegate = self
         application.registerForRemoteNotifications()
+        leftConversationObserver = NotificationCenter.default.addObserver(
+            forName: .leftConversationNotification, object: nil, queue: .main
+        ) { [weak self] notification in
+            guard let conversationId = notification.userInfo?["conversationId"] as? String else { return }
+            Task { await self?.clearDeliveredNotifications(for: conversationId) }
+        }
         return true
     }
 
@@ -33,6 +41,21 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         Log.error("Failed to register for remote notifications: \(error)")
     }
 
+    // MARK: - Background URLSession
+
+    func application(
+        _ application: UIApplication,
+        handleEventsForBackgroundURLSession identifier: String,
+        completionHandler: @escaping @Sendable () -> Void
+    ) {
+        Task {
+            await BackgroundUploadManager.shared.handleEventsForBackgroundURLSession(
+                identifier: identifier,
+                completionHandler: completionHandler
+            )
+        }
+    }
+
     // MARK: - UNUserNotificationCenterDelegate
 
     // Handle notifications when app is in foreground
@@ -45,9 +68,14 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             await session.wakeInboxForNotification(conversationId: conversationId)
         }
 
-        // Always show explosion notifications (identified by isExplosion flag in userInfo)
+        // Handle explosion notifications - trigger cleanup and show banner
         if notification.request.content.userInfo["isExplosion"] as? Bool == true {
-            Log.info("App in foreground - showing explosion notification banner (always show)")
+            Log.info("App in foreground - explosion notification received, triggering cleanup")
+            NotificationCenter.default.post(
+                name: .conversationExpired,
+                object: nil,
+                userInfo: notification.request.content.userInfo
+            )
             return [.banner, .sound]
         }
 

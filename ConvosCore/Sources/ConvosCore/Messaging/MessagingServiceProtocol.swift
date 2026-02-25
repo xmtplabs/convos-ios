@@ -35,10 +35,15 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     func conversationConsentWriter() -> any ConversationConsentWriterProtocol
     func conversationLocalStateWriter() -> any ConversationLocalStateWriterProtocol
 
-    func messageWriter(for conversationId: String) -> any OutgoingMessageWriterProtocol
+    func messageWriter(
+        for conversationId: String,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol
+    ) -> any OutgoingMessageWriterProtocol
     func reactionWriter() -> any ReactionWriterProtocol
+    func replyWriter() -> any ReplyMessageWriterProtocol
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol
+    func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol
     func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol
 
     func uploadImage(data: Data, filename: String) async throws -> String

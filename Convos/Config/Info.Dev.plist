@@ -11,5 +11,7 @@
 			</array>
 		</dict>
 	</array>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Convos needs access to your Photo Library to save photos from conversations.</string>
 </dict>
 </plist>

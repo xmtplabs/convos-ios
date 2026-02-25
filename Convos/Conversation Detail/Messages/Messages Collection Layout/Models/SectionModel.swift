@@ -68,7 +68,8 @@ struct SectionModel<Layout: MessagesLayoutProtocol> {
                 let offset: CGFloat = rowIndex < directlyMutableItems.count - 1
                 ? directlyMutableItems[rowIndex].interItemSpacing
                 : 0
-                offsetY += directlyMutableItems[rowIndex].size.height + offset
+                let h = directlyMutableItems[rowIndex].size.height
+                offsetY += h + offset
             }
         }
 

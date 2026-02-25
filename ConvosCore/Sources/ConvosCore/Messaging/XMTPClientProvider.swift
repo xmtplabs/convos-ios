@@ -43,7 +43,10 @@ public struct SendableXMTPOperations: Sendable {
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
     func prepare(text: String) async throws -> String
+    func prepare(remoteAttachment: RemoteAttachment) async throws -> String
+    func prepare(reply: Reply) async throws -> String
     func publish() async throws
+    func publishMessage(messageId: String) async throws
     func consentState() throws -> ConsentState
 }
 
@@ -261,7 +264,23 @@ extension XMTPiOS.Conversation: MessageSender {
         return try await prepareMessage(content: text)
     }
 
+    public func prepare(remoteAttachment: RemoteAttachment) async throws -> String {
+        return try await prepareMessage(
+            content: remoteAttachment,
+            options: .init(contentType: ContentTypeRemoteAttachment),
+        )
+    }
+
+    public func prepare(reply: Reply) async throws -> String {
+        return try await prepareMessage(
+            content: reply,
+            options: .init(contentType: ContentTypeReply)
+        )
+    }
+
     public func publish() async throws {
         try await publishMessages()
     }
+
+    // publishMessage(messageId:) is already provided by XMTPiOS.Conversation
 }

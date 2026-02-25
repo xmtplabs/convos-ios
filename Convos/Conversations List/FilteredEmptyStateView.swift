@@ -8,7 +8,7 @@ struct FilteredEmptyStateView: View {
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
             Text(message)
-                .font(.body)
+                .font(.callout)
                 .foregroundStyle(.colorTextSecondary)
 
             let showAllAction = { onShowAll() }
@@ -16,6 +16,8 @@ struct FilteredEmptyStateView: View {
                 Text("Show all")
             }
             .convosButtonStyle(.rounded(fullWidth: false))
+            .accessibilityLabel("Show all conversations")
+            .accessibilityIdentifier("show-all-button")
         }
         .frame(maxWidth: .infinity)
         .padding(DesignConstants.Spacing.step6x)

@@ -1,0 +1,138 @@
+id: "01"
+name: "Fresh Onboarding Flow"
+description: >
+  Verify that a first-time user can launch the app, create a conversation,
+  and complete the quickname onboarding flow.
+tags: [onboarding, core, destructive]
+depends_on: []
+estimated_duration_s: 120
+
+prerequisites:
+  app_installed: true
+  simulator_erased: true
+
+setup:
+  - action: erase_simulator
+    note: "Ensures clean state — no prior app data"
+  - action: install_app
+  - action: disable_animations
+  - action: launch_app
+
+steps:
+  - id: empty_state
+    name: "App launches to empty conversations list"
+    actions:
+      - wait_for_element: { id: "start-convo-button", timeout: 15 }
+      - find_elements: { id: "join-convo-button" }
+    verify:
+      - element_exists: { id: "start-convo-button" }
+      - element_exists: { id: "join-convo-button" }
+    criteria: app_launches_empty
+
+  - id: create_conversation
+    name: "Create a new conversation"
+    actions:
+      - tap: { id: "start-convo-button" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+    verify:
+      - element_exists: { id: "invite-qr-code" }
+      - element_exists: { id: "message-text-field" }
+    criteria: compose_opens_conversation
+
+  - id: quickname_prompt
+    name: "Quickname setup prompt appears"
+    actions:
+      - wait_for_element: { id: "setup-quickname-button", timeout: 15 }
+    verify:
+      - element_exists: { id: "setup-quickname-button" }
+    criteria: quickname_prompt_appears
+    note: "Poll immediately — ephemeral element may appear quickly after conversation creation"
+
+  - id: quickname_setup
+    name: "Set quickname via profile editor"
+    actions:
+      - tap: { id: "setup-quickname-button" }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "QA Tester", clear_first: true }
+      - tap: { id: "quick-edit-done-button" }
+    verify:
+      - find_elements: { pattern: "QA Tester" }
+    criteria: quickname_can_be_set
+    note: "Quick-edit uses quick-edit-display-name-field and quick-edit-done-button, not the full profile editor"
+
+  - id: quickname_saved
+    name: "Quickname saved confirmation appears"
+    actions:
+      - wait_for_element: { pattern: "new you in every convo", timeout: 10 }
+    verify:
+      - element_exists: { pattern: "new you in every convo" }
+    criteria: quickname_saved_confirmation
+
+  - id: continue_after_quickname
+    name: "Tap Continue on quickname confirmation screen"
+    actions:
+      - tap: { label: "Continue" }
+      - wait: 2
+    note: "The quickname confirmation screen shows identity explanation and a Continue button. Must tap before notification prompt appears."
+
+  - id: notification_permission
+    name: "Notification permission step shown"
+    actions:
+      - wait_for_element: { id: "notification-permission-button", timeout: 10 }
+      - tap: { id: "notification-permission-button" }
+      - wait: 2
+      - find_elements: { pattern: "Allow" }
+    verify:
+      - element_exists: { id: "notification-permission-button" }
+      - any_element_matches: { patterns: ["Allow", "Don't Allow"] }
+    criteria: notification_step_shown
+    note: "App shows custom prompt (notification-permission-button) first, then system dialog"
+
+  - id: dismiss_notification
+    name: "Dismiss system notification dialog"
+    actions:
+      - tap: { label: "Allow", optional: true }
+      - tap: { label: "Don't Allow", optional: true }
+      - wait: 2
+
+  - id: conversation_usable
+    name: "Onboarding completes and conversation is usable"
+    actions:
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+      - element_enabled: { id: "message-text-field" }
+    criteria: onboarding_completes
+
+  - id: verify_list
+    name: "Conversation appears in list"
+    actions:
+      - tap: { id: "BackButton", optional: true }
+      - tap: { label: "Close", optional: true }
+      - wait: 2
+      - find_elements: { pattern: "conversation-list-item" }
+    verify:
+      - element_count_gte: { pattern: "conversation-list-item", min: 1 }
+    criteria: conversation_in_list
+    save:
+      conversation_id: "extract from conversation-list-item-* identifier"
+
+teardown: []
+
+criteria:
+  app_launches_empty:
+    description: "App launches to an empty conversations list after simulator erase"
+  compose_opens_conversation:
+    description: "Compose button opens a new conversation flow"
+  quickname_prompt_appears:
+    description: "Quickname setup prompt appears after creating the first conversation"
+  quickname_can_be_set:
+    description: "Quickname can be set via the profile editor"
+  quickname_saved_confirmation:
+    description: "Quickname saved confirmation appears"
+  notification_step_shown:
+    description: "Notification permission step is shown"
+  onboarding_completes:
+    description: "Onboarding completes and the conversation is usable"
+  conversation_in_list:
+    description: "Conversation appears in the conversations list"

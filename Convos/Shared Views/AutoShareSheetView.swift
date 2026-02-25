@@ -155,7 +155,7 @@ extension AutoShareSheetView where Content == AnyView {
                         .offset(y: 5.0) // qr code is generated with some padding
                         .foregroundStyle(.colorTextSecondary)
                         .textCase(.uppercase)
-                        .font(.caption2)
+                        .font(.caption)
                         .frame(height: DesignConstants.Spacing.step10x)
 
                         QRCodeView(url: URL(string: "http://example.com")!)

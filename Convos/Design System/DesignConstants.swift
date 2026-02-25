@@ -1,6 +1,11 @@
 import SwiftUI
 import UIKit
 
+extension Font {
+    static let convosTitle: Font = .system(size: 40.0, weight: .bold)
+    static let convosTitleTracking: CGFloat = -1.0
+}
+
 enum DesignConstants {
     enum ImageSizes {
         static let extraSmallAvatar: CGFloat = 16.0
@@ -31,8 +36,10 @@ enum DesignConstants {
 
     enum CornerRadius {
         static let large: CGFloat = 40.0
+        static let mediumLargest: CGFloat = 34.0
         static let mediumLarger: CGFloat = 32.0 // lol
         static let mediumLarge: CGFloat = 24.0
+        static let photo: CGFloat = 18.0
         static let medium: CGFloat = 16.0
         static let regular: CGFloat = 12.0
         static let small: CGFloat = 8.0
@@ -47,5 +54,6 @@ enum DesignConstants {
         static let medium: Font = .system(size: 16.0)
         static let small: Font = .system(size: 12.0)
         static let buttonText: Font = .system(size: 14.0)
+        static let caption3: Font = .system(size: 8.0)
     }
 }

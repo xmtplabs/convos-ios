@@ -11,7 +11,9 @@ struct IncomingMessageWriterResult: Sendable {
 enum ExplodeSettingsResult: Sendable {
     case fromSelf
     case alreadyExpired
+    case unauthorized
     case applied(expiresAt: Date)
+    case scheduled(expiresAt: Date)
 }
 
 protocol IncomingMessageWriterProtocol: Sendable {
@@ -84,25 +86,62 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             // @jarodl temporary, this should happen somewhere else more explicitly
             let wasRemovedFromConversation = message.update?.removedInboxIds.contains(conversation.inboxId) ?? false
 
-            Log.info("Storing incoming message \(message.id) localId \(message.clientMessageId)")
+            Log.debug("Storing incoming message \(message.id) localId \(message.clientMessageId) echoDateNs=\(message.dateNs)")
+            if !message.attachmentUrls.isEmpty {
+                Log.debug("[IncomingMessageWriter] Incoming attachmentUrls: \(message.attachmentUrls.map { $0.prefix(80) })")
+            }
             // see if this message has a local version
             if let localMessage = try DBMessage
                 .filter(DBMessage.Columns.id == message.id)
                 .filter(DBMessage.Columns.clientMessageId != message.id)
                 .fetchOne(db) {
-                // keep using the same local id
-                Log.info("Found local message \(localMessage.clientMessageId) for incoming message \(message.id)")
-                let updatedMessage = message.with(
-                    clientMessageId: localMessage.clientMessageId
-                )
+                // Keep using the same local clientMessageId, sortId, and attachmentUrls
+                // Preserving attachmentUrls is critical for maintaining AttachmentLocalState lookup
+                Log.debug("BRANCH 1: Found local message \(localMessage.clientMessageId) for incoming message \(message.id)")
+                let updatedMessage = message
+                    .with(clientMessageId: localMessage.clientMessageId)
+                    .with(sortId: localMessage.sortId)
+                    .with(attachmentUrls: localMessage.attachmentUrls)
                 try updatedMessage.save(db)
-                Log.info(
-                    "Updated incoming message with local message \(localMessage.clientMessageId)"
-                )
+                Log.debug("BRANCH 1: Updated with clientMessageId=\(localMessage.clientMessageId), sortId=\(localMessage.sortId ?? -1)")
+            } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id),
+                      existingMessage.hasLocalAttachments {
+                // Message exists with local attachment URLs (outgoing photo) - preserve them and sortId
+                Log.debug("BRANCH 2: Preserving local attachments for message \(message.id)")
+                let updatedMessage = message
+                    .with(attachmentUrls: existingMessage.attachmentUrls)
+                    .with(sortId: existingMessage.sortId)
+                try updatedMessage.save(db)
+                Log.debug("BRANCH 2: Saved with local attachments, sortId=\(existingMessage.sortId ?? -1)")
+            } else if let existingMessage = try DBMessage.fetchOne(db, key: message.id) {
+                // Message exists but BRANCH 1 and BRANCH 2 didn't match
+                // Keep clientMessageId, sortId, and attachmentUrls for stable UI identity
+                // Preserving attachmentUrls is critical: we've migrated AttachmentLocalState
+                // to match our local key, so using the incoming key would break the lookup
+                Log.debug("BRANCH 3: Found existing message \(message.id)")
+                if !existingMessage.attachmentUrls.isEmpty || !message.attachmentUrls.isEmpty {
+                    Log.debug("[BRANCH 3] Existing attachmentUrls: \(existingMessage.attachmentUrls.map { $0.prefix(80) })")
+                    Log.debug("[BRANCH 3] Incoming attachmentUrls: \(message.attachmentUrls.map { $0.prefix(80) })")
+                    let keysMatch = existingMessage.attachmentUrls == message.attachmentUrls
+                    Log.debug("[BRANCH 3] Keys match: \(keysMatch), preserving existing")
+                }
+                let updatedMessage = message
+                    .with(clientMessageId: existingMessage.clientMessageId)
+                    .with(sortId: existingMessage.sortId)
+                    .with(attachmentUrls: existingMessage.attachmentUrls)
+                try updatedMessage.save(db)
+                Log.debug("BRANCH 3: Saved with clientMessageId=\(existingMessage.clientMessageId), sortId=\(existingMessage.sortId ?? -1)")
             } else {
+                // Truly new incoming message from another user - assign a new sortId
+                let maxSortId = try Int64.fetchOne(db, sql: """
+                    SELECT COALESCE(MAX(sortId), 0) FROM message WHERE conversationId = ?
+                """, arguments: [conversation.id]) ?? 0
+                let newSortId = maxSortId + 1
+                let messageWithSortId = message.with(sortId: newSortId)
+
                 do {
-                    try message.save(db)
-                    Log.info("Saved incoming message: \(message.id)")
+                    try messageWithSortId.save(db)
+                    Log.debug("BRANCH 4 (new): Saved incoming message: \(message.id) with sortId=\(newSortId)")
                 } catch {
                     Log.error("Failed saving incoming message \(message.id): \(error)")
                     throw error
@@ -114,6 +153,15 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 wasRemovedFromConversation: wasRemovedFromConversation,
                 messageAlreadyExists: messageExistsInDB
             )
+        }
+
+        if !result.messageAlreadyExists {
+            QAEvent.emit(.message, "received", [
+                "id": message.id,
+                "conversation": conversation.id,
+                "sender": message.senderInboxId,
+                "type": result.contentType.rawValue
+            ])
         }
 
         // Post notification after transaction commits
@@ -150,14 +198,22 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
             if let existingReaction {
                 let updatedReaction = existingReaction.with(status: .published)
                 try updatedReaction.save(db)
-                Log.info("Updated existing reaction \(existingReaction.id) status to published")
+                Log.debug("Updated existing reaction \(existingReaction.id) status to published")
                 return true
             } else {
                 let dbMessage = try message.dbRepresentation()
                 try dbMessage.save(db)
-                Log.info("Saved new incoming reaction \(message.id)")
+                Log.debug("Saved new incoming reaction \(message.id)")
                 return false
             }
+        }
+        if !reactionAlreadyExists {
+            QAEvent.emit(.reaction, "received", [
+                "message": reaction.reference,
+                "emoji": reaction.emoji,
+                "sender": message.senderInboxId,
+                "conversation": conversation.id
+            ])
         }
         return IncomingMessageWriterResult(
             contentType: .emoji,
@@ -178,7 +234,7 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 .filter(DBMessage.Columns.emoji == reaction.emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
                 .deleteAll(db)
-            Log.info("Deleted \(deletedCount) reaction(s) for message \(reaction.reference) from \(message.senderInboxId)")
+            Log.debug("Deleted \(deletedCount) reaction(s) for message \(reaction.reference) from \(message.senderInboxId)")
         }
         return IncomingMessageWriterResult(
             contentType: .emoji,
@@ -209,42 +265,89 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         currentInboxId: String
     ) async -> ExplodeSettingsResult {
         if senderInboxId == currentInboxId {
-            Log.info("ExplodeSettings: from self, skipping")
+            Log.debug("ExplodeSettings: from self, skipping")
             return .fromSelf
         }
 
-        // When scheduled explosions are added, compare settings.expiresAt
-        // against messageSentAt to determine if this is immediate or scheduled.
+        enum WriteResult {
+            case updated
+            case alreadyExpired
+            case unauthorized
+            case notFound
+        }
 
         do {
-            let didUpdate = try await databaseWriter.write { db -> Bool in
+            let writeResult = try await databaseWriter.write { db -> WriteResult in
                 guard let dbConversation = try DBConversation.fetchOne(db, key: conversationId) else {
-                    return false
+                    return .notFound
                 }
-                // Skip if already expired (idempotency)
-                if dbConversation.expiresAt != nil {
-                    return false
+
+                // Permission check: only creator or admin/superAdmin can explode
+                let isCreator = senderInboxId == dbConversation.creatorId
+                var hasAdminRole = false
+                if !isCreator {
+                    if let senderMember = try DBConversationMember.fetchOne(
+                        db,
+                        key: ["conversationId": conversationId, "inboxId": senderInboxId]
+                    ) {
+                        hasAdminRole = senderMember.role == .admin || senderMember.role == .superAdmin
+                    }
+                }
+
+                guard isCreator || hasAdminRole else {
+                    return .unauthorized
+                }
+
+                if let existingExpiresAt = dbConversation.expiresAt {
+                    if settings.expiresAt < existingExpiresAt {
+                        let updated = dbConversation.with(expiresAt: settings.expiresAt)
+                        try updated.save(db)
+                        return .updated
+                    }
+                    return .alreadyExpired
                 }
                 let updated = dbConversation.with(expiresAt: settings.expiresAt)
                 try updated.save(db)
-                return true
+                return .updated
             }
 
-            guard didUpdate else {
-                Log.info("ExplodeSettings: conversation already expired, skipping")
+            switch writeResult {
+            case .notFound, .alreadyExpired:
+                Log.debug("ExplodeSettings: conversation not found or already has expiresAt, skipping")
                 return .alreadyExpired
+            case .unauthorized:
+                Log.warning("ExplodeSettings: sender \(senderInboxId) is not authorized to explode conversation \(conversationId)")
+                return .unauthorized
+            case .updated:
+                break
             }
 
-            Log.info("ExplodeSettings: applied, posting conversationExpired notification for \(conversationId)")
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(
-                    name: .conversationExpired,
-                    object: nil,
-                    userInfo: ["conversationId": conversationId]
-                )
+            // Check if scheduled AFTER DB write to avoid time drift during async operation
+            let isScheduled = settings.expiresAt.timeIntervalSinceNow > 0
+            if isScheduled {
+                Log.info("ExplodeSettings: scheduled for \(settings.expiresAt), posting conversationScheduledExplosion for \(conversationId)")
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .conversationScheduledExplosion,
+                        object: nil,
+                        userInfo: [
+                            "conversationId": conversationId,
+                            "expiresAt": settings.expiresAt
+                        ]
+                    )
+                }
+                return .scheduled(expiresAt: settings.expiresAt)
+            } else {
+                Log.info("ExplodeSettings: immediate, posting conversationExpired for \(conversationId)")
+                await MainActor.run {
+                    NotificationCenter.default.post(
+                        name: .conversationExpired,
+                        object: nil,
+                        userInfo: ["conversationId": conversationId]
+                    )
+                }
+                return .applied(expiresAt: settings.expiresAt)
             }
-
-            return .applied(expiresAt: settings.expiresAt)
         } catch {
             Log.error("Failed to write expiresAt for conversation \(conversationId): \(error.localizedDescription)")
             return .alreadyExpired

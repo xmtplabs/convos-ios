@@ -52,6 +52,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleReplyContent()
         case ContentTypeReaction, ContentTypeReactionV2:
             components = try handleReactionContent()
+        case ContentTypeAttachment:
+            components = try handleAttachmentContent()
         case ContentTypeMultiRemoteAttachment:
             components = try handleMultiRemoteAttachmentContent()
         case ContentTypeRemoteAttachment:
@@ -71,6 +73,7 @@ extension XMTPiOS.DecodedMessage {
             senderId: senderInboxId,
             dateNs: sentAtNs,
             date: sentAt,
+            sortId: nil, // Will be assigned on save - existing message's sortId preserved
             status: status,
             messageType: components.messageType,
             contentType: components.contentType,
@@ -127,25 +130,53 @@ extension XMTPiOS.DecodedMessage {
             guard let contentString = contentReply.content as? String else {
                 throw DecodedMessageDBRepresentationError.mismatchedContentType
             }
+            let isContentEmoji = contentString.allCharactersEmoji
+            let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
             return DBMessageComponents(
                 messageType: .reply,
-                contentType: .text,
+                contentType: isContentEmoji ? .emoji : .text,
                 sourceMessageId: sourceMessageId,
-                emoji: nil,
+                emoji: isContentEmoji ? trimmedContent : nil,
                 attachmentUrls: [],
-                text: contentString,
+                text: isContentEmoji ? nil : contentString,
                 update: nil
             )
-        case ContentTypeRemoteAttachment:
-            guard let remoteAttachment = content as? RemoteAttachment else {
+        case ContentTypeAttachment:
+            guard let attachment = contentReply.content as? Attachment else {
                 throw DecodedMessageDBRepresentationError.mismatchedContentType
             }
+            guard attachment.mimeType.hasPrefix("image/") else {
+                throw DecodedMessageDBRepresentationError.unsupportedContentType
+            }
+            let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
             return DBMessageComponents(
                 messageType: .reply,
                 contentType: .attachments,
                 sourceMessageId: sourceMessageId,
                 emoji: nil,
-                attachmentUrls: [remoteAttachment.url],
+                attachmentUrls: [fileURL.absoluteString],
+                text: nil,
+                update: nil
+            )
+        case ContentTypeRemoteAttachment:
+            guard let remoteAttachment = contentReply.content as? RemoteAttachment else {
+                throw DecodedMessageDBRepresentationError.mismatchedContentType
+            }
+            let stored = StoredRemoteAttachment(
+                url: remoteAttachment.url,
+                contentDigest: remoteAttachment.contentDigest,
+                secret: remoteAttachment.secret,
+                salt: remoteAttachment.salt,
+                nonce: remoteAttachment.nonce,
+                filename: remoteAttachment.filename
+            )
+            let json = (try? stored.toJSON()) ?? remoteAttachment.url
+            return DBMessageComponents(
+                messageType: .reply,
+                contentType: .attachments,
+                sourceMessageId: sourceMessageId,
+                emoji: nil,
+                attachmentUrls: [json],
                 text: nil,
                 update: nil
             )
@@ -179,17 +210,60 @@ extension XMTPiOS.DecodedMessage {
         )
     }
 
+    private func handleAttachmentContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let attachment = content as? Attachment else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        guard attachment.mimeType.hasPrefix("image/") else {
+            throw DecodedMessageDBRepresentationError.unsupportedContentType
+        }
+        let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .attachments,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [fileURL.absoluteString],
+            text: nil,
+            update: nil
+        )
+    }
+
+    private static func saveInlineAttachment(data: Data, messageId: String, filename: String) throws -> URL {
+        guard let cacheDir = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let dir = cacheDir.appendingPathComponent("InlineAttachments", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let safeFilename = "\(messageId)_\(filename)".replacingOccurrences(of: "/", with: "_")
+        let fileURL = dir.appendingPathComponent(safeFilename)
+        try data.write(to: fileURL, options: .atomic)
+        return fileURL
+    }
+
     private func handleMultiRemoteAttachmentContent() throws -> DBMessageComponents {
         let content = try content() as Any
         guard let remoteAttachments = content as? [RemoteAttachment] else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        let storedAttachments = remoteAttachments.map { attachment in
+            let stored = StoredRemoteAttachment(
+                url: attachment.url,
+                contentDigest: attachment.contentDigest,
+                secret: attachment.secret,
+                salt: attachment.salt,
+                nonce: attachment.nonce,
+                filename: attachment.filename
+            )
+            return (try? stored.toJSON()) ?? attachment.url
         }
         return DBMessageComponents(
             messageType: .original,
             contentType: .attachments,
             sourceMessageId: nil,
             emoji: nil,
-            attachmentUrls: remoteAttachments.map { $0.url },
+            attachmentUrls: storedAttachments,
             text: nil,
             update: nil
         )
@@ -200,12 +274,21 @@ extension XMTPiOS.DecodedMessage {
         guard let remoteAttachment = content as? RemoteAttachment else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
+        let stored = StoredRemoteAttachment(
+            url: remoteAttachment.url,
+            contentDigest: remoteAttachment.contentDigest,
+            secret: remoteAttachment.secret,
+            salt: remoteAttachment.salt,
+            nonce: remoteAttachment.nonce,
+            filename: remoteAttachment.filename
+        )
+        let json = (try? stored.toJSON()) ?? remoteAttachment.url
         return DBMessageComponents(
             messageType: .original,
             contentType: .attachments,
             sourceMessageId: nil,
             emoji: nil,
-            attachmentUrls: [remoteAttachment.url],
+            attachmentUrls: [json],
             text: nil,
             update: nil
         )
@@ -274,13 +357,12 @@ extension XMTPiOS.DecodedMessage {
                     }
 
                     let expiresAtChanged = oldExpiresAt != newExpiresAt
-                    // Determine what to report based on what actually changed
+                    // Skip expiresAt changes - these are handled by ExplodeSettings content type
                     if expiresAtChanged {
-                        // expiresAt changed, prioritize it
                         return .init(
-                            field: ConversationUpdate.MetadataChange.Field.expiresAt.rawValue,
-                            oldValue: oldExpiresAt?.ISO8601Format(),
-                            newValue: newExpiresAt?.ISO8601Format()
+                            field: ConversationUpdate.MetadataChange.Field.unknown.rawValue,
+                            oldValue: nil,
+                            newValue: nil
                         )
                     } else {
                         // some other custom field changed (tag, profiles, etc.)

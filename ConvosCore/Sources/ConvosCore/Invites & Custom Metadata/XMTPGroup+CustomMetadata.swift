@@ -29,6 +29,7 @@ extension XMTPiOS.Group {
                 let currentAppData = try self.appData()
                 return ConversationCustomMetadata.parseAppData(currentAppData)
             } catch {
+                Log.error("Failed to read custom metadata: \(error)")
                 return .init()
             }
         }

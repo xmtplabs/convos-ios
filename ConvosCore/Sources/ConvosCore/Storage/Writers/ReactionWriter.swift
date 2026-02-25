@@ -40,9 +40,22 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         let currentInboxId = inboxReady.client.inboxId
 
+        // messageId from UI is clientMessageId - look up the actual DB id
+        let sourceMessage = try await databaseWriter.read { db in
+            try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == messageId)
+                .fetchOne(db)
+        }
+
+        guard let sourceMessage else {
+            throw ReactionWriterError.messageNotFound(messageId: messageId)
+        }
+
+        let dbMessageId = sourceMessage.id
+
         let existingReaction = try await databaseWriter.read { db in
             try DBMessage
-                .filter(DBMessage.Columns.sourceMessageId == messageId)
+                .filter(DBMessage.Columns.sourceMessageId == dbMessageId)
                 .filter(DBMessage.Columns.senderId == currentInboxId)
                 .filter(DBMessage.Columns.emoji == emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
@@ -95,12 +108,24 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         client: any XMTPClientProvider
     ) async throws {
         let date = Date()
-        let clientMessageId = UUID().uuidString
+        let reactionClientMessageId = UUID().uuidString
         let inboxId = client.inboxId
+
+        let sourceMessage = try await databaseWriter.read { db in
+            try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == messageId)
+                .fetchOne(db)
+        }
+
+        guard let sourceMessage else {
+            throw ReactionWriterError.messageNotFound(messageId: messageId)
+        }
+
+        let dbMessageId = sourceMessage.id
 
         let existingReaction = try await databaseWriter.read { db in
             try DBMessage
-                .filter(DBMessage.Columns.sourceMessageId == messageId)
+                .filter(DBMessage.Columns.sourceMessageId == dbMessageId)
                 .filter(DBMessage.Columns.senderId == inboxId)
                 .filter(DBMessage.Columns.emoji == emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
@@ -108,73 +133,63 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
         }
 
         if existingReaction != nil {
-            Log.info("Reaction already exists locally, skipping duplicate")
+            Log.debug("Reaction already exists locally, skipping duplicate")
             return
         }
 
-        // Save locally FIRST for optimistic UI
         try await databaseWriter.write { db in
             let localReaction = DBMessage(
-                id: clientMessageId,
-                clientMessageId: clientMessageId,
+                id: reactionClientMessageId,
+                clientMessageId: reactionClientMessageId,
                 conversationId: conversationId,
                 senderId: inboxId,
                 dateNs: date.nanosecondsSince1970,
                 date: date,
+                sortId: nil,
                 status: .unpublished,
                 messageType: .reaction,
                 contentType: .emoji,
                 text: nil,
                 emoji: emoji,
                 invite: nil,
-                sourceMessageId: messageId,
+                sourceMessageId: dbMessageId,
                 attachmentUrls: [],
                 update: nil
             )
             try localReaction.save(db)
-            Log.info("Saved local reaction with id: \(clientMessageId)")
+            Log.debug("Saved local reaction with id: \(reactionClientMessageId)")
         }
 
-        // Now do network operations (can be slow, but UI already updated)
         guard let conversation = try await client.conversation(with: conversationId) else {
-            try await markReactionFailed(clientMessageId: clientMessageId)
+            try await markReactionFailed(clientMessageId: reactionClientMessageId)
             throw ReactionWriterError.conversationNotFound(conversationId: conversationId)
         }
 
-        let sourceMessage = try await databaseWriter.read { db in
-            try DBMessage.fetchOne(db, key: messageId)
-        }
-
-        guard let sourceMessage else {
-            try await markReactionFailed(clientMessageId: clientMessageId)
-            throw ReactionWriterError.messageNotFound(messageId: messageId)
-        }
-
         let reaction = Reaction(
-            reference: messageId,
+            reference: dbMessageId,
             action: .added,
             content: emoji,
             schema: .unicode,
             referenceInboxId: sourceMessage.senderId
         )
 
-        // Send to network - only mark as failed if THIS fails
         do {
+            let encodedContent = try ReactionV2Codec().encode(content: reaction)
             try await conversation.send(
-                content: reaction,
-                options: .init(contentType: ContentTypeReaction)
+                encodedContent: encodedContent,
+                visibilityOptions: MessageVisibilityOptions(shouldPush: true)
             )
-            Log.info("Sent reaction \(emoji) to message \(messageId)")
+            Log.info("Sent reaction \(emoji) to message \(dbMessageId)")
+            QAEvent.emit(.reaction, "sent", ["message": dbMessageId, "emoji": emoji])
         } catch {
             Log.error("Failed sending reaction: \(error.localizedDescription)")
-            try await markReactionFailed(clientMessageId: clientMessageId)
+            try await markReactionFailed(clientMessageId: reactionClientMessageId)
             throw error
         }
 
-        // Update to published - if this fails, the reaction was still sent successfully
         do {
             try await databaseWriter.write { db in
-                guard let localReaction = try DBMessage.fetchOne(db, key: clientMessageId) else {
+                guard let localReaction = try DBMessage.fetchOne(db, key: reactionClientMessageId) else {
                     Log.warning("Local reaction not found after send")
                     return
                 }
@@ -182,7 +197,6 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
             }
         } catch {
             Log.error("Failed updating reaction status to published: \(error.localizedDescription)")
-            // Don't throw - the reaction was sent successfully
         }
     }
 
@@ -204,10 +218,22 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
     ) async throws {
         let inboxId = client.inboxId
 
-        // For removal, delete locally FIRST for optimistic UI
+        // messageId from UI is clientMessageId - look up the actual DB id
+        let sourceMessage = try await databaseWriter.read { db in
+            try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == messageId)
+                .fetchOne(db)
+        }
+
+        guard let sourceMessage else {
+            throw ReactionWriterError.messageNotFound(messageId: messageId)
+        }
+
+        let dbMessageId = sourceMessage.id
+
         let deletedReaction = try await databaseWriter.write { db -> DBMessage? in
             let reaction = try DBMessage
-                .filter(DBMessage.Columns.sourceMessageId == messageId)
+                .filter(DBMessage.Columns.sourceMessageId == dbMessageId)
                 .filter(DBMessage.Columns.senderId == inboxId)
                 .filter(DBMessage.Columns.emoji == emoji)
                 .filter(DBMessage.Columns.messageType == DBMessageType.reaction.rawValue)
@@ -215,49 +241,38 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
 
             if let reaction {
                 try reaction.delete(db)
-                Log.info("Optimistically deleted local reaction for message \(messageId)")
+                Log.debug("Optimistically deleted local reaction for message \(dbMessageId)")
             }
             return reaction
         }
 
         guard let deletedReaction else {
-            Log.info("No local reaction to remove; skipping network call")
+            Log.debug("No local reaction to remove; skipping network call")
             return
         }
 
-        // Now send to network
         do {
             guard let conversation = try await client.conversation(with: conversationId) else {
                 throw ReactionWriterError.conversationNotFound(conversationId: conversationId)
             }
 
-            let sourceMessage = try await databaseWriter.read { db in
-                try DBMessage.fetchOne(db, key: messageId)
-            }
-
-            guard let sourceMessage else {
-                throw ReactionWriterError.messageNotFound(messageId: messageId)
-            }
-
             let reaction = Reaction(
-                reference: messageId,
+                reference: dbMessageId,
                 action: .removed,
                 content: emoji,
                 schema: .unicode,
                 referenceInboxId: sourceMessage.senderId
             )
 
-            try await conversation.send(
-                content: reaction,
-                options: .init(contentType: ContentTypeReaction)
-            )
-            Log.info("Sent remove reaction \(emoji) for message \(messageId)")
+            let encodedContent = try ReactionV2Codec().encode(content: reaction)
+            try await conversation.send(encodedContent: encodedContent)
+            Log.info("Sent remove reaction \(emoji) for message \(dbMessageId)")
+            QAEvent.emit(.reaction, "removed", ["message": dbMessageId, "emoji": emoji])
         } catch {
-            // Restore the reaction if network failed
             Log.error("Failed sending remove reaction: \(error.localizedDescription)")
             try await databaseWriter.write { db in
                 try deletedReaction.save(db)
-                Log.info("Restored local reaction after failed removal")
+                Log.debug("Restored local reaction after failed removal")
             }
             throw error
         }

@@ -80,31 +80,39 @@ public actor CachedPushNotificationHandler {
         payload: PushNotificationPayload,
         timeout: TimeInterval = 25
     ) async throws -> DecodedNotificationContent? {
-        Log.info("Processing push notification")
+        Log.debug("Processing push notification")
 
         // Clean up old services before processing
         cleanupStaleServices()
 
         guard payload.isValid else {
-            Log.info("Dropping notification without clientId (v1/legacy)")
+            Log.debug("Dropping notification without clientId (v1/legacy)")
             return nil
         }
 
         guard let clientId = payload.clientId else {
-            Log.info("Dropping notification without clientId")
+            Log.debug("Dropping notification without clientId")
             return nil
         }
 
-        Log.info("Processing v2 notification for clientId: \(clientId)")
+        Log.debug("Processing v2 notification for clientId: \(clientId)")
         let inboxesRepository = InboxesRepository(databaseReader: databaseReader)
-        guard let inbox = try? inboxesRepository.inbox(byClientId: clientId) else {
-            Log.warning("No inbox found in database for clientId: \(clientId) - dropping notification")
+        let inbox: Inbox?
+        do {
+            inbox = try inboxesRepository.inbox(byClientId: clientId)
+        } catch {
+            Log.error("Database error looking up clientId \(clientId): \(error) - dropping notification")
+            return nil
+        }
+        guard let inbox else {
+            Log.warning("No inbox found in database for clientId: \(clientId) - unregistering and dropping notification")
+            await unregisterOrphanedClient(clientId: clientId, apiJWT: payload.apiJWT)
             return nil
         }
         let inboxId = inbox.inboxId
-        Log.info("Matched clientId \(clientId) to inboxId: \(inboxId)")
+        Log.debug("Matched clientId \(clientId) to inboxId: \(inboxId)")
 
-        Log.info("Processing for inbox: \(inboxId)")
+        Log.debug("Processing for inbox: \(inboxId)")
 
         // Process with timeout
         return try await withTimeout(seconds: timeout, timeoutError: NotificationProcessingError.timeout) {
@@ -115,7 +123,7 @@ public actor CachedPushNotificationHandler {
 
     /// Cleans up all resources
     public func cleanup() {
-        Log.info("Cleaning up \(messagingServices.count) messaging services")
+        Log.debug("Cleaning up \(messagingServices.count) messaging services")
         messagingServices.values.forEach { $0.stop() }
         messagingServices.removeAll()
         lastAccessTime.removeAll()
@@ -131,7 +139,7 @@ public actor CachedPushNotificationHandler {
         }
 
         if !staleInboxIds.isEmpty {
-            Log.info("Cleaning up \(staleInboxIds.count) stale messaging services")
+            Log.debug("Cleaning up \(staleInboxIds.count) stale messaging services")
             for inboxId in staleInboxIds {
                 let removedService = messagingServices.removeValue(forKey: inboxId)
                 removedService?.stop()
@@ -147,7 +155,7 @@ public actor CachedPushNotificationHandler {
         lastAccessTime[inboxId] = Date()
 
         if let existing = messagingServices[inboxId] {
-            Log.info("Reusing existing messaging service for inbox: \(inboxId)")
+            Log.debug("Reusing existing messaging service for inbox: \(inboxId)")
             return existing
         }
 
@@ -168,5 +176,20 @@ public actor CachedPushNotificationHandler {
         )
         messagingServices[inboxId] = messagingService
         return messagingService
+    }
+
+    private func unregisterOrphanedClient(clientId: String, apiJWT: String?) async {
+        guard let apiJWT, !apiJWT.isEmpty else {
+            Log.warning("No API JWT available to unregister orphaned clientId: \(clientId)")
+            return
+        }
+
+        let apiClient = ConvosAPIClientFactory.client(environment: environment, overrideJWTToken: apiJWT)
+        do {
+            try await apiClient.unregisterInstallation(clientId: clientId)
+            Log.debug("Unregistered orphaned clientId: \(clientId)")
+        } catch {
+            Log.error("Failed to unregister orphaned clientId \(clientId): \(error)")
+        }
     }
 }

@@ -1,8 +1,6 @@
 # ADR 001: Decentralized Invite System with Cryptographic Tokens
 
-## Status
-
-Accepted
+> **Status**: Accepted
 
 ## Context
 

@@ -3,15 +3,22 @@ import GRDB
 
 public protocol ExpiredConversationsWorkerProtocol {}
 
+/// Monitors conversations with scheduled explosions and triggers cleanup when they expire.
+///
+/// Uses a single timer targeting the next expiring conversation rather than per-conversation
+/// timers. After processing expired conversations, queries the database for the soonest
+/// future expiresAt and schedules one task to wake at that time.
+///
 /// @unchecked Sendable: Protocol dependencies (SessionManager, DatabaseReader, AppLifecycle)
-/// are all Sendable. The `observers` array is marked `nonisolated(unsafe)` and only modified
-/// during init (setupObservers) and deinit. NotificationCenter callbacks use weak self
-/// and dispatch work to async Tasks.
+/// are all Sendable. The `observers` array is only modified during init and deinit.
+/// The `nextExpirationTask` is protected by `taskLock`.
 final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unchecked Sendable {
     private let sessionManager: any SessionManagerProtocol
     private let databaseReader: any DatabaseReader
     private let appLifecycle: any AppLifecycleProviding
     nonisolated(unsafe) private var observers: [NSObjectProtocol] = []
+    private let taskLock: NSLock = NSLock()
+    private var nextExpirationTask: Task<Void, Never>?
 
     init(
         databaseReader: any DatabaseReader,
@@ -22,12 +29,13 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
         self.sessionManager = sessionManager
         self.appLifecycle = appLifecycle
         setupObservers()
-        checkForExpiredConversations()
+        checkAndReschedule()
     }
 
     deinit {
         Log.warning("ExpiredConversationsWorker deinit - removing observers")
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+        cancelNextExpirationTask()
     }
 
     private func setupObservers() {
@@ -38,7 +46,7 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.checkForExpiredConversations()
+            self?.checkAndReschedule()
         })
 
         observers.append(center.addObserver(
@@ -50,8 +58,16 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
             if let conversationId = notification.userInfo?["conversationId"] as? String {
                 self?.handleExpiredConversation(conversationId: conversationId)
             } else {
-                self?.checkForExpiredConversations()
+                self?.checkAndReschedule()
             }
+        })
+
+        observers.append(center.addObserver(
+            forName: .conversationScheduledExplosion,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.checkAndReschedule()
         })
 
         observers.append(center.addObserver(
@@ -59,29 +75,78 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            self?.checkForExpiredConversations()
+            self?.checkAndReschedule()
         })
-    }
-
-    private func checkForExpiredConversations() {
-        Task { [weak self] in
-            guard let self else { return }
-            await self.queryAndProcessExpiredConversations()
-        }
     }
 
     private func handleExpiredConversation(conversationId: String) {
         Task { [weak self] in
             guard let self else { return }
             await self.processExpiredConversationById(conversationId)
+            await self.scheduleNextExpirationCheck()
         }
+    }
+
+    private func checkAndReschedule() {
+        Task { [weak self] in
+            guard let self else { return }
+            await self.queryAndProcessExpiredConversations()
+            await self.scheduleNextExpirationCheck()
+        }
+    }
+
+    private func scheduleNextExpirationCheck() async {
+        cancelNextExpirationTask()
+
+        do {
+            let nextExpiresAt = try await databaseReader.read { db -> Date? in
+                try db.fetchNextExpiration()
+            }
+
+            guard let nextExpiresAt else { return }
+
+            let interval = nextExpiresAt.timeIntervalSinceNow
+            guard interval > 0 else {
+                await queryAndProcessExpiredConversations()
+                await scheduleNextExpirationCheck()
+                return
+            }
+
+            let bufferedInterval: Double = interval + Constant.expirationBuffer
+            Log.info("ExpiredConversationsWorker: next expiration in \(Int(interval))s (sleeping \(bufferedInterval)s)")
+
+            let task = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(bufferedInterval))
+                guard !Task.isCancelled else { return }
+                self?.checkAndReschedule()
+            }
+
+            replaceNextExpirationTask(task)
+        } catch {
+            Log.error("Failed to query next expiration: \(error)")
+        }
+    }
+
+    private nonisolated func cancelNextExpirationTask() {
+        taskLock.lock()
+        nextExpirationTask?.cancel()
+        nextExpirationTask = nil
+        taskLock.unlock()
+    }
+
+    private nonisolated func replaceNextExpirationTask(_ task: Task<Void, Never>) {
+        taskLock.lock()
+        nextExpirationTask?.cancel()
+        nextExpirationTask = task
+        taskLock.unlock()
     }
 
     private func processExpiredConversationById(_ conversationId: String) async {
         do {
             let conversation = try await databaseReader.read { db -> ExpiredConversation? in
-                guard let row = try DBConversation.fetchOne(db, key: conversationId) else {
-                    Log.warning("Conversation not found for expiration: \(conversationId)")
+                guard let row = try DBConversation.fetchOne(db, key: conversationId),
+                      let expiresAt = row.expiresAt,
+                      expiresAt <= Date() else {
                     return nil
                 }
                 return ExpiredConversation(
@@ -104,16 +169,16 @@ final class ExpiredConversationsWorker: ExpiredConversationsWorkerProtocol, @unc
                 try db.fetchExpiredConversations()
             }
             guard !expiredConversations.isEmpty else { return }
-            await processExpiredConversations(expiredConversations)
+            for conversation in expiredConversations {
+                await cleanupExpiredConversation(conversation)
+            }
         } catch {
             Log.error("Failed to query expired conversations: \(error)")
         }
     }
 
-    private func processExpiredConversations(_ conversations: [ExpiredConversation]) async {
-        for conversation in conversations {
-            await cleanupExpiredConversation(conversation)
-        }
+    private enum Constant {
+        static let expirationBuffer: TimeInterval = 0.5
     }
 
     private func cleanupExpiredConversation(_ conversation: ExpiredConversation) async {
@@ -139,7 +204,7 @@ struct ExpiredConversation {
     let inboxId: String
 }
 
-fileprivate extension Database {
+private extension Database {
     func fetchExpiredConversations() throws -> [ExpiredConversation] {
         let rows = try DBConversation
             .filter(DBConversation.Columns.expiresAt != nil)
@@ -153,5 +218,14 @@ fileprivate extension Database {
                 inboxId: row.inboxId
             )
         }
+    }
+
+    func fetchNextExpiration() throws -> Date? {
+        try DBConversation
+            .filter(DBConversation.Columns.expiresAt != nil)
+            .filter(DBConversation.Columns.expiresAt > Date())
+            .order(DBConversation.Columns.expiresAt.asc)
+            .fetchOne(self)?
+            .expiresAt
     }
 }

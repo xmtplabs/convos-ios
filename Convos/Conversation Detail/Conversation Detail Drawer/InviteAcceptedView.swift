@@ -3,20 +3,24 @@ import SwiftUI
 struct InviteAcceptedView: View {
     @State private var showingDescription: Bool = false
 
+    @Environment(\.openURL) private var openURL: OpenURLAction
+
     var body: some View {
-        Group {
+        Button {
+            openURL(Constant.learnMoreURL)
+        } label: {
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 HStack {
-                    Image(systemName: "checkmark.circle.fill")
+                    Image(systemName: "qrcode")
                         .font(.footnote)
-                        .foregroundStyle(.colorGreen)
-                    Text("Invite accepted")
+                        .foregroundStyle(.colorLava)
+                    Text("Verifying")
                         .foregroundStyle(.colorTextPrimary)
                 }
                 .font(.body)
 
                 if showingDescription {
-                    Text("See and send messages after someone approves you.")
+                    Text("See and send messages after your access is verified")
                         .font(.caption)
                         .foregroundStyle(.colorTextSecondary)
                         .multilineTextAlignment(.center)
@@ -25,10 +29,14 @@ struct InviteAcceptedView: View {
             .transition(.blurReplace)
             .animation(.spring(duration: 0.4, bounce: 0.2), value: showingDescription)
             .padding(DesignConstants.Spacing.step6x)
+            .frame(maxWidth: .infinity)
+            .background(.colorFillMinimal)
+            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
         }
-        .frame(maxWidth: .infinity)
-        .background(.colorFillMinimal)
-        .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge))
+        .buttonStyle(.plain)
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("invite-accepted-view")
+        .accessibilityLabel("Verifying. See and send messages after your access is verified.")
         .onAppear {
             DispatchQueue.main
                 .asyncAfter(deadline: .now() + ConversationOnboardingState.waitingForInviteAcceptanceDelay) {
@@ -37,6 +45,11 @@ struct InviteAcceptedView: View {
                 }
             }
         }
+    }
+
+    private enum Constant {
+        // swiftlint:disable:next force_unwrapping
+        static let learnMoreURL: URL = URL(string: "https://learn.convos.org/verifying")!
     }
 }
 

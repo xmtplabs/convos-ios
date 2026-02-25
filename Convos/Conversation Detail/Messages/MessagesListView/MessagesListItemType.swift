@@ -13,21 +13,19 @@ enum MessageBubbleType {
 struct MessagesGroup: Identifiable, Equatable, Hashable {
     let id: String
     let sender: ConversationMember // The sender of all messages in this group
-    let messages: [AnyMessage] // Contains only published messages
-    let unpublished: [AnyMessage] // Contains unpublished messages (failed, unpublished, etc.)
+    let messages: [AnyMessage] // All messages in this group (published + unpublished in sortId order)
     let isLastGroup: Bool
     let isLastGroupSentByCurrentUser: Bool
 
-    /// All messages in this group (published + unpublished)
+    /// All messages in this group (already sorted by sortId from repository)
     var allMessages: [AnyMessage] {
-        messages + unpublished
+        messages
     }
 
     static func == (lhs: MessagesGroup, rhs: MessagesGroup) -> Bool {
         lhs.id == rhs.id &&
         lhs.sender == rhs.sender &&
         lhs.messages == rhs.messages &&
-        lhs.unpublished == rhs.unpublished &&
         lhs.isLastGroup == rhs.isLastGroup &&
         lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser
     }
@@ -46,7 +44,6 @@ extension MessagesGroup {
             id: "mock-incoming-group",
             sender: sender,
             messages: messages,
-            unpublished: [],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false
         )
@@ -62,7 +59,6 @@ extension MessagesGroup {
             id: "mock-outgoing-group",
             sender: sender,
             messages: messages,
-            unpublished: [],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: true
         )
@@ -70,18 +66,16 @@ extension MessagesGroup {
 
     static var mockMixed: MessagesGroup {
         let sender = ConversationMember.mock(isCurrentUser: true)
-        let published: [AnyMessage] = [
+        // Messages are in sortId order (insertion order) - published and unpublished together
+        let messages: [AnyMessage] = [
             .message(Message.mock(text: "Here's my first message", sender: sender, status: .published), .existing),
-            .message(Message.mock(text: "And another one", sender: sender, status: .published), .existing)
-        ]
-        let unpublished: [AnyMessage] = [
+            .message(Message.mock(text: "And another one", sender: sender, status: .published), .existing),
             .message(Message.mock(text: "This one is still sending...", sender: sender, status: .unpublished), .existing)
         ]
         return MessagesGroup(
             id: "mock-mixed-group",
             sender: sender,
-            messages: published,
-            unpublished: unpublished,
+            messages: messages,
             isLastGroup: true,
             isLastGroupSentByCurrentUser: true
         )
@@ -102,7 +96,6 @@ extension MessagesGroup {
             id: "mock-incoming-reactions-group",
             sender: sender,
             messages: messages,
-            unpublished: [],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false
         )
@@ -126,7 +119,6 @@ extension MessagesGroup {
             id: "mock-outgoing-reactions-group",
             sender: sender,
             messages: messages,
-            unpublished: [],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: true
         )
@@ -280,5 +272,27 @@ extension MessagesListItemType {
             .mockUpdate,
             .mockMixedMessages
         ]
+    }
+
+    /// Returns the ID of the last message in this item (for scroll comparison without reaction data)
+    var lastMessageId: String? {
+        switch self {
+        case .messages(let group):
+            return group.messages.last?.base.id
+        default:
+            return nil
+        }
+    }
+}
+
+extension Array where Element == MessagesListItemType {
+    /// Returns the ID of the very last message across all items
+    var lastMessageId: String? {
+        for item in reversed() {
+            if let id = item.lastMessageId {
+                return id
+            }
+        }
+        return nil
     }
 }

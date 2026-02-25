@@ -11,13 +11,18 @@ struct ConversationPresenter<Content: View>: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.safeAreaInsets) private var safeAreaInsets: EdgeInsets
 
+    private var isShowingShareOverlay: Bool {
+        viewModel?.presentingShareView == true
+    }
+
     var body: some View {
         ZStack {
             content($focusState, focusCoordinator)
+                .toolbar(isShowingShareOverlay ? .hidden : .automatic, for: .navigationBar)
 
             VStack {
-                if let viewModel = viewModel, viewModel.showsInfoView {
-                    ConversationInfoButtonWrapper(
+                if let viewModel = viewModel, viewModel.showsInfoView, !isShowingShareOverlay {
+                    ConversationIndicatorWrapper(
                         viewModel: viewModel,
                         focusState: $focusState,
                         focusCoordinator: focusCoordinator
@@ -37,6 +42,20 @@ struct ConversationPresenter<Content: View>: View {
             .ignoresSafeArea()
             .allowsHitTesting(true)
             .zIndex(1000)
+
+            if let viewModel, viewModel.presentingShareView {
+                ConversationShareOverlay(
+                    conversation: viewModel.conversation,
+                    invite: viewModel.invite,
+                    isPresented: Binding(
+                        get: { viewModel.presentingShareView },
+                        set: { viewModel.presentingShareView = $0 }
+                    ),
+                    topSafeAreaInset: insetsTopSafeArea ? safeAreaInsets.top : DesignConstants.Spacing.step3x
+                )
+                .ignoresSafeArea()
+                .zIndex(2000)
+            }
         }
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
         .onAppear {
@@ -64,25 +83,29 @@ struct ConversationPresenter<Content: View>: View {
     }
 }
 
-private struct ConversationInfoButtonWrapper: View {
+private struct ConversationIndicatorWrapper: View {
     @Bindable var viewModel: ConversationViewModel
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let focusCoordinator: FocusCoordinator
 
     var body: some View {
-        ConversationInfoButton(
+        ConversationIndicator(
             conversation: viewModel.conversation,
             placeholderName: viewModel.conversationNamePlaceholder,
             untitledConversationPlaceholder: viewModel.untitledConversationPlaceholder,
             subtitle: viewModel.conversationInfoSubtitle,
+            scheduledExplosionDate: viewModel.scheduledExplosionDate,
             conversationName: $viewModel.editingConversationName,
             conversationImage: $viewModel.conversationImage,
             presentingConversationSettings: $viewModel.presentingConversationSettings,
+            activeToast: $viewModel.activeToast,
+            autoRevealPhotos: $viewModel.autoRevealPhotos,
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
             explodeState: viewModel.explodeState,
             onConversationInfoTapped: { viewModel.onConversationInfoTap(focusCoordinator: focusCoordinator) },
+            onConversationInfoLongPressed: { viewModel.onConversationInfoLongPress(focusCoordinator: focusCoordinator) },
             onConversationNameEndedEditing: {
                 viewModel.onConversationNameEndedEditing(
                     focusCoordinator: focusCoordinator,

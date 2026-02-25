@@ -40,10 +40,21 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
         afterUpload: @escaping (String) async throws -> Void
     ) async throws -> String
 
+    func getPresignedUploadURL(
+        filename: String,
+        contentType: String
+    ) async throws -> (uploadURL: String, assetURL: String)
+
     // Push notifications
     func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws
     func unregisterInstallation(clientId: String) async throws
+
+    // Asset renewal
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
+
+    // Agents
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse
 }
 
 /// HTTP client for Convos backend API
@@ -281,90 +292,76 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return request
     }
 
-    private func performRequest<T: Decodable>(_ request: URLRequest, retryCount: Int = 0) async throws -> T {
-        do {
-            let (data, response) = try await session.data(for: request)
+    private func performRequest<T: Decodable>(_ request: URLRequest) async throws -> T {
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
 
-            Log.info("\(request.url?.path(percentEncoded: false) ?? "nil") received response: \(data.prettyPrintedJSONString ?? "nil data")")
+        Log.info("\(request.url?.path(percentEncoded: false) ?? "nil") received response: \(data.prettyPrintedJSONString ?? "nil data")")
 
-            guard let httpResponse = response as? HTTPURLResponse else {
-                throw APIError.invalidResponse
+        switch httpResponse.statusCode {
+        case 200...203, 206...299:
+            if T.self == EmptyResponse.self,
+               let emptyResponse = EmptyResponse() as? T {
+                return emptyResponse
+            } else {
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                return try decoder.decode(T.self, from: data)
             }
-
-            switch httpResponse.statusCode {
-            case 200...203, 206...299:
-                if T.self == EmptyResponse.self,
-                   let emptyResponse = EmptyResponse() as? T {
-                    return emptyResponse
-                } else {
-                    let decoder = JSONDecoder()
-                    decoder.dateDecodingStrategy = .iso8601
-                    return try decoder.decode(T.self, from: data)
-                }
-            case 204, 205, 304:
-                // Handle no content responses
-                if T.self == EmptyResponse.self,
-                   let emptyResponse = EmptyResponse() as? T {
-                    return emptyResponse
-                } else if let emptyDict = [:] as? T {
-                    return emptyDict
-                } else if let emptyArray = [] as? T {
-                    return emptyArray
-                } else {
-                    // For other types, throw appropriate error
-                    throw APIError.noContent
-                }
-            case 400:
-                // Parse error message from response if available
-                let errorMessage: String?
-                if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                   let message = json["message"] as? String {
-                    errorMessage = message
-                } else {
-                    errorMessage = String(data: data, encoding: .utf8)
-                }
-                throw APIError.badRequest(errorMessage)
-            case 401:
-                // When using JWT override, never attempt re-authentication
-                // (AppCheck not available when using JWT from APNS payload)
-                guard overrideJWTToken == nil else {
-                    Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
-                    throw APIError.notAuthenticated
-                }
-
-                // Check if we've exceeded max retries
-                guard retryCount < maxRetryCount else {
-                    Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
-                    throw APIError.notAuthenticated
-                }
-
-                // Try to re-authenticate and retry the request
-                do {
-                    Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
-                    let freshJWT = try await reAuthenticate()
-                    guard !freshJWT.isEmpty else {
-                        throw APIError.notAuthenticated
-                    }
-                    // Create a new request with the fresh token
-                    var newRequest = request
-                    newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
-                    // Retry the request with incremented retry count
-                    return try await performRequest(newRequest, retryCount: retryCount + 1)
-                } catch {
-                    Log.error("Re-authentication failed: \(error.localizedDescription)")
-                    throw APIError.notAuthenticated
-                }
-            case 403:
-                throw APIError.forbidden
-            case 404:
-                throw APIError.notFound
-            default:
-                let errorMessage = String(data: data, encoding: .utf8)
-                throw APIError.serverError(errorMessage)
+        case 204, 205, 304:
+            if T.self == EmptyResponse.self,
+               let emptyResponse = EmptyResponse() as? T {
+                return emptyResponse
+            } else if let emptyDict = [:] as? T {
+                return emptyDict
+            } else if let emptyArray = [] as? T {
+                return emptyArray
+            } else {
+                throw APIError.noContent
             }
-        } catch {
-            throw error
+        case 400:
+            throw APIError.badRequest(parseErrorMessage(from: data))
+        case 403:
+            throw APIError.forbidden
+        case 404:
+            throw APIError.notFound
+        default:
+            throw APIError.serverError(parseErrorMessage(from: data))
         }
+    }
+
+    private func performAuthenticatedRequest(
+        _ request: URLRequest,
+        retryCount: Int = 0
+    ) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await session.data(for: request)
+
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+
+        guard httpResponse.statusCode == 401 else {
+            return (data, httpResponse)
+        }
+
+        guard overrideJWTToken == nil else {
+            Log.error("Authentication failed in JWT override mode - cannot re-authenticate without AppCheck")
+            throw APIError.notAuthenticated
+        }
+
+        guard retryCount < maxRetryCount else {
+            Log.error("Max retry count (\(maxRetryCount)) exceeded for request")
+            throw APIError.notAuthenticated
+        }
+
+        Log.info("Attempting re-authentication (attempt \(retryCount + 1) of \(maxRetryCount))")
+        let freshJWT = try await reAuthenticate()
+        guard !freshJWT.isEmpty else {
+            throw APIError.notAuthenticated
+        }
+
+        var newRequest = request
+        newRequest.setValue(freshJWT, forHTTPHeaderField: "X-Convos-AuthToken")
+        return try await performAuthenticatedRequest(newRequest, retryCount: retryCount + 1)
     }
 
     func uploadAttachment(
@@ -456,6 +453,30 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         return uploadedURL
     }
 
+    func getPresignedUploadURL(
+        filename: String,
+        contentType: String
+    ) async throws -> (uploadURL: String, assetURL: String) {
+        Log.info("Getting presigned URL for file: \(filename)")
+
+        let presignedRequest = try authenticatedRequest(
+            for: "v2/attachments/presigned",
+            method: "GET",
+            queryParameters: ["contentType": contentType, "filename": filename]
+        )
+
+        struct PresignedResponse: Codable {
+            let objectKey: String
+            let uploadUrl: String
+            let assetUrl: String
+        }
+
+        let response: PresignedResponse = try await performRequest(presignedRequest)
+        Log.info("Received presigned URL for objectKey: \(response.objectKey)")
+
+        return (uploadURL: response.uploadUrl, assetURL: response.assetUrl)
+    }
+
     // MARK: - Push Notification Management (JWT-authenticated, inbox-level)
 
     func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
@@ -492,12 +513,74 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         let _: EmptyResponse = try await performRequest(request)
     }
 
+    // MARK: - Asset Renewal
+
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        var request = try authenticatedRequest(for: "v2/assets/renew-batch", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body = ConvosAPI.BatchRenewRequest(assetKeys: assetKeys)
+        request.httpBody = try JSONEncoder().encode(body)
+
+        let response: ConvosAPI.BatchRenewResponse = try await performRequest(request)
+
+        let expiredKeys = response.results
+            .filter { !$0.success && $0.error == "not_found" }
+            .map { $0.key }
+
+        return AssetRenewalResult(
+            renewed: response.renewed,
+            failed: response.failed,
+            expiredKeys: expiredKeys
+        )
+    }
+
+    // MARK: - Agents
+
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        request.httpBody = try JSONEncoder().encode(
+            ConvosAPI.AgentJoinRequest(
+                slug: slug,
+                instructions: instructions
+            )
+        )
+
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            let decoder = JSONDecoder()
+            return try decoder.decode(ConvosAPI.AgentJoinResponse.self, from: data)
+        case 502:
+            throw APIError.agentProvisionFailed
+        case 503:
+            throw APIError.noAgentsAvailable
+        case 504:
+            throw APIError.agentPoolTimeout
+        case 400:
+            throw APIError.badRequest(parseErrorMessage(from: data))
+        case 403:
+            throw APIError.forbidden
+        case 404:
+            throw APIError.notFound
+        default:
+            throw APIError.serverError(parseErrorMessage(from: data))
+        }
+    }
+
     // MARK: - Helper Methods
 
     private func parseErrorMessage(from data: Data) -> String? {
-        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-           let message = json["message"] as? String {
-            return message
+        if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if let message = json["message"] as? String {
+                return message
+            }
+            if let error = json["error"] as? String {
+                return error
+            }
         }
         return String(data: data, encoding: .utf8)
     }
@@ -517,6 +600,9 @@ enum APIError: Error {
     case invalidRequest
     case serverError(String?)
     case rateLimitExceeded
+    case noAgentsAvailable
+    case agentPoolTimeout
+    case agentProvisionFailed
 }
 
 extension APIError: DisplayError {
@@ -544,6 +630,12 @@ extension APIError: DisplayError {
             return "Server error"
         case .rateLimitExceeded:
             return "Too many requests"
+        case .noAgentsAvailable:
+            return "No assistants available"
+        case .agentPoolTimeout:
+            return "Assistant timed out"
+        case .agentProvisionFailed:
+            return "Couldn't add assistant"
         }
     }
 
@@ -571,6 +663,12 @@ extension APIError: DisplayError {
             return message ?? "The server encountered an error."
         case .rateLimitExceeded:
             return "Too many requests. Please try again later."
+        case .noAgentsAvailable:
+            return "No assistants are available right now. Please try again later."
+        case .agentPoolTimeout:
+            return "Assistant setup took too long. Please try again."
+        case .agentProvisionFailed:
+            return "Something went wrong while adding an assistant. Please try again."
         }
     }
 }
