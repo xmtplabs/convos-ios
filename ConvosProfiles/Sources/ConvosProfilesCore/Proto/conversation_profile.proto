@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+// EncryptedImageRef stores encrypted image metadata
+// AES-GCM auth tag (16 bytes) is appended to ciphertext, providing integrity verification
+message EncryptedImageRef {
+    string url = 1;   // S3 URL to encrypted ciphertext
+    bytes salt = 2;   // 32-byte HKDF salt for key derivation
+    bytes nonce = 3;  // 12-byte AES-GCM nonce
+}
+
+// ConversationProfile represents a participant in the conversation
+// Stored in XMTP group appData as part of ConversationCustomMetadata
+message ConversationProfile {
+    bytes inboxId = 1;  // XMTP inbox ID as hex-decoded bytes (32 bytes)
+    optional string name = 2;
+    optional string image = 3;  // Legacy: plain URL (backward compatibility)
+    optional EncryptedImageRef encryptedImage = 4;  // New: encrypted image reference
+}
