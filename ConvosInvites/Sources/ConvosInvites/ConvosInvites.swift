@@ -37,4 +37,3 @@
 // ```
 
 @_exported import ConvosInvitesCore
-@_exported import XMTPiOS
