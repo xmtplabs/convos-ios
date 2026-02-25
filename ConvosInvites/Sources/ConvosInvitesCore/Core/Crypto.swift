@@ -68,7 +68,7 @@ extension Data {
     /// Initialize Data from a hex string (package-internal)
     package init?(hexString: String) {
         let hex = hexString.dropFirst(hexString.hasPrefix("0x") ? 2 : 0)
-        guard hex.count % 2 == 0 else { return nil }
+        guard hex.count.isMultiple(of: 2) else { return nil }
 
         var data = Data(capacity: hex.count / 2)
         var index = hex.startIndex

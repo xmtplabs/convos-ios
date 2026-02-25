@@ -22,7 +22,9 @@ struct InviteProtobufExtensionsTests {
         Data((0..<32).map { UInt8($0 * 7 % 256) })
     }
 
-    private let testInboxId = "0011223344556677889900112233445566778899001122334455667788990011"
+    private let testInboxId: String = "0011223344556677889900112233445566778899001122334455667788990011"
+    // swiftlint:disable:next force_unwrapping
+    private var testInboxIdData: Data { Data(hexString: testInboxId)! }
 
     // MARK: - Basic Encoding/Decoding Tests
 
@@ -39,7 +41,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.conversationToken = conversationTokenBytes
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
         payload.tag = "test123"
 
         let signature = try payload.sign(with: privateKey)
@@ -69,7 +71,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.conversationToken = conversationTokenBytes
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
         payload.tag = "test123"
         payload.name = "My Group Chat"
         payload.description_p = "A group chat for testing"
@@ -110,7 +112,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.conversationToken = conversationTokenBytes
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
         payload.tag = String(repeating: "test", count: 50)
         payload.name = String(repeating: "Long Name ", count: 20)
         payload.description_p = String(repeating: "Long Description ", count: 30)
@@ -149,7 +151,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.conversationToken = conversationTokenBytes
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
         payload.tag = "test"
 
         let signature = try payload.sign(with: privateKey)
@@ -188,7 +190,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.conversationToken = conversationTokenBytes
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
         payload.tag = "test123"
 
         let signature = try payload.sign(with: privateKey)
@@ -211,11 +213,11 @@ struct InviteProtobufExtensionsTests {
 
         var payload1 = InvitePayload()
         payload1.tag = "test1"
-        payload1.creatorInboxID = Data(hexString: testInboxId)!
+        payload1.creatorInboxID = testInboxIdData
 
         var payload2 = InvitePayload()
         payload2.tag = "test2"
-        payload2.creatorInboxID = Data(hexString: testInboxId)!
+        payload2.creatorInboxID = testInboxIdData
 
         let signature1 = try payload1.sign(with: privateKey)
         let signature2 = try payload2.sign(with: privateKey)
@@ -229,7 +231,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         // Note: secp256k1 signatures are deterministic (RFC 6979)
         // So same payload + key should produce same signature
@@ -264,7 +266,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         let signature = try payload.sign(with: privateKey)
 
@@ -299,7 +301,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         let signature = try payload.sign(with: privateKey)
 
@@ -322,7 +324,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: inboxIdHex)!
+        payload.creatorInboxID = testInboxIdData
 
         let signature = try payload.sign(with: privateKey)
 
@@ -344,7 +346,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         // Set expiration to past
         let pastDate = Date(timeIntervalSince1970: 1000000000) // 2001
@@ -365,7 +367,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         // Set expiration to future
         let futureDate = Date(timeIntervalSince1970: 2000000000) // 2033
@@ -386,7 +388,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         // Set conversation expiration to past
         let pastDate = Date(timeIntervalSince1970: 1000000000)
@@ -409,7 +411,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
         payload.name = "Test Name"
         payload.description_p = "Test Description"
         payload.imageURL = "https://example.com/image.jpg"
@@ -431,7 +433,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         let signature = try payload.sign(with: privateKey)
 
@@ -454,7 +456,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         let signature = try payload.sign(with: privateKey)
 
@@ -475,7 +477,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         let signature = try payload.sign(with: privateKey)
 
@@ -557,7 +559,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = String(repeating: "x", count: 1000)
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
 
         let signature = try payload.sign(with: privateKey)
 
@@ -577,7 +579,7 @@ struct InviteProtobufExtensionsTests {
 
         var payload = InvitePayload()
         payload.tag = "test"
-        payload.creatorInboxID = Data(hexString: testInboxId)!
+        payload.creatorInboxID = testInboxIdData
         payload.name = "Group 🎉 with emoji"
         payload.description_p = "Description\nwith\nnewlines\tand\ttabs"
 

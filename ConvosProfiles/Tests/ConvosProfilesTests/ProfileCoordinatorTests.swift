@@ -33,10 +33,10 @@ struct ConvosProfilesTests {
         var metadata = ConversationCustomMetadata()
         metadata.tag = "test-tag"
 
-        let profile = ConversationProfile(
+        let profile = try #require(ConversationProfile(
             inboxIdString: "0011223344556677889900112233445566778899001122334455667788990011",
             name: "Alice"
-        )!
+        ))
         metadata.upsertProfile(profile)
 
         let encoded = try metadata.toCompactString()

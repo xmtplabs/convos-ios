@@ -22,11 +22,11 @@ struct SerializationTests {
         var metadata = ConversationCustomMetadata()
         metadata.tag = "invite-tag"
 
-        let profile = ConversationProfile(
+        let profile = try #require(ConversationProfile(
             inboxIdString: "0011223344556677889900112233445566778899001122334455667788990011",
             name: "Alice",
             imageUrl: "https://example.com/avatar.jpg"
-        )!
+        ))
         metadata.profiles.append(profile)
 
         let encoded = try metadata.toCompactString()
@@ -188,10 +188,13 @@ struct MetadataProfileTests {
     private let inboxId1: String = "0011223344556677889900112233445566778899001122334455667788990011"
     private let inboxId2: String = "1122334455667788990011223344556677889900112233445566778899001100"
 
+    // swiftlint:disable:next force_unwrapping
+    private func makeProfile(inboxId: String, name: String) -> ConversationProfile { ConversationProfile(inboxIdString: inboxId, name: name)! }
+
     @Test("Upsert profile to metadata")
     func upsertProfileToMetadata() {
         var metadata = ConversationCustomMetadata()
-        let profile = ConversationProfile(inboxIdString: inboxId1, name: "Alice")!
+        let profile = makeProfile(inboxId: inboxId1, name: "Alice")
 
         metadata.upsertProfile(profile)
 
@@ -202,8 +205,8 @@ struct MetadataProfileTests {
     @Test("Upsert updates existing profile")
     func upsertUpdatesExisting() {
         var metadata = ConversationCustomMetadata()
-        metadata.upsertProfile(ConversationProfile(inboxIdString: inboxId1, name: "Alice")!)
-        metadata.upsertProfile(ConversationProfile(inboxIdString: inboxId1, name: "Alice Updated")!)
+        metadata.upsertProfile(makeProfile(inboxId: inboxId1, name: "Alice"))
+        metadata.upsertProfile(makeProfile(inboxId: inboxId1, name: "Alice Updated"))
 
         #expect(metadata.profiles.count == 1)
         #expect(metadata.profiles[0].name == "Alice Updated")
@@ -212,8 +215,8 @@ struct MetadataProfileTests {
     @Test("Find profile in metadata")
     func findProfileInMetadata() {
         var metadata = ConversationCustomMetadata()
-        metadata.upsertProfile(ConversationProfile(inboxIdString: inboxId1, name: "Alice")!)
-        metadata.upsertProfile(ConversationProfile(inboxIdString: inboxId2, name: "Bob")!)
+        metadata.upsertProfile(makeProfile(inboxId: inboxId1, name: "Alice"))
+        metadata.upsertProfile(makeProfile(inboxId: inboxId2, name: "Bob"))
 
         let found = metadata.findProfile(inboxId: inboxId2)
 
@@ -223,7 +226,7 @@ struct MetadataProfileTests {
     @Test("Remove profile from metadata")
     func removeProfileFromMetadata() {
         var metadata = ConversationCustomMetadata()
-        metadata.upsertProfile(ConversationProfile(inboxIdString: inboxId1, name: "Alice")!)
+        metadata.upsertProfile(makeProfile(inboxId: inboxId1, name: "Alice"))
 
         let removed = metadata.removeProfile(inboxId: inboxId1)
 

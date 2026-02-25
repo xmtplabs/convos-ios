@@ -1,6 +1,6 @@
+@testable import ConvosProfiles
 import Foundation
 import Testing
-@testable import ConvosProfiles
 
 @Suite("Image Encryption Tests")
 struct ImageEncryptionTests {

@@ -5,8 +5,8 @@ import Testing
 @Suite("InviteToken Tests")
 struct InviteTokenTests {
     // Test private key (32 bytes)
-    let testPrivateKey = Data(repeating: 0x42, count: 32)
-    let testInboxId = "abc123def456"
+    let testPrivateKey: Data = Data(repeating: 0x42, count: 32)
+    let testInboxId: String = "abc123def456"
 
     @Test("Encrypt and decrypt UUID conversation ID")
     func encryptDecryptUUID() throws {

@@ -4,7 +4,7 @@ import Testing
 
 @Suite("InviteEncoding Tests")
 struct InviteEncodingTests {
-    let testPrivateKey = Data(repeating: 0x42, count: 32)
+    let testPrivateKey: Data = Data(repeating: 0x42, count: 32)
 
     @Test("Encode and decode signed invite")
     func encodeDecodeRoundtrip() throws {

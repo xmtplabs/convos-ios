@@ -5,7 +5,7 @@ import Testing
 @Suite("InviteSigner Tests")
 struct InviteSignerTests {
     // Test private key (32 bytes)
-    let testPrivateKey = Data(repeating: 0x42, count: 32)
+    let testPrivateKey: Data = Data(repeating: 0x42, count: 32)
 
     @Test("Sign and verify invite payload")
     func signAndVerify() throws {

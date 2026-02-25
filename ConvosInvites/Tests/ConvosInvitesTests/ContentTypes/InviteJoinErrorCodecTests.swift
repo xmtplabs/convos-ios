@@ -5,7 +5,7 @@ import XMTPiOS
 
 @Suite("InviteJoinError Codec Tests")
 struct InviteJoinErrorCodecTests {
-    let codec = InviteJoinErrorCodec()
+    let codec: InviteJoinErrorCodec = InviteJoinErrorCodec()
 
     @Test("Codec content type matches expected value")
     func codecContentType() {
@@ -206,7 +206,7 @@ struct InviteJoinErrorCodecTests {
         let encodedContent = try codec.encode(content: error)
         let decodedError: InviteJoinError = try codec.decode(content: encodedContent)
 
-        #expect(decodedError.inviteTag == "")
+        #expect(decodedError.inviteTag.isEmpty)
     }
 
     @Test("Very long invite tag")
@@ -296,11 +296,11 @@ struct InviteJoinErrorCodecTests {
 
     @Test("Decode incomplete JSON throws error")
     func decodeIncompleteJSON() throws {
-        let incompleteJSON = """
+        let incompleteJSON = Data("""
         {
             "errorType": "conversation_expired"
         }
-        """.data(using: .utf8)!
+        """.utf8)
 
         var encodedContent = EncodedContent()
         encodedContent.type = ContentTypeInviteJoinError

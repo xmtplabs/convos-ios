@@ -60,7 +60,7 @@ public actor InviteCoordinator {
         client: XMTPiOS.Client,
         privateKeyProvider: @escaping PrivateKeyProvider,
         tagStorage: any InviteTagStorageProtocol = XMTPInviteTagStorage(),
-        baseURL: URL = URL(string: "https://convos.org/i/")!
+        baseURL: URL = Constant.defaultBaseURL
     ) {
         self.client = client
         self.privateKeyProvider = privateKeyProvider
@@ -357,4 +357,11 @@ public enum InviteCreationError: Error, LocalizedError {
             return "Failed to encode invite"
         }
     }
+}
+
+// MARK: - Constant
+
+private enum Constant {
+    // swiftlint:disable:next force_unwrapping
+    static let defaultBaseURL: URL = URL(string: "https://convos.org/i/")!
 }

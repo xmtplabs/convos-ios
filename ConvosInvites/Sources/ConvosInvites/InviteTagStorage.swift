@@ -22,8 +22,8 @@ public protocol InviteTagStorageProtocol: Sendable {
 /// Stores invite tags in the group's appData field using a simple key-value format.
 /// This is a basic implementation - apps may want to use protobuf for more complex metadata.
 public struct XMTPInviteTagStorage: InviteTagStorageProtocol {
-    private static let tagKey = "xmtp.invites.tag"
-    private static let tagLength = 10
+    private static let tagKey: String = "xmtp.invites.tag"
+    private static let tagLength: Int = 10
 
     public init() {}
 
@@ -53,8 +53,8 @@ public struct XMTPInviteTagStorage: InviteTagStorageProtocol {
     // MARK: - Private Helpers
 
     private func generateRandomTag() -> String {
-        let characters = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        return String((0..<Self.tagLength).map { _ in characters.randomElement()! })
+        let characters: String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        return String((0..<Self.tagLength).compactMap { _ in characters.randomElement() })
     }
 
     private func extractTag(from dataString: String) -> String? {
@@ -73,13 +73,11 @@ public struct XMTPInviteTagStorage: InviteTagStorageProtocol {
         var lines = dataString.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
 
         // Find and update existing tag, or append new one
-        var found = false
-        for i in 0..<lines.count {
-            if lines[i].hasPrefix("\(Self.tagKey)=") {
-                lines[i] = "\(Self.tagKey)=\(newTag)"
-                found = true
-                break
-            }
+        var found: Bool = false
+        for i in 0..<lines.count where lines[i].hasPrefix("\(Self.tagKey)=") {
+            lines[i] = "\(Self.tagKey)=\(newTag)"
+            found = true
+            break
         }
 
         if !found {
