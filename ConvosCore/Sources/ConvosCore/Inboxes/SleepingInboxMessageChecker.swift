@@ -11,10 +11,6 @@ public actor SleepingInboxMessageChecker {
     /// Default interval between periodic checks (60 seconds in production)
     public static let defaultCheckInterval: TimeInterval = 60
 
-    /// How long new inboxes with no activity are protected from eviction (multiple check cycles)
-    /// In production: 60 * 12 = 720 seconds (12 minutes)
-    public static let newInboxProtectionWindow: TimeInterval = defaultCheckInterval * 12
-
     private let checkInterval: TimeInterval
     private let environment: AppEnvironment
     private let activityRepository: any InboxActivityRepositoryProtocol
