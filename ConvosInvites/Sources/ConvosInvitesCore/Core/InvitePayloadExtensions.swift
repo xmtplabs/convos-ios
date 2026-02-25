@@ -70,6 +70,11 @@ extension SignedInvite {
         invitePayload.descriptionIfPresent
     }
 
+    /// Alias for backward compatibility with protobuf naming
+    public var description_p: String? {
+        inviteDescription
+    }
+
     public var imageURL: String? {
         invitePayload.imageURLIfPresent
     }

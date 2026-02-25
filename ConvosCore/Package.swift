@@ -30,6 +30,7 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-protobuf.git", from: "1.31.1"),
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
         .package(path: "../ConvosLogging"),
+        .package(path: "../ConvosInvites"),
     ],
     targets: [
         .target(
@@ -43,6 +44,7 @@ let package = Package(
                 .product(name: "CSecp256k1", package: "CSecp256k1.swift"),
                 .product(name: "Sentry", package: "sentry-cocoa"),
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
+                .product(name: "ConvosInvites", package: "ConvosInvites"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

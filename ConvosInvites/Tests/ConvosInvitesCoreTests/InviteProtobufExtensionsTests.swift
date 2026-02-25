@@ -1,4 +1,4 @@
-@testable import ConvosCore
+@testable import ConvosInvitesCore
 import CryptoKit
 import Foundation
 import Testing
@@ -31,10 +31,10 @@ struct InviteProtobufExtensionsTests {
         let privateKey = generateTestPrivateKey()
         let conversationId = UUID().uuidString.lowercased()
 
-        let conversationTokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let conversationTokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         var payload = InvitePayload()
@@ -61,10 +61,10 @@ struct InviteProtobufExtensionsTests {
         let privateKey = generateTestPrivateKey()
         let conversationId = UUID().uuidString.lowercased()
 
-        let conversationTokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let conversationTokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         var payload = InvitePayload()
@@ -102,10 +102,10 @@ struct InviteProtobufExtensionsTests {
         let privateKey = generateTestPrivateKey()
         let conversationId = UUID().uuidString.lowercased()
 
-        let conversationTokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let conversationTokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         var payload = InvitePayload()
@@ -141,10 +141,10 @@ struct InviteProtobufExtensionsTests {
         let privateKey = generateTestPrivateKey()
         let conversationId = UUID().uuidString.lowercased()
 
-        let conversationTokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let conversationTokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         var payload = InvitePayload()
@@ -180,10 +180,10 @@ struct InviteProtobufExtensionsTests {
         let privateKey = generateTestPrivateKey()
         let conversationId = UUID().uuidString.lowercased()
 
-        let conversationTokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let conversationTokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         var payload = InvitePayload()
@@ -251,7 +251,7 @@ struct InviteProtobufExtensionsTests {
         #expect {
             try signedInvite.recoverSignerPublicKey()
         } throws: { error in
-            guard let signatureError = error as? EncodableSignatureError else {
+            guard let signatureError = error as? InviteSignatureError else {
                 return false
             }
             return signatureError == .invalidSignature
@@ -525,7 +525,7 @@ struct InviteProtobufExtensionsTests {
         #expect {
             try payload.sign(with: shortKey)
         } throws: { error in
-            guard let signatureError = error as? EncodableSignatureError else {
+            guard let signatureError = error as? InviteSignatureError else {
                 return false
             }
             return signatureError == .invalidPrivateKey
@@ -542,7 +542,7 @@ struct InviteProtobufExtensionsTests {
         #expect {
             try payload.sign(with: emptyKey)
         } throws: { error in
-            guard let signatureError = error as? EncodableSignatureError else {
+            guard let signatureError = error as? InviteSignatureError else {
                 return false
             }
             return signatureError == .invalidPrivateKey

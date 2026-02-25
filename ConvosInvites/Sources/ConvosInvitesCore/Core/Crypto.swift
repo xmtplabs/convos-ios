@@ -65,8 +65,8 @@ extension Data {
         return result == 0
     }
 
-    /// Initialize Data from a hex string
-    public init?(hexString: String) {
+    /// Initialize Data from a hex string (package-internal)
+    package init?(hexString: String) {
         let hex = hexString.dropFirst(hexString.hasPrefix("0x") ? 2 : 0)
         guard hex.count % 2 == 0 else { return nil }
 

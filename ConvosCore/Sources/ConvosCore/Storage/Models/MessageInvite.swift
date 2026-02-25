@@ -1,3 +1,4 @@
+import ConvosInvites
 import Foundation
 
 // MARK: - MessageInvite

@@ -1,4 +1,5 @@
 import Combine
+import ConvosInvites
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS

@@ -235,26 +235,50 @@ extension Data {
 
 extension URL {
     /// Extract invite code from Convos URL
-    var convosInviteCode: String? {
+    ///
+    /// Supported formats:
+    /// - `convos://join/{code}` - Legacy app scheme
+    /// - `convos://invite/{code}` - App scheme
+    /// - `https://domain.com/v2?i={code}` - Legacy universal link
+    /// - `https://convos.org/i/{code}` - Universal link
+    /// - `https://convos.org/invite?code={code}` - Universal link with query param
+    public var convosInviteCode: String? {
+        let pathComponents = pathComponents.filter { $0 != "/" }
+
         // Handle convos:// scheme
         if scheme == "convos" {
+            // convos://join/{code} (legacy)
+            if host == "join", pathComponents.count >= 1 {
+                return pathComponents[0]
+            }
             // convos://invite/{code}
             if host == "invite" || pathComponents.first == "invite" {
                 return pathComponents.last
             }
         }
 
-        // Handle https://convos.org URLs
-        if host?.contains("convos") == true {
+        // Handle https:// scheme
+        if scheme == "https" {
+            // Legacy: https://domain.com/v2?i={code}
+            if path.contains("/v2"),
+               let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+               let queryItems = components.queryItems,
+               let code = queryItems.first(where: { $0.name == "i" })?.value,
+               !code.isEmpty {
+                return code
+            }
+
             // https://convos.org/i/{code}
-            if pathComponents.contains("i"), let codeIndex = pathComponents.firstIndex(of: "i"),
+            if pathComponents.contains("i"),
+               let codeIndex = pathComponents.firstIndex(of: "i"),
                codeIndex + 1 < pathComponents.count {
                 return pathComponents[codeIndex + 1]
             }
 
             // https://convos.org/invite?code={code}
             if let queryItems = URLComponents(url: self, resolvingAgainstBaseURL: false)?.queryItems,
-               let code = queryItems.first(where: { $0.name == "code" })?.value {
+               let code = queryItems.first(where: { $0.name == "code" })?.value,
+               !code.isEmpty {
                 return code
             }
         }

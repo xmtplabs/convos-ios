@@ -1,8 +1,8 @@
-@testable import ConvosCore
+@testable import ConvosInvitesCore
 import Foundation
 import Testing
 
-/// Comprehensive tests for InviteCode.swift (InviteConversationToken)
+/// Comprehensive tests for InviteToken (conversation ID encryption)
 ///
 /// Tests cover:
 /// - UUID and string conversation ID encoding/decoding
@@ -11,7 +11,7 @@ import Testing
 /// - Invalid format handling
 /// - Version compatibility
 /// - Security properties (AAD binding, key derivation)
-@Suite("Invite Conversation Token Tests")
+@Suite("Invite Token Tests")
 struct InviteCodeTests {
     // MARK: - Test Keys and Data
 
@@ -21,7 +21,7 @@ struct InviteCodeTests {
         Data((0..<32).map { UInt8($0 * 7 % 256) })
     }
 
-    private let testInboxId = "0011223344556677889900112233445566778899001122334455667788990011"
+    private let testInboxId: String = "0011223344556677889900112233445566778899001122334455667788990011"
 
     // MARK: - UUID Token Tests
 
@@ -30,19 +30,19 @@ struct InviteCodeTests {
         let conversationId = UUID().uuidString.lowercased()
         let privateKey = generateTestPrivateKey()
 
-        let tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let tokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         // UUID tokens should be exactly 46 bytes
-        #expect(tokenBytes.count == InviteConversationToken.uuidCodeSize)
+        #expect(tokenBytes.count == InviteToken.uuidCodeSize)
 
-        let decoded = try InviteConversationToken.decodeConversationTokenBytes(
-            tokenBytes,
+        let decoded = try InviteToken.decrypt(
+            tokenBytes: tokenBytes,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         #expect(decoded == conversationId)
@@ -54,16 +54,16 @@ struct InviteCodeTests {
 
         // Generate multiple UUID tokens
         let tokens = try (0..<10).map { _ in
-            try InviteConversationToken.makeConversationTokenBytes(
+            try InviteToken.encrypt(
                 conversationId: UUID().uuidString.lowercased(),
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
         }
 
         // All should be exactly 46 bytes
         for token in tokens {
-            #expect(token.count == InviteConversationToken.uuidCodeSize)
+            #expect(token.count == InviteToken.uuidCodeSize)
             #expect(token.count == 46)
         }
     }
@@ -76,29 +76,29 @@ struct InviteCodeTests {
         let uppercase = uuid.uuidString
         let lowercase = uuid.uuidString.lowercased()
 
-        let upperToken = try InviteConversationToken.makeConversationTokenBytes(
+        let upperToken = try InviteToken.encrypt(
             conversationId: uppercase,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
-        let lowerToken = try InviteConversationToken.makeConversationTokenBytes(
+        let lowerToken = try InviteToken.encrypt(
             conversationId: lowercase,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         // Decoding should return lowercase
-        let decodedUpper = try InviteConversationToken.decodeConversationTokenBytes(
-            upperToken,
+        let decodedUpper = try InviteToken.decrypt(
+            tokenBytes: upperToken,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
-        let decodedLower = try InviteConversationToken.decodeConversationTokenBytes(
-            lowerToken,
+        let decodedLower = try InviteToken.decrypt(
+            tokenBytes: lowerToken,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         #expect(decodedUpper == lowercase)
@@ -120,19 +120,19 @@ struct InviteCodeTests {
         let privateKey = generateTestPrivateKey()
 
         for conversationId in conversationIds {
-            let tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+            let tokenBytes = try InviteToken.encrypt(
                 conversationId: conversationId,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
             // String tokens should be at least minEncodedSize
-            #expect(tokenBytes.count >= InviteConversationToken.minEncodedSize)
+            #expect(tokenBytes.count >= InviteToken.minEncodedSize)
 
-            let decoded = try InviteConversationToken.decodeConversationTokenBytes(
-                tokenBytes,
+            let decoded = try InviteToken.decrypt(
+                tokenBytes: tokenBytes,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
             #expect(decoded == conversationId)
@@ -144,16 +144,16 @@ struct InviteCodeTests {
         let longId = String(repeating: "conversation-", count: 100) // ~1300 chars
         let privateKey = generateTestPrivateKey()
 
-        let tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let tokenBytes = try InviteToken.encrypt(
             conversationId: longId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
-        let decoded = try InviteConversationToken.decodeConversationTokenBytes(
-            tokenBytes,
+        let decoded = try InviteToken.decrypt(
+            tokenBytes: tokenBytes,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         #expect(decoded == longId)
@@ -171,16 +171,16 @@ struct InviteCodeTests {
         let privateKey = generateTestPrivateKey()
 
         for conversationId in specialIds {
-            let tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+            let tokenBytes = try InviteToken.encrypt(
                 conversationId: conversationId,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
-            let decoded = try InviteConversationToken.decodeConversationTokenBytes(
-                tokenBytes,
+            let decoded = try InviteToken.decrypt(
+                tokenBytes: tokenBytes,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
             #expect(decoded == conversationId)
@@ -197,16 +197,16 @@ struct InviteCodeTests {
         let inboxId1 = "0011223344556677889900112233445566778899001122334455667788990011"
         let inboxId2 = "1122334455667788990011223344556677889900112233445566778899001100"
 
-        let token1 = try InviteConversationToken.makeConversationTokenBytes(
+        let token1 = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: inboxId1,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
-        let token2 = try InviteConversationToken.makeConversationTokenBytes(
+        let token2 = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: inboxId2,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         // Tokens should be different due to different inbox IDs in key derivation
@@ -220,16 +220,16 @@ struct InviteCodeTests {
         let privateKey1 = Data((0..<32).map { UInt8($0) })
         let privateKey2 = Data((0..<32).map { UInt8($0 + 1) })
 
-        let token1 = try InviteConversationToken.makeConversationTokenBytes(
+        let token1 = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey1
+            privateKey: privateKey1
         )
 
-        let token2 = try InviteConversationToken.makeConversationTokenBytes(
+        let token2 = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey2
+            privateKey: privateKey2
         )
 
         #expect(token1 != token2)
@@ -244,18 +244,18 @@ struct InviteCodeTests {
         let correctInboxId = "0011223344556677889900112233445566778899001122334455667788990011"
         let wrongInboxId = "1122334455667788990011223344556677889900112233445566778899001100"
 
-        let tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let tokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: correctInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         // Attempting to decode with wrong inbox ID should fail
-        #expect(throws: InviteConversationToken.Error.self) {
-            _ = try InviteConversationToken.decodeConversationTokenBytes(
-                tokenBytes,
+        #expect(throws: InviteTokenError.self) {
+            _ = try InviteToken.decrypt(
+                tokenBytes: tokenBytes,
                 creatorInboxId: wrongInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
         }
     }
@@ -266,18 +266,18 @@ struct InviteCodeTests {
         let correctKey = Data((0..<32).map { UInt8($0) })
         let wrongKey = Data((0..<32).map { UInt8($0 + 1) })
 
-        let tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let tokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: correctKey
+            privateKey: correctKey
         )
 
         // Attempting to decode with wrong key should fail
-        #expect(throws: InviteConversationToken.Error.self) {
-            _ = try InviteConversationToken.decodeConversationTokenBytes(
-                tokenBytes,
+        #expect(throws: InviteTokenError.self) {
+            _ = try InviteToken.decrypt(
+                tokenBytes: tokenBytes,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: wrongKey
+                privateKey: wrongKey
             )
         }
     }
@@ -289,13 +289,13 @@ struct InviteCodeTests {
         let conversationId = UUID().uuidString.lowercased()
         let privateKey = generateTestPrivateKey()
 
-        let tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let tokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
-        #expect(tokenBytes.first == InviteConversationToken.formatVersion)
+        #expect(tokenBytes.first == InviteToken.formatVersion)
         #expect(tokenBytes.first == 1)
     }
 
@@ -304,23 +304,23 @@ struct InviteCodeTests {
         let conversationId = UUID().uuidString.lowercased()
         let privateKey = generateTestPrivateKey()
 
-        var tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        var tokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         // Corrupt the version byte
         tokenBytes[0] = 99
 
         #expect {
-            try InviteConversationToken.decodeConversationTokenBytes(
-                tokenBytes,
+            try InviteToken.decrypt(
+                tokenBytes: tokenBytes,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
         } throws: { error in
-            guard let inviteError = error as? InviteConversationToken.Error,
+            guard let inviteError = error as? InviteTokenError,
                   case .unsupportedVersion(let version) = inviteError else {
                 return false
             }
@@ -338,13 +338,13 @@ struct InviteCodeTests {
         let shortToken = Data([1, 2, 3, 4, 5])
 
         #expect {
-            try InviteConversationToken.decodeConversationTokenBytes(
-                shortToken,
+            try InviteToken.decrypt(
+                tokenBytes: shortToken,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
         } throws: { error in
-            guard let inviteError = error as? InviteConversationToken.Error,
+            guard let inviteError = error as? InviteTokenError,
                   case .invalidFormat = inviteError else {
                 return false
             }
@@ -357,11 +357,11 @@ struct InviteCodeTests {
         let privateKey = generateTestPrivateKey()
         let emptyToken = Data()
 
-        #expect(throws: InviteConversationToken.Error.self) {
-            _ = try InviteConversationToken.decodeConversationTokenBytes(
-                emptyToken,
+        #expect(throws: InviteTokenError.self) {
+            _ = try InviteToken.decrypt(
+                tokenBytes: emptyToken,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
         }
     }
@@ -371,10 +371,10 @@ struct InviteCodeTests {
         let conversationId = UUID().uuidString.lowercased()
         let privateKey = generateTestPrivateKey()
 
-        var tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        var tokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         // Corrupt some bytes in the middle (ciphertext area)
@@ -384,13 +384,13 @@ struct InviteCodeTests {
         }
 
         #expect {
-            try InviteConversationToken.decodeConversationTokenBytes(
-                tokenBytes,
+            try InviteToken.decrypt(
+                tokenBytes: tokenBytes,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
         } throws: { error in
-            guard let inviteError = error as? InviteConversationToken.Error else {
+            guard let inviteError = error as? InviteTokenError else {
                 return false
             }
             return inviteError == .cryptoOpenFailed
@@ -402,13 +402,13 @@ struct InviteCodeTests {
         let privateKey = generateTestPrivateKey()
 
         #expect {
-            try InviteConversationToken.makeConversationTokenBytes(
+            try InviteToken.encrypt(
                 conversationId: "",
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
         } throws: { error in
-            guard let inviteError = error as? InviteConversationToken.Error else {
+            guard let inviteError = error as? InviteTokenError else {
                 return false
             }
             return inviteError == .emptyConversationId
@@ -417,19 +417,19 @@ struct InviteCodeTests {
 
     @Test("Maximum string length accepted")
     func maximumStringLength() throws {
-        let maxLengthId = String(repeating: "x", count: InviteConversationToken.maxStringLength)
+        let maxLengthId = String(repeating: "x", count: InviteToken.maxStringLength)
         let privateKey = generateTestPrivateKey()
 
-        let token = try InviteConversationToken.makeConversationTokenBytes(
+        let token = try InviteToken.encrypt(
             conversationId: maxLengthId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
-        let decoded = try InviteConversationToken.decodeConversationTokenBytes(
-            token,
+        let decoded = try InviteToken.decrypt(
+            tokenBytes: token,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         #expect(decoded == maxLengthId)
@@ -437,14 +437,14 @@ struct InviteCodeTests {
 
     @Test("Exceeding maximum string length throws error")
     func exceedingMaxStringLength() throws {
-        let tooLongId = String(repeating: "x", count: InviteConversationToken.maxStringLength + 1)
+        let tooLongId = String(repeating: "x", count: InviteToken.maxStringLength + 1)
         let privateKey = generateTestPrivateKey()
 
-        #expect(throws: InviteConversationToken.Error.self) {
-            _ = try InviteConversationToken.makeConversationTokenBytes(
+        #expect(throws: InviteTokenError.self) {
+            _ = try InviteToken.encrypt(
                 conversationId: tooLongId,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
         }
     }
@@ -456,19 +456,19 @@ struct InviteCodeTests {
         let shortKey = Data([1, 2, 3])
 
         // Should succeed - HKDF accepts any non-empty input
-        let tokenBytes = try InviteConversationToken.makeConversationTokenBytes(
+        let tokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: shortKey
+            privateKey: shortKey
         )
 
-        #expect(tokenBytes.count >= InviteConversationToken.minEncodedSize)
+        #expect(tokenBytes.count >= InviteToken.minEncodedSize)
 
         // Should be able to decrypt with same short key
-        let decoded = try InviteConversationToken.decodeConversationTokenBytes(
-            tokenBytes,
+        let decoded = try InviteToken.decrypt(
+            tokenBytes: tokenBytes,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: shortKey
+            privateKey: shortKey
         )
 
         #expect(decoded == conversationId)
@@ -480,13 +480,13 @@ struct InviteCodeTests {
         let emptyKey = Data()
 
         #expect {
-            try InviteConversationToken.makeConversationTokenBytes(
+            try InviteToken.encrypt(
                 conversationId: conversationId,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: emptyKey
+                privateKey: emptyKey
             )
         } throws: { error in
-            guard let inviteError = error as? InviteConversationToken.Error else {
+            guard let inviteError = error as? InviteTokenError else {
                 return false
             }
             return inviteError == .badKeyMaterial
@@ -502,19 +502,19 @@ struct InviteCodeTests {
         let privateKey = generateTestPrivateKey()
 
         // Create token with UUID
-        let uuidToken = try InviteConversationToken.makeConversationTokenBytes(
+        let uuidToken = try InviteToken.encrypt(
             conversationId: uuidString,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         // Create token with same UUID as plain string (forces string encoding)
         // We can force string encoding by using a non-UUID format
         let stringId = "conversation-" + uuidString
-        let stringToken = try InviteConversationToken.makeConversationTokenBytes(
+        let stringToken = try InviteToken.encrypt(
             conversationId: stringId,
             creatorInboxId: testInboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         // UUID tokens should be smaller
@@ -531,18 +531,18 @@ struct InviteCodeTests {
             ("short", "short"),
             (String(repeating: "x", count: 50), "50 chars"),
             (String(repeating: "x", count: 255), "255 chars"),
-            (String(repeating: "x", count: 256), "256 chars"),
+            (String(repeating: "x", count: 256), "256 chars")
         ]
 
         for (conversationId, description) in testCases {
-            let token = try InviteConversationToken.makeConversationTokenBytes(
+            let token = try InviteToken.encrypt(
                 conversationId: conversationId,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
             // Token should be at least minimum size
-            #expect(token.count >= InviteConversationToken.minEncodedSize, "Failed for \(description)")
+            #expect(token.count >= InviteToken.minEncodedSize, "Failed for \(description)")
         }
     }
 
@@ -554,35 +554,33 @@ struct InviteCodeTests {
         let privateKey = generateTestPrivateKey()
 
         // Run multiple iterations to make nonce collision astronomically unlikely.
-        // While a single nonce collision has ~1 in 2^96 probability (negligible),
-        // running 10 iterations reduces the probability of all pairs colliding to ~1 in 2^960.
         for _ in 0..<10 {
-            let token1 = try InviteConversationToken.makeConversationTokenBytes(
+            let token1 = try InviteToken.encrypt(
                 conversationId: conversationId,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
-            let token2 = try InviteConversationToken.makeConversationTokenBytes(
+            let token2 = try InviteToken.encrypt(
                 conversationId: conversationId,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
             // due to random 12-byte nonce, tokens should be different
             #expect(token1 != token2)
 
             // but both should decode to the same conversation ID
-            let decoded1 = try InviteConversationToken.decodeConversationTokenBytes(
-                token1,
+            let decoded1 = try InviteToken.decrypt(
+                tokenBytes: token1,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
-            let decoded2 = try InviteConversationToken.decodeConversationTokenBytes(
-                token2,
+            let decoded2 = try InviteToken.decrypt(
+                tokenBytes: token2,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
             #expect(decoded1 == conversationId)
@@ -604,16 +602,16 @@ struct InviteCodeTests {
         let privateKey = generateTestPrivateKey()
 
         for conversationId in unicodeIds {
-            let token = try InviteConversationToken.makeConversationTokenBytes(
+            let token = try InviteToken.encrypt(
                 conversationId: conversationId,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
-            let decoded = try InviteConversationToken.decodeConversationTokenBytes(
-                token,
+            let decoded = try InviteToken.decrypt(
+                tokenBytes: token,
                 creatorInboxId: testInboxId,
-                secp256k1PrivateKey: privateKey
+                privateKey: privateKey
             )
 
             #expect(decoded == conversationId)

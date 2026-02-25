@@ -1,3 +1,4 @@
+import ConvosInvites
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -203,10 +204,10 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
 
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
         let conversationTokenBytes = signedInvite.invitePayload.conversationToken
-        let conversationId = try InviteConversationToken.decodeConversationTokenBytes(
-            conversationTokenBytes,
+        let conversationId = try InviteToken.decrypt(
+            tokenBytes: conversationTokenBytes,
             creatorInboxId: client.inboxId,
-            secp256k1PrivateKey: privateKey
+            privateKey: privateKey
         )
 
         guard let conversation = try await client.conversationsProvider.findConversation(
