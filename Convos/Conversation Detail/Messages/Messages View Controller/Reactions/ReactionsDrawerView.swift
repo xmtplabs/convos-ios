@@ -18,8 +18,12 @@ struct ReactionsDrawerView: View {
             if !first.sender.isCurrentUser && second.sender.isCurrentUser {
                 return false
             }
-            return false
+            return first.date > second.date
         }
+    }
+
+    private var maxDrawerHeight: CGFloat {
+        UIScreen.main.bounds.height * 0.7
     }
 
     var body: some View {
@@ -29,16 +33,23 @@ struct ReactionsDrawerView: View {
                 .fontWeight(.bold)
                 .padding(.bottom, DesignConstants.Spacing.step2x)
 
-            ForEach(sortedReactions, id: \.id) { reaction in
-                ReactionRowView(
-                    reaction: reaction,
-                    onRemove: reaction.sender.isCurrentUser ? { onRemoveReaction?(reaction) } : nil
-                )
+            ScrollView {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                    ForEach(sortedReactions, id: \.id) { reaction in
+                        ReactionRowView(
+                            reaction: reaction,
+                            onRemove: reaction.sender.isCurrentUser ? { onRemoveReaction?(reaction) } : nil
+                        )
+                    }
+                }
             }
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicatorsFlash(onAppear: true)
+            .scrollContentBackground(.hidden)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
         .padding(.bottom, DesignConstants.Spacing.step3x)
-        .frame(minHeight: 160)
+        .frame(minHeight: 160, maxHeight: maxDrawerHeight)
     }
 }
 
@@ -74,6 +85,7 @@ private struct ReactionRowView: View {
 
             Text(reaction.emoji)
                 .font(.title2)
+                .padding(.trailing, DesignConstants.Spacing.step2x)
         }
         .contentShape(Rectangle())
         .onTapGesture {
@@ -96,9 +108,19 @@ private struct ReactionRowView: View {
     let reactions = [
         MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: true)),
         MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Shane")),
-        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Jarod")),
-        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Andrew")),
-        MessageReaction.mock(emoji: "❤️", sender: .mock(isCurrentUser: false, name: "Louis")),
+        MessageReaction.mock(emoji: "😂", sender: .mock(isCurrentUser: false, name: "Jarod")),
+        MessageReaction.mock(emoji: "👍", sender: .mock(isCurrentUser: false, name: "Andrew")),
+        MessageReaction.mock(emoji: "🤔", sender: .mock(isCurrentUser: false, name: "Louis")),
+        MessageReaction.mock(emoji: "😮", sender: .mock(isCurrentUser: false, name: "Alex")),
+        MessageReaction.mock(emoji: "👎", sender: .mock(isCurrentUser: false, name: "Chris")),
+        MessageReaction.mock(emoji: "🔥", sender: .mock(isCurrentUser: false, name: "Taylor")),
+        MessageReaction.mock(emoji: "💯", sender: .mock(isCurrentUser: false, name: "Jordan")),
+        MessageReaction.mock(emoji: "🎉", sender: .mock(isCurrentUser: false, name: "Sam")),
+        MessageReaction.mock(emoji: "😍", sender: .mock(isCurrentUser: false, name: "Morgan")),
+        MessageReaction.mock(emoji: "🙏", sender: .mock(isCurrentUser: false, name: "Riley")),
+        MessageReaction.mock(emoji: "✨", sender: .mock(isCurrentUser: false, name: "Casey")),
+        MessageReaction.mock(emoji: "💀", sender: .mock(isCurrentUser: false, name: "Quinn")),
+        MessageReaction.mock(emoji: "🫡", sender: .mock(isCurrentUser: false, name: "Drew")),
     ]
     let message = Message.mock(reactions: reactions)
     let anyMessage = AnyMessage.message(message, .existing)
