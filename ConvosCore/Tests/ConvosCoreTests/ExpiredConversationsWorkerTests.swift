@@ -170,7 +170,7 @@ private class ExpiredWorkerTestFixtures {
     let databaseManager: MockDatabaseManager
     let appLifecycle: MockAppLifecycleProvider
     let sessionManager: MockInboxesService
-    let conversationId: String = "test-conversation-id"
+    let conversationId: String = "expired-worker-test-\(UUID().uuidString)"
     let inboxId: String = "test-inbox-id"
     let clientId: String = "test-client-id"
 
