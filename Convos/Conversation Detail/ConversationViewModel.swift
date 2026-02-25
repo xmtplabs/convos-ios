@@ -40,7 +40,7 @@ class ConversationViewModel {
     private let consentWriter: any ConversationConsentWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let metadataWriter: any ConversationMetadataWriterProtocol
-    private let explosionWriter: any ConversationExplosionWriterProtocol
+    private let explosionCoordinator: ExplosionCoordinator
     private let reactionWriter: any ReactionWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private let messagesListRepository: any MessagesListRepositoryProtocol
@@ -210,7 +210,7 @@ class ConversationViewModel {
         !messageText.isEmpty || selectedAttachmentImage != nil
     }
     private(set) var isSendingPhoto: Bool = false
-    var explodeState: ExplodeState = .ready
+    var explodeState: ExplodeState { explosionCoordinator.state }
 
     var presentingConversationSettings: Bool = false
     var presentingProfileSettings: Bool = false
@@ -289,12 +289,8 @@ class ConversationViewModel {
     @ObservationIgnored
     private var loadConversationImageTask: Task<Void, Never>?
 
-    @ObservationIgnored
-    private var explodeTask: Task<Void, Never>?
-
     deinit {
         loadConversationImageTask?.cancel()
-        explodeTask?.cancel()
         assistantJoinTask?.cancel()
     }
 
@@ -352,7 +348,9 @@ class ConversationViewModel {
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
-        self.explosionWriter = messagingService.conversationExplosionWriter()
+        self.explosionCoordinator = ExplosionCoordinator(
+            explosionWriter: messagingService.conversationExplosionWriter()
+        )
         self.reactionWriter = messagingService.reactionWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
@@ -418,7 +416,9 @@ class ConversationViewModel {
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
-        self.explosionWriter = messagingService.conversationExplosionWriter()
+        self.explosionCoordinator = ExplosionCoordinator(
+            explosionWriter: messagingService.conversationExplosionWriter()
+        )
         self.reactionWriter = messagingService.reactionWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
@@ -1092,78 +1092,34 @@ extension ConversationViewModel {
 extension ConversationViewModel {
     func explodeConvo() {
         guard canRemoveMembers else { return }
-        guard explodeState.isReady || explodeState.isError || explodeState.isScheduled else { return }
 
-        explodeState = .exploding
-
-        explodeTask?.cancel()
-        explodeTask = Task { [weak self] in
+        explosionCoordinator.explode(
+            conversationId: conversation.id,
+            memberInboxIds: conversation.members.map { $0.profile.inboxId },
+            displayName: conversation.displayName
+        ) { [weak self] in
             guard let self else { return }
+            self.presentingConversationSettings = false
 
-            do {
-                let memberIds = conversation.members.map { $0.profile.inboxId }
-                try await explosionWriter.explodeConversation(
-                    conversationId: conversation.id,
-                    memberInboxIds: memberIds
-                )
-
-                self.presentingConversationSettings = false
-                self.explodeState = .exploded
-
-                await UNUserNotificationCenter.current().addExplosionNotification(
-                    conversationId: conversation.id,
-                    displayName: conversation.displayName
-                )
-
-                NotificationCenter.default.post(
-                    name: .conversationExpired,
-                    object: nil,
-                    userInfo: ["conversationId": self.conversation.id]
-                )
-                self.conversation.postLeftConversationNotification()
-                Log.info("Explode complete, inbox deletion triggered")
-            } catch {
-                Log.error("Error exploding convo: \(error.localizedDescription)")
-                self.explodeState = .error("Explode failed")
-                try? await Task.sleep(for: .seconds(2))
-                guard !Task.isCancelled else { return }
-                self.explodeState = .ready
-            }
+            NotificationCenter.default.post(
+                name: .conversationExpired,
+                object: nil,
+                userInfo: ["conversationId": self.conversation.id]
+            )
+            self.conversation.postLeftConversationNotification()
         }
     }
 
     func scheduleExplosion(at expiresAt: Date) {
         guard canRemoveMembers else { return }
-        // Intentionally excludes .isScheduled — rescheduling is not supported
-        guard explodeState.isReady || explodeState.isError else { return }
 
-        if expiresAt <= Date() {
-            explodeConvo()
-            return
-        }
-
-        explodeState = .exploding
-
-        explodeTask?.cancel()
-        explodeTask = Task { [weak self] in
-            guard let self else { return }
-
-            do {
-                try await explosionWriter.scheduleExplosion(
-                    conversationId: conversation.id,
-                    expiresAt: expiresAt
-                )
-
-                self.explodeState = .scheduled(expiresAt)
-                Log.info("Explosion scheduled for \(expiresAt)")
-            } catch {
-                Log.error("Error scheduling explosion: \(error.localizedDescription)")
-                self.explodeState = .error("Schedule failed")
-                try? await Task.sleep(for: .seconds(2))
-                guard !Task.isCancelled else { return }
-                self.explodeState = .ready
+        explosionCoordinator.scheduleExplosion(
+            conversationId: conversation.id,
+            expiresAt: expiresAt,
+            onImmediateExplosion: { [weak self] in
+                self?.explodeConvo()
             }
-        }
+        )
     }
 }
 
