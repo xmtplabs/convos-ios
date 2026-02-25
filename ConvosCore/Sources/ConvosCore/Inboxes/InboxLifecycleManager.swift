@@ -455,6 +455,8 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
         await cleanupStalePendingInvites()
 
+        await cleanupStalePendingInvites()
+
         do {
             let allActivities = try activityRepository.allInboxActivities()
             let allPendingInvites = try pendingInviteRepository.allPendingInvites()
@@ -611,7 +613,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             }
 
             if !clientIdsToKeep.isEmpty {
-                Log.debug("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
+                Log.debug("Skipped \\((clientIdsToKeep.count\)) inbox(es) with other conversations or multi-member groups")
             }
 
             Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")
