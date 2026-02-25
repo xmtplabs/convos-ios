@@ -78,6 +78,45 @@ extension ConversationProfile {
     }
 }
 
+// MARK: - ConversationCustomMetadata + Profiles
+
+extension ConversationCustomMetadata {
+    /// Add or update a profile in the metadata
+    /// - Parameter profile: The profile to add or update (matched by inboxId)
+    public mutating func upsertProfile(_ profile: ConversationProfile) {
+        if let index = profiles.firstIndex(where: { $0.inboxID == profile.inboxID }) {
+            profiles[index] = profile
+        } else {
+            profiles.append(profile)
+        }
+    }
+
+    /// Remove a profile by inbox ID
+    /// - Parameter inboxId: The inbox ID to remove (hex string)
+    /// - Returns: true if a profile was removed
+    @discardableResult
+    public mutating func removeProfile(inboxId: String) -> Bool {
+        guard let inboxIdBytes = Data(hexString: inboxId) else {
+            return false
+        }
+        if let index = profiles.firstIndex(where: { $0.inboxID == inboxIdBytes }) {
+            profiles.remove(at: index)
+            return true
+        }
+        return false
+    }
+
+    /// Find a profile by inbox ID
+    /// - Parameter inboxId: The inbox ID to search for (hex string)
+    /// - Returns: The profile if found, nil otherwise
+    public func findProfile(inboxId: String) -> ConversationProfile? {
+        guard let inboxIdBytes = Data(hexString: inboxId) else {
+            return nil
+        }
+        return profiles.first { $0.inboxID == inboxIdBytes }
+    }
+}
+
 // MARK: - Profile Collection Helpers
 
 extension Array where Element == ConversationProfile {
@@ -119,8 +158,8 @@ extension Array where Element == ConversationProfile {
 // MARK: - Data Hex Helpers
 
 extension Data {
-    /// Initialize Data from a hex string (package-internal)
-    package init?(hexString: String) {
+    /// Initialize Data from a hex string
+    public init?(hexString: String) {
         let hex = hexString.dropFirst(hexString.hasPrefix("0x") ? 2 : 0)
         guard hex.count.isMultiple(of: 2) else { return nil }
 
@@ -138,7 +177,7 @@ extension Data {
     }
 
     /// Convert data to hex string
-    func toHexString() -> String {
+    public func toHexString() -> String {
         map { String(format: "%02x", $0) }.joined()
     }
 }

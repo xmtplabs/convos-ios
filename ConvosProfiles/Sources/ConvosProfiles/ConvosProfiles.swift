@@ -1,12 +1,13 @@
-// ConvosProfiles - Full profile system with XMTP SDK integration
+// ConvosProfiles - Profile management for XMTP conversations
 //
-// This module provides high-level APIs for managing per-conversation
-// profiles in XMTP groups, built on top of ConvosProfilesCore.
+// This module provides APIs for managing per-conversation profiles
+// in XMTP groups, using the shared types from ConvosAppData.
 //
-// ## Components
+// ## Re-exported Types (from ConvosAppData)
 //
-// - `ProfileCoordinator`: High-level API for profile management
-// - Profile storage in XMTP group appData
+// - `ConversationCustomMetadata`: Container for all custom metadata
+// - `ConversationProfile`: Per-conversation member profile
+// - `EncryptedImageRef`: Reference to an encrypted image
 //
 // ## Usage
 //
@@ -14,17 +15,20 @@
 // import ConvosProfiles
 // import XMTPiOS
 //
-// // Get profiles from a group
-// let profiles = try ProfileStorage.getProfiles(from: group)
+// // Parse profiles from group appData
+// let appDataString = try group.appData()
+// let metadata = ConversationCustomMetadata.parseAppData(appDataString)
 //
-// // Update my profile
-// try await ProfileStorage.updateProfile(
-//     inboxId: myInboxId,
-//     name: "Alice",
-//     imageUrl: "https://example.com/avatar.jpg",
-//     in: group
-// )
+// // Find a specific profile
+// let profile = metadata.findProfile(inboxId: targetInboxId)
+//
+// // Update a profile
+// var updatedMetadata = metadata
+// updatedMetadata.upsertProfile(newProfile)
+// let encoded = try updatedMetadata.toCompactString()
+// try await group.updateAppData(appData: encoded)
 // ```
 
-@_exported import ConvosProfilesCore
+// Re-export ConvosAppData types so consumers only need to import ConvosProfiles
+@_exported import ConvosAppData
 @_exported import XMTPiOS
