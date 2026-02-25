@@ -354,7 +354,8 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
     public func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async {
         guard awakeInboxes[clientId] == nil else {
-            Log.debug("Inbox already tracked, skipping external registration: \(clientId)")
+            Log.warning("Stopping duplicate service for already-tracked inbox: \(clientId)")
+            await service.stop()
             return
         }
         if awakeInboxes.count >= maxAwakeInboxes {
@@ -364,7 +365,8 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             }
         }
         guard awakeInboxes[clientId] == nil else {
-            Log.debug("Inbox registered by another task during eviction, skipping: \(clientId)")
+            Log.warning("Stopping duplicate service registered during eviction: \(clientId)")
+            await service.stop()
             return
         }
         awakeInboxes[clientId] = service
