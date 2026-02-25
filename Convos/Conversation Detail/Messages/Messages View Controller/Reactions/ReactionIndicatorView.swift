@@ -172,7 +172,6 @@ private struct ReactionPillView: View {
             appearedEmojis = appearedEmojis.intersection(newSet)
         }
     }
-
 }
 
 private struct ContentWidthKey: PreferenceKey {
