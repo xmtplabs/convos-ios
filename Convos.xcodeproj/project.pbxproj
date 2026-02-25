@@ -7,7 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		464BE38BF2716A7102CB8A42 /* AgentServerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F8A01968F96A821BA6CCE7 /* AgentServerTest.swift */; };
+		464BE38BF2716A7102CB8A42 /* QAAutomationServerTest.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4F8A01968F96A821BA6CCE7 /* QAAutomationServerTest.swift */; };
 		7A15D61C2EEBB0CF00627BC5 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7A15D61B2EEBB0CF00627BC5 /* ConvosCoreiOS */; };
 		7A15D61E2EECD7B700627BC5 /* ConvosCoreiOS in Frameworks */ = {isa = PBXBuildFile; productRef = 7A15D61D2EECD7B700627BC5 /* ConvosCoreiOS */; };
 		7A5579B02E7B4C0800882661 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = 7A5579AF2E7B4C0800882661 /* DifferenceKit */; };
@@ -20,7 +20,7 @@
 		7AD978712EC2741100566BD5 /* ConvosCore in Frameworks */ = {isa = PBXBuildFile; productRef = 7AD5458F2E4EA8BE00500ADF /* ConvosCore */; };
 		D8084BA92DC9193A00E708B0 /* DifferenceKit in Frameworks */ = {isa = PBXBuildFile; productRef = D8084BA82DC9193A00E708B0 /* DifferenceKit */; };
 		D808503C2DC94F4C00E708B0 /* NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = D80850342DC94F4C00E708B0 /* NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		E2A888849D41387DB99FBFE5 /* AgentServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AF7B0709D3785D7AEF4DA4 /* AgentServer.swift */; };
+		E2A888849D41387DB99FBFE5 /* QAAutomationServer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -114,8 +114,8 @@
 
 /* Begin PBXFileReference section */
 		4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = ConvosTests.xctestplan; sourceTree = "<group>"; };
-		07C257C387FC51B8BB93D4F0 /* AgentServerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentServerTest.swift; sourceTree = "<group>"; };
-		36AF7B0709D3785D7AEF4DA4 /* AgentServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentServer.swift; sourceTree = "<group>"; };
+		07C257C387FC51B8BB93D4F0 /* QAAutomationServerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServerTest.swift; sourceTree = "<group>"; };
+		36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServer.swift; sourceTree = "<group>"; };
 		7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7AC599312E5592F900D65D07 /* KeychainIdentityStoreExample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeychainIdentityStoreExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -125,15 +125,15 @@
 		7ADC0C6E2E2977800053978A /* ConvosAppClip.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ConvosAppClip.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C7C2E2977810053978A /* ConvosAppClipTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ConvosAppClipUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		9C8D28BAC891D4F758D75C7B /* AgentServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		AF84D6D930CB5CAFCFC28127 /* AgentServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		D4F8A01968F96A821BA6CCE7 /* AgentServerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AgentServerTest.swift; sourceTree = "<group>"; };
+		9C8D28BAC891D4F758D75C7B /* QAAutomationServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QAAutomationServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AF84D6D930CB5CAFCFC28127 /* QAAutomationServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QAAutomationServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		D4F8A01968F96A821BA6CCE7 /* QAAutomationServerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServerTest.swift; sourceTree = "<group>"; };
 		D80850342DC94F4C00E708B0 /* NotificationService.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		D8477AD42DCBA52F00E31E54 /* .env */ = {isa = PBXFileReference; lastKnownFileType = text; path = .env; sourceTree = "<group>"; };
 		D8477AD52DCBA52F00E31E54 /* .env.example */ = {isa = PBXFileReference; lastKnownFileType = text; path = .env.example; sourceTree = "<group>"; };
 		D8A2B6912DA4BA4B00EF8577 /* Convos.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Convos.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		E2BAB42D28E2775319A9E2C8 /* AgentServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AgentServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		F1ECE0E13304632905605A04 /* AgentServer */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = AgentServer; sourceTree = BUILT_PRODUCTS_DIR; };
+		E2BAB42D28E2775319A9E2C8 /* QAAutomationServer.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = QAAutomationServer.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		F1ECE0E13304632905605A04 /* QAAutomationServer */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = text; path = QAAutomationServer; sourceTree = BUILT_PRODUCTS_DIR; };
 		F674D719A434DEB7A1875508 /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
 /* End PBXFileReference section */
 
@@ -416,13 +416,13 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
-		1ED22F8D2CD49B78948B9250 /* AgentServer */ = {
+		1ED22F8D2CD49B78948B9250 /* QAAutomationServer */ = {
 			isa = PBXGroup;
 			children = (
-				36AF7B0709D3785D7AEF4DA4 /* AgentServer.swift */,
-				D4F8A01968F96A821BA6CCE7 /* AgentServerTest.swift */,
+				36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */,
+				D4F8A01968F96A821BA6CCE7 /* QAAutomationServerTest.swift */,
 			);
-			path = AgentServer;
+			path = QAAutomationServer;
 			sourceTree = "<group>";
 		};
 		7A1C3C552DB6F75000B723C0 /* Products */ = {
@@ -472,7 +472,7 @@
 				7AC599402E5592FA00D65D07 /* KeychainIdentityStoreTests */,
 				7ACA8BC42DE17F2E00848799 /* Frameworks */,
 				D8A2B6922DA4BA4B00EF8577 /* Products */,
-				1ED22F8D2CD49B78948B9250 /* AgentServer */,
+				1ED22F8D2CD49B78948B9250 /* QAAutomationServer */,
 			);
 			sourceTree = "<group>";
 		};
@@ -487,10 +487,10 @@
 				7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */,
 				7AC599312E5592F900D65D07 /* KeychainIdentityStoreExample.app */,
 				7AC5993D2E5592FA00D65D07 /* KeychainIdentityStoreTests.xctest */,
-				F1ECE0E13304632905605A04 /* AgentServer */,
-				9C8D28BAC891D4F758D75C7B /* AgentServer.xctest */,
-				E2BAB42D28E2775319A9E2C8 /* AgentServer.xctest */,
-				AF84D6D930CB5CAFCFC28127 /* AgentServer.xctest */,
+				F1ECE0E13304632905605A04 /* QAAutomationServer */,
+				9C8D28BAC891D4F758D75C7B /* QAAutomationServer.xctest */,
+				E2BAB42D28E2775319A9E2C8 /* QAAutomationServer.xctest */,
+				AF84D6D930CB5CAFCFC28127 /* QAAutomationServer.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -633,9 +633,9 @@
 			productReference = 7ADC0C862E2977810053978A /* ConvosAppClipUITests.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
-		B5D554182AD0E789F650E446 /* AgentServer */ = {
+		B5D554182AD0E789F650E446 /* QAAutomationServer */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 7D955CE5FF782753EB0625D9 /* Build configuration list for PBXNativeTarget "AgentServer" */;
+			buildConfigurationList = 7D955CE5FF782753EB0625D9 /* Build configuration list for PBXNativeTarget "QAAutomationServer" */;
 			buildPhases = (
 				B43D4E697DFD43372F02334E /* Sources */,
 				E0890C267C16E7A3C01635AA /* Frameworks */,
@@ -646,9 +646,9 @@
 			dependencies = (
 				3EF1E2CCAC16A5F4C89B35DE /* PBXTargetDependency */,
 			);
-			name = AgentServer;
-			productName = AgentServer;
-			productReference = AF84D6D930CB5CAFCFC28127 /* AgentServer.xctest */;
+			name = QAAutomationServer;
+			productName = QAAutomationServer;
+			productReference = AF84D6D930CB5CAFCFC28127 /* QAAutomationServer.xctest */;
 			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		D80850332DC94F4C00E708B0 /* NotificationService */ = {
@@ -783,7 +783,7 @@
 				7ADC0C852E2977810053978A /* ConvosAppClipUITests */,
 				7AC599302E5592F900D65D07 /* KeychainIdentityStoreExample */,
 				7AC5993C2E5592FA00D65D07 /* KeychainIdentityStoreTests */,
-				B5D554182AD0E789F650E446 /* AgentServer */,
+				B5D554182AD0E789F650E446 /* QAAutomationServer */,
 			);
 		};
 /* End PBXProject section */
@@ -972,8 +972,8 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				E2A888849D41387DB99FBFE5 /* AgentServer.swift in Sources */,
-				464BE38BF2716A7102CB8A42 /* AgentServerTest.swift in Sources */,
+				E2A888849D41387DB99FBFE5 /* QAAutomationServer.swift in Sources */,
+				464BE38BF2716A7102CB8A42 /* QAAutomationServerTest.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1117,7 +1117,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1161,7 +1161,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.convos.KeychainIdentityStoreExample;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1199,7 +1199,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.convos.KeychainIdentityStoreExample;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -1275,7 +1275,7 @@
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
@@ -1304,7 +1304,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.convos.KeychainIdentityStoreExampleTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1327,7 +1327,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = org.convos.KeychainIdentityStoreExampleTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1352,7 +1352,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_TESTS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1377,7 +1377,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_TESTS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1418,7 +1418,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_APP_CLIP_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1463,7 +1463,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_APP_CLIP_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1492,7 +1492,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_APP_CLIP_TESTS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1517,7 +1517,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_APP_CLIP_TESTS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1541,7 +1541,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1565,7 +1565,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -1633,7 +1633,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1663,7 +1663,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -1703,7 +1703,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1747,7 +1747,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -1987,7 +1987,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -2021,7 +2021,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -2044,7 +2044,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_TESTS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -2085,7 +2085,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_APP_CLIP_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2114,7 +2114,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(CONVOS_APP_CLIP_TESTS_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -2138,7 +2138,7 @@
 				DEVELOPMENT_TEAM = FY4NZR34Z3;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.0.6;
+				MARKETING_VERSION = 1.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = "$(NOTIFICATION_SERVICE_BUNDLE_ID)";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -2215,7 +2215,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		7D955CE5FF782753EB0625D9 /* Build configuration list for PBXNativeTarget "AgentServer" */ = {
+		7D955CE5FF782753EB0625D9 /* Build configuration list for PBXNativeTarget "QAAutomationServer" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				0969CD329C9ABD072FE226A0 /* Dev */,

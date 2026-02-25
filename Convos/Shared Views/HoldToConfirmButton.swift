@@ -25,6 +25,7 @@ struct HoldToConfirmStyleConfig {
 
     // Progress indicator
     var showProgressIndicator: Bool = true
+    var poofProgressIndicatorOnComplete: Bool = true
 
     static let `default`: HoldToConfirmStyleConfig = .init()
 }
@@ -65,6 +66,10 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
         @State private var didFire: Bool = false
         @State private var frozenProgress: Double = 0
 
+        private var shouldPoof: Bool {
+            config.poofProgressIndicatorOnComplete && didFire
+        }
+
         var body: some View {
             TimelineView(.animation(paused: !isPressing)) { context in
                 let currentProgress: Double = {
@@ -96,6 +101,10 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
                                             .fill(config.progressIndicatorColor)
                                             .scaleEffect(currentProgress)
                                     )
+                                    .scaleEffect(shouldPoof ? 2.0 : 1.0)
+                                    .blur(radius: shouldPoof ? 8 : 0)
+                                    .opacity(shouldPoof ? 0 : 1)
+                                    .animation(.easeOut(duration: 0.25), value: shouldPoof)
                                 Spacer()
                             }
                             .padding(config.progressIndicatorPadding)

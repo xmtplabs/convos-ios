@@ -66,6 +66,10 @@ struct DebugViewSection: View {
 
     var body: some View {
         Group {
+            Section("Features") {
+                Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
+            }
+
             Section(header: Text("Push Notifications")) {
                 HStack {
                     Text("Auth Status")
@@ -180,6 +184,15 @@ struct DebugViewSection: View {
                     testSentryWithBreadcrumbs()
                 } label: {
                     Text("Send Event with Breadcrumbs")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+
+            Section("Pending Invites") {
+                NavigationLink {
+                    PendingInviteDebugView(session: session)
+                } label: {
+                    Text("View Pending Invites")
                         .foregroundStyle(.colorTextPrimary)
                 }
             }

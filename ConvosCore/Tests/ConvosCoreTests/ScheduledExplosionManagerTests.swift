@@ -167,6 +167,7 @@ struct ScheduledExplosionManagerTests {
         #expect(removedIds.contains("explosion-\(conversationId)"))
     }
 
+
     @Test("Notification content has correct format")
     func testNotificationContentFormat() async throws {
         let fixtures = ScheduledExplosionTestFixtures()

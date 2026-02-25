@@ -5,7 +5,6 @@ struct NewConversationView: View {
     let viewModel: NewConversationViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     @State private var hasShownScannerOnAppear: Bool = false
-    @State private var presentingJoiningStateInfo: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
 
@@ -51,21 +50,10 @@ struct NewConversationView: View {
                 .toolbar {
                     if !viewModel.showingFullScreenScanner {
                         ToolbarItem(placement: .topBarLeading) {
-                            let closeAction = {
-                                if viewModel.conversationViewModel?.onboardingCoordinator.isWaitingForInviteAcceptance == true {
-                                    presentingJoiningStateInfo = true
-                                } else {
-                                    dismiss()
-                                }
+                            Button(role: .close) {
+                                dismiss()
                             }
-                            Button(role: .close, action: closeAction)
-                                .confirmationDialog("This convo will appear on your home screen after someone approves you",
-                                                    isPresented: $presentingJoiningStateInfo,
-                                                    titleVisibility: .visible) {
-                                    Button("Continue") {
-                                        dismiss()
-                                    }
-                                }
+                            .accessibilityIdentifier("close-new-conversation")
                         }
                     }
                 }

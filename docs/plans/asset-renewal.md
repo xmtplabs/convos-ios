@@ -1,5 +1,8 @@
 # Asset Renewal Implementation Plan
 
+> **Status**: Implemented
+> **Canonical ADR**: `docs/adr/008-asset-lifecycle-and-renewal.md`
+
 ## Summary
 
 Implement client-side asset renewal for profile and group images to prevent S3 lifecycle expiration. The feature:

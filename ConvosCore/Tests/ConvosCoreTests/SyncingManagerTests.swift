@@ -522,7 +522,7 @@ struct SyncingManagerTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Resume restarts streams without calling syncAllConversations")
+    @Test("Resume restarts streams and re-syncs conversations")
     func testResumeFlow() async throws {
         let fixtures = TestFixtures()
         let mockClient = TestableMockClient()
@@ -555,7 +555,11 @@ struct SyncingManagerTests {
             conversations.streamCallCount >= 4
         }
 
-        #expect(conversations.syncCallCount == initialSyncCount, "syncAllConversations should not be called on resume")
+        try await waitUntil(timeout: .seconds(5)) {
+            conversations.syncCallCount > initialSyncCount
+        }
+
+        #expect(conversations.syncCallCount > initialSyncCount, "syncAllConversations should be called on resume to pick up changes while paused")
 
         await syncingManager.stop()
         try? await fixtures.cleanup()

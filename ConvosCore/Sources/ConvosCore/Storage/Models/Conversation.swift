@@ -127,6 +127,10 @@ public extension Conversation {
         members.count >= Self.maxMembers
     }
 
+    var isPendingInvite: Bool {
+        isDraft && !hasJoined
+    }
+
     var scheduledExplosionDate: Date? {
         let now = Date()
         guard let expiresAt,

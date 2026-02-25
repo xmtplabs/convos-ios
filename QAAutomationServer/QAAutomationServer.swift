@@ -1,3 +1,15 @@
+/// QA Automation Server
+///
+/// An HTTP server that runs inside the app (via XCTest) and allows external tools
+/// to control the UI for automated QA testing. Agents like Claude can send commands
+/// to tap elements, type text, observe screen state, and verify app behavior.
+///
+/// Usage:
+/// 1. Run the QAAutomationServerTest target in Xcode
+/// 2. Send POST requests to http://localhost:8615/action
+/// 3. Available actions: observeScreen, tapElement, fillField, tapCoordinate,
+///    swipe, scrollUntilVisible, waitForElement, pressKey, longPress, doubleTap, ping
+
 import Foundation
 import Network
 import XCTest
@@ -34,14 +46,14 @@ struct FrameInfo: Codable {
     let height: Double
 }
 
-struct AgentRequest: Codable {
+struct QARequest: Codable {
     let action: String
     let params: [String: AnyCodable]?
-    let steps: [AgentRequest]?
+    let steps: [QARequest]?
     let observe: Bool?
 }
 
-struct AgentResponse: Codable {
+struct QAResponse: Codable {
     var success: Bool
     var message: String?
     var screenState: ScreenState?
@@ -166,7 +178,7 @@ enum ElementInfoBuilder {
 
         if depth < maxDepth {
             let childElements = element.children(matching: .any)
-            if childElements.count > 0 && childElements.count < 50 { // swiftlint:disable:this empty_count
+            if !childElements.isEmpty && childElements.count < 50 {
                 children = (0..<childElements.count).compactMap { i in
                     let child = childElements.element(boundBy: i)
                     guard child.exists else { return nil }
@@ -209,7 +221,7 @@ enum ElementInfoBuilder {
         for (type, maxCount) in interactiveTypes {
             let t0 = CFAbsoluteTimeGetCurrent()
             let query = app.descendants(matching: type)
-            let count = query.count // swiftlint:disable:this empty_count
+            let count = query.count
             let limit = min(count, maxCount)
             for i in 0..<limit {
                 let el = query.element(boundBy: i)
@@ -247,7 +259,7 @@ enum ElementInfoBuilder {
         ]
         for (type, maxCount) in sbTypes {
             let query = springboard.descendants(matching: type)
-            let count = query.count // swiftlint:disable:this empty_count
+            let count = query.count
             let limit = min(count, maxCount)
             for i in 0..<limit {
                 let el = query.element(boundBy: i)
@@ -354,7 +366,7 @@ class CommandHandler {
 
     private var shouldObserve: Bool = false
 
-    func handle(_ request: AgentRequest) -> AgentResponse {
+    func handle(_ request: QARequest) -> QAResponse {
         shouldObserve = request.observe ?? false
         defer { shouldObserve = false }
         let start = CFAbsoluteTimeGetCurrent()
@@ -365,7 +377,7 @@ class CommandHandler {
         return result
     }
 
-    private func dispatch(_ request: AgentRequest) -> AgentResponse {
+    private func dispatch(_ request: QARequest) -> QAResponse {
         switch request.action {
         case "observeScreen":
             return observeScreen()
@@ -393,15 +405,15 @@ class CommandHandler {
             if chainSteps == nil || chainSteps?.isEmpty == true {
                 if let paramsSteps = request.params?["steps"],
                    let encoded = try? JSONEncoder().encode(paramsSteps),
-                   let decoded = try? JSONDecoder().decode([AgentRequest].self, from: encoded) {
+                   let decoded = try? JSONDecoder().decode([QARequest].self, from: encoded) {
                     chainSteps = decoded
                 }
             }
             return chain(chainSteps)
         case "ping":
-            return AgentResponse(success: true, message: "pong", screenState: nil, tappedElement: nil, error: nil)
+            return QAResponse(success: true, message: "pong", screenState: nil, tappedElement: nil, error: nil)
         default:
-            return AgentResponse(
+            return QAResponse(
                 success: false, message: nil, screenState: nil, tappedElement: nil,
                 error: "Unknown action: \(request.action)"
             )
@@ -410,7 +422,7 @@ class CommandHandler {
 
     var skipSettleAndCapture: Bool = false
 
-    private func chain(_ steps: [AgentRequest]?) -> AgentResponse {
+    private func chain(_ steps: [QARequest]?) -> QAResponse {
         guard let steps, !steps.isEmpty else {
             return errorResponse("chain requires non-empty steps array")
         }
@@ -423,7 +435,7 @@ class CommandHandler {
             skipSettleAndCapture = false
             if !result.success {
                 let state = ScreenStateBuilder.capture(app: app)
-                return AgentResponse(
+                return QAResponse(
                     success: false,
                     message: "Failed at step \(i + 1)/\(steps.count): \(step.action)",
                     screenState: state,
@@ -437,7 +449,7 @@ class CommandHandler {
         }
 
         let state = captureIfNeeded()
-        return AgentResponse(
+        return QAResponse(
             success: true,
             message: messages.joined(separator: "\n"),
             screenState: state,
@@ -448,12 +460,12 @@ class CommandHandler {
 
     // MARK: - Actions
 
-    private func observeScreen() -> AgentResponse {
+    private func observeScreen() -> QAResponse {
         let state = ScreenStateBuilder.capture(app: app)
-        return AgentResponse(success: true, message: nil, screenState: state, tappedElement: nil, error: nil)
+        return QAResponse(success: true, message: nil, screenState: state, tappedElement: nil, error: nil)
     }
 
-    private func tapElement(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func tapElement(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params else {
             return errorResponse("tapElement requires params")
         }
@@ -473,7 +485,7 @@ class CommandHandler {
             timeout: timeout
         ) else {
             let state = shouldObserve ? ScreenStateBuilder.capture(app: app) : nil
-            return AgentResponse(
+            return QAResponse(
                 success: false, message: nil, screenState: state, tappedElement: nil,
                 error: "Element not found within \(timeout)s"
             )
@@ -510,10 +522,10 @@ class CommandHandler {
             isEnabled: true, isHittable: true, isSelected: false, hasFocus: false,
             children: nil, customActions: nil
         )
-        return AgentResponse(success: true, message: "Tapped", screenState: state, tappedElement: info, error: nil)
+        return QAResponse(success: true, message: "Tapped", screenState: state, tappedElement: info, error: nil)
     }
 
-    private func fillField(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func fillField(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params else {
             return errorResponse("fillField requires params")
         }
@@ -528,7 +540,7 @@ class CommandHandler {
             identifier: identifier, label: label, timeout: timeout
         ) else {
             let state = ScreenStateBuilder.capture(app: app)
-            return AgentResponse(
+            return QAResponse(
                 success: false, message: nil, screenState: state, tappedElement: nil,
                 error: "Text field not found within \(timeout)s"
             )
@@ -548,10 +560,10 @@ class CommandHandler {
         element.typeText(text)
         waitForSettle()
         let state = captureIfNeeded()
-        return AgentResponse(success: true, message: "Typed '\(text)'", screenState: state, tappedElement: nil, error: nil)
+        return QAResponse(success: true, message: "Typed '\(text)'", screenState: state, tappedElement: nil, error: nil)
     }
 
-    private func tapCoordinate(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func tapCoordinate(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params,
               let x = params["x"]?.doubleValue,
               let y = params["y"]?.doubleValue else {
@@ -571,10 +583,10 @@ class CommandHandler {
 
         waitForSettle()
         let state = captureIfNeeded()
-        return AgentResponse(success: true, message: "Tapped (\(x), \(y))", screenState: state, tappedElement: nil, error: nil)
+        return QAResponse(success: true, message: "Tapped (\(x), \(y))", screenState: state, tappedElement: nil, error: nil)
     }
 
-    private func swipe(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func swipe(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params,
               let direction = params["direction"]?.stringValue else {
             return errorResponse("swipe requires direction (up/down/left/right)")
@@ -601,10 +613,10 @@ class CommandHandler {
 
         waitForSettle()
         let state = captureIfNeeded()
-        return AgentResponse(success: true, message: "Swiped \(direction)", screenState: state, tappedElement: nil, error: nil)
+        return QAResponse(success: true, message: "Swiped \(direction)", screenState: state, tappedElement: nil, error: nil)
     }
 
-    private func scrollUntilVisible(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func scrollUntilVisible(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params else {
             return errorResponse("scrollUntilVisible requires params")
         }
@@ -622,7 +634,7 @@ class CommandHandler {
             ), el.isHittable {
                 let info = ElementInfoBuilder.build(from: el, depth: 0, maxDepth: 0)
                 let state = captureIfNeeded()
-                return AgentResponse(success: true, message: "Found after scrolling", screenState: state, tappedElement: info, error: nil)
+                return QAResponse(success: true, message: "Found after scrolling", screenState: state, tappedElement: info, error: nil)
             }
 
             switch direction {
@@ -635,13 +647,13 @@ class CommandHandler {
         }
 
         let state = ScreenStateBuilder.capture(app: app)
-        return AgentResponse(
+        return QAResponse(
             success: false, message: nil, screenState: state, tappedElement: nil,
             error: "Element not found after \(maxSwipes) swipes"
         )
     }
 
-    private func waitForElement(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func waitForElement(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params else {
             return errorResponse("waitForElement requires params")
         }
@@ -656,7 +668,7 @@ class CommandHandler {
             timeout: timeout
         ) else {
             let state = ScreenStateBuilder.capture(app: app)
-            return AgentResponse(
+            return QAResponse(
                 success: false, message: nil, screenState: state, tappedElement: nil,
                 error: "Element not found within \(timeout)s"
             )
@@ -664,10 +676,10 @@ class CommandHandler {
 
         let info = ElementInfoBuilder.build(from: element, depth: 0, maxDepth: 0)
         let state = captureIfNeeded()
-        return AgentResponse(success: true, message: "Found", screenState: state, tappedElement: info, error: nil)
+        return QAResponse(success: true, message: "Found", screenState: state, tappedElement: info, error: nil)
     }
 
-    private func pressKey(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func pressKey(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params,
               let key = params["key"]?.stringValue else {
             return errorResponse("pressKey requires key")
@@ -688,10 +700,10 @@ class CommandHandler {
 
         waitForSettle()
         let state = captureIfNeeded()
-        return AgentResponse(success: true, message: "Pressed \(key)", screenState: state, tappedElement: nil, error: nil)
+        return QAResponse(success: true, message: "Pressed \(key)", screenState: state, tappedElement: nil, error: nil)
     }
 
-    private func longPress(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func longPress(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params else {
             return errorResponse("longPress requires params")
         }
@@ -707,7 +719,7 @@ class CommandHandler {
             timeout: timeout
         ) else {
             let state = ScreenStateBuilder.capture(app: app)
-            return AgentResponse(
+            return QAResponse(
                 success: false, message: nil, screenState: state, tappedElement: nil,
                 error: "Element not found within \(timeout)s"
             )
@@ -717,10 +729,10 @@ class CommandHandler {
         element.press(forDuration: duration)
         waitForSettle()
         let state = captureIfNeeded()
-        return AgentResponse(success: true, message: "Long pressed for \(duration)s", screenState: state, tappedElement: info, error: nil)
+        return QAResponse(success: true, message: "Long pressed for \(duration)s", screenState: state, tappedElement: info, error: nil)
     }
 
-    private func doubleTap(_ params: [String: AnyCodable]?) -> AgentResponse {
+    private func doubleTap(_ params: [String: AnyCodable]?) -> QAResponse {
         guard let params else {
             return errorResponse("doubleTap requires params")
         }
@@ -735,7 +747,7 @@ class CommandHandler {
             timeout: timeout
         ) else {
             let state = ScreenStateBuilder.capture(app: app)
-            return AgentResponse(
+            return QAResponse(
                 success: false, message: nil, screenState: state, tappedElement: nil,
                 error: "Element not found within \(timeout)s"
             )
@@ -745,7 +757,7 @@ class CommandHandler {
         element.doubleTap()
         waitForSettle()
         let state = captureIfNeeded()
-        return AgentResponse(success: true, message: "Double tapped", screenState: state, tappedElement: info, error: nil)
+        return QAResponse(success: true, message: "Double tapped", screenState: state, tappedElement: info, error: nil)
     }
 
     // MARK: - Helpers
@@ -807,14 +819,14 @@ class CommandHandler {
         return ScreenStateBuilder.capture(app: app)
     }
 
-    private func errorResponse(_ message: String) -> AgentResponse {
-        AgentResponse(success: false, message: nil, screenState: nil, tappedElement: nil, error: message)
+    private func errorResponse(_ message: String) -> QAResponse {
+        QAResponse(success: false, message: nil, screenState: nil, tappedElement: nil, error: message)
     }
 }
 
 // MARK: - HTTP Server using Network.framework
 
-class AgentHTTPServer {
+class QAHTTPServer {
     let handler: CommandHandler
     let port: UInt16
     private var listener: NWListener?
@@ -827,14 +839,14 @@ class AgentHTTPServer {
     func start() throws {
         let params = NWParameters.tcp
         guard let nwPort = NWEndpoint.Port(rawValue: port) else {
-            throw NSError(domain: "AgentServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid port: \(port)"])
+            throw NSError(domain: "QAAutomationServer", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid port: \(port)"])
         }
         listener = try NWListener(using: params, on: nwPort)
         listener?.newConnectionHandler = { [weak self] connection in
             self?.handleConnection(connection)
         }
         listener?.start(queue: .global())
-        print("[AgentServer] Listening on port \(port)")
+        print("[QAAutomationServer] Listening on port \(port)")
     }
 
     private func handleConnection(_ connection: NWConnection) {
@@ -913,13 +925,13 @@ class AgentHTTPServer {
 
         if method == "POST" && path == "/action" {
             guard let body,
-                  let request = try? JSONDecoder().decode(AgentRequest.self, from: body) else {
+                  let request = try? JSONDecoder().decode(QARequest.self, from: body) else {
                 sendHTTPResponse(connection, statusCode: 400, body: #"{"error":"Invalid JSON body"}"#)
                 return
             }
 
             // Execute on main thread since XCUITest requires it
-            var response: AgentResponse?
+            var response: QAResponse?
             let semaphore = DispatchSemaphore(value: 0)
             DispatchQueue.main.async {
                 response = self.handler.handle(request)

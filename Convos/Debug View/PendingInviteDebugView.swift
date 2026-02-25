@@ -16,6 +16,10 @@ struct PendingInviteDebugView: View {
         expiredDetails.filter { $0.memberCount <= 1 }
     }
 
+    private var stuckDetails: [PendingInviteDetail] {
+        expiredDetails.filter { $0.hasOtherConversations }
+    }
+
     private var activeDetails: [PendingInviteDetail] {
         let cutoff = Date().addingTimeInterval(-InboxLifecycleManager.stalePendingInviteInterval)
         return details.filter { $0.createdAt >= cutoff }
@@ -39,7 +43,7 @@ struct PendingInviteDebugView: View {
                         .font(.system(.body, design: .monospaced))
                 }
                 HStack {
-                    Text("Expired (> 7 days)")
+                    Text("Expired (> 24 hours)")
                     Spacer()
                     Text("\(expiredDetails.count)")
                         .foregroundStyle(expiredDetails.isEmpty ? .colorTextSecondary : .red)
@@ -51,6 +55,15 @@ struct PendingInviteDebugView: View {
                     Text("\(deletableDetails.count)")
                         .foregroundStyle(deletableDetails.isEmpty ? .colorTextSecondary : .red)
                         .font(.system(.body, design: .monospaced))
+                }
+                if !stuckDetails.isEmpty {
+                    HStack {
+                        Text("⚠️ Stuck (has other convos)")
+                        Spacer()
+                        Text("\(stuckDetails.count)")
+                            .foregroundStyle(.orange)
+                            .font(.system(.body, design: .monospaced))
+                    }
                 }
             } header: {
                 Text("Summary")
@@ -145,10 +158,32 @@ struct PendingInviteDebugView: View {
     }
 
     private func inviteRow(detail: PendingInviteDetail) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        let isExpired = expiredDetails.contains(detail)
+        let isStuck = isExpired && detail.hasOtherConversations
+
+        return VStack(alignment: .leading, spacing: 6) {
             Text(detail.conversationName ?? "Unnamed")
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.colorTextPrimary)
+
+            if isStuck {
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                        Text("Inbox has other conversations - may indicate a bug")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(.orange)
+
+                    ForEach(detail.otherConversations) { other in
+                        otherConversationRow(other)
+                    }
+                }
+                .padding(.vertical, 4)
+                .padding(.horizontal, 8)
+                .background(Color.orange.opacity(0.1))
+                .clipShape(RoundedRectangle(cornerRadius: 6))
+            }
 
             labeledValue("Waiting", waitingDuration(since: detail.createdAt))
             labeledValue("Created", detail.createdAt.formatted(
@@ -160,6 +195,20 @@ struct PendingInviteDebugView: View {
             labeledValue("Invite Tag", String(detail.inviteTag.prefix(16)) + "…", monospaced: true)
         }
         .padding(.vertical, 4)
+    }
+
+    private func otherConversationRow(_ info: OtherConversationInfo) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 4) {
+                Text(EmojiSelector.emoji(for: info.clientConversationId))
+                Text(info.name ?? "Unnamed")
+                    .font(.caption.weight(.medium))
+            }
+            Text(info.conversationId)
+                .font(.system(.caption2, design: .monospaced))
+                .foregroundStyle(.colorTextTertiary)
+        }
+        .padding(.leading, 8)
     }
 
     private func labeledValue(_ label: String, _ value: String, monospaced: Bool = false) -> some View {

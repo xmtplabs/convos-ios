@@ -54,7 +54,11 @@ extension Array where Element == DBConversationDetails {
 fileprivate extension Database {
     func composeAllConversations(consent: [Consent]) throws -> [Conversation] {
         let dbConversationDetails = try DBConversation
-            .filter(!DBConversation.Columns.id.like("draft-%"))
+            .filter(
+                !DBConversation.Columns.id.like("draft-%")
+                || (DBConversation.Columns.inviteTag != nil
+                    && length(DBConversation.Columns.inviteTag) > 0)
+            )
             .filter(consent.contains(DBConversation.Columns.consent))
             .filter(DBConversation.Columns.expiresAt == nil || DBConversation.Columns.expiresAt > Date())
             .filter(DBConversation.Columns.isUnused == false)

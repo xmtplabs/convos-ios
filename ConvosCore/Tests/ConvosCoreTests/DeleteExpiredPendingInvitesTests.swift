@@ -203,16 +203,16 @@ struct DeleteExpiredPendingInvitesTests {
     func testSkipsRecentInvites() async throws {
         let dbManager = MockDatabaseManager.makeTestDatabase()
         let identityStore = MockKeychainIdentityStore()
-        let twoDaysAgo = Date().addingTimeInterval(-2 * 24 * 60 * 60)
+        let twoHoursAgo = Date().addingTimeInterval(-2 * 60 * 60)
 
         try await insertInboxAndIdentity(
             dbManager: dbManager, identityStore: identityStore,
-            inboxId: "inbox-1", clientId: "client-1", createdAt: twoDaysAgo
+            inboxId: "inbox-1", clientId: "client-1", createdAt: twoHoursAgo
         )
         try await dbManager.dbWriter.write { db in
             try makeDBConversation(
                 id: "draft-recent", inboxId: "inbox-1", clientId: "client-1",
-                inviteTag: "tag-1", createdAt: twoDaysAgo
+                inviteTag: "tag-1", createdAt: twoHoursAgo
             ).insert(db)
         }
 

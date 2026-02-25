@@ -401,7 +401,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Apply the preserved timestamp
         var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
 
-        if let localConversation = try DBConversation
+        if !dbConversation.inviteTag.isEmpty,
+           let localConversation = try DBConversation
             .filter(DBConversation.Columns.inviteTag == dbConversation.inviteTag)
             .filter(DBConversation.Columns.clientConversationId != dbConversation.clientConversationId)
             .fetchOne(db) {

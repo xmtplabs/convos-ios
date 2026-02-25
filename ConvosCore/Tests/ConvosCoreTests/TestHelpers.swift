@@ -213,6 +213,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
     }
+
+    func requestDiscovery() async {
+    }
 }
 
 /// Mock implementation of NetworkMonitor for testing

@@ -19,6 +19,19 @@ public enum ImageFormat: Sendable {
     }
 }
 
+// MARK: - Image Storage Tier
+
+/// Controls where images are stored on disk
+public enum ImageStorageTier: Sendable {
+    /// LRU-evictable cache for re-fetchable images (avatars, group images, QR codes).
+    /// Stored in Caches/ which iOS may purge under storage pressure.
+    case cache
+
+    /// Persistent storage for chat photo attachments that cannot be re-fetched.
+    /// Stored in Application Support/ which is not purged by iOS.
+    case persistent
+}
+
 // MARK: - ImageCacheable Protocol
 
 /// Protocol for objects that can have their images cached.
@@ -156,6 +169,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     // Disk cache properties
     private let diskCacheURL: URL
+    private let persistentCacheURL: URL
     private let diskCacheQueue: DispatchQueue
     private let fileManager: FileManager
     private let maxDiskCacheSize: Int = CacheConfiguration.maxDiskCacheSize
@@ -212,15 +226,20 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         fileManager = FileManager.default
         diskCacheQueue = DispatchQueue(label: "com.convos.imagecache.disk", qos: .utility)
 
-        // Create disk cache directory
+        // Create evictable disk cache directory (Caches/ - iOS may purge under storage pressure)
         let cacheDir = fileManager.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         diskCacheURL = cacheDir.appendingPathComponent("ImageCache", isDirectory: true)
 
-        do {
-            try fileManager.createDirectory(at: diskCacheURL, withIntermediateDirectories: true)
-        } catch {
-            Log.error("Failed to create disk cache directory: \(error)")
-            // Fallback: Memory-only caching will still work, but disk operations will fail gracefully
+        // Create persistent photo store (Application Support/ - not purged by iOS)
+        let appSupportDir = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        persistentCacheURL = appSupportDir.appendingPathComponent("PhotoStore", isDirectory: true)
+
+        for dir in [diskCacheURL, persistentCacheURL] {
+            do {
+                try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
+            } catch {
+                Log.error("Failed to create directory \(dir.lastPathComponent): \(error)")
+            }
         }
 
         // Clean up disk cache on init if needed
@@ -674,6 +693,75 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
         cacheUpdateSubject.send(identifier)
     }
 
+    // MARK: - Persistent Storage (chat photo attachments)
+
+    public func cacheData(_ data: Data, for identifier: String, storageTier: ImageStorageTier) {
+        guard let image = UIImage(data: data) else {
+            Log.error("Failed to create UIImage from data for persistent cache: \(identifier)")
+            return
+        }
+        let cost = memoryCost(for: image)
+        cache.setObject(image, forKey: identifier as NSString, cost: cost)
+
+        Task {
+            await saveDataToDisk(data, identifier: identifier, storageTier: storageTier)
+        }
+
+        cacheUpdateSubject.send(identifier)
+    }
+
+    public func cacheImage(_ image: UIImage, for identifier: String, storageTier: ImageStorageTier) {
+        let cost = memoryCost(for: image)
+        cache.setObject(image, forKey: identifier as NSString, cost: cost)
+
+        Task {
+            await saveImageToDisk(image, identifier: identifier, storageTier: storageTier)
+        }
+
+        cacheUpdateSubject.send(identifier)
+    }
+
+    public func removePersistentImages(for identifiers: [String]) {
+        guard !identifiers.isEmpty else { return }
+        for identifier in identifiers {
+            cache.removeObject(forKey: identifier as NSString)
+        }
+        Task {
+            await performDiskOperation { cache in
+                for identifier in identifiers {
+                    for ext in [".jpg", ".png"] {
+                        let fileURL = cache.persistentCacheURL.appendingPathComponent(
+                            cache.sanitizedFilename(for: identifier, fileExtension: ext)
+                        )
+                        guard cache.fileManager.fileExists(atPath: fileURL.path) else { continue }
+                        do {
+                            try cache.fileManager.removeItem(at: fileURL)
+                        } catch {
+                            Log.error("Failed to remove persistent image: \(identifier) - \(error)")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    public func removeAllPersistentImages() {
+        cache.removeAllObjects()
+        Task {
+            await performDiskOperation { cache in
+                guard let contents = try? cache.fileManager.contentsOfDirectory(
+                    at: cache.persistentCacheURL, includingPropertiesForKeys: nil
+                ) else { return }
+                for fileURL in contents {
+                    do { try cache.fileManager.removeItem(at: fileURL) } catch {
+                        Log.error("Failed to remove persistent image: \(fileURL.lastPathComponent) - \(error)")
+                    }
+                }
+                Log.info("Removed all persistent images (\(contents.count) files)")
+            }
+        }
+    }
+
     // MARK: - Disk Cache Helpers
 
     /// Perform an operation on the disk cache queue with proper weak self handling
@@ -712,42 +800,49 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     /// Load image from disk cache
     private func loadImageFromDisk(identifier: String, imageFormat: ImageFormat) async -> UIImage? {
-        let fileURL = diskCacheURL.appendingPathComponent(sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
-        let formatName = imageFormat == .png ? "PNG" : "JPEG"
+        let filename = sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension)
+        let persistentURL = persistentCacheURL.appendingPathComponent(filename)
+        let cacheURL = diskCacheURL.appendingPathComponent(filename)
 
         return await performDiskOperation(default: nil) { cache in
-            guard cache.fileManager.fileExists(atPath: fileURL.path) else {
-                return nil
-            }
-
-            do {
-                let data = try Data(contentsOf: fileURL)
-                if let image = UIImage(data: data) {
-                    var mutableFileURL = fileURL
+            for fileURL in [persistentURL, cacheURL] {
+                guard cache.fileManager.fileExists(atPath: fileURL.path) else { continue }
+                do {
+                    let data = try Data(contentsOf: fileURL)
+                    guard let image = UIImage(data: data) else {
+                        Log.error("Failed to decode image from disk: \(identifier)")
+                        continue
+                    }
+                    var mutableURL = fileURL
                     var resourceValues = URLResourceValues()
                     resourceValues.contentAccessDate = Date()
-                    try? mutableFileURL.setResourceValues(resourceValues)
-                    Log.debug("Successfully loaded \(formatName) image from disk: \(identifier)")
+                    try? mutableURL.setResourceValues(resourceValues)
                     return image
-                } else {
-                    Log.error("Failed to decode image from disk: \(identifier)")
-                    return nil
+                } catch {
+                    Log.error("Failed to load image from disk: \(identifier) - \(error)")
                 }
-            } catch {
-                Log.error("Failed to load image from disk: \(identifier) - \(error)")
-                return nil
             }
+            return nil
         }
     }
 
-    /// Save pre-compressed data directly to disk cache (avoids double compression)
-    /// - Parameters:
-    ///   - data: The image data to save
-    ///   - identifier: The cache identifier
-    ///   - imageFormat: The image format (default: .jpg)
-    ///   - forceOverwrite: If true, overwrite existing file (used when URL changes)
-    private func saveDataToDisk(_ data: Data, identifier: String, imageFormat: ImageFormat = .jpg, forceOverwrite: Bool = false) async {
-        let fileURL = diskCacheURL.appendingPathComponent(sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
+    private func directoryURL(for tier: ImageStorageTier) -> URL {
+        switch tier {
+        case .cache: return diskCacheURL
+        case .persistent: return persistentCacheURL
+        }
+    }
+
+    /// Save pre-compressed data directly to disk (avoids double compression)
+    private func saveDataToDisk(
+        _ data: Data,
+        identifier: String,
+        imageFormat: ImageFormat = .jpg,
+        forceOverwrite: Bool = false,
+        storageTier: ImageStorageTier = .cache
+    ) async {
+        let dir = directoryURL(for: storageTier)
+        let fileURL = dir.appendingPathComponent(sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
 
         await performDiskOperation { cache in
             if !forceOverwrite && cache.fileManager.fileExists(atPath: fileURL.path) {
@@ -756,24 +851,26 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
             do {
                 try data.write(to: fileURL, options: .atomic)
-                let formatName = imageFormat == .png ? "PNG" : "JPEG"
-                Log.debug("Successfully saved image data to disk: \(identifier) (\(data.count) bytes, format: \(formatName))")
-                cache.scheduleCleanupIfNeeded()
+                if storageTier == .cache {
+                    cache.scheduleCleanupIfNeeded()
+                }
             } catch {
                 Log.error("Failed to save image data to disk: \(identifier) - \(error)")
             }
         }
     }
 
-    /// Save image to disk cache
-    /// - Parameters:
-    ///   - image: The image to save
-    ///   - identifier: The cache identifier
-    ///   - imageFormat: The image format (default: .jpg)
-    ///   - forceOverwrite: If true, overwrite existing file (used when URL changes)
-    private func saveImageToDisk(_ image: UIImage, identifier: String, imageFormat: ImageFormat = .jpg, forceOverwrite: Bool = false) async {
+    /// Save image to disk
+    private func saveImageToDisk(
+        _ image: UIImage,
+        identifier: String,
+        imageFormat: ImageFormat = .jpg,
+        forceOverwrite: Bool = false,
+        storageTier: ImageStorageTier = .cache
+    ) async {
         await performDiskOperation { cache in
-            let fileURL = cache.diskCacheURL.appendingPathComponent(cache.sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
+            let dir = cache.directoryURL(for: storageTier)
+            let fileURL = dir.appendingPathComponent(cache.sanitizedFilename(for: identifier, fileExtension: imageFormat.fileExtension))
 
             if !forceOverwrite && cache.fileManager.fileExists(atPath: fileURL.path) {
                 return
@@ -791,30 +888,33 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
 
             do {
                 try imageData.write(to: fileURL, options: .atomic)
-                let formatName = imageFormat == .png ? "PNG" : "JPEG"
-                Log.debug("Successfully saved image to disk: \(identifier) (\(imageData.count) bytes, format: \(formatName))")
-                cache.scheduleCleanupIfNeeded()
+                if storageTier == .cache {
+                    cache.scheduleCleanupIfNeeded()
+                }
             } catch {
                 Log.error("Failed to save image to disk: \(identifier) - \(error)")
             }
         }
     }
 
-    /// Remove image from disk cache
-    /// Removes both PNG and JPEG versions if they exist (for backward compatibility)
+    /// Remove image from both disk cache and persistent store
     private func removeImageFromDisk(identifier: String) async {
-        let pngURL = diskCacheURL.appendingPathComponent(sanitizedFilename(for: identifier, fileExtension: ".png"))
-        let jpgURL = diskCacheURL.appendingPathComponent(sanitizedFilename(for: identifier, fileExtension: ".jpg"))
+        let filename = sanitizedFilename(for: identifier, fileExtension: ".jpg")
+        let pngFilename = sanitizedFilename(for: identifier, fileExtension: ".png")
 
         await performDiskOperation { cache in
-            for (url, format) in [(pngURL, "PNG"), (jpgURL, "JPEG")]
-            where cache.fileManager.fileExists(atPath: url.path) {
+            let urls = [
+                cache.diskCacheURL.appendingPathComponent(filename),
+                cache.diskCacheURL.appendingPathComponent(pngFilename),
+                cache.persistentCacheURL.appendingPathComponent(filename),
+                cache.persistentCacheURL.appendingPathComponent(pngFilename),
+            ]
+            for url in urls where cache.fileManager.fileExists(atPath: url.path) {
                 do {
                     try cache.fileManager.removeItem(at: url)
-                    Log.debug("Successfully removed \(format) image from disk: \(identifier)")
                 } catch {
                     if (error as NSError).code != NSFileNoSuchFileError {
-                        Log.error("Failed to remove \(format) image from disk: \(identifier) - \(error)")
+                        Log.error("Failed to remove image from disk: \(url.lastPathComponent) - \(error)")
                     }
                 }
             }

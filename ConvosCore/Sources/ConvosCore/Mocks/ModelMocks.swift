@@ -13,6 +13,7 @@ public extension Conversation {
         isUnread: Bool = false,
         isPinned: Bool = false,
         isMuted: Bool = false,
+        invite: Invite? = nil,
         lastMessageText: String = "This is a preview of the last message"
     ) -> Conversation {
         let mockMembers = members ?? [
@@ -49,10 +50,21 @@ public extension Conversation {
             imageEncryptionKey: nil,
             includeInfoInPublicPreview: false,
             isDraft: id.hasPrefix("draft-"),
-            invite: nil,
+            invite: invite,
             expiresAt: nil,
             debugInfo: ConversationDebugInfo.empty,
             isLocked: false
+        )
+    }
+
+    static func mockPendingInvite(
+        id: String = "draft-pending-invite",
+        name: String? = "Pending Convo"
+    ) -> Conversation {
+        mock(
+            id: id,
+            name: name,
+            members: [.mock(isCurrentUser: false)]
         )
     }
 

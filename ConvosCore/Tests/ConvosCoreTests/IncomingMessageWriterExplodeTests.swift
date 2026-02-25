@@ -230,10 +230,10 @@ struct IncomingMessageWriterExplodeTests {
         try await Task.sleep(for: .milliseconds(100))
 
         #expect(capture.hasNotification(.conversationExpired))
-        let notifications = capture.notifications(named: .conversationExpired)
-        #expect(notifications.count == 1)
-        let userInfo = notifications.first?.userInfo
-        #expect(userInfo?["conversationId"] as? String == fixtures.conversationId)
+        let matching = capture.notifications(named: .conversationExpired).filter {
+            $0.userInfo?["conversationId"] as? String == fixtures.conversationId
+        }
+        #expect(matching.count == 1)
     }
 
     @Test("Writes expiresAt to database")
@@ -266,7 +266,7 @@ struct IncomingMessageWriterExplodeTests {
 private class ExplodeTestFixtures {
     let databaseManager: MockDatabaseManager
     let writer: IncomingMessageWriter
-    let conversationId: String = "test-conversation-id"
+    let conversationId: String = "explode-test-\(UUID().uuidString)"
     let creatorInboxId: String = "creator-inbox-id"
     let currentInboxId: String = "current-inbox-id"
     let clientId: String = "test-client-id"

@@ -152,7 +152,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let filename = photoService.generateFilename()
         let localCacheURL = try photoService.localCacheURL(for: filename)
 
-        ImageCacheContainer.shared.cacheImage(image, for: localCacheURL.absoluteString)
+        ImageCacheContainer.shared.cacheImage(image, for: localCacheURL.absoluteString, storageTier: .persistent)
 
         // Save dimensions FIRST so they're available when the UI observes the message
         try await attachmentLocalStateWriter.saveWithDimensions(
@@ -186,7 +186,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         Log.debug("Starting eager upload for trackingKey: \(trackingKey)")
 
         // Cache the image but do NOT save to database yet - that happens when user taps Send
-        ImageCacheContainer.shared.cacheImage(image, for: trackingKey)
+        ImageCacheContainer.shared.cacheImage(image, for: trackingKey, storageTier: .persistent)
 
         let tracker = PhotoUploadProgressTracker.shared
         tracker.setStage(.preparing, for: trackingKey)
@@ -762,7 +762,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 throw PhotoAttachmentError.encryptionFailed
             }
 
-            ImageCacheContainer.shared.cacheImage(queued.image, for: json)
+            ImageCacheContainer.shared.cacheImage(queued.image, for: json, storageTier: .persistent)
 
             let attachmentUrlsJSON = try JSONEncoder().encode([json])
             let attachmentUrlsString = String(data: attachmentUrlsJSON, encoding: .utf8) ?? "[]"
@@ -789,6 +789,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             }
 
             try await attachmentLocalStateWriter.migrateKey(from: oldAttachmentKey, to: json)
+            ImageCacheContainer.shared.removeImage(for: oldAttachmentKey)
 
             try await sender.publish()
 

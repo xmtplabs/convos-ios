@@ -37,6 +37,7 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     deinit {
         Log.warning("ScheduledExplosionManager deinit - removing observers")
         observers.forEach { NotificationCenter.default.removeObserver($0) }
+        cancelAllTasks()
     }
 
     private func setupObservers() {
@@ -154,7 +155,6 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
     ) async {
         let reminderDate = expiresAt.addingTimeInterval(-Constant.oneHourInSeconds)
 
-        // Capture interval BEFORE any async operations to avoid time drift
         let reminderInterval = reminderDate.timeIntervalSinceNow
         guard reminderInterval > 0 else {
             Log.info("ScheduledExplosionManager: Skipping reminder for \(conversationId), less than 1 hour away")
@@ -241,10 +241,19 @@ final class ScheduledExplosionManager: ScheduledExplosionManagerProtocol, @unche
             if let name, !name.isEmpty {
                 return name
             }
+        } catch is CancellationError {
+            return "Untitled"
         } catch {
             Log.error("Failed to fetch conversation name: \(error)")
         }
         return "Untitled"
+    }
+
+    private func cancelAllTasks() {
+        taskLock.lock()
+        _schedulingTasks.values.forEach { $0.cancel() }
+        _schedulingTasks.removeAll()
+        taskLock.unlock()
     }
 
     private func cancelNotifications(for conversationId: String) {

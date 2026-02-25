@@ -454,13 +454,6 @@ struct ConversationInfoView: View {
                                 }
                             }
                         )
-                        .fullScreenCover(isPresented: $presentingShareView) {
-                            ConversationShareView(conversation: viewModel.conversation, invite: viewModel.invite)
-                                .presentationBackground(.clear)
-                        }
-                        .transaction { transaction in
-                            transaction.disablesAnimations = true
-                        }
                         .accessibilityIdentifier("info-add-button")
                     }
                 }
@@ -482,6 +475,16 @@ struct ConversationInfoView: View {
                 FullConvoInfoView(onDismiss: {
                     showingFullInfo = false
                 })
+            }
+            .overlay {
+                if presentingShareView {
+                    ConversationShareOverlay(
+                        conversation: viewModel.conversation,
+                        invite: viewModel.invite,
+                        isPresented: $presentingShareView,
+                        topSafeAreaInset: 0
+                    )
+                }
             }
             .background {
                 Color.clear
