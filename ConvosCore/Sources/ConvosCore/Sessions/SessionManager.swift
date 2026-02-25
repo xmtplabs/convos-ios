@@ -496,18 +496,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             }
         }
 
-        let safeToDeleteConversationIds = expiredInvites
-            .filter { safeToDeleteClientIds.contains($0.clientId) }
-            .map { $0.id }
+        let allExpiredConversationIds = expiredInvites.map { $0.id }
 
         let deletedCount = try await databaseWriter.write { db in
             try DBConversation
-                .filter(safeToDeleteConversationIds.contains(DBConversation.Columns.id))
+                .filter(allExpiredConversationIds.contains(DBConversation.Columns.id))
                 .deleteAll(db)
         }
 
         if !clientIdsToKeep.isEmpty {
-            Log.debug("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
+            Log.debug("Kept \(clientIdsToKeep.count) inbox(es) that have other active conversations")
         }
 
         Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")

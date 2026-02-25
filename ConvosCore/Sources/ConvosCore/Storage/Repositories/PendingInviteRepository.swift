@@ -17,6 +17,19 @@ public struct PendingInviteInfo: Codable, Hashable, Identifiable {
     }
 }
 
+public struct OtherConversationInfo: Codable, Hashable, Identifiable, Sendable {
+    public var id: String { conversationId }
+    public let conversationId: String
+    public let name: String?
+    public let clientConversationId: String
+
+    public init(conversationId: String, name: String?, clientConversationId: String) {
+        self.conversationId = conversationId
+        self.name = name
+        self.clientConversationId = clientConversationId
+    }
+}
+
 public struct PendingInviteDetail: Codable, Hashable, Identifiable, Sendable {
     public var id: String { conversationId }
     public let conversationId: String
@@ -26,6 +39,11 @@ public struct PendingInviteDetail: Codable, Hashable, Identifiable, Sendable {
     public let conversationName: String?
     public let createdAt: Date
     public let memberCount: Int
+    public let otherConversations: [OtherConversationInfo]
+
+    public var hasOtherConversations: Bool {
+        !otherConversations.isEmpty
+    }
 
     public init(
         conversationId: String,
@@ -34,7 +52,8 @@ public struct PendingInviteDetail: Codable, Hashable, Identifiable, Sendable {
         inviteTag: String,
         conversationName: String?,
         createdAt: Date,
-        memberCount: Int = 0
+        memberCount: Int = 0,
+        otherConversations: [OtherConversationInfo] = []
     ) {
         self.conversationId = conversationId
         self.clientId = clientId
@@ -43,6 +62,7 @@ public struct PendingInviteDetail: Codable, Hashable, Identifiable, Sendable {
         self.conversationName = conversationName
         self.createdAt = createdAt
         self.memberCount = memberCount
+        self.otherConversations = otherConversations
     }
 }
 
@@ -117,15 +137,38 @@ public struct PendingInviteRepository: PendingInviteRepositoryProtocol {
                     AND c.inviteTag != ''
                 ORDER BY c.createdAt ASC
                 """
-            return try Row.fetchAll(db, sql: sql).map { row in
-                PendingInviteDetail(
-                    conversationId: row["conversationId"],
-                    clientId: row["clientId"],
+
+            let pendingInvites = try Row.fetchAll(db, sql: sql)
+
+            return try pendingInvites.map { row in
+                let clientId: String = row["clientId"]
+                let conversationId: String = row["conversationId"]
+
+                let otherConvosSql = """
+                    SELECT id, name, clientConversationId
+                    FROM conversation
+                    WHERE clientId = ?
+                        AND id != ?
+                        AND id NOT LIKE 'draft-%'
+                    """
+                let otherConvos = try Row.fetchAll(db, sql: otherConvosSql, arguments: [clientId, conversationId])
+                    .map { otherRow in
+                        OtherConversationInfo(
+                            conversationId: otherRow["id"],
+                            name: otherRow["name"],
+                            clientConversationId: otherRow["clientConversationId"]
+                        )
+                    }
+
+                return PendingInviteDetail(
+                    conversationId: conversationId,
+                    clientId: clientId,
                     inboxId: row["inboxId"],
                     inviteTag: row["inviteTag"],
                     conversationName: row["name"],
                     createdAt: row["createdAt"],
-                    memberCount: row["memberCount"]
+                    memberCount: row["memberCount"],
+                    otherConversations: otherConvos
                 )
             }
         }
