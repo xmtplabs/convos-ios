@@ -98,13 +98,14 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
             let updatedConversation = localConversation.with(name: truncatedName)
             try updatedConversation.save(db)
-            Log.info("Updated local conversation name for \(conversationId): \(truncatedName)")
+            Log.debug("Updated local conversation name for \(conversationId): \(truncatedName)")
             return updatedConversation
         }
 
         try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated conversation name for \(conversationId): \(truncatedName)")
+        QAEvent.emit(.profile, "name_updated", ["conversation": conversationId, "name": truncatedName])
     }
 
     func updateExpiresAt(_ expiresAt: Date, for conversationId: String) async throws {
@@ -149,7 +150,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
             let updatedConversation = localConversation.with(description: description)
             try updatedConversation.save(db)
-            Log.info("Updated local conversation description for \(conversationId): \(description)")
+            Log.debug("Updated local conversation description for \(conversationId): \(description)")
             return updatedConversation
         }
 
@@ -193,9 +194,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         let encryptedFilename = "eg-\(UUID().uuidString).enc"
 
         if includePublicPreview {
-            Log.info("Uploading group image (encrypted + public preview)")
+            Log.debug("Uploading group image (encrypted + public preview)")
         } else {
-            Log.info("Uploading group image (encrypted only, public preview disabled)")
+            Log.debug("Uploading group image (encrypted only, public preview disabled)")
         }
 
         let encryptedAssetUrl = try await inboxReady.apiClient.uploadAttachment(
@@ -204,7 +205,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             contentType: "application/octet-stream",
             acl: "public-read"
         )
-        Log.info("Encrypted image uploaded: \(encryptedAssetUrl)")
+        Log.debug("Encrypted image uploaded: \(encryptedAssetUrl)")
 
         let publicImageUrl: String?
         if includePublicPreview {
@@ -215,11 +216,11 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 contentType: "image/jpeg",
                 acl: "public-read"
             )
-            Log.info("Public preview image uploaded: \(uploadedUrl)")
+            Log.debug("Public preview image uploaded: \(uploadedUrl)")
             publicImageUrl = uploadedUrl
         } else {
             publicImageUrl = nil
-            Log.info("Public preview URL: none")
+            Log.debug("Public preview URL: none")
         }
 
         var encryptedRef = EncryptedImageRef()
@@ -259,9 +260,9 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         try await syncInvitePreview(for: updatedConversation)
 
         if includePublicPreview {
-            Log.info("Public preview URL set for invites")
+            Log.debug("Public preview URL set for invites")
         }
-        Log.info("Updated encrypted conversation image for \(conversation.id): \(encryptedAssetUrl)")
+        Log.debug("Updated encrypted conversation image for \(conversation.id): \(encryptedAssetUrl)")
     }
 
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws {
@@ -291,7 +292,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
         } else {
             publicImageUrl = nil
-            Log.info("Public preview disabled, clearing public image URL")
+            Log.debug("Public preview disabled, clearing public image URL")
         }
 
         let updatedConversation: DBConversation? = try await databaseWriter.write { db in
@@ -314,7 +315,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         try await syncInvitePreview(for: updatedConversation)
 
-        Log.info("Updated includeInfoInPublicPreview for \(conversationId): \(enabled)")
+        Log.debug("Updated includeInfoInPublicPreview for \(conversationId): \(enabled)")
     }
 
     private func generatePublicPreviewUrl(
@@ -323,7 +324,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         inboxReady: InboxReadyResult
     ) async -> String? {
         guard localConversation.imageURLString != nil else {
-            Log.info("No group image to make public")
+            Log.debug("No group image to make public")
             return nil
         }
 
@@ -355,7 +356,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 contentType: "image/jpeg",
                 acl: "public-read"
             )
-            Log.info("Public preview image uploaded: \(publicImageUrl)")
+            Log.debug("Public preview image uploaded: \(publicImageUrl)")
             return publicImageUrl
         } catch {
             Log.warning("Failed to generate public preview: \(error.localizedDescription)")
@@ -395,13 +396,14 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
             }
             let updated = currentConversation.with(imageURLString: imageURL).with(publicImageURLString: publicImageUrl)
             try updated.save(db)
-            Log.info("Updated local conversation image for \(conversationId): \(imageURL)")
+            Log.debug("Updated local conversation image for \(conversationId): \(imageURL)")
             return updated
         }
 
         try await syncInvitePreview(for: updatedConversation)
 
         Log.info("Updated conversation image for \(conversationId): \(imageURL)")
+        QAEvent.emit(.conversation, "image_updated", ["id": conversationId])
     }
 
     // MARK: - Member Management
@@ -426,11 +428,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                     createdAt: Date()
                 )
                 try conversationMember.save(db)
-                Log.info("Added local conversation member \(memberInboxId) to \(conversationId)")
+                Log.debug("Added local conversation member \(memberInboxId) to \(conversationId)")
             }
         }
 
         Log.info("Added members to conversation \(conversationId): \(memberInboxIds)")
+        QAEvent.emit(.member, "added", ["conversation": conversationId, "count": String(memberInboxIds.count)])
     }
 
     func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws {
@@ -449,11 +452,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                     .filter(DBConversationMember.Columns.conversationId == conversationId)
                     .filter(DBConversationMember.Columns.inboxId == memberInboxId)
                     .deleteAll(db)
-                Log.info("Removed local conversation member \(memberInboxId) from \(conversationId)")
+                Log.debug("Removed local conversation member \(memberInboxId) from \(conversationId)")
             }
         }
 
         Log.info("Removed members from conversation \(conversationId): \(memberInboxIds)")
+        QAEvent.emit(.member, "removed", ["conversation": conversationId, "count": String(memberInboxIds.count)])
     }
 
     // MARK: - Admin Management
@@ -475,7 +479,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 .fetchOne(db) {
                 let updatedMember = member.with(role: .admin)
                 try updatedMember.save(db)
-                Log.info("Updated local member \(memberInboxId) role to admin in \(conversationId)")
+                Log.debug("Updated local member \(memberInboxId) role to admin in \(conversationId)")
             }
         }
 
@@ -498,7 +502,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 .fetchOne(db) {
                 let updatedMember = member.with(role: .member)
                 try updatedMember.save(db)
-                Log.info("Updated local member \(memberInboxId) role to member in \(conversationId)")
+                Log.debug("Updated local member \(memberInboxId) role to member in \(conversationId)")
             }
         }
 
@@ -521,7 +525,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 .fetchOne(db) {
                 let updatedMember = member.with(role: .superAdmin)
                 try updatedMember.save(db)
-                Log.info("Updated local member \(memberInboxId) role to superAdmin in \(conversationId)")
+                Log.debug("Updated local member \(memberInboxId) role to superAdmin in \(conversationId)")
             }
         }
 
@@ -544,7 +548,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 .fetchOne(db) {
                 let updatedMember = member.with(role: .admin)
                 try updatedMember.save(db)
-                Log.info("Updated local member \(memberInboxId) role to admin in \(conversationId)")
+                Log.debug("Updated local member \(memberInboxId) role to admin in \(conversationId)")
             }
         }
 
@@ -572,12 +576,13 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 .with(isLocked: true)
                 .with(inviteTag: try group.inviteTag)
             try updatedConversation.save(db)
-            Log.info("Locked conversation \(conversationId) in local database")
+            Log.debug("Locked conversation \(conversationId) in local database")
         }
 
         _ = try await inviteWriter.regenerate(for: conversationId)
 
         Log.info("Locked conversation \(conversationId)")
+        QAEvent.emit(.conversation, "locked", ["id": conversationId])
     }
 
     func unlockConversation(for conversationId: String) async throws {
@@ -602,11 +607,12 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                 .with(isLocked: false)
                 .with(inviteTag: try group.inviteTag)
             try updatedConversation.save(db)
-            Log.info("Unlocked conversation \(conversationId) in local database")
+            Log.debug("Unlocked conversation \(conversationId) in local database")
         }
 
         _ = try await inviteWriter.regenerate(for: conversationId)
 
         Log.info("Unlocked conversation \(conversationId)")
+        QAEvent.emit(.conversation, "unlocked", ["id": conversationId])
     }
 }

@@ -92,6 +92,8 @@ struct JoinConversationView: View {
                     } label: {
                         Image(systemName: "clipboard")
                     }
+                    .accessibilityLabel("Paste invite code from clipboard")
+                    .accessibilityIdentifier("paste-invite-button")
                 }
             }
             .alert("This is not a convo", isPresented: $viewModel.showInvalidInviteCodeFormat) {

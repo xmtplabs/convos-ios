@@ -209,6 +209,157 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("deduplicateReactions") { db in
+            try db.execute(sql: """
+                DELETE FROM message
+                WHERE messageType = 'reaction'
+                AND sourceMessageId IS NOT NULL
+                AND rowid NOT IN (
+                    SELECT MIN(rowid)
+                    FROM message
+                    WHERE messageType = 'reaction'
+                    AND sourceMessageId IS NOT NULL
+                    GROUP BY sourceMessageId, senderId, emoji
+                )
+                """)
+        }
+
+        migrator.registerMigration("createPhotoPreferences") { db in
+            try db.create(table: "photoPreferences") { t in
+                t.column("conversationId", .text)
+                    .notNull()
+                    .primaryKey()
+                    .references("conversation", onDelete: .cascade)
+                t.column("autoReveal", .boolean)
+                    .notNull()
+                    .defaults(to: false)
+                t.column("hasRevealedFirst", .boolean)
+                    .notNull()
+                    .defaults(to: false)
+                t.column("updatedAt", .datetime)
+                    .notNull()
+            }
+        }
+
+        migrator.registerMigration("createAttachmentLocalState") { db in
+            try db.create(table: "attachmentLocalState") { t in
+                t.column("attachmentKey", .text)
+                    .notNull()
+                    .primaryKey()
+                t.column("conversationId", .text)
+                    .notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("isRevealed", .boolean)
+                    .notNull()
+                    .defaults(to: false)
+                t.column("revealedAt", .datetime)
+            }
+
+            try db.create(index: "attachmentLocalState_conversationId", on: "attachmentLocalState", columns: ["conversationId"])
+        }
+
+        migrator.registerMigration("createPendingPhotoUpload") { db in
+            try db.create(table: "pendingPhotoUpload") { t in
+                t.column("id", .text).primaryKey()
+                t.column("clientMessageId", .text).notNull()
+                t.column("conversationId", .text)
+                    .notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("localCacheURL", .text).notNull()
+                t.column("state", .text).notNull()
+                t.column("errorMessage", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+
+            try db.create(index: "pendingPhotoUpload_state", on: "pendingPhotoUpload", columns: ["state"])
+            try db.create(index: "pendingPhotoUpload_clientMessageId", on: "pendingPhotoUpload", columns: ["clientMessageId"])
+            try db.create(index: "pendingPhotoUpload_conversationId", on: "pendingPhotoUpload", columns: ["conversationId"])
+        }
+
+        migrator.registerMigration("addDimensionsToAttachmentLocalState") { db in
+            try db.alter(table: "attachmentLocalState") { t in
+                t.add(column: "width", .integer)
+                t.add(column: "height", .integer)
+            }
+        }
+
+        migrator.registerMigration("addIsHiddenByOwnerToAttachmentLocalState") { db in
+            try db.alter(table: "attachmentLocalState") { t in
+                t.add(column: "isHiddenByOwner", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("addSortIdToMessage") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "sortId", .integer)
+            }
+
+            try db.execute(sql: """
+                UPDATE message SET sortId = (
+                    SELECT COUNT(*) FROM message m2
+                    WHERE m2.conversationId = message.conversationId
+                    AND m2.dateNs <= message.dateNs
+                    AND m2.id <= message.id
+                )
+            """)
+
+            try db.create(index: "message_sortId", on: "message", columns: ["conversationId", "sortId"])
+        }
+
+        migrator.registerMigration("addPerformanceIndexes") { db in
+            try db.create(
+                index: "message_on_conversationId_dateNs",
+                on: "message",
+                columns: ["conversationId", "dateNs"]
+            )
+
+            try db.create(
+                index: "message_on_sourceMessageId_messageType",
+                on: "message",
+                columns: ["sourceMessageId", "messageType"]
+            )
+
+            try db.create(
+                index: "message_on_conversationId_contentType_dateNs",
+                on: "message",
+                columns: ["conversationId", "contentType", "dateNs"]
+            )
+
+            try db.create(
+                index: "message_on_sourceMessageId_senderId_emoji_messageType",
+                on: "message",
+                columns: ["sourceMessageId", "senderId", "emoji", "messageType"]
+            )
+
+            try db.create(
+                index: "conversation_members_on_inboxId_conversationId",
+                on: "conversation_members",
+                columns: ["inboxId", "conversationId"]
+            )
+
+            try db.create(
+                index: "memberProfile_on_conversationId_inboxId",
+                on: "memberProfile",
+                columns: ["conversationId", "inboxId"]
+            )
+        }
+
+        migrator.registerMigration("addIsUnusedToConversation") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "isUnused", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("addAssetRenewalColumns") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "avatarLastRenewed", .datetime)
+            }
+            try db.alter(table: "conversation") { t in
+                t.add(column: "imageLastRenewed", .datetime)
+            }
+        }
+
         return migrator
     }
 }

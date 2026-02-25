@@ -4,7 +4,7 @@ import GRDB
 import Testing
 import XMTPiOS
 
-@Suite("Lock Conversation Tests", .serialized)
+@Suite("Lock Conversation Tests", .serialized, .timeLimit(.minutes(2)))
 struct LockConversationTests {
 
     // MARK: - Integration Tests (Real XMTP)
@@ -191,7 +191,9 @@ struct LockConversationTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: false
             ).insert(db)
         }
 
@@ -286,7 +288,9 @@ struct LockConversationTests {
                 isLocked: true,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: false
             ).insert(db)
         }
 
@@ -456,7 +460,9 @@ struct LockConversationTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: false
             ).insert(db)
         }
 
@@ -579,7 +585,9 @@ struct LockConversationTests {
                 isLocked: false,
                 imageSalt: nil,
                 imageNonce: nil,
-                imageEncryptionKey: nil
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: false
             ).insert(db)
 
             // Create the member record with superAdmin role (this is what the UI reads)

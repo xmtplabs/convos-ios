@@ -1,5 +1,9 @@
 # Public Preview Image Toggle
 
+> **Status**: Implemented
+> **Canonical ADR**: `docs/adr/010-public-preview-image-toggle.md`
+> **Depends on ADR**: `docs/adr/009-encrypted-conversation-images.md`
+
 ## Overview
 
 Allow users to optionally show their group photo in invite link previews. By default, images are encrypted and not visible in previews (privacy first).

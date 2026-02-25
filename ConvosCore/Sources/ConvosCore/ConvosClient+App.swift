@@ -22,11 +22,16 @@ extension ConvosClient {
             sessionManager: sessionManager,
             appLifecycle: platformProviders.appLifecycle
         )
+        let scheduledExplosionManager = ScheduledExplosionManager(
+            databaseReader: databaseReader,
+            appLifecycle: platformProviders.appLifecycle
+        )
         return .init(
             sessionManager: sessionManager,
             databaseManager: databaseManager,
             environment: environment,
             expiredConversationsWorker: expiredConversationsWorker,
+            scheduledExplosionManager: scheduledExplosionManager,
             platformProviders: platformProviders
         )
     }

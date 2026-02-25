@@ -1,0 +1,207 @@
+id: "05"
+name: "Reactions"
+description: >
+  Verify that reactions can be added from both the app and CLI,
+  display correctly, support multiple emoji types, show sender
+  attribution, and can be removed.
+tags: [messaging, reactions, core]
+depends_on: ["02"]
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+
+state:
+  conversation_id: null
+  cli_text_msg_id: null
+  app_text_msg_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: navigate_to_conversation
+    args: { id: "$conversation_id" }
+  - action: cli_send_text
+    args: { conversation: "$conversation_id", text: "React to this text" }
+    save: cli_text_msg_id
+  - action: cli_send_text
+    args: { conversation: "$conversation_id", text: "🚀" }
+  - action: download_test_photo
+    args: { url: "https://picsum.photos/850/650", path: "/tmp/test-photo.jpg" }
+  - action: cli_send_attachment
+    args: { conversation: "$conversation_id", path: "/tmp/test-photo.jpg" }
+    note: "Attachment may fail to render due to known DecodedMessageDBRepresentationError"
+  - action: app_send_text
+    args: { text: "React to this too" }
+    save: app_text_msg_id
+  - action: wait_for_element
+    args: { label_contains: "React to this too", timeout: 15 }
+
+steps:
+  - id: react_cli_text
+    name: "CLI reaction on text message appears in app"
+    actions:
+      - cli_send_reaction:
+          conversation: "$conversation_id"
+          message: "$cli_text_msg_id"
+          action: "add"
+          emoji: "👍"
+      - wait: 5
+      - find_elements: { label_contains: "👍" }
+    verify:
+      - element_exists: { label_contains: "👍" }
+    criteria: cli_reaction_text_visible
+
+  - id: react_cli_emoji
+    name: "CLI reaction on emoji message appears in app"
+    actions:
+      - cli_send_reaction:
+          conversation: "$conversation_id"
+          message: "$cli_emoji_msg_id"
+          action: "add"
+          emoji: "❤️"
+      - wait: 5
+      - find_elements: { label_contains: "❤️" }
+    verify:
+      - element_exists: { label_contains: "❤️" }
+    criteria: cli_reaction_emoji_visible
+
+  - id: react_cli_attachment
+    name: "CLI reaction on attachment appears in app"
+    actions:
+      - cli_send_reaction:
+          conversation: "$conversation_id"
+          message: "$cli_attachment_msg_id"
+          action: "add"
+          emoji: "🔥"
+      - wait: 5
+      - find_elements: { label_contains: "🔥" }
+    verify:
+      - element_exists: { label_contains: "🔥" }
+    criteria: cli_reaction_attachment_visible
+    known_issue: "May fail if attachment message didn't render"
+
+  - id: react_app_own
+    name: "Double-tap own message adds heart reaction"
+    actions:
+      - double_tap_element: { label_contains: "React to this too" }
+      - wait: 3
+      - find_elements: { label_contains: "❤️" }
+    verify:
+      - element_near: { label: "❤️", near_label: "React to this too" }
+    criteria: app_react_own_message
+    gesture: "double-tap via parallel idb taps"
+
+  - id: react_app_cli_msg
+    name: "Double-tap CLI message adds heart reaction"
+    actions:
+      - double_tap_element: { label_contains: "React to this text" }
+      - wait: 3
+      - find_elements: { label_contains: "❤️" }
+      - cli_verify_reaction:
+          conversation: "$conversation_id"
+          message: "$cli_text_msg_id"
+          emoji: "❤️"
+    verify:
+      - element_near: { label: "❤️", near_label: "React to this text" }
+      - cli_output_contains: "❤️"
+    criteria: app_react_cli_message
+
+  - id: multiple_reactions
+    name: "Multiple reactions display on one message"
+    actions:
+      - cli_send_reaction:
+          conversation: "$conversation_id"
+          message: "$cli_text_msg_id"
+          action: "add"
+          emoji: "😂"
+      - cli_send_reaction:
+          conversation: "$conversation_id"
+          message: "$cli_text_msg_id"
+          action: "add"
+          emoji: "🔥"
+      - wait: 5
+      - find_elements: { label_contains: "😂" }
+      - find_elements: { label_contains: "🔥" }
+    verify:
+      - element_exists: { label_contains: "😂" }
+      - element_exists: { label_contains: "🔥" }
+    criteria: multiple_reactions_visible
+
+  - id: reactions_drawer
+    name: "Reactions drawer opens and shows attribution"
+    actions:
+      - tap_reaction_count: { near_label: "React to this text" }
+      - wait: 2
+      - find_elements: { pattern: "reaction" }
+    verify:
+      - element_exists: { pattern: "reaction" }
+    criteria: reactions_drawer_opens
+    note: "Tap the grouped reaction indicators below the message"
+
+  - id: reactions_attribution
+    name: "Reactions drawer shows sender names"
+    actions:
+      - find_elements: { pattern: "CLI User" }
+    verify:
+      - element_exists: { pattern: "CLI User" }
+    criteria: reactions_show_attribution
+
+  - id: dismiss_drawer
+    name: "Dismiss reactions drawer"
+    actions:
+      - tap: { label: "Dismiss", optional: true }
+      - key: { code: 41 }
+      - wait: 1
+
+  - id: remove_reaction
+    name: "Removing a reaction updates UI"
+    actions:
+      - double_tap_element: { label_contains: "React to this too" }
+      - wait: 3
+    verify:
+      - element_not_near: { label: "❤️", near_label: "React to this too" }
+    criteria: remove_reaction_updates_ui
+    note: "Second double-tap toggles off the heart reaction"
+
+  - id: remove_reaction_cli
+    name: "Removed reaction reflected in CLI"
+    actions:
+      - cli_verify_no_reaction:
+          conversation: "$conversation_id"
+          message: "$app_text_msg_id"
+          emoji: "❤️"
+          sender: "app"
+    verify:
+      - cli_output_not_contains: { emoji: "❤️", sender: "app" }
+    criteria: remove_reaction_in_cli
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  cli_reaction_text_visible:
+    description: "CLI reaction on a text message appears in the app"
+  cli_reaction_emoji_visible:
+    description: "CLI reaction on an emoji message appears in the app"
+  cli_reaction_attachment_visible:
+    description: "CLI reaction on an attachment message appears in the app"
+  app_react_own_message:
+    description: "Double-tap on own message adds a heart reaction"
+  app_react_cli_message:
+    description: "Double-tap on CLI message adds a heart reaction"
+  multiple_reactions_visible:
+    description: "Multiple reactions display correctly on a single message"
+  reactions_drawer_opens:
+    description: "Reactions drawer opens when tapping reaction count"
+  reactions_show_attribution:
+    description: "Reactions drawer shows sender names"
+  remove_reaction_updates_ui:
+    description: "Removing a reaction updates the app UI"
+  remove_reaction_in_cli:
+    description: "Removing a reaction is reflected via CLI"

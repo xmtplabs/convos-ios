@@ -1,3 +1,6 @@
+#if canImport(UIKit)
+import UIKit
+#endif
 import Combine
 import Foundation
 @preconcurrency import XMTPiOS
@@ -15,9 +18,11 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     private let _conversationConsentWriter: any ConversationConsentWriterProtocol
     private let _conversationLocalStateWriter: any ConversationLocalStateWriterProtocol
     private let _conversationMetadataWriter: any ConversationMetadataWriterProtocol
+    private let _conversationExplosionWriter: any ConversationExplosionWriterProtocol
     private let _conversationPermissionsRepository: any ConversationPermissionsRepositoryProtocol
     private let _outgoingMessageWriter: any OutgoingMessageWriterProtocol
     private let _reactionWriter: any ReactionWriterProtocol
+    private let _replyWriter: any ReplyMessageWriterProtocol
 
     // MARK: - Initialization
 
@@ -28,9 +33,11 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         conversationConsentWriter: (any ConversationConsentWriterProtocol)? = nil,
         conversationLocalStateWriter: (any ConversationLocalStateWriterProtocol)? = nil,
         conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil,
+        conversationExplosionWriter: (any ConversationExplosionWriterProtocol)? = nil,
         conversationPermissionsRepository: (any ConversationPermissionsRepositoryProtocol)? = nil,
         outgoingMessageWriter: (any OutgoingMessageWriterProtocol)? = nil,
-        reactionWriter: (any ReactionWriterProtocol)? = nil
+        reactionWriter: (any ReactionWriterProtocol)? = nil,
+        replyWriter: (any ReplyMessageWriterProtocol)? = nil
     ) {
         self._inboxStateManager = inboxStateManager ?? MockInboxStateManager()
         self._myProfileWriter = myProfileWriter ?? MockMyProfileWriter()
@@ -38,9 +45,11 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         self._conversationConsentWriter = conversationConsentWriter ?? MockConversationConsentWriter()
         self._conversationLocalStateWriter = conversationLocalStateWriter ?? MockConversationLocalStateWriter()
         self._conversationMetadataWriter = conversationMetadataWriter ?? MockConversationMetadataWriter()
+        self._conversationExplosionWriter = conversationExplosionWriter ?? MockConversationExplosionWriter()
         self._conversationPermissionsRepository = conversationPermissionsRepository ?? MockConversationPermissionsRepository()
         self._outgoingMessageWriter = outgoingMessageWriter ?? MockOutgoingMessageWriter()
         self._reactionWriter = reactionWriter ?? MockReactionWriter()
+        self._replyWriter = replyWriter ?? MockReplyMessageWriter()
     }
 
     // MARK: - MessagingServiceProtocol
@@ -73,12 +82,19 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
         _conversationConsentWriter
     }
 
-    public func messageWriter(for conversationId: String) -> any OutgoingMessageWriterProtocol {
+    public func messageWriter(
+        for conversationId: String,
+        backgroundUploadManager: any BackgroundUploadManagerProtocol
+    ) -> any OutgoingMessageWriterProtocol {
         _outgoingMessageWriter
     }
 
     public func reactionWriter() -> any ReactionWriterProtocol {
         _reactionWriter
+    }
+
+    public func replyWriter() -> any ReplyMessageWriterProtocol {
+        _replyWriter
     }
 
     public func conversationLocalStateWriter() -> any ConversationLocalStateWriterProtocol {
@@ -87,6 +103,10 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
 
     public func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol {
         _conversationMetadataWriter
+    }
+
+    public func conversationExplosionWriter() -> any ConversationExplosionWriterProtocol {
+        _conversationExplosionWriter
     }
 
     public func conversationPermissionsRepository() -> any ConversationPermissionsRepositoryProtocol {

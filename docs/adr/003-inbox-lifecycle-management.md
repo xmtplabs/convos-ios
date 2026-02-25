@@ -1,8 +1,6 @@
 # ADR 003: Inbox Lifecycle Management with LRU Eviction
 
-## Status
-
-Accepted
+> **Status**: Accepted
 
 ## Context
 

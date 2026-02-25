@@ -16,7 +16,7 @@ struct ConversationsListEmptyCTA: View {
                     .fontWeight(.bold)
                     .foregroundStyle(.colorTextPrimary)
                 Text("Chat instantly, with anybody.\nNo accounts. New you every time.")
-                    .font(.body)
+                    .font(.callout)
                     .foregroundStyle(.colorTextSecondary)
                 HStack {
                     Button {
@@ -27,6 +27,7 @@ struct ConversationsListEmptyCTA: View {
                     }
                     .convosButtonStyle(.rounded(fullWidth: false))
                     .hoverEffect(.lift)
+                    .accessibilityIdentifier("start-convo-button")
                     Button {
                         onJoinConvo()
                     } label: {
@@ -34,6 +35,8 @@ struct ConversationsListEmptyCTA: View {
                     }
                     .convosButtonStyle(.text)
                     .hoverEffect(.lift)
+                    .accessibilityLabel("Join a conversation")
+                    .accessibilityIdentifier("join-convo-button")
                 }
             }
             .padding(40)
@@ -81,7 +84,7 @@ struct ConversationsListEmptyCTA: View {
         }
         .dynamicTypeSize(...DynamicTypeSize.xxLarge)
         .padding(DesignConstants.Spacing.step6x)
-        .background(.colorBackgroundPrimary)
+        .background(.colorBackgroundSurfaceless)
     }
 }
 

@@ -22,6 +22,7 @@ struct NotificationConstants {
         static let explosionNotificationTapped: String = "explosionNotificationTapped"
         static let conversationNotificationTapped: String = "conversationNotificationTapped"
         static let conversationExpired: String = "conversationExpired"
+        static let conversationScheduledExplosion: String = "conversationScheduledExplosion"
     }
 }
 
@@ -30,4 +31,5 @@ extension Notification.Name {
     public static let explosionNotificationTapped: Notification.Name = Notification.Name(NotificationConstants.AppNotifications.explosionNotificationTapped)
     public static let conversationNotificationTapped: Notification.Name = Notification.Name(NotificationConstants.AppNotifications.conversationNotificationTapped)
     public static let conversationExpired: Notification.Name = Notification.Name(NotificationConstants.AppNotifications.conversationExpired)
+    public static let conversationScheduledExplosion: Notification.Name = Notification.Name(NotificationConstants.AppNotifications.conversationScheduledExplosion)
 }

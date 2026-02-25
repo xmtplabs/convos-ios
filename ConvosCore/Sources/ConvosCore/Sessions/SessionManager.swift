@@ -29,6 +29,7 @@ enum SessionManagerError: Error {
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var leftConversationObserver: Any?
     private var foregroundObserverTask: Task<Void, Never>?
+    private var assetRenewalTask: Task<Void, Never>?
 
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -105,7 +106,19 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
             self.unusedInboxPrepTask = Task(priority: .background) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                await self.lifecycleManager.prepareUnusedInboxIfNeeded()
+                await self.lifecycleManager.prepareUnusedConversationIfNeeded()
+            }
+
+            guard !Task.isCancelled else { return }
+            self.assetRenewalTask = Task(priority: .utility) { [weak self] in
+                guard let self, !Task.isCancelled else { return }
+                let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
+                let renewalManager = AssetRenewalManager(
+                    databaseWriter: self.databaseWriter,
+                    apiClient: self.apiClient,
+                    recoveryHandler: recoveryHandler
+                )
+                await renewalManager.performRenewalIfNeeded()
             }
         }
     }
@@ -114,6 +127,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         initializationTask?.cancel()
         unusedInboxPrepTask?.cancel()
         foregroundObserverTask?.cancel()
+        assetRenewalTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -147,7 +161,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     guard let self else { return }
                     do {
                         try await self.deleteInbox(clientId: clientId, inboxId: inboxId)
-                        Log.info("Deleted inbox after explosion: \(clientId)")
+                        Log.debug("Deleted inbox after explosion: \(clientId)")
                     } catch {
                         Log.error("Failed to delete inbox after explosion: \(error.localizedDescription)")
                     }
@@ -157,8 +171,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     // MARK: - Inbox Management
 
-    public func addInbox() async -> AnyMessagingService {
+    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
         await lifecycleManager.createNewInbox()
+    }
+
+    public func addInboxOnly() async -> AnyMessagingService {
+        await lifecycleManager.createNewInboxOnly()
     }
 
     public func deleteInbox(clientId: String, inboxId: String) async throws {
@@ -225,12 +243,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
                     // Stop all tracking in lifecycle manager
                     await self.lifecycleManager.stopAll()
-                    await self.lifecycleManager.clearUnusedInbox()
+                    await self.lifecycleManager.clearUnusedConversation()
 
                     // Delete all from database
                     continuation.yield(.deletingFromDatabase)
                     let inboxWriter = InboxWriter(dbWriter: self.databaseWriter)
-                    Log.info("Deleting all inboxes from database")
+                    Log.debug("Deleting all inboxes from database")
                     try await inboxWriter.deleteAll()
 
                     continuation.yield(.completed)
@@ -249,6 +267,32 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await lifecycleManager.getOrWake(clientId: clientId, inboxId: inboxId)
     }
 
+    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
+        if let tracked = lifecycleManager.getAwakeService(clientId: clientId) {
+            return tracked
+        }
+        let service = MessagingService.authorizedMessagingService(
+            for: inboxId,
+            clientId: clientId,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment,
+            identityStore: identityStore,
+            startsStreamingServices: true,
+            platformProviders: platformProviders,
+            deviceRegistrationManager: deviceRegistrationManager,
+            apiClient: apiClient
+        )
+        Task { [lifecycleManager] in
+            let registered = await lifecycleManager.registerExternalService(service, clientId: clientId)
+            if !registered {
+                Log.warning("Stopping duplicate MessagingService for \(clientId)")
+                await service.stop()
+            }
+        }
+        return service
+    }
+
     // MARK: - Factory methods for repositories
 
     public func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol {
@@ -257,6 +301,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             conversationId: conversationId,
             conversationIdPublisher: Just(conversationId).eraseToAnyPublisher()
         )
+    }
+
+    public func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        try await apiClient.requestAgentJoin(slug: slug, instructions: instructions)
     }
 
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
@@ -273,6 +321,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             dbReader: databaseReader,
             conversationId: conversationId
         )
+    }
+
+    public func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol {
+        PhotoPreferencesRepository(databaseReader: databaseReader)
+    }
+
+    public func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol {
+        PhotoPreferencesWriter(databaseWriter: databaseWriter)
+    }
+
+    public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
+        AttachmentLocalStateWriter(databaseWriter: databaseWriter)
     }
 
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
@@ -309,7 +369,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
             // Suppress notification if it's for a conversation in the active inbox
             if conversationClientId == activeClientId {
-                Log.info("Suppressing notification for conversation in active inbox: \(conversationId)")
+                Log.debug("Suppressing notification for conversation in active inbox: \(conversationId)")
                 return false
             }
         } catch {
@@ -334,7 +394,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         do {
             // wake() handles eviction automatically when at capacity
             _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .pushNotification)
-            Log.info("Woke inbox for push notification: \(clientId)")
+            Log.debug("Woke inbox for push notification: \(clientId)")
         } catch {
             Log.error("Failed to wake inbox for notification: \(error)")
         }
@@ -355,7 +415,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
             // wake() handles eviction automatically when at capacity
             _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .pushNotification)
-            Log.info("Woke inbox for push notification: clientId=\(clientId), conversationId=\(conversationId)")
+            Log.debug("Woke inbox for push notification: clientId=\(clientId), conversationId=\(conversationId)")
         } catch {
             Log.error("Failed to wake inbox for notification (conversationId: \(conversationId)): \(error)")
         }
@@ -423,14 +483,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
             do {
                 let identity = try await identityStore.delete(clientId: clientId)
-                Log.info("Deleted keychain identity for expired invite inbox: \(identity.inboxId)")
+                Log.debug("Deleted keychain identity for expired invite inbox: \(identity.inboxId)")
             } catch {
                 Log.warning("Could not delete keychain identity for clientId \(clientId): \(error)")
             }
 
             do {
                 try await inboxWriter.delete(clientId: clientId)
-                Log.info("Deleted inbox record for expired invite clientId: \(clientId)")
+                Log.debug("Deleted inbox record for expired invite clientId: \(clientId)")
             } catch {
                 Log.warning("Could not delete inbox record for clientId \(clientId): \(error)")
             }
@@ -447,7 +507,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
 
         if !clientIdsToKeep.isEmpty {
-            Log.info("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
+            Log.debug("Skipped \(clientIdsToKeep.count) inbox(es) with other conversations or multi-member groups")
         }
 
         Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")
@@ -468,5 +528,16 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             Log.error("Failed to look up inboxId for conversationId \(conversationId): \(error)")
             return nil
         }
+    }
+
+    // MARK: - Asset Renewal
+
+    public func makeAssetRenewalManager() async -> AssetRenewalManager {
+        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
+        return AssetRenewalManager(
+            databaseWriter: databaseWriter,
+            apiClient: apiClient,
+            recoveryHandler: recoveryHandler
+        )
     }
 }

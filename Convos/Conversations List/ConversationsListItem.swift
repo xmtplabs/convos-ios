@@ -24,39 +24,39 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
         HStack(spacing: DesignConstants.Spacing.step3x) {
             leadingContent()
                 .frame(width: 56.0, height: 56.0)
+                .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(title)
-                    .font(isUnread ? .body.weight(.semibold) : .body)
-                    .foregroundColor(.primary)
+                    .font(isUnread ? .body.weight(.medium) : .body)
+                    .foregroundStyle(.colorTextPrimary)
                     .truncationMode(.tail)
                     .lineLimit(1)
 
-                HStack {
-                    subtitle()
-                        .font(.subheadline)
-                        .foregroundColor(isUnread ? .primary : .secondary)
-                        .lineLimit(1)
+                subtitle()
+                    .font(.callout)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-                    Spacer()
+            accessoryContent()
 
-                    if isMuted {
-                        Image(systemName: "bell.slash.fill")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
-                }
+            if isMuted {
+                Image(systemName: "bell.slash.fill")
+                    .font(.callout)
+                    .foregroundStyle(.colorFillTertiary)
+                    .accessibilityHidden(true)
             }
 
             if isUnread {
                 Circle()
                     .fill(Color.primary)
-                    .frame(width: 12, height: 12)
+                    .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
             }
-
-            accessoryContent()
         }
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -72,30 +72,58 @@ struct ConversationsListItem: View {
     private var lastMessage: MessagePreview? { conversation.lastMessage }
     private var createdAt: Date { conversation.createdAt }
 
+    private var isPendingInvite: Bool { conversation.isPendingInvite }
+
+    private var accessibilityDescription: String {
+        var parts: [String] = [title]
+        if isPendingInvite { parts.append("verifying") }
+        if isUnread { parts.append("unread") }
+        if isMuted { parts.append("muted") }
+        if let message = lastMessage {
+            parts.append(message.text)
+        }
+        return parts.joined(separator: ", ")
+    }
+
     var body: some View {
         ListItemView(
             title: title,
-            isMuted: isMuted,
-            isUnread: isUnread,
+            isMuted: isPendingInvite ? false : isMuted,
+            isUnread: isPendingInvite ? false : isUnread,
             leadingContent: {
                 ConversationAvatarView(conversation: conversation, conversationImage: nil)
             },
             subtitle: {
                 HStack(spacing: DesignConstants.Spacing.stepX) {
-                    if let message = lastMessage {
+                    if isPendingInvite {
+                        RelativeDateLabel(date: createdAt)
+                        Text("·").foregroundStyle(.colorTextTertiary)
+                        Text("Verifying")
+                    } else if let message = lastMessage {
                         RelativeDateLabel(date: message.createdAt)
-                        Text("•")
+                        Text("·").foregroundStyle(.colorTextTertiary)
                         Text(message.text)
                     } else {
                         RelativeDateLabel(date: createdAt)
                     }
                 }
             },
-            accessoryContent: {}
+            accessoryContent: {
+                if let expiresAt = conversation.scheduledExplosionDate {
+                    ExplosionCountdownBadge(expiresAt: expiresAt)
+                }
+            }
         )
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityDescription)
+        .accessibilityIdentifier("conversation-list-item-\(conversation.id)")
     }
 }
 
-#Preview {
+#Preview("Regular") {
     ConversationsListItem(conversation: .mock())
+}
+
+#Preview("Pending Invite") {
+    ConversationsListItem(conversation: .mockPendingInvite())
 }

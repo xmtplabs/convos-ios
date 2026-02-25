@@ -39,7 +39,11 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     // MARK: - Inbox Management
 
-    public func addInbox() async -> AnyMessagingService {
+    public func addInbox() async -> (service: AnyMessagingService, conversationId: String?) {
+        (service: mockMessagingService, conversationId: nil)
+    }
+
+    public func addInboxOnly() async -> AnyMessagingService {
         mockMessagingService
     }
 
@@ -52,6 +56,10 @@ public final class MockInboxesService: SessionManagerProtocol {
     // MARK: - Messaging Services
 
     public func messagingService(for clientId: String, inboxId: String) async throws -> AnyMessagingService {
+        mockMessagingService
+    }
+
+    public func messagingServiceSync(for clientId: String, inboxId: String) -> AnyMessagingService {
         mockMessagingService
     }
 
@@ -73,12 +81,28 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockInviteRepository()
     }
 
+    public func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        .init(success: true, joined: true)
+    }
+
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }
 
     public func messagesRepository(for conversationId: String) -> any MessagesRepositoryProtocol {
         MockMessagesRepository(conversationId: conversationId)
+    }
+
+    public func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol {
+        MockPhotoPreferencesRepository()
+    }
+
+    public func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol {
+        MockPhotoPreferencesWriter()
+    }
+
+    public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
+        MockAttachmentLocalStateWriter()
     }
 
     // MARK: - Lifecycle Management
@@ -105,5 +129,17 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     public func deleteExpiredPendingInvites() async throws -> Int {
         0
+    }
+
+    // MARK: - Asset Renewal
+
+    public func makeAssetRenewalManager() async -> AssetRenewalManager {
+        let dbManager = MockDatabaseManager.shared
+        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: dbManager.dbWriter)
+        return AssetRenewalManager(
+            databaseWriter: dbManager.dbWriter,
+            apiClient: MockAPIClient(),
+            recoveryHandler: recoveryHandler
+        )
     }
 }

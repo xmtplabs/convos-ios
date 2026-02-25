@@ -86,9 +86,35 @@ if [[ $TLS_ATTEMPT -ge $MAX_TLS_ATTEMPTS ]]; then
     exit 1
 fi
 
-# Give the gRPC service a moment to fully initialize after TLS is ready
-echo "Waiting for gRPC service to initialize..." >&2
-sleep 10
+# Wait for the gRPC service to be fully ready (not just TLS)
+# Probe the XMTP identity API endpoint with an HTTP/2 POST.
+# A working gRPC service returns a response (even an error); a not-ready
+# service returns a connection error or HTTP 503.
+MAX_GRPC_ATTEMPTS=30
+GRPC_ATTEMPT=0
+
+echo "Waiting for gRPC service to be ready..." >&2
+while [[ $GRPC_ATTEMPT -lt $MAX_GRPC_ATTEMPTS ]]; do
+    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+        --http2 \
+        -H "Content-Type: application/grpc" \
+        -X POST \
+        "https://${APP_HOSTNAME}:443/xmtp.identity.api.v1.IdentityApi/GetInboxIds" \
+        --max-time 5 2>/dev/null || echo "000")
+
+    if [[ "$HTTP_CODE" == "200" ]]; then
+        echo "gRPC service is ready!" >&2
+        break
+    fi
+
+    GRPC_ATTEMPT=$((GRPC_ATTEMPT + 1))
+    echo "  Attempt $GRPC_ATTEMPT/$MAX_GRPC_ATTEMPTS - HTTP $HTTP_CODE, waiting..." >&2
+    sleep 5
+done
+
+if [[ $GRPC_ATTEMPT -ge $MAX_GRPC_ATTEMPTS ]]; then
+    echo "Warning: gRPC readiness check did not get HTTP 200, proceeding anyway" >&2
+fi
 
 XMTP_URL="https://${APP_HOSTNAME}:443"
 

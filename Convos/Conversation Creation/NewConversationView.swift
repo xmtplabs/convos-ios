@@ -5,7 +5,6 @@ struct NewConversationView: View {
     let viewModel: NewConversationViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     @State private var hasShownScannerOnAppear: Bool = false
-    @State private var presentingJoiningStateInfo: Bool = false
     @State private var sidebarWidth: CGFloat = 0.0
     @State private var focusCoordinator: FocusCoordinator = FocusCoordinator(horizontalSizeClass: nil)
 
@@ -30,8 +29,7 @@ struct NewConversationView: View {
                                 viewModel.joinConversation(inviteCode: inviteCode)
                             }
                         )
-                    } else {
-                        let conversationViewModel = viewModel.conversationViewModel
+                    } else if let conversationViewModel = viewModel.conversationViewModel {
                         ConversationView(
                             viewModel: conversationViewModel,
                             quicknameViewModel: quicknameViewModel,
@@ -43,28 +41,23 @@ struct NewConversationView: View {
                             messagesTopBarTrailingItemEnabled: viewModel.messagesTopBarTrailingItemEnabled,
                             messagesTextFieldEnabled: viewModel.messagesTextFieldEnabled
                         ) {
+                            EmptyView()
                         }
-                        .toolbar {
-                            ToolbarItem(placement: .topBarLeading) {
-                                Button(role: .close) {
-                                    if viewModel.conversationViewModel.onboardingCoordinator.isWaitingForInviteAcceptance {
-                                        presentingJoiningStateInfo = true
-                                    } else {
-                                        dismiss()
-                                    }
-                                }
-                                .confirmationDialog("This convo will appear on your home screen after someone approves you",
-                                                    isPresented: $presentingJoiningStateInfo,
-                                                    titleVisibility: .visible) {
-                                    Button("Continue") {
-                                        dismiss()
-                                    }
-                                }
+                    } else {
+                        EmptyView()
+                    }
+                }
+                .toolbar {
+                    if !viewModel.showingFullScreenScanner {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button(role: .close) {
+                                dismiss()
                             }
+                            .accessibilityIdentifier("close-new-conversation")
                         }
                     }
                 }
-                .background(.colorBackgroundPrimary)
+                .background(.colorBackgroundSurfaceless)
                 .sheet(isPresented: $viewModel.presentingJoinConversationSheet) {
                     JoinConversationView(viewModel: viewModel.qrScannerViewModel, allowsDismissal: true) { inviteCode in
                         viewModel.joinConversation(inviteCode: inviteCode)
@@ -78,14 +71,12 @@ struct NewConversationView: View {
                             onRetry: { viewModel.retryAction(retryAction) },
                             onCancel: { viewModel.dismissWithDeletion() }
                         )
-                        .background(.colorBackgroundRaised)
                     } else {
                         InfoView(
                             title: error.title,
                             description: error.description,
                             onDismiss: { viewModel.dismissWithDeletion() }
                         )
-                        .background(.colorBackgroundRaised)
                     }
                 }
             }
@@ -122,6 +113,7 @@ private struct ErrorSheetWithRetry: View {
                     Text("Try again")
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
+                .accessibilityIdentifier("error-retry-button")
 
                 Button {
                     onCancel()
@@ -129,6 +121,7 @@ private struct ErrorSheetWithRetry: View {
                     Text("Cancel")
                 }
                 .convosButtonStyle(.text)
+                .accessibilityIdentifier("error-cancel-button")
             }
             .padding(.vertical, DesignConstants.Spacing.step4x)
         }

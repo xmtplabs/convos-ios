@@ -12,6 +12,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let avatarSalt: Column = Column(CodingKeys.avatarSalt)
         static let avatarNonce: Column = Column(CodingKeys.avatarNonce)
         static let avatarKey: Column = Column(CodingKeys.avatarKey)
+        static let avatarLastRenewed: Column = Column(CodingKeys.avatarLastRenewed)
     }
 
     let conversationId: String
@@ -21,6 +22,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     let avatarSalt: Data?
     let avatarNonce: Data?
     let avatarKey: Data?
+    let avatarLastRenewed: Date?
 
     init(
         conversationId: String,
@@ -29,7 +31,8 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         avatar: String?,
         avatarSalt: Data? = nil,
         avatarNonce: Data? = nil,
-        avatarKey: Data? = nil
+        avatarKey: Data? = nil,
+        avatarLastRenewed: Date? = nil
     ) {
         self.conversationId = conversationId
         self.inboxId = inboxId
@@ -38,6 +41,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.avatarSalt = avatarSalt
         self.avatarNonce = avatarNonce
         self.avatarKey = avatarKey
+        self.avatarLastRenewed = avatarLastRenewed
     }
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
@@ -91,7 +95,8 @@ extension DBMemberProfile {
             avatar: avatar,
             avatarSalt: avatarSalt,
             avatarNonce: avatarNonce,
-            avatarKey: avatarKey
+            avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed
         )
     }
 
@@ -103,7 +108,8 @@ extension DBMemberProfile {
             avatar: avatar,
             avatarSalt: avatarSalt,
             avatarNonce: avatarNonce,
-            avatarKey: avatarKey
+            avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed
         )
     }
 
@@ -115,7 +121,21 @@ extension DBMemberProfile {
             avatar: avatar,
             avatarSalt: salt,
             avatarNonce: nonce,
-            avatarKey: key
+            avatarKey: key,
+            avatarLastRenewed: avatarLastRenewed
+        )
+    }
+
+    func with(avatarLastRenewed: Date?) -> DBMemberProfile {
+        .init(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            name: name,
+            avatar: avatar,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed
         )
     }
 

@@ -25,6 +25,8 @@ struct QuicknameRandomizerSettingsView: View {
                             Image(systemName: "shuffle")
                         }
                         .buttonStyle(.plain)
+                        .accessibilityLabel("Shuffle name")
+                        .accessibilityIdentifier("shuffle-name-button")
                     }
                 } header: {
 //                    HStack {
@@ -55,6 +57,8 @@ struct QuicknameRandomizerSettingsView: View {
                 .listSectionMargins(.top, 0.0)
                 .listSectionSeparator(.hidden)
             }
+            .scrollContentBackground(.hidden)
+            .background(.colorBackgroundRaisedSecondary)
         }
         .navigationTitle("Randomizer")
     }

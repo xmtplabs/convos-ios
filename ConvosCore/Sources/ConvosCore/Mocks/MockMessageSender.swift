@@ -19,7 +19,23 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
         return messageId
     }
 
+    public func prepare(remoteAttachment: RemoteAttachment) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
+    public func prepare(reply: Reply) async throws -> String {
+        let messageId = UUID().uuidString
+        preparedMessages.append(messageId)
+        return messageId
+    }
+
     public func publish() async throws {
+        publishedCount += 1
+    }
+
+    public func publishMessage(messageId: String) async throws {
         publishedCount += 1
     }
 

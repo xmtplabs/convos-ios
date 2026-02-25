@@ -152,7 +152,9 @@ struct InboxActivityRepositoryTests {
             isLocked: false,
             imageSalt: nil,
             imageNonce: nil,
-            imageEncryptionKey: nil
+            imageEncryptionKey: nil,
+            imageLastRenewed: nil,
+            isUnused: false
         )
     }
 
@@ -169,6 +171,7 @@ struct InboxActivityRepositoryTests {
             senderId: senderId,
             dateNs: Int64(date.timeIntervalSince1970 * 1_000_000_000),
             date: date,
+            sortId: nil,
             status: .published,
             messageType: .original,
             contentType: .text,

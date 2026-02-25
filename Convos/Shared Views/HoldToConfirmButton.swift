@@ -20,8 +20,12 @@ struct HoldToConfirmStyleConfig {
     var progressIndicatorPadding: CGFloat = DesignConstants.Spacing.step3x
     var progressIndicatorStrokeWidth: CGFloat = 1.0
 
+    // Shape
+    var cornerRadius: CGFloat?
+
     // Progress indicator
     var showProgressIndicator: Bool = true
+    var poofProgressIndicatorOnComplete: Bool = true
 
     static let `default`: HoldToConfirmStyleConfig = .init()
 }
@@ -62,6 +66,10 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
         @State private var didFire: Bool = false
         @State private var frozenProgress: Double = 0
 
+        private var shouldPoof: Bool {
+            config.poofProgressIndicatorOnComplete && didFire
+        }
+
         var body: some View {
             TimelineView(.animation(paused: !isPressing)) { context in
                 let currentProgress: Double = {
@@ -71,15 +79,16 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
                     return frozenProgress
                 }()
 
+                let shape = RoundedRectangle(cornerRadius: config.cornerRadius ?? 999)
                 label()
                     .padding(.vertical, config.verticalPadding)
                     .background(
-                        Capsule()
+                        shape
                             .fill(config.backgroundColor)
                             .overlay(
                                 config.pressedOverlayColor
                                     .opacity(currentProgress > 0.0 ? config.pressedOverlayOpacity : 0.0),
-                                in: Capsule()
+                                in: shape
                             )
                     )
                     .overlay(alignment: .leading) {
@@ -92,12 +101,22 @@ struct HoldToConfirmPrimitiveStyle: PrimitiveButtonStyle {
                                             .fill(config.progressIndicatorColor)
                                             .scaleEffect(currentProgress)
                                     )
+                                    .scaleEffect(shouldPoof ? 2.0 : 1.0)
+                                    .blur(radius: shouldPoof ? 8 : 0)
+                                    .opacity(shouldPoof ? 0 : 1)
+                                    .animation(.easeOut(duration: 0.25), value: shouldPoof)
                                 Spacer()
                             }
                             .padding(config.progressIndicatorPadding)
                             .opacity(isEnabled && currentProgress > 0.0 ? 1.0 : 0.0)
                         }
                     }
+            }
+            .sensoryFeedback(.impact(weight: .light), trigger: isPressing) { _, newValue in
+                newValue
+            }
+            .sensoryFeedback(.success, trigger: didFire) { _, newValue in
+                newValue
             }
             .onLongPressGesture(
                 minimumDuration: config.duration,

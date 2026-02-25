@@ -9,22 +9,13 @@ struct MessageInviteContainerView: View {
     let onTapInvite: ((MessageInvite) -> Void)
     let onTapAvatar: (() -> Void)?
 
-    private var textColor: Color {
-        // Match the text color based on message type (same as MessageContainer)
-        if isOutgoing {
-            return Color.colorTextPrimaryInverted
-        } else {
-            return Color.colorTextPrimary
-        }
-    }
+    @Environment(\.messagePressed) private var isPressed: Bool
 
     var body: some View {
         MessageContainer(style: style, isOutgoing: isOutgoing) {
-            Button {
-                onTapInvite(invite)
-            } label: {
-                MessageInviteView(invite: invite)
-            }
+            MessageInviteView(invite: invite)
+                .opacity(isPressed ? 0.7 : 1.0)
+                .animation(.easeOut(duration: 0.15), value: isPressed)
         }
     }
 }

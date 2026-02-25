@@ -113,6 +113,9 @@ iOSInjectionProject/
 /*.gcno
 **/xcshareddata/WorkspaceSettings.xcsettings
 
+# Claude Code temporary resources
+claude-code-resources/
+
 # End of https://www.toptal.com/developers/gitignore/api/swift,xcode
 
 # Claude Code local files
@@ -120,3 +123,10 @@ iOSInjectionProject/
 .derivedData/
 .claude/task-simulator.json
 *.profraw
+.simulator-setup.log
+qa/reports/
+qa/cxdb/qa.sqlite
+qa/cxdb/qa.sqlite-wal
+qa/cxdb/qa.sqlite-shm
+.DS_Store
+.mote-preview.html

@@ -44,9 +44,29 @@ case "$TEST_TYPE" in
         swift build --build-tests -q 2>&1 | filter_xmtp_logs
 
         echo ""
-        echo "==> Running tests..."
-        # Run tests, excluding unit tests
-        swift test --skip-build 2>&1 | filter_xmtp_logs
+        echo "==> Running tests (with retry on failure)..."
+        # Integration tests depend on an ephemeral XMTP backend where
+        # operations can have highly variable latency. Retry once on
+        # failure to reduce flake rate.
+        MAX_ATTEMPTS=2
+        ATTEMPT=1
+        while [[ $ATTEMPT -le $MAX_ATTEMPTS ]]; do
+            echo "==> Attempt $ATTEMPT/$MAX_ATTEMPTS"
+            if swift test --skip-build 2>&1 | filter_xmtp_logs; then
+                break
+            fi
+
+            if [[ $ATTEMPT -eq $MAX_ATTEMPTS ]]; then
+                echo ""
+                echo "==> Tests failed after $MAX_ATTEMPTS attempts"
+                exit 1
+            fi
+
+            echo ""
+            echo "==> Attempt $ATTEMPT failed, retrying..."
+            echo ""
+            ATTEMPT=$((ATTEMPT + 1))
+        done
         ;;
     all|"")
         echo "==> Running all tests"

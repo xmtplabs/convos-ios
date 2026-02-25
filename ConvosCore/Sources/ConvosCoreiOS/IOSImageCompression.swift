@@ -89,5 +89,69 @@ public struct IOSImageCompression: ImageCompressionProviding {
         // Compress to PNG
         return resizedImage.pngData()
     }
+
+    public func compressForPhotoAttachment(
+        _ image: UIImage,
+        targetBytes: Int,
+        maxBytes: Int,
+        maxDimension: CGFloat
+    ) -> Data? {
+        let size = image.size
+        guard size.width > 0 && size.height > 0 else {
+            Log.error("compressForPhotoAttachment: Invalid image size \(size)")
+            return nil
+        }
+
+        Log.info("compressForPhotoAttachment: Original size \(size), maxDimension \(maxDimension)")
+
+        // Calculate target size maintaining aspect ratio
+        let targetSize: CGSize
+        if size.width <= maxDimension && size.height <= maxDimension {
+            targetSize = size
+        } else {
+            let scaleFactor = maxDimension / max(size.width, size.height)
+            targetSize = CGSize(
+                width: size.width * scaleFactor,
+                height: size.height * scaleFactor
+            )
+        }
+
+        Log.info("compressForPhotoAttachment: Target size \(targetSize)")
+
+        // Resize image using UIGraphicsImageRenderer with scale 1.0
+        // This ensures we work with actual pixels, not points (which would be 3x on retina)
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1.0
+        let renderer = UIGraphicsImageRenderer(size: targetSize, format: format)
+        let resizedImage = renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+
+        // Check if resized image at high quality exceeds max bytes
+        // This catches truly huge images that can't be compressed enough
+        if let initialData = resizedImage.jpegData(compressionQuality: 1.0) {
+            Log.info("compressForPhotoAttachment: Resized image at q1.0 = \(initialData.count) bytes, maxBytes = \(maxBytes)")
+            if initialData.count > maxBytes {
+                Log.error("compressForPhotoAttachment: Resized image still exceeds maxBytes")
+                return nil
+            }
+        }
+
+        // Iteratively reduce quality until under target size
+        var quality: CGFloat = 0.85
+        let minQuality: CGFloat = 0.5
+        let qualityStep: CGFloat = 0.05
+
+        var data = resizedImage.jpegData(compressionQuality: quality)
+
+        while let currentData = data,
+              currentData.count > targetBytes,
+              quality > minQuality {
+            quality -= qualityStep
+            data = resizedImage.jpegData(compressionQuality: quality)
+        }
+
+        return data
+    }
 }
 #endif

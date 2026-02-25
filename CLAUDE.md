@@ -19,6 +19,59 @@ This document contains project-specific conventions and best practices for the C
 - Views and ViewModels go in the main app target
 - Use protocols for dependency injection (e.g., `SessionManagerProtocol`)
 
+### ConvosCore Platform Independence
+
+**ConvosCore must compile on macOS** to enable fast test execution without the iOS Simulator. This means:
+
+- **Never import UIKit** in ConvosCore - use cross-platform alternatives
+- **Never use `#if canImport(UIKit)`** conditionals - they break macOS compilation
+- **Never use iOS-specific types** like `UIImage`, `UIColor`, `UIApplication`
+
+**Cross-platform type aliases** are defined in `ConvosCore/Sources/ConvosCore/Utilities/`:
+```swift
+// ImageType.swift
+#if canImport(AppKit)
+public typealias ImageType = NSImage  // macOS
+#else
+public typealias ImageType = UIImage  // iOS
+#endif
+```
+
+Use `ImageType` instead of `UIImage` throughout ConvosCore.
+
+### ConvosCoreiOS Bridge Package
+
+When ConvosCore needs iOS-specific functionality, use the **ConvosCoreiOS** package as a bridge:
+
+1. **Define a protocol in ConvosCore** that describes what you need
+2. **Implement the protocol in ConvosCoreiOS** using iOS-specific APIs
+3. **Inject the implementation** from the main app at runtime
+
+**Example - Push Notification Registration:**
+```swift
+// In ConvosCore - protocol definition
+public protocol PushNotificationRegistering {
+    func registerForRemoteNotifications() async throws -> Data
+}
+
+// In ConvosCoreiOS - iOS implementation
+public final class PushNotificationManager: PushNotificationRegistering {
+    public func registerForRemoteNotifications() async throws -> Data {
+        // Uses UIApplication.shared.registerForRemoteNotifications()
+    }
+}
+
+// In main app - injection
+let service = MyService(pushManager: PushNotificationManager())
+```
+
+**What goes where:**
+| Location | Content |
+|----------|---------|
+| ConvosCore | Protocols, business logic, cross-platform types |
+| ConvosCoreiOS | UIKit implementations, iOS system integrations |
+| Main App | SwiftUI views, dependency injection, app lifecycle |
+
 ### XMTP SDK Abstraction Pattern
 To enable testability and avoid tight coupling to the XMTP iOS SDK, Convos uses protocol wrappers around XMTP types:
 
@@ -163,6 +216,13 @@ return nil
 - Repositories: `ConversationsCountRepository`
 - Use descriptive names over abbreviations
 
+### Comments & Documentation
+- **Only add comments when necessary** to explain something confusing or not apparent from the code
+- **Never use step counts** in comments (e.g., "Step 1:", "Step 2:") - they get out of date when code changes
+- **Never use all caps for emphasis** in comments (e.g., "BEFORE", "IMPORTANT") - use normal sentence case
+- Prefer self-documenting code with clear variable and function names over comments
+- If you find yourself writing many comments, consider refactoring the code to be clearer
+
 ## Dependency Management
 
 ### Swift Package Manager (SPM)
@@ -278,7 +338,7 @@ This project is configured for Claude Code CLI with specialized subagents, slash
 
 | Command | Description |
 |---------|-------------|
-| `/setup` | Initialize session for convos-task (creates simulator, sets MCP defaults) |
+| `/setup` | Initialize session for any branch (creates simulator, installs deps, sets MCP defaults) |
 | `/build` | Build the app (compile only) using "Convos (Dev)" scheme |
 | `/build --run` | Build and launch in an unused simulator |
 | `/test` | Run tests (ConvosCore by default) |
@@ -328,6 +388,25 @@ The `/build` command automatically uses `-derivedDataPath .derivedData` to store
 **Troubleshooting:**
 - If you get module errors, delete `.derivedData/` and rebuild: `rm -rf .derivedData`
 - The `.derivedData/` folder is gitignored
+
+### Reference Resources
+
+The `claude-code-resources/` folder is a gitignored directory for temporary reference code and resources. Engineers can paste example projects, code snippets, or other materials here for Claude Code to reference during implementation.
+
+**Usage:**
+- Paste example Swift files, sample projects, or reference implementations
+- Claude Code will look here when asked to reference examples or follow patterns
+- Contents are not committed to git - purely for local/session use
+- Clean up when no longer needed
+
+**Example workflow:**
+```bash
+# Copy an example project for reference
+cp -r ~/Downloads/SamplePhotoPickerApp claude-code-resources/
+
+# Then ask Claude Code to reference it
+"Look at the photo picker implementation in claude-code-resources/SamplePhotoPickerApp and follow that pattern"
+```
 
 ### Testing
 
@@ -533,27 +612,29 @@ ct console   # Launch the dashboard
 
 The dashboard uses tmux for session persistence - sessions survive console restarts.
 
-### Task Simulator Configuration
+### Simulator Setup (Per-Branch)
 
-When `convos-task new` creates a task, it automatically:
-1. Saves the task config to `.convos-task` file in the worktree root
-2. Starts creating a dedicated simulator `convos-<task-name>` in the background
-3. Launches Claude Code in a new terminal tab
+**Every coding agent session should run `/setup` when starting work on a new branch or feature.** This creates a dedicated iOS Simulator for the branch, installs dependencies, and configures build defaults.
 
-**Session Initialization:** When Claude Code starts in a convos-task worktree:
-1. A SessionStart hook detects `.convos-task` and prompts Claude to run `/setup`
-2. Run `/setup` to:
-   - Create the simulator if it doesn't exist yet
-   - Set XcodeBuildMCP session defaults (simulator, project, scheme)
-   - Save the simulator ID for `/build` to use
+`/setup` works in any context:
+- **convos-task worktrees**: Reads simulator name from `.convos-task` file
+- **Regular branches**: Derives simulator name from the git branch (e.g., `jarod/push-notifications` → `convos-jarod-push-notifications`)
+- **Main branch**: Uses `convos-main`
 
-The `/build` command will automatically use the task's simulator from `.convos-task`:
+**What `/setup` does:**
+1. Runs `Scripts/setup.sh` to install dependencies (SwiftLint, SwiftFormat, etc.)
+2. Creates a dedicated simulator by cloning an available iPhone simulator
+3. Sets XcodeBuildMCP session defaults (simulator, project, scheme)
+4. Saves the simulator ID to `.claude/.simulator_id` for `/build` to use
+
+**convos-task worktrees** additionally have a `.convos-task` file:
 ```bash
-# Read task config
 cat .convos-task
 # Returns: TASK_NAME=my-feature
 #          SIMULATOR_NAME=convos-my-feature
 ```
+
+When Claude Code starts in a convos-task worktree, a SessionStart hook detects `.convos-task` and prompts Claude to run `/setup`.
 
 Set `CONVOS_BASE_SIMULATOR` env var to change the source simulator (auto-detected by default).
 

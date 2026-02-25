@@ -51,6 +51,15 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         return url
     }
 
+    func getPresignedUploadURL(
+        filename: String,
+        contentType: String
+    ) async throws -> (uploadURL: String, assetURL: String) {
+        let uploadURL = "https://mock-s3.example.com/upload/\(filename)?presigned=true"
+        let assetURL = "https://mock-cdn.example.com/assets/\(filename)"
+        return (uploadURL: uploadURL, assetURL: assetURL)
+    }
+
     // MARK: - Notifications mocks
 
     func subscribeToTopics(deviceId: String, clientId: String, topics: [String]) async throws {
@@ -63,5 +72,15 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
 
     func unregisterInstallation(clientId: String) async throws {
         // no-op in mock
+    }
+
+    // MARK: - Asset Renewal
+
+    func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
+        AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
+    }
+
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        .init(success: true, joined: true)
     }
 }

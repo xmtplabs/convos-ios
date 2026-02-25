@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import GRDB
+import UserNotifications
 @preconcurrency import XMTPiOS
 
 /// Extension providing push notification specific functionality for SingleInboxAuthProcessor
@@ -11,7 +12,7 @@ extension MessagingService {
     func processPushNotification(
         payload: PushNotificationPayload
     ) async throws -> DecodedNotificationContent? {
-        Log.info("processPushNotification called")
+        Log.debug("processPushNotification called")
         let inboxReadyResult = try await inboxStateManager.waitForInboxReadyResult()
 
         return try await self.handlePushNotification(
@@ -67,7 +68,7 @@ extension MessagingService {
                 return nil
             }
 
-            Log.info("Handling welcome message notification (no encrypted content)")
+            Log.debug("Handling welcome message notification (no encrypted content)")
             return try await handleWelcomeMessage(
                 contentTopic: contentTopic,
                 client: client,
@@ -106,7 +107,7 @@ extension MessagingService {
         client: any XMTPClientProvider,
         userInfo: [AnyHashable: Any]
     ) async throws -> DecodedNotificationContent? {
-        Log.info("Syncing conversations after receiving welcome message")
+        Log.debug("Syncing conversations after receiving welcome message")
 
         // Capture timestamp first to avoid missing messages
         let processTime = Date()
@@ -114,7 +115,7 @@ extension MessagingService {
         // Get last processed time
         let lastProcessed = getLastWelcomeProcessed(for: client.inboxId)
         if let lastProcessed {
-            Log.info("Last processed welcome message \(lastProcessed.relativeShort()) ago...")
+            Log.debug("Last processed welcome message \(lastProcessed.relativeShort()) ago...")
         }
 
         // Get existing group IDs before sync to detect new groups we've been added to
@@ -254,7 +255,7 @@ extension MessagingService {
         case .dm:
             // Check if message is from self - DMs from self should be dropped
             if decodedMessage.senderInboxId == currentInboxId {
-                Log.info("Dropping DM notification - message from self")
+                Log.debug("Dropping DM notification - message from self")
                 return .droppedMessage
             }
 
@@ -464,6 +465,18 @@ extension MessagingService {
 
         switch result {
         case .applied:
+            let center = UNUserNotificationCenter.current()
+            let delivered = await center.deliveredNotifications()
+            let toRemove = delivered
+                .filter { $0.request.content.threadIdentifier == conversationId }
+                .map { $0.request.identifier }
+            if !toRemove.isEmpty {
+                center.removeDeliveredNotifications(withIdentifiers: toRemove)
+            }
+            center.removePendingNotificationRequests(withIdentifiers: [
+                "explosion-reminder-\(conversationId)",
+                "explosion-\(conversationId)"
+            ])
             let conversationName = (try? group.name()).orUntitled
             var explosionUserInfo = userInfo
             explosionUserInfo["isExplosion"] = true
@@ -474,8 +487,62 @@ extension MessagingService {
                 conversationId: conversationId,
                 userInfo: explosionUserInfo
             )
-        case .fromSelf, .alreadyExpired:
+        case .scheduled(let expiresAt):
+            _ = try await storeConversation(group, inboxId: currentInboxId)
+            let conversationName = (try? group.name()).orUntitled
+            let senderName = try await getSenderDisplayName(
+                senderInboxId: decodedMessage.senderInboxId,
+                conversationId: conversationId
+            )
+            let timeUntilExplosion = formatTimeUntilExplosion(expiresAt)
+
+            await scheduleExplosionLocalNotification(
+                conversationId: conversationId,
+                conversationName: conversationName,
+                expiresAt: expiresAt
+            )
+
+            let body: String
+            if timeUntilExplosion == "soon" {
+                body = "\(senderName) set this convo to explode \(timeUntilExplosion) 💣"
+            } else {
+                body = "\(senderName) set this convo to explode in \(timeUntilExplosion) 💣"
+            }
+
+            return .init(
+                title: conversationName,
+                body: body,
+                conversationId: conversationId,
+                userInfo: userInfo
+            )
+        case .fromSelf, .alreadyExpired, .unauthorized:
             return .droppedMessage
+        }
+    }
+
+    private func formatTimeUntilExplosion(_ expiresAt: Date) -> String {
+        let interval = expiresAt.timeIntervalSinceNow
+        guard interval > 0 else { return "soon" }
+
+        let totalSeconds = Int(interval)
+        let days = totalSeconds / 86400
+        let hours = (totalSeconds % 86400) / 3600
+        let minutes = (totalSeconds % 3600) / 60
+
+        if days > 0 {
+            if hours > 0 {
+                return "\(days)d \(hours)h"
+            }
+            return "\(days) day\(days == 1 ? "" : "s")"
+        } else if hours > 0 {
+            if minutes > 0 {
+                return "\(hours)h \(minutes)m"
+            }
+            return "\(hours) hour\(hours == 1 ? "" : "s")"
+        } else if minutes > 0 {
+            return "\(minutes) minute\(minutes == 1 ? "" : "s")"
+        } else {
+            return "less than a minute"
         }
     }
 
@@ -558,5 +625,49 @@ extension MessagingService {
     private func setLastWelcomeProcessed(_ date: Date?, for inboxId: String) {
         let key = "\(Self.lastWelcomeProcessedKeyPrefix).\(inboxId)"
         UserDefaults.standard.set(date, forKey: key)
+    }
+
+    // MARK: - Scheduled Explosion Notifications
+
+    private enum ExplosionNotificationConstant {
+        static let explosionIdentifierPrefix: String = "explosion-"
+    }
+
+    private func scheduleExplosionLocalNotification(
+        conversationId: String,
+        conversationName: String,
+        expiresAt: Date
+    ) async {
+        let timeInterval = expiresAt.timeIntervalSinceNow
+        guard timeInterval > 0 else {
+            Log.debug("NSE: Skipping explosion notification for \(conversationId), already expired")
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = conversationName
+        content.body = "💥 Boom! This convo exploded. Its messages and members are gone forever"
+        content.sound = .default
+        content.userInfo = ["isExplosion": true, "conversationId": conversationId]
+        content.threadIdentifier = conversationId
+
+        let trigger = UNTimeIntervalNotificationTrigger(
+            timeInterval: timeInterval,
+            repeats: false
+        )
+
+        let identifier = "\(ExplosionNotificationConstant.explosionIdentifierPrefix)\(conversationId)"
+        let request = UNNotificationRequest(
+            identifier: identifier,
+            content: content,
+            trigger: trigger
+        )
+
+        do {
+            try await UNUserNotificationCenter.current().add(request)
+            Log.debug("NSE: Scheduled explosion notification for \(conversationId) at \(expiresAt)")
+        } catch {
+            Log.error("NSE: Failed to schedule explosion notification: \(error.localizedDescription)")
+        }
     }
 }

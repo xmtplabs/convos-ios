@@ -37,6 +37,7 @@ struct MonogramView: View {
             .clipShape(Circle())
         }
         .aspectRatio(1.0, contentMode: .fit)
+        .accessibilityHidden(true)
     }
 
     private static func initials(from fullName: String) -> String {

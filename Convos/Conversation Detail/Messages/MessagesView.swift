@@ -18,6 +18,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var conversationImage: UIImage?
     @Binding var displayName: String
     @Binding var messageText: String
+    @Binding var selectedAttachmentImage: UIImage?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -30,55 +31,108 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReaction: (String, String) -> Void
+    let onToggleReaction: (String, String) -> Void
     let onTapReactions: (AnyMessage) -> Void
-    let onDoubleTap: (AnyMessage) -> Void
+    let onReply: (AnyMessage) -> Void
+    let replyingToMessage: AnyMessage?
+    let onCancelReply: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onLoadPreviousMessages: () -> Void
+    let shouldBlurPhotos: Bool
+    let onPhotoRevealed: (String) -> Void
+    let onPhotoHidden: (String) -> Void
+    let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onBottomOverscrollChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
+    @State private var contextMenuState: MessageContextMenuState = .init()
+    @State private var isPhotoPickerPresented: Bool = false
+    @State private var scrollToBottom: (() -> Void)?
+
     var body: some View {
-        Group {
-            MessagesViewRepresentable(
-                conversation: conversation,
-                messages: messages,
-                invite: invite,
-                onUserInteraction: onUserInteraction,
-                hasLoadedAllMessages: hasLoadedAllMessages,
-                onTapAvatar: onTapAvatar,
-                onLoadPreviousMessages: onLoadPreviousMessages,
-                onTapInvite: onTapInvite,
-                onReaction: onReaction,
-                onTapReactions: onTapReactions,
-                onDoubleTap: onDoubleTap,
-                bottomBarHeight: bottomBarHeight
-            )
-            .ignoresSafeArea()
-        }
+        MessagesViewRepresentable(
+            conversation: conversation,
+            messages: messages,
+            invite: invite,
+            onUserInteraction: onUserInteraction,
+            hasLoadedAllMessages: hasLoadedAllMessages,
+            shouldBlurPhotos: shouldBlurPhotos,
+            focusCoordinator: focusCoordinator,
+            onTapAvatar: onTapAvatar,
+            onLoadPreviousMessages: onLoadPreviousMessages,
+            onTapInvite: onTapInvite,
+            onReaction: onReaction,
+            onTapReactions: onTapReactions,
+            onReply: onReply,
+            contextMenuState: contextMenuState,
+            onPhotoRevealed: onPhotoRevealed,
+            onPhotoHidden: onPhotoHidden,
+            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+            bottomBarHeight: bottomBarHeight,
+            onBottomOverscrollChanged: onBottomOverscrollChanged,
+            scrollToBottomTrigger: { scrollFn in
+                scrollToBottom = scrollFn
+            }
+        )
+        .ignoresSafeArea()
         .safeAreaBar(edge: .bottom) {
-            VStack(spacing: 0.0) {
-                bottomBarContent()
-                MessagesBottomBar(
-                    profile: profile,
-                    displayName: $displayName,
-                    messageText: $messageText,
-                    sendButtonEnabled: sendButtonEnabled,
-                    profileImage: $profileImage,
-                    focusState: $focusState,
-                    focusCoordinator: focusCoordinator,
-                    onboardingCoordinator: onboardingCoordinator,
-                    messagesTextFieldEnabled: messagesTextFieldEnabled,
-                    onProfilePhotoTap: onProfilePhotoTap,
-                    onSendMessage: onSendMessage,
-                    onDisplayNameEndedEditing: onDisplayNameEndedEditing,
-                    onProfileSettings: onProfileSettings
-                )
-            }
-            .background(HeightReader())
-            .onPreferenceChange(HeightPreferenceKey.self) { height in
-                bottomBarHeight = height
-            }
+            MessagesBottomBar(
+                profile: profile,
+                displayName: $displayName,
+                messageText: $messageText,
+                selectedAttachmentImage: $selectedAttachmentImage,
+                sendButtonEnabled: sendButtonEnabled,
+                profileImage: $profileImage,
+                isPhotoPickerPresented: $isPhotoPickerPresented,
+                focusState: $focusState,
+                focusCoordinator: focusCoordinator,
+                onboardingCoordinator: onboardingCoordinator,
+                messagesTextFieldEnabled: messagesTextFieldEnabled,
+                onProfilePhotoTap: onProfilePhotoTap,
+                onSendMessage: {
+                    scrollToBottom?()
+                    onSendMessage()
+                },
+                onDisplayNameEndedEditing: onDisplayNameEndedEditing,
+                onProfileSettings: onProfileSettings,
+                onBaseHeightChanged: { height in
+                    bottomBarHeight = height
+                },
+                bottomBarContent: {
+                    bottomBarContent()
+                    if let replyingToMessage {
+                        ReplyComposerBar(
+                            message: replyingToMessage,
+                            shouldBlurPhotos: shouldBlurPhotos,
+                            onDismiss: onCancelReply
+                        )
+                    }
+                }
+            )
+            .opacity(contextMenuState.isPresented ? 0.0 : 1.0)
+            .allowsHitTesting(!contextMenuState.isPresented)
+            .animation(.spring(response: 0.3, dampingFraction: 0.9), value: contextMenuState.isPresented)
+        }
+        .overlay {
+            MessageContextMenuOverlay(
+                state: contextMenuState,
+                shouldBlurPhotos: shouldBlurPhotos,
+                onReaction: onReaction,
+                onReply: { message in
+                    onReply(message)
+                },
+                onCopy: { text in
+                    UIPasteboard.general.string = text
+                },
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoHidden: onPhotoHidden
+            )
+        }
+        .onAppear {
+            contextMenuState.onReaction = onReaction
+            contextMenuState.onToggleReaction = onToggleReaction
         }
     }
 }

@@ -13,6 +13,7 @@ public extension Conversation {
         isUnread: Bool = false,
         isPinned: Bool = false,
         isMuted: Bool = false,
+        invite: Invite? = nil,
         lastMessageText: String = "This is a preview of the last message"
     ) -> Conversation {
         let mockMembers = members ?? [
@@ -49,10 +50,21 @@ public extension Conversation {
             imageEncryptionKey: nil,
             includeInfoInPublicPreview: false,
             isDraft: id.hasPrefix("draft-"),
-            invite: nil,
+            invite: invite,
             expiresAt: nil,
             debugInfo: ConversationDebugInfo.empty,
             isLocked: false
+        )
+    }
+
+    static func mockPendingInvite(
+        id: String = "draft-pending-invite",
+        name: String? = "Pending Convo"
+    ) -> Conversation {
+        mock(
+            id: id,
+            name: name,
+            members: [.mock(isCurrentUser: false)]
         )
     }
 
@@ -135,6 +147,70 @@ public extension Message {
             reactions: reactions
         )
     }
+
+    static func mock(
+        content: MessageContent,
+        sender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date(),
+        reactions: [MessageReaction] = []
+    ) -> Message {
+        let mockSender = sender ?? .mock(isCurrentUser: false)
+        let id = "mock-message-\(UUID().uuidString)"
+
+        return Message(
+            id: id,
+            conversation: .mock(),
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: content,
+            date: date,
+            reactions: reactions
+        )
+    }
+
+    static func mockWithAttachment(
+        url: URL,
+        sender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date()
+    ) -> Message {
+        let mockSender = sender ?? .mock(isCurrentUser: false)
+        let id = "mock-message-\(UUID().uuidString)"
+
+        return Message(
+            id: id,
+            conversation: .mock(),
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: .attachment(HydratedAttachment(key: url.absoluteString)),
+            date: date,
+            reactions: []
+        )
+    }
+
+    static func mockWithAttachments(
+        urls: [URL],
+        sender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date()
+    ) -> Message {
+        let mockSender = sender ?? .mock(isCurrentUser: false)
+        let id = "mock-message-\(UUID().uuidString)"
+
+        return Message(
+            id: id,
+            conversation: .mock(),
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: .attachments(urls.map { HydratedAttachment(key: $0.absoluteString) }),
+            date: date,
+            reactions: []
+        )
+    }
 }
 
 public extension ConversationUpdate {
@@ -177,6 +253,13 @@ public extension ConversationUpdate {
                   metadataChange.field == .description,
                   let newValue = metadataChange.newValue {
             return "\(creatorDisplayName) changed the convo description to \"\(newValue)\""
+        } else if let metadataChange = metadataChanges.first,
+                  metadataChange.field == .expiresAt,
+                  metadataChange.newValue != nil {
+            if let duration = metadataChange.oldValue {
+                return "\(creatorDisplayName) set this convo to explode in \(duration)"
+            }
+            return "\(creatorDisplayName) set this convo to explode"
         } else if !removedMembers.isEmpty {
             return ""
         } else {
@@ -194,6 +277,47 @@ public extension Invite {
             urlSlug: "mock-invite-slug",
             expiresAt: nil,
             expiresAfterUse: false
+        )
+    }
+}
+
+public extension MessageReply {
+    static func mock(
+        text: String = "This is a reply",
+        sender: ConversationMember? = nil,
+        replyContent: MessageContent? = nil,
+        parentText: String = "Original message that was replied to",
+        parentContent: MessageContent? = nil,
+        parentSender: ConversationMember? = nil,
+        status: MessageStatus = .published,
+        date: Date = Date(),
+        reactions: [MessageReaction] = []
+    ) -> MessageReply {
+        let mockSender = sender ?? .mock(isCurrentUser: true)
+        let mockParentSender = parentSender ?? .mock(isCurrentUser: false, name: "Jane")
+        let conversation = Conversation.mock()
+
+        let parentMessage = Message(
+            id: "parent-\(UUID().uuidString)",
+            conversation: conversation,
+            sender: mockParentSender,
+            source: mockParentSender.isCurrentUser ? .outgoing : .incoming,
+            status: .published,
+            content: parentContent ?? .text(parentText),
+            date: date.addingTimeInterval(-60),
+            reactions: []
+        )
+
+        return MessageReply(
+            id: "reply-\(UUID().uuidString)",
+            conversation: conversation,
+            sender: mockSender,
+            source: mockSender.isCurrentUser ? .outgoing : .incoming,
+            status: status,
+            content: replyContent ?? .text(text),
+            date: date,
+            parentMessage: parentMessage,
+            reactions: reactions
         )
     }
 }

@@ -101,14 +101,15 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                 try Task.checkCancellation()
 
                 // Determine what content to deliver
-                let shouldDropMessage = decodedContent?.isDroppedMessage ?? false
-                if shouldDropMessage {
+                if decodedContent == nil {
+                    Log.info("Suppressing undecryptable notification")
+                    self.deliverNotification(UNMutableNotificationContent())
+                } else if decodedContent?.isDroppedMessage == true {
                     Log.info("Dropping notification as requested")
                     self.deliverNotification(UNMutableNotificationContent())
-                } else {
-                    let notificationContent = decodedContent?.notificationContent ?? payload.undecodedNotificationContent
+                } else if let decodedContent {
                     Log.info("Delivering processed notification")
-                    self.deliverNotification(notificationContent)
+                    self.deliverNotification(decodedContent.notificationContent)
                 }
             } catch is CancellationError {
                 Log.info("Notification processing was cancelled")

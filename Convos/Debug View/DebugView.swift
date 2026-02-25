@@ -18,11 +18,16 @@ extension Client {
 
 struct DebugViewSection: View {
     let environment: AppEnvironment
+    let session: any SessionManagerProtocol
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var notificationAuthGranted: Bool = false
     @State private var lastDeviceToken: String = ""
     @State private var debugFileURLs: [URL]?
     @State private var preparingLogs: Bool = false
+    @State private var isRenewingAssets: Bool = false
+    @State private var renewalAlertMessage: String?
+    @State private var showingRenewalAlert: Bool = false
+    @State private var presentingPhotosInfoSheet: Bool = false
 
     private var bundleIdentifier: String {
         Bundle.main.bundleIdentifier ?? "Unknown"
@@ -61,6 +66,10 @@ struct DebugViewSection: View {
 
     var body: some View {
         Group {
+            Section("Features") {
+                Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
+            }
+
             Section(header: Text("Push Notifications")) {
                 HStack {
                     Text("Auth Status")
@@ -179,6 +188,48 @@ struct DebugViewSection: View {
                 }
             }
 
+            Section("Pending Invites") {
+                NavigationLink {
+                    PendingInviteDebugView(session: session)
+                } label: {
+                    Text("View Pending Invites")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+
+            Section("Asset Renewal") {
+                NavigationLink {
+                    DebugAssetRenewalView(session: session)
+                } label: {
+                    Text("View Renewable Assets")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+
+                Button {
+                    Task { await renewAssetsNow() }
+                } label: {
+                    HStack {
+                        Text("Renew Assets Now")
+                            .foregroundStyle(.colorTextPrimary)
+                        Spacer()
+                        if isRenewingAssets { ProgressView() }
+                    }
+                }
+                .disabled(isRenewingAssets)
+            }
+
+            Section("Sheets") {
+                Button {
+                    presentingPhotosInfoSheet = true
+                } label: {
+                    Text("Show Photos Info Sheet")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+            .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
+                PhotosInfoSheet()
+            }
+
             Section {
                 Button {
                     Task { await registerDeviceAgain() }
@@ -192,18 +243,29 @@ struct DebugViewSection: View {
                     Text("Reset Onboarding")
                         .foregroundStyle(.colorTextPrimary)
                 }
+                Button {
+                    resetAllSettings()
+                } label: {
+                    Text("Reset All Settings")
+                        .foregroundStyle(.colorTextPrimary)
+                }
             }
         }
         .task {
             await refreshNotificationStatus()
             await prepareDebugInfoFile()
         }
+        .alert("Asset Renewal", isPresented: $showingRenewalAlert, presenting: renewalAlertMessage) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
     }
 }
 
 #Preview {
     List {
-        DebugViewSection(environment: .tests)
+        DebugViewSection(environment: .tests, session: MockInboxesService())
     }
 }
 
@@ -260,6 +322,29 @@ extension DebugViewSection {
 
     private func resetOnboarding() {
         ConversationOnboardingCoordinator().reset()
+    }
+
+    private func renewAssetsNow() async {
+        guard !isRenewingAssets else { return }
+        isRenewingAssets = true
+
+        let renewalManager = await session.makeAssetRenewalManager()
+        let result = await renewalManager.forceRenewal()
+
+        isRenewingAssets = false
+
+        if let result {
+            renewalAlertMessage = "Renewed: \(result.renewed)\nFailed: \(result.failed)\nExpired: \(result.expiredKeys.count)"
+        } else {
+            renewalAlertMessage = "Renewal failed. Check logs for details."
+        }
+        showingRenewalAlert = true
+    }
+
+    private func resetAllSettings() {
+        ConversationViewModel.resetUserDefaults()
+        ConversationsViewModel.resetUserDefaults()
+        ConversationOnboardingCoordinator.resetUserDefaults()
     }
 
     func testSentryMessage() {
