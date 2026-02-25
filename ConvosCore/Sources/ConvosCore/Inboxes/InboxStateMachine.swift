@@ -309,6 +309,11 @@ public actor InboxStateMachine {
         await syncingManager.setInviteJoinErrorHandler(handler)
     }
 
+    func requestDiscovery() async {
+        guard let syncingManager else { return }
+        await syncingManager.requestDiscovery()
+    }
+
     // MARK: - Private
 
     private func enqueueAction(_ action: Action) {

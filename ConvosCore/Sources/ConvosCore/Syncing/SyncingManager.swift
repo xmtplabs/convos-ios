@@ -10,6 +10,7 @@ public protocol SyncingManagerProtocol: Actor {
     func stop() async
     func pause() async
     func resume() async
+    func requestDiscovery() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
 }
 
@@ -440,6 +441,12 @@ actor SyncingManager: SyncingManagerProtocol {
             var discoveredCount: Int = 0
             for group in groups where !existingIds.contains(group.id) {
                 do {
+                    let creatorInboxId = try await group.creatorInboxId()
+                    let memberCount = try await group.members.count
+                    if creatorInboxId == params.client.inboxId && memberCount <= 1 {
+                        Log.debug("Skipping self-created single-member group: \(group.id)")
+                        continue
+                    }
                     try await streamProcessor.processConversation(group, params: params)
                     discoveredCount += 1
                 } catch {
@@ -608,6 +615,22 @@ actor SyncingManager: SyncingManagerProtocol {
 
         await discoverNewConversations(params: params)
         await processJoinRequestsAfterSync(params: params)
+    }
+
+    func requestDiscovery() async {
+        guard case .ready(let params) = _state else {
+            Log.debug("requestDiscovery ignored - not in ready state (\(_state))")
+            return
+        }
+        do {
+            let syncStart = CFAbsoluteTimeGetCurrent()
+            _ = try await params.client.conversationsProvider.syncAllConversations(consentStates: params.consentStates)
+            let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
+            Log.info("[PERF] sync.requestDiscovery: \(syncElapsed)ms")
+            await discoverNewConversations(params: params)
+        } catch {
+            Log.error("requestDiscovery failed: \(error)")
+        }
     }
 
     private func handleStop() async throws {

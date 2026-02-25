@@ -95,6 +95,9 @@ public actor ConversationStateMachine {
     // Database observation task for tracking conversation join
     private var observationTask: Task<String, Error>?
 
+    // Discovery loop task for syncing welcomes during join flow
+    private var discoveryTask: Task<Void, Never>?
+
     // MARK: - State Observation
 
     private var stateContinuations: [AsyncStream<State>.Continuation] = []
@@ -169,6 +172,7 @@ public actor ConversationStateMachine {
         messageStreamContinuation?.finish()
         messageProcessingTask?.cancel()
         observationTask?.cancel()
+        discoveryTask?.cancel()
     }
 
     private func setupMessageStream() {
@@ -668,12 +672,35 @@ public actor ConversationStateMachine {
             inviteTag: invite.invitePayload.tag
         )
 
+        // The XMTP conversation stream does not call sync_welcomes() on startup,
+        // so it cannot discover groups the client is added to after subscription.
+        // Run a discovery loop that periodically syncs welcomes and processes any
+        // newly discovered groups. The DB observation above fires as soon as the
+        // group is written to the database by discoverNewConversations.
+        discoveryTask = Task { [weak self] in
+            var interval: Duration = .seconds(3)
+            let maxInterval: Duration = .seconds(15)
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: interval)
+                    try Task.checkCancellation()
+                    Log.info("Join flow: triggering discovery sync...")
+                    await self?.inboxStateManager.requestDiscovery()
+                    interval = min(interval * 2, maxInterval)
+                } catch {
+                    break
+                }
+            }
+        }
+
         do {
             guard let task = observationTask else {
                 throw ConversationStateMachineError.timedOut
             }
             let conversationId = try await task.value
             observationTask = nil
+            discoveryTask?.cancel()
+            discoveryTask = nil
 
             Log.info("Conversation joined successfully: \(conversationId)")
             QAEvent.emit(.conversation, "joined", ["id": conversationId])
@@ -691,6 +718,8 @@ public actor ConversationStateMachine {
             )))
         } catch is CancellationError {
             observationTask = nil
+            discoveryTask?.cancel()
+            discoveryTask = nil
             await clearInviteJoinErrorHandler()
             Log.debug("Conversation join observation cancelled")
             guard case .joinFailed = _state else {
@@ -699,6 +728,8 @@ public actor ConversationStateMachine {
             Log.debug("Already in joinFailed state, not propagating cancellation")
         } catch {
             observationTask = nil
+            discoveryTask?.cancel()
+            discoveryTask = nil
             await clearInviteJoinErrorHandler()
             Log.error("Error waiting for conversation to join: \(error)")
             guard case .joinFailed = _state else {
@@ -757,6 +788,8 @@ extension ConversationStateMachine {
         messageProcessingTask?.cancel()
         observationTask?.cancel()
         observationTask = nil
+        discoveryTask?.cancel()
+        discoveryTask = nil
 
         if let conversationId {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
@@ -863,6 +896,8 @@ extension ConversationStateMachine {
         messageProcessingTask?.cancel()
         observationTask?.cancel()
         observationTask = nil
+        discoveryTask?.cancel()
+        discoveryTask = nil
         await clearInviteJoinErrorHandler()
         emitStateChange(.uninitialized)
     }

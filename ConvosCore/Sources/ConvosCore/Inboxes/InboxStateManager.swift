@@ -15,6 +15,8 @@ public protocol InboxStateManagerProtocol: AnyObject, Sendable {
     func waitForDeletionComplete() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async throws
 
+    func requestDiscovery() async
+
     func addObserver(_ observer: InboxStateObserver)
     func removeObserver(_ observer: InboxStateObserver)
 
@@ -161,6 +163,11 @@ public final class InboxStateManager: InboxStateManagerProtocol, @unchecked Send
             throw InboxStateError.inboxNotReady
         }
         await stateMachine.setInviteJoinErrorHandler(handler)
+    }
+
+    public func requestDiscovery() async {
+        guard let stateMachine else { return }
+        await stateMachine.requestDiscovery()
     }
 
     public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {

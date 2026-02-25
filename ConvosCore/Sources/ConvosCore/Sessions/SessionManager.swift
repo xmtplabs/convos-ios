@@ -284,7 +284,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             apiClient: apiClient
         )
         Task { [lifecycleManager] in
-            await lifecycleManager.registerExternalService(service, clientId: clientId)
+            let registered = await lifecycleManager.registerExternalService(service, clientId: clientId)
+            if !registered {
+                Log.warning("Stopping duplicate MessagingService for \(clientId)")
+                await service.stop()
+            }
         }
         return service
     }

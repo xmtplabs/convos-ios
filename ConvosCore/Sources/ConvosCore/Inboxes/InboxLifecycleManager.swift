@@ -60,7 +60,8 @@ public protocol InboxLifecycleManagerProtocol: Actor {
     func getOrCreateService(clientId: String, inboxId: String) -> any MessagingServiceProtocol
 
     func getOrWake(clientId: String, inboxId: String) async throws -> any MessagingServiceProtocol
-    func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async
+    @discardableResult
+    func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async -> Bool
     func isAwake(clientId: String) -> Bool
     func isSleeping(clientId: String) -> Bool
     func rebalance() async
@@ -352,10 +353,11 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         return try await wake(clientId: clientId, inboxId: inboxId, reason: .userInteraction)
     }
 
-    public func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async {
+    @discardableResult
+    public func registerExternalService(_ service: any MessagingServiceProtocol, clientId: String) async -> Bool {
         guard awakeInboxes[clientId] == nil else {
             Log.debug("Inbox already tracked, skipping external registration: \(clientId)")
-            return
+            return false
         }
         if awakeInboxes.count >= maxAwakeInboxes {
             let freed = await sleepLeastRecentlyUsed(excluding: [clientId])
@@ -365,12 +367,13 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         }
         guard awakeInboxes[clientId] == nil else {
             Log.debug("Inbox registered by another task during eviction, skipping: \(clientId)")
-            return
+            return false
         }
         awakeInboxes[clientId] = service
         _sleepingClientIds.remove(clientId)
         _sleepTimes.removeValue(forKey: clientId)
         Log.debug("Registered external service: \(clientId), total awake: \(awakeInboxes.count)")
+        return true
     }
 
     public func isAwake(clientId: String) -> Bool {
