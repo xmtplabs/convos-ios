@@ -5,7 +5,7 @@
 
 ## Overview
 
-Extract the Convos invite system into a reusable Swift package (`XMTPInvites`) that any XMTP iOS app can adopt.
+Extract the Convos invite system into a reusable Swift package (`ConvosInvites`) that any XMTP iOS app can adopt.
 
 ## Architecture Layers
 
@@ -14,7 +14,7 @@ Extract the Convos invite system into a reusable Swift package (`XMTPInvites`) t
 │                        App Layer                                │
 │  (Convos: UI, DB models, repositories, state machines)          │
 ├─────────────────────────────────────────────────────────────────┤
-│                    XMTPInvites Package                          │
+│                    ConvosInvites Package                          │
 │  ┌─────────────────┐  ┌──────────────────┐  ┌────────────────┐  │
 │  │ Invite Tokens   │  │ Join Coordinator │  │ Custom Codecs  │  │
 │  │ (crypto only)   │  │ (XMTP integration)│  │ (error types)  │  │
@@ -27,10 +27,10 @@ Extract the Convos invite system into a reusable Swift package (`XMTPInvites`) t
 ## Package Structure
 
 ```
-XMTPInvites/
+ConvosInvites/
 ├── Package.swift
 ├── Sources/
-│   └── XMTPInvites/
+│   └── ConvosInvites/
 │       ├── Core/                           # Pure crypto, no XMTP dependency
 │       │   ├── InviteToken.swift           # Token encryption/decryption
 │       │   ├── InviteSigner.swift          # Signing & verification
@@ -51,7 +51,7 @@ XMTPInvites/
 │           └── InviteError.swift           # Error types
 │
 └── Tests/
-    └── XMTPInvitesTests/
+    └── ConvosInvitesTests/
         ├── InviteTokenTests.swift
         ├── InviteSignerTests.swift
         └── InviteCoordinatorTests.swift
@@ -233,7 +233,7 @@ public struct XMTPInviteTagStorage: InviteTagStorage {
 
 ### Phase 1: Extract Core Crypto (1-2 weeks)
 
-1. Create `XMTPInvites` Swift package in a new repo or as a local package
+1. Create `ConvosInvites` Swift package in a new repo or as a local package
 2. Move these files (with minimal changes):
    - `InviteConversationToken.swift` → `Core/InviteToken.swift`
    - `SignedInvite+Signing.swift` → `Core/InviteSigner.swift`
@@ -253,7 +253,7 @@ public struct XMTPInviteTagStorage: InviteTagStorage {
 
 ### Phase 3: Update Convos to Use Package (1-2 weeks)
 
-1. Add `XMTPInvites` package dependency to ConvosCore
+1. Add `ConvosInvites` package dependency to ConvosCore
 2. Replace direct usage with `InviteCoordinator`
 3. Implement `InviteCoordinatorDelegate` for app-specific behavior
 4. Remove extracted code from ConvosCore
