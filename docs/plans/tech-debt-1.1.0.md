@@ -134,10 +134,14 @@ The "flaky test" fixes were about test quality, not coverage gaps:
 ### 6. Review Agent POC architecture
 
 **Effort:** Large  
-**Files:** `AgentServer.swift` (970 lines), agent UI
+**Files:** Agent UI views, `ConversationViewModel.swift` (assistant join logic)
+
+**Status:** 🔲 **Deferred - still behind feature flag**
+
+**Note:** This refers to the "Add assistant to conversation" feature (#476, #503), not the QA automation server (which was confusingly named `AgentServer` and has been renamed to `QAAutomationServer` in PR #527).
 
 **Problem:**  
-The agent feature was added as a POC behind a debug flag. Before removing the flag:
+The assistant/agent feature was added as a POC behind a debug flag. Before removing the flag:
 - Architecture needs review
 - Security implications need assessment
 - Integration with existing systems needs validation
@@ -181,16 +185,18 @@ Clear go/no-go decision with documented rationale
 
 ## Retrospective (2026-02-24)
 
-**Final tally: 2 of 6 items were actually needed**
+**Final tally: 2 of 6 items required work**
 
 | Item | Outcome |
 |------|---------|
-| 1. Document inbox lifecycle | ✅ Done - Added state diagrams to ADR 003 |
-| 2. Extract explosion handling | ✅ Done - Created ExplosionCoordinator |
+| 1. Document inbox lifecycle | ✅ Done - Added state diagrams to ADR 003 (PR #525) |
+| 2. Extract explosion handling | ✅ Done - Created ExplosionCoordinator (PR #526) |
 | 3. Extract photo handling | ❌ Dropped - Risk outweighs benefit |
 | 4. Audit UnusedConversationCache | ✅ Already good - comprehensive test coverage |
 | 5. Inbox state integration tests | ✅ Already good - 4,341 lines of tests exist |
 | 6. Review Agent POC | 🔲 Deferred - still behind feature flag |
+
+**Bonus:** Renamed `AgentServer` → `QAAutomationServer` (PR #527) to fix confusing naming.
 
 **Lessons learned:**
 1. "Churn" in git history doesn't always indicate technical debt - sometimes it's just iteration
