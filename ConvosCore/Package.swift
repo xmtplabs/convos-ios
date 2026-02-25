@@ -32,6 +32,7 @@ let package = Package(
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
         .package(path: "../ConvosAppData"),
+        .package(path: "../ConvosProfiles"),
     ],
     targets: [
         .target(
@@ -47,6 +48,7 @@ let package = Package(
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
                 .product(name: "ConvosAppData", package: "ConvosAppData"),
+                .product(name: "ConvosProfiles", package: "ConvosProfiles"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

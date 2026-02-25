@@ -1,6 +1,6 @@
-@testable import ConvosCore
 import Foundation
 import Testing
+@testable import ConvosProfiles
 
 @Suite("Image Encryption Tests")
 struct ImageEncryptionTests {
@@ -346,13 +346,13 @@ struct ImageEncryptionTests {
             .decryptionFailed,
             .missingEncryptionKey,
             .invalidSaltLength(expected: 32, actual: 16),
-            .invalidNonceLength(expected: 12, actual: 8)
+            .invalidNonceLength(expected: 12, actual: 8),
         ]
 
         for error in errors {
             let description = error.errorDescription
             #expect(description != nil)
-            #expect(!description!.isEmpty)
+            #expect(description?.isEmpty == false)
         }
     }
 }

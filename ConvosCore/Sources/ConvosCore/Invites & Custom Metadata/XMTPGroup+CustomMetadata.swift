@@ -1,4 +1,5 @@
 import ConvosAppData
+import ConvosProfiles
 import Foundation
 import XMTPiOS
 
