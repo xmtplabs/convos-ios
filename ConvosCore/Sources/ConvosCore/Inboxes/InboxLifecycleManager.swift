@@ -647,28 +647,22 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
     /// Attempts to sleep the least recently used inbox to free capacity.
     ///
-    /// Inboxes with `nil` lastActivity are treated as "newly created" and protected from eviction
-    /// for `newInboxProtectionWindow` seconds after creation. This prevents newly created inboxes
-    /// (which haven't received messages yet) from being immediately evicted.
-    ///
-    /// Note: This differs from `SleepingInboxMessageChecker.findOldestAwakeLastActivity()` which
-    /// treats `nil` lastActivity as `.distantPast` for message timestamp comparisons. The semantics
-    /// differ because eviction protection (here) and message recency comparison (there) have
-    /// different goals.
+    /// Inboxes with `nil` lastActivity are treated as "never used" and are preferred eviction
+    /// candidates since they have no message activity to lose. The activity repository returns
+    /// inboxes sorted by lastActivity (oldest first, nil treated as distantPast), so iterating
+    /// from the end finds the most recently used inbox that can be evicted.
     ///
     /// - Returns: `true` if an inbox was successfully slept, `false` otherwise.
     @discardableResult
     private func sleepLeastRecentlyUsed(excluding excludedClientIds: Set<String>) async -> Bool {
         do {
             let activities = try activityRepository.allInboxActivities()
-            let newInboxThreshold = Date().addingTimeInterval(-SleepingInboxMessageChecker.newInboxProtectionWindow)
 
             let sleepCandidate = activities.last { activity in
                 awakeInboxes[activity.clientId] != nil &&
                 !excludedClientIds.contains(activity.clientId) &&
                 !pendingInviteClientIds.contains(activity.clientId) &&
-                activity.clientId != _activeClientId &&
-                (activity.lastActivity != nil || activity.createdAt < newInboxThreshold)
+                activity.clientId != _activeClientId
             }
 
             if let candidate = sleepCandidate {
@@ -676,7 +670,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                 await sleep(clientId: candidate.clientId)
                 return true
             } else {
-                Log.warning("No suitable inbox found for LRU sleep - all inboxes are protected, active, have pending invites, or are newly created")
+                Log.warning("No suitable inbox found for LRU sleep - all inboxes are active or have pending invites")
                 return false
             }
         } catch {

@@ -174,8 +174,8 @@ struct InboxLifecycleManagerTests {
         #expect(await manager.isAwake(clientId: "client-3"))
     }
 
-    @Test("Inbox with NULL lastActivity is not evicted by LRU")
-    func testNullActivityInboxNotEvicted() async throws {
+    @Test("Inbox with NULL lastActivity IS evicted by LRU (preferred candidate)")
+    func testNullActivityInboxIsEvicted() async throws {
         let fixtures = makeTestFixtures(maxAwake: 2)
         let manager = fixtures.manager
 
@@ -194,34 +194,8 @@ struct InboxLifecycleManagerTests {
 
         try await manager.wakeAndDiscard(clientId: "client-3", inboxId: "inbox-3", reason: .userInteraction)
 
-        #expect(await manager.isAwake(clientId: "client-2"), "NULL activity inbox should NOT be evicted")
-        #expect(await manager.isSleeping(clientId: "client-1"), "Inbox with activity should be evicted instead")
-        #expect(await manager.isAwake(clientId: "client-3"))
-    }
-
-    @Test("Old inbox with NULL lastActivity CAN be evicted after protection window")
-    func testOldNullActivityInboxCanBeEvicted() async throws {
-        let fixtures = makeTestFixtures(maxAwake: 2)
-        let manager = fixtures.manager
-
-        let recentDate = Date()
-        let oldCreatedAt = Date().addingTimeInterval(-(SleepingInboxMessageChecker.newInboxProtectionWindow + 60))
-
-        fixtures.activityRepo.activities = [
-            InboxActivity(clientId: "client-1", inboxId: "inbox-1", lastActivity: recentDate, conversationCount: 1),
-            InboxActivity(clientId: "client-2", inboxId: "inbox-2", lastActivity: nil, conversationCount: 0, createdAt: oldCreatedAt),
-            InboxActivity(clientId: "client-3", inboxId: "inbox-3", lastActivity: Date(), conversationCount: 1),
-        ]
-
-        try await manager.wakeAndDiscard(clientId: "client-1", inboxId: "inbox-1", reason: .appLaunch)
-        try await manager.wakeAndDiscard(clientId: "client-2", inboxId: "inbox-2", reason: .userInteraction)
-
-        #expect(await manager.awakeClientIds.count == 2)
-
-        try await manager.wakeAndDiscard(clientId: "client-3", inboxId: "inbox-3", reason: .userInteraction)
-
-        #expect(await manager.isSleeping(clientId: "client-2"), "Old NULL activity inbox SHOULD be evicted after protection window")
-        #expect(await manager.isAwake(clientId: "client-1"))
+        #expect(await manager.isSleeping(clientId: "client-2"), "NULL activity inbox SHOULD be evicted (no activity to lose)")
+        #expect(await manager.isAwake(clientId: "client-1"), "Inbox with activity should be preserved")
         #expect(await manager.isAwake(clientId: "client-3"))
     }
 
