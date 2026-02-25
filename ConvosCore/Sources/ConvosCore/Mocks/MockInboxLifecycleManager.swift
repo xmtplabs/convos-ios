@@ -108,8 +108,4 @@ public actor MockInboxLifecycleManager: InboxLifecycleManagerProtocol {
     public nonisolated func getAwakeService(clientId: String) -> (any MessagingServiceProtocol)? {
         nil
     }
-
-    public nonisolated func getOrSetAwakeService(clientId: String, service: any MessagingServiceProtocol) -> (any MessagingServiceProtocol)? {
-        nil
-    }
 }

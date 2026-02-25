@@ -70,7 +70,6 @@ public protocol InboxLifecycleManagerProtocol: Actor {
     func clearUnusedConversation() async
 
     nonisolated func getAwakeService(clientId: String) -> (any MessagingServiceProtocol)?
-    nonisolated func getOrSetAwakeService(clientId: String, service: any MessagingServiceProtocol) -> (any MessagingServiceProtocol)?
 }
 
 public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
@@ -94,19 +93,6 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
     public nonisolated func getAwakeService(clientId: String) -> (any MessagingServiceProtocol)? {
         _awakeServiceCache.withLock { $0[clientId] }
-    }
-
-    /// Atomically check the cache and store the service if no service exists for this clientId.
-    /// Returns the existing service if one was already cached (caller should discard theirs),
-    /// or nil if the provided service was successfully stored.
-    public nonisolated func getOrSetAwakeService(clientId: String, service: any MessagingServiceProtocol) -> (any MessagingServiceProtocol)? {
-        _awakeServiceCache.withLock { cache in
-            if let existing = cache[clientId] {
-                return existing
-            }
-            cache[clientId] = service
-            return nil
-        }
     }
 
     private let databaseReader: any DatabaseReader

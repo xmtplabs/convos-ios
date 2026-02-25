@@ -283,11 +283,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             deviceRegistrationManager: deviceRegistrationManager,
             apiClient: apiClient
         )
-        if let existing = lifecycleManager.getOrSetAwakeService(clientId: clientId, service: service) {
-            Log.info("Discarding duplicate MessagingService for \(clientId), using existing")
-            service.stop()
-            return existing
-        }
         Task { [lifecycleManager] in
             await lifecycleManager.registerExternalService(service, clientId: clientId)
         }
