@@ -1,6 +1,6 @@
+@testable import ConvosInvitesCore
 import Foundation
 import Testing
-@testable import XMTPInvites
 
 @Suite("InviteToken Tests")
 struct InviteTokenTests {

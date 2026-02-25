@@ -1,10 +1,10 @@
-// XMTPInvites - Reusable invite system for XMTP apps
+// ConvosInvitesCore - Core cryptographic primitives for XMTP invite tokens
 //
-// This package provides cryptographic invite tokens for XMTP group conversations.
-// It enables apps to create shareable invite links that:
-// - Encrypt conversation IDs (only creator can derive the key)
-// - Sign with creator's identity (prevents forgery)
-// - Support optional expiration and single-use flags
+// This module provides the cryptographic foundation for XMTP invite tokens,
+// with no dependency on the XMTP SDK. Use this if you need:
+// - Custom XMTP integration
+// - Testing without XMTP
+// - Cross-platform compatibility (the crypto is standard)
 //
 // ## Core Components
 //
@@ -16,6 +16,8 @@
 // ## Usage
 //
 // ```swift
+// import ConvosInvitesCore
+//
 // // Create an invite token
 // let tokenBytes = try InviteToken.encrypt(
 //     conversationId: groupId,
@@ -37,7 +39,6 @@
 //
 // // Encode to shareable URL
 // let slug = try signedInvite.toURLSafeSlug()
-// let inviteURL = URL(string: "https://convos.org/i/\(slug)")!
 // ```
 
 // Types are defined in Core/Proto/invite.pb.swift:
