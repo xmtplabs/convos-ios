@@ -1,3 +1,4 @@
+import ConvosAppData
 import Foundation
 
 public struct EncryptedImageParams: Sendable {

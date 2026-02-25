@@ -31,6 +31,7 @@ let package = Package(
         .package(url: "https://github.com/getsentry/sentry-cocoa.git", from: "8.57.1"),
         .package(path: "../ConvosLogging"),
         .package(path: "../ConvosInvites"),
+        .package(path: "../ConvosAppData"),
     ],
     targets: [
         .target(
@@ -45,6 +46,7 @@ let package = Package(
                 .product(name: "Sentry", package: "sentry-cocoa"),
                 .product(name: "ConvosLogging", package: "ConvosLogging"),
                 .product(name: "ConvosInvites", package: "ConvosInvites"),
+                .product(name: "ConvosAppData", package: "ConvosAppData"),
             ],
             swiftSettings: [
                 .swiftLanguageMode(.v6),

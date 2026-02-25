@@ -1,3 +1,4 @@
+import ConvosAppData
 import Foundation
 import GRDB
 import XMTPiOS
