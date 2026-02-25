@@ -261,11 +261,152 @@ public enum WakeReason: String {
 | Wake sleeping inbox | 500 ms - 1 s | N/A | Reconnect gRPC streams |
 | Rebalance | <50 ms | N/A | Query + state updates |
 
+## Internal State Machines
+
+Beyond the awake/sleeping states managed by `InboxLifecycleManager`, each inbox and conversation has its own internal state machine.
+
+### Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     InboxLifecycleManager                        │
+│  - Manages awake/sleeping inbox pools                           │
+│  - Enforces capacity limits (maxAwakeInboxes, maxPendingInvites)│
+│  - LRU eviction when at capacity                                │
+│  - Pending invite special handling                              │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+          ┌───────────────────┼───────────────────┐
+          ▼                   ▼                   ▼
+┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────┐
+│ MessagingService │  │ MessagingService │  │ UnusedConversation  │
+│   (Inbox A)      │  │   (Inbox B)      │  │      Cache          │
+│                  │  │                  │  │ - Pre-creates inboxes│
+│ ┌──────────────┐ │  │ ┌──────────────┐ │  │ - Fast first convo  │
+│ │InboxState    │ │  │ │InboxState    │ │  └─────────────────────┘
+│ │Machine       │ │  │ │Machine       │ │
+│ └──────────────┘ │  │ └──────────────┘ │
+│ ┌──────────────┐ │  │ ┌──────────────┐ │
+│ │Conversation  │ │  │ │Conversation  │ │
+│ │StateMachine  │ │  │ │StateMachine  │ │
+│ └──────────────┘ │  │ └──────────────┘ │
+└─────────────────┘  └─────────────────┘
+```
+
+### InboxStateMachine
+
+Each awake inbox has an `InboxStateMachine` managing its internal lifecycle from creation through ready state:
+
+```
+┌─────────┐
+│  idle   │ ◄─── Initial state with clientId
+└────┬────┘
+     │ authorize() or register()
+     ▼
+┌─────────────┐      ┌─────────────┐
+│ authorizing │ ──── │ registering │  Building XMTP client
+└──────┬──────┘      └──────┬──────┘
+       │                    │
+       └────────┬───────────┘
+                ▼
+     ┌─────────────────────┐
+     │ authenticatingBackend│  Getting JWT from Convos API
+     └──────────┬──────────┘
+                ▼
+         ┌───────────┐
+         │   ready   │ ◄─── Fully operational
+         └─────┬─────┘
+               │ enterBackground
+               ▼
+        ┌──────────────┐
+        │ backgrounded │ ──► enterForeground ──► ready
+        └──────────────┘
+               │ delete
+               ▼
+         ┌──────────┐
+         │ deleting │ ──► stopping ──► (removed)
+         └──────────┘
+```
+
+**Location:** `ConvosCore/Sources/ConvosCore/Inboxes/InboxStateMachine.swift`
+
+### ConversationStateMachine
+
+Each conversation has a state machine for creation and join flows:
+
+```
+┌───────────────┐
+│ uninitialized │
+└───────┬───────┘
+        │ create() or validate(inviteCode)
+        ▼
+┌─────────────┐      ┌─────────────┐
+│  creating   │      │ validating  │ Parsing invite code
+└──────┬──────┘      └──────┬──────┘
+       │                    │
+       │                    ▼
+       │             ┌───────────┐
+       │             │ validated │ Invite verified, placeholder created
+       │             └─────┬─────┘
+       │                   │ join()
+       │                   ▼
+       │             ┌───────────┐
+       │             │  joining  │ Waiting for XMTP group discovery
+       │             └─────┬─────┘
+       │                   │
+       └─────────┬─────────┘
+                 ▼
+          ┌───────────┐
+          │   ready   │ Conversation operational
+          └───────────┘
+```
+
+**Location:** `ConvosCore/Sources/ConvosCore/Inboxes/ConversationStateMachine.swift`
+
+## Edge Cases and Race Conditions
+
+### Re-wake During Sleep
+
+If an inbox is woken while `service.stop()` is running, we detect this and don't mark it as sleeping:
+
+```swift
+await service.stop()
+
+guard awakeInboxes[clientId] == nil else {
+    Log.debug("Inbox was re-woken during stop, not marking as sleeping: \(clientId)")
+    return
+}
+```
+
+### Duplicate Registration
+
+`registerExternalService` checks if already tracked before adding to prevent duplicate entries:
+
+```swift
+guard awakeInboxes[clientId] == nil else {
+    Log.debug("Inbox already tracked, skipping external registration: \(clientId)")
+    return false
+}
+```
+
+### Concurrent Eviction
+
+After eviction completes, we double-check state before proceeding since another task may have modified the awake set.
+
+### Stale Data Cleanup
+
+- **Orphaned identities**: Cleaned up on app launch if no matching inbox in DB
+- **Stale pending invites**: Auto-deleted after 24 hours on app launch
+
 ## Related Files
 
 **Lifecycle Management:**
 - `ConvosCore/Sources/ConvosCore/Inboxes/InboxLifecycleManager.swift` - Core lifecycle manager with LRU eviction
 - `ConvosCore/Sources/ConvosCore/Messaging/UnusedInboxCache.swift` - Pre-creation cache
+
+**Internal State Machines:**
+- `ConvosCore/Sources/ConvosCore/Inboxes/InboxStateMachine.swift` - Individual inbox lifecycle
+- `ConvosCore/Sources/ConvosCore/Inboxes/ConversationStateMachine.swift` - Conversation creation/join flows
 
 **Activity Tracking:**
 - `ConvosCore/Sources/ConvosCore/Storage/Repositories/InboxActivityRepository.swift` - Activity queries
