@@ -307,8 +307,17 @@ public actor InviteCoordinator {
                 await blockSpammer(request)
                 return nil
             }
+        } catch let error as InviteSignatureError {
+            switch error {
+            case .invalidSignature, .verificationFailure:
+                await blockSpammer(request)
+            case .invalidContext, .invalidPublicKey, .invalidPrivateKey,
+                 .invalidFormat, .signatureFailure, .encodingFailure:
+                delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidSignature)
+            }
+            return nil
         } catch {
-            await blockSpammer(request)
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidSignature)
             return nil
         }
 
@@ -320,7 +329,7 @@ public actor InviteCoordinator {
                 privateKey: privateKey
             )
         } catch {
-            await blockSpammer(request)
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidFormat)
             return nil
         }
 

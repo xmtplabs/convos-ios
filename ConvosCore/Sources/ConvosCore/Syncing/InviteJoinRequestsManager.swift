@@ -180,17 +180,29 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
             }
         } catch let error as JoinRequestError {
             throw error
+        } catch let error as InviteSignatureError {
+            switch error {
+            case .invalidSignature, .verificationFailure:
+                await blockDM(conversationId: dmConversationId, client: client)
+            default:
+                break
+            }
+            throw JoinRequestError.invalidSignature
         } catch {
-            await blockDM(conversationId: dmConversationId, client: client)
             throw JoinRequestError.invalidSignature
         }
 
         let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
-        let conversationId = try InviteToken.decrypt(
-            tokenBytes: signedInvite.invitePayload.conversationToken,
-            creatorInboxId: client.inboxId,
-            privateKey: privateKey
-        )
+        let conversationId: String
+        do {
+            conversationId = try InviteToken.decrypt(
+                tokenBytes: signedInvite.invitePayload.conversationToken,
+                creatorInboxId: client.inboxId,
+                privateKey: privateKey
+            )
+        } catch {
+            throw JoinRequestError.invalidFormat
+        }
 
         guard let conversation = try await client.conversationsProvider.findConversation(
             conversationId: conversationId
