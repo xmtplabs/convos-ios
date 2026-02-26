@@ -46,21 +46,17 @@ public struct InviteOptions: Sendable {
     }
 }
 
-// MARK: - Invite URL
+// MARK: - Invite Creation Result
 
-/// A shareable invite URL
-public struct InviteURL: Sendable {
-    /// The full URL to share
-    public let url: URL
-
-    /// The URL-safe encoded invite slug
+/// The result of creating an invite
+public struct InviteCreationResult: Sendable {
+    /// The URL-safe encoded invite slug (apps build the full URL from this)
     public let slug: String
 
     /// The underlying signed invite
     public let signedInvite: SignedInvite
 
-    public init(url: URL, slug: String, signedInvite: SignedInvite) {
-        self.url = url
+    public init(slug: String, signedInvite: SignedInvite) {
         self.slug = slug
         self.signedInvite = signedInvite
     }

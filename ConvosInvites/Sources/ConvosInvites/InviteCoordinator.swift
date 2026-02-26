@@ -46,7 +46,6 @@ public extension InviteCoordinatorDelegate {
 public final class InviteCoordinator: @unchecked Sendable {
     private let privateKeyProvider: PrivateKeyProvider
     private let tagStorage: any InviteTagStorageProtocol
-    private let baseURL: URL
 
     public weak var delegate: (any InviteCoordinatorDelegate)? {
         get { lock.withLock { _delegate } }
@@ -58,12 +57,10 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     public init(
         privateKeyProvider: @escaping PrivateKeyProvider,
-        tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage(),
-        baseURL: URL = InviteConstant.defaultBaseURL
+        tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()
     ) {
         self.privateKeyProvider = privateKeyProvider
         self.tagStorage = tagStorage
-        self.baseURL = baseURL
     }
 
     // MARK: - Invite Creation
@@ -72,7 +69,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         for group: XMTPiOS.Group,
         client: any InviteClientProvider,
         options: InviteOptions = InviteOptions()
-    ) async throws -> InviteURL {
+    ) async throws -> InviteCreationResult {
         let inboxId = client.inviteInboxId
         let privateKey = try await privateKeyProvider(inboxId)
         let tag = try tagStorage.getInviteTag(for: group)
@@ -93,9 +90,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         )
 
         let signedInvite = try SignedInvite.fromURLSafeSlug(slug)
-        let url = baseURL.appendingPathComponent(slug)
-
-        return InviteURL(url: url, slug: slug, signedInvite: signedInvite)
+        return InviteCreationResult(slug: slug, signedInvite: signedInvite)
     }
 
     @discardableResult
@@ -389,13 +384,6 @@ public enum InviteCreationError: Error, LocalizedError {
         case .encodingFailed: return "Failed to encode invite"
         }
     }
-}
-
-// MARK: - Constant
-
-public enum InviteConstant {
-    // swiftlint:disable:next force_unwrapping
-    public static let defaultBaseURL: URL = URL(string: "https://convos.org/i/")!
 }
 
 // MARK: - Date Extension

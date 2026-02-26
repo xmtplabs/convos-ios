@@ -107,12 +107,13 @@ let coordinator = InviteCoordinator(
 )
 
 // Create invite (uses SignedInvite.createSlug() internally)
-let invite = try await coordinator.createInvite(
+let result = try await coordinator.createInvite(
     for: group,
     client: xmtpClient,
     options: .expiring(after: 86400)  // 24 hours
 )
-print("Share this: \(invite.url)")
+// Build the full URL in your app (format depends on your environment)
+let url = "https://yourapp.com/invite?code=\(result.slug)"
 
 // Process incoming DM messages
 coordinator.delegate = self
@@ -288,16 +289,16 @@ High-level API for invite management with XMTP integration. Takes a client per c
 // Initialize (no client needed at init)
 init(
     privateKeyProvider: @escaping PrivateKeyProvider,
-    tagStorage: InviteTagStorageProtocol = ProtobufInviteTagStorage(),
-    baseURL: URL = InviteConstant.defaultBaseURL
+    tagStorage: InviteTagStorageProtocol = ProtobufInviteTagStorage()
 )
 
-// Create an invite URL (uses SignedInvite.createSlug() internally)
+// Create an invite (uses SignedInvite.createSlug() internally)
+// Returns the slug — apps build the full URL from this
 func createInvite(
     for group: XMTPiOS.Group,
     client: any InviteClientProvider,
     options: InviteOptions = InviteOptions()
-) async throws -> InviteURL
+) async throws -> InviteCreationResult
 
 // Revoke all invites for a group
 func revokeInvites(for group: XMTPiOS.Group) async throws -> String
