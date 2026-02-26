@@ -444,7 +444,6 @@ struct ConversationInfoView: View {
                             isEnabled: true,
                             onNewAssistant: {
                                 viewModel.requestAssistantJoin()
-                                viewModel.onboardingCoordinator.assistantWasRequested()
                             },
                             onConvoCode: {
                                 if viewModel.isFull {

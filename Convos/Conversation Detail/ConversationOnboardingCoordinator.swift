@@ -78,16 +78,9 @@ enum ConversationOnboardingState: Equatable {
     /// Notifications denied, prompt to change in settings
     case notificationsDenied
 
-    /// Show the assistant hint (pull up to add assistant)
-    case assistantHint
-
-    /// Assistant was requested, showing brief confirmation
-    case assistantRequested
-
     static let addQuicknameViewDuration: CGFloat = 8.0
     static let savedAsQuicknameSuccessDuration: CGFloat = 3.0
     static let notificationsEnabledSuccessDuration: CGFloat = 3.0
-    static let assistantRequestedDuration: CGFloat = 2.0
     // how long we wait before showing the description string
     static let waitingForInviteAcceptanceDelay: CGFloat = 3.0
 
@@ -100,8 +93,6 @@ enum ConversationOnboardingState: Equatable {
             return Self.savedAsQuicknameSuccessDuration
         case .notificationsEnabled:
             return Self.notificationsEnabledSuccessDuration
-        case .assistantRequested:
-            return Self.assistantRequestedDuration
         default:
             return nil
         }
@@ -155,15 +146,13 @@ final class ConversationOnboardingCoordinator {
     private static let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
     private static let hasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsQuicknameKey: String = "hasSeenAddAsQuickname"
-    private static let hasDismissedAssistantHintPrefix: String = "hasDismissedAssistantHint_"
-
     static func resetUserDefaults() {
         UserDefaults.standard.removeObject(forKey: hasShownQuicknameEditorKey)
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
         UserDefaults.standard.removeObject(forKey: hasSeenAddAsQuicknameKey)
 
         let allKeys = UserDefaults.standard.dictionaryRepresentation().keys
-        for key in allKeys where key.hasPrefix(hasSetQuicknamePrefix) || key.hasPrefix(hasDismissedAssistantHintPrefix) {
+        for key in allKeys where key.hasPrefix(hasSetQuicknamePrefix) {
             UserDefaults.standard.removeObject(forKey: key)
         }
     }
@@ -191,14 +180,6 @@ final class ConversationOnboardingCoordinator {
     private var hasSeenAddAsQuickname: Bool {
         get { UserDefaults.standard.bool(forKey: Self.hasSeenAddAsQuicknameKey) }
         set { UserDefaults.standard.set(newValue, forKey: Self.hasSeenAddAsQuicknameKey) }
-    }
-
-    private func hasDismissedAssistantHint(for clientId: String) -> Bool {
-        UserDefaults.standard.bool(forKey: Self.hasDismissedAssistantHintPrefix + clientId)
-    }
-
-    private func setHasDismissedAssistantHint(_ value: Bool, for clientId: String) {
-        UserDefaults.standard.set(value, forKey: Self.hasDismissedAssistantHintPrefix + clientId)
     }
 
     func reset() {
@@ -288,8 +269,6 @@ final class ConversationOnboardingCoordinator {
                 } else {
                     await complete()
                 }
-            case .assistantRequested:
-                await transitionToNotificationState()
             default:
                 break
             }
@@ -526,36 +505,8 @@ final class ConversationOnboardingCoordinator {
         await complete()
     }
 
-    func assistantWasRequested() {
-        if let clientId = currentClientId {
-            setHasDismissedAssistantHint(true, for: clientId)
-        }
-        state = .assistantRequested
-        handleStateChange()
-    }
-
-    func dismissAssistantHint() {
-        if let clientId = currentClientId {
-            setHasDismissedAssistantHint(true, for: clientId)
-        }
-        Task {
-            await transitionToNotificationState()
-        }
-    }
-
-    private func shouldShowAssistantHint() -> Bool {
-        guard FeatureFlags.shared.isAssistantEnabled else { return false }
-        guard isConversationCreator, let clientId = currentClientId else { return false }
-        return !hasDismissedAssistantHint(for: clientId)
-    }
-
     private func transitionAfterQuickname() async {
-        if shouldShowAssistantHint() {
-            state = .assistantHint
-            handleStateChange()
-        } else {
-            await transitionToNotificationState()
-        }
+        await transitionToNotificationState()
     }
 
     /// Reset onboarding state (useful for testing)

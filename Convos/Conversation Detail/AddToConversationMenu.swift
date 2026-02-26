@@ -5,7 +5,6 @@ struct AddToConversationMenu: View {
     let isEnabled: Bool
     let onNewAssistant: () -> Void
     let onConvoCode: () -> Void
-    var onMenuOpen: (() -> Void)?
 
     private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled }
 
@@ -32,11 +31,6 @@ struct AddToConversationMenu: View {
 
     private var menuView: some View {
         Menu {
-            Section {
-                EmptyView()
-                    .onAppear { onMenuOpen?() }
-            }
-
             Section("Invite an AI member") {
                 Button(action: onNewAssistant) {
                     Text("New Assistant")
