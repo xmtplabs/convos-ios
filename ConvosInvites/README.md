@@ -56,29 +56,17 @@ dependencies: [
 ```swift
 import ConvosInvitesCore
 
-// 1. Encrypt the conversation ID
-let tokenBytes = try InviteToken.encrypt(
+// Single call to create a signed, encoded invite slug
+let inviteCode = try SignedInvite.createSlug(
     conversationId: "group-abc-123",
     creatorInboxId: myInboxId,
-    privateKey: myPrivateKey
+    privateKey: myPrivateKey,
+    tag: "unique-invite-tag",
+    options: InviteSlugOptions(
+        name: "My Group",                    // Optional: public preview
+        expiresAt: Date().addingTimeInterval(86400)  // Optional: 24h expiration
+    )
 )
-
-// 2. Build the payload
-var payload = InvitePayload()
-payload.tag = "unique-invite-tag"
-payload.conversationToken = tokenBytes
-payload.creatorInboxID = Data(hexString: myInboxId)!
-payload.name = "My Group"  // Optional: public preview
-payload.expiresAtUnix = Int64(Date().addingTimeInterval(86400).timeIntervalSince1970)
-
-// 3. Sign and encode
-let signature = try payload.sign(with: myPrivateKey)
-
-var signedInvite = SignedInvite()
-try signedInvite.setPayload(payload)
-signedInvite.signature = signature
-
-let inviteCode = try signedInvite.toURLSafeSlug()
 // Share: https://convos.org/i/{inviteCode}
 ```
 
@@ -111,17 +99,17 @@ let conversationId = try InviteToken.decrypt(
 ```swift
 import ConvosInvites
 
-// Initialize
+// Initialize (no client needed — pass client per call)
 let coordinator = InviteCoordinator(
-    client: xmtpClient,
     privateKeyProvider: { inboxId in
         try await keychain.getPrivateKey(for: inboxId)
     }
 )
 
-// Create invite
+// Create invite (uses SignedInvite.createSlug() internally)
 let invite = try await coordinator.createInvite(
     for: group,
+    client: xmtpClient,
     options: .expiring(after: 86400)  // 24 hours
 )
 print("Share this: \(invite.url)")
@@ -129,7 +117,7 @@ print("Share this: \(invite.url)")
 // Process incoming DM messages
 coordinator.delegate = self
 for await message in dmStream {
-    if let result = try await coordinator.processMessage(message) {
+    if let result = await coordinator.processMessage(message, client: xmtpClient) {
         print("Added \(result.joinerInboxId) to \(result.conversationId)")
     }
 }
@@ -261,30 +249,53 @@ var conversationExpiresAt: Date?   // Conversation expiration
 var hasExpired: Bool               // Check if expired
 var conversationHasExpired: Bool   // Check if conversation expired
 
+// Creation (single call — encrypts, signs, encodes)
+static func createSlug(
+    conversationId: String,
+    creatorInboxId: String,
+    privateKey: Data,
+    tag: String,
+    options: InviteSlugOptions = InviteSlugOptions()
+) throws -> String
+
 // Encoding
 func toURLSafeSlug() throws -> String
 static func fromURLSafeSlug(_ slug: String) throws -> SignedInvite
 static func fromInviteCode(_ code: String) throws -> SignedInvite
 ```
 
+#### InviteSlugOptions
+
+```swift
+struct InviteSlugOptions {
+    var name: String?                  // Public preview name
+    var description: String?           // Public preview description
+    var imageURL: String?              // Public preview image URL
+    var expiresAt: Date?               // Invite expiration
+    var expiresAfterUse: Bool          // Single-use invite
+    var conversationExpiresAt: Date?   // Conversation expiration
+    var includePublicPreview: Bool     // Include name/description/image (default: true)
+}
+```
+
 ### ConvosInvites
 
 #### InviteCoordinator
 
-High-level API for invite management with XMTP integration.
+High-level API for invite management with XMTP integration. Takes a client per call rather than at init, so the same coordinator can be reused across client changes.
 
 ```swift
-// Initialize
+// Initialize (no client needed at init)
 init(
-    client: XMTPiOS.Client,
     privateKeyProvider: @escaping PrivateKeyProvider,
-    tagStorage: InviteTagStorageProtocol = XMTPInviteTagStorage(),
-    baseURL: URL = URL(string: "https://convos.org/i/")!
+    tagStorage: InviteTagStorageProtocol = ProtobufInviteTagStorage(),
+    baseURL: URL = InviteConstant.defaultBaseURL
 )
 
-// Create an invite URL
+// Create an invite URL (uses SignedInvite.createSlug() internally)
 func createInvite(
     for group: XMTPiOS.Group,
+    client: any InviteClientProvider,
     options: InviteOptions = InviteOptions()
 ) async throws -> InviteURL
 
@@ -292,10 +303,16 @@ func createInvite(
 func revokeInvites(for group: XMTPiOS.Group) async throws -> String
 
 // Send a join request (joiner side)
-func sendJoinRequest(for signedInvite: SignedInvite) async throws -> XMTPiOS.Dm
+func sendJoinRequest(
+    for signedInvite: SignedInvite,
+    client: any InviteClientProvider
+) async throws -> XMTPiOS.Dm
 
 // Process a message as potential join request (creator side)
-func processMessage(_ message: XMTPiOS.DecodedMessage) async throws -> JoinResult?
+func processMessage(
+    _ message: XMTPiOS.DecodedMessage,
+    client: any InviteClientProvider
+) async -> JoinResult?
 ```
 
 #### InviteOptions
@@ -346,7 +363,6 @@ The package does not store private keys. Apps must provide a `PrivateKeyProvider
 
 ```swift
 let coordinator = InviteCoordinator(
-    client: xmtpClient,
     privateKeyProvider: { inboxId in
         // Your secure key storage
         return try await keychain.getPrivateKey(for: inboxId)
