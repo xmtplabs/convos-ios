@@ -44,8 +44,9 @@ struct ExpiredAssetRecoveryHandlerTests {
             lastRenewed: nil
         )
 
-        await handler.handleExpiredAsset(asset)
+        let result = await handler.handleExpiredAsset(asset)
 
+        #expect(result == .deferred)
         #expect(await deferredFlag.wasDeferred == true)
 
         let profile = try await dbManager.dbWriter.read { db in
