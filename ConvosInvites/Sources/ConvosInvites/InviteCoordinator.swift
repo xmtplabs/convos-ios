@@ -294,6 +294,7 @@ public final class InviteCoordinator: @unchecked Sendable {
         }
 
         guard case .group(let group) = conversation else {
+            await sendJoinError(.genericFailure, for: request, client: client)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .invalidFormat)
             return nil
         }
