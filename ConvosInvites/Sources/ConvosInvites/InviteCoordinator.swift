@@ -77,39 +77,22 @@ public final class InviteCoordinator: @unchecked Sendable {
         let privateKey = try await privateKeyProvider(inboxId)
         let tag = try tagStorage.getInviteTag(for: group)
 
-        let tokenBytes = try InviteToken.encrypt(
+        let slug = try SignedInvite.createSlug(
             conversationId: group.id,
             creatorInboxId: inboxId,
-            privateKey: privateKey
+            privateKey: privateKey,
+            tag: tag,
+            options: InviteSlugOptions(
+                name: options.name,
+                description: options.description,
+                imageURL: options.imageURL?.absoluteString,
+                expiresAt: options.expiresAt,
+                expiresAfterUse: options.singleUse,
+                includePublicPreview: options.includePublicPreview
+            )
         )
 
-        var payload = InvitePayload()
-        payload.tag = tag
-        payload.conversationToken = tokenBytes
-
-        guard let inboxIdBytes = Data(hexString: inboxId) else {
-            throw InviteCreationError.invalidInboxId
-        }
-        payload.creatorInboxID = inboxIdBytes
-
-        if options.includePublicPreview {
-            if let name = options.name { payload.name = name }
-            if let description = options.description { payload.description_p = description }
-            if let imageURL = options.imageURL { payload.imageURL = imageURL.absoluteString }
-        }
-
-        if let expiresAt = options.expiresAt {
-            payload.expiresAtUnix = Int64(expiresAt.timeIntervalSince1970)
-        }
-        payload.expiresAfterUse = options.singleUse
-
-        let signature = try payload.sign(with: privateKey)
-
-        var signedInvite = SignedInvite()
-        try signedInvite.setPayload(payload)
-        signedInvite.signature = signature
-
-        let slug = try signedInvite.toURLSafeSlug()
+        let signedInvite = try SignedInvite.fromURLSafeSlug(slug)
         let url = baseURL.appendingPathComponent(slug)
 
         return InviteURL(url: url, slug: slug, signedInvite: signedInvite)
