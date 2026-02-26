@@ -118,9 +118,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
-                onImagePasted: { image in
-                    selectedAttachmentImage = image
-                }
+                onImagePasted: { selectedAttachmentImage = $0 }
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
