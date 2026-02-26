@@ -789,7 +789,6 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             }
 
             try await attachmentLocalStateWriter.migrateKey(from: oldAttachmentKey, to: json)
-            ImageCacheContainer.shared.removeImage(for: oldAttachmentKey)
 
             try await sender.publish()
 
