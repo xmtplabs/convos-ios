@@ -148,7 +148,7 @@ private struct AssetRow: View {
             .disabled(asset.key == nil)
 
             let renewAction = {
-                Task { await renewSingleAsset() }
+                _ = Task { await renewSingleAsset() }
             }
             Button(action: renewAction) {
                 Label("Renew Asset", systemImage: "arrow.clockwise")
@@ -156,7 +156,7 @@ private struct AssetRow: View {
             .disabled(isRenewing || asset.key == nil)
 
             let reuploadAction = {
-                Task { await forceReuploadFromCache() }
+                _ = Task { await forceReuploadFromCache() }
             }
             Button(action: reuploadAction) {
                 Label("Force Re-upload from Cache", systemImage: "arrow.up.circle")
