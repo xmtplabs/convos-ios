@@ -519,7 +519,7 @@ struct MessageContextMenuOverlay: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 28)
                         .padding(.top, 6)
-                        .padding(.bottom, 4)
+                        .padding(.bottom, 8)
                 }
 
                 let replyAction = {
