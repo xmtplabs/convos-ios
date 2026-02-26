@@ -34,20 +34,19 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
         case .deferred:
             guard let onRecoveryDeferred else {
                 Log.warning("Asset recovery deferred but no deferred handler configured: \(asset.url)")
-                await clearExpiredAsset(asset)
-                return .cleared
+                return await clearExpiredAsset(asset)
             }
             await onRecoveryDeferred(asset)
             return .deferred
         case .notRecoverable:
-            await clearExpiredAsset(asset)
-            return .cleared
+            return await clearExpiredAsset(asset)
         }
     }
 
-    private func clearExpiredAsset(_ asset: RenewableAsset) async {
+    private func clearExpiredAsset(_ asset: RenewableAsset) async -> RecoveryResult {
         Log.warning("Asset expired and cannot be recovered: \(asset.url) - clearing URL")
-        await clearAssetUrl(asset)
+        let didClear = await clearAssetUrl(asset)
+        return didClear ? .cleared : .clearFailed
     }
 
     private func attemptRecoveryFromCache(
@@ -114,12 +113,11 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
         }
     }
 
-    private func clearAssetUrl(_ asset: RenewableAsset) async {
+    private func clearAssetUrl(_ asset: RenewableAsset) async -> Bool {
         do {
             try await databaseWriter.write { db in
                 switch asset {
                 case let .profileAvatar(url, _, _, _):
-                    // Clear ALL profiles with this avatar URL (same person may appear in multiple conversations)
                     let profiles = try DBMemberProfile
                         .filter(DBMemberProfile.Columns.avatar == url)
                         .fetchAll(db)
@@ -134,7 +132,6 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
                     }
 
                 case let .groupImage(url, _, _):
-                    // Clear ALL conversations with this image URL (unlikely to have duplicates, but for consistency)
                     let conversations = try DBConversation
                         .filter(DBConversation.Columns.imageURLString == url)
                         .fetchAll(db)
@@ -149,8 +146,10 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
                     }
                 }
             }
+            return true
         } catch {
             Log.error("Failed to clear asset URL: \(error.localizedDescription)")
+            return false
         }
     }
 
@@ -158,6 +157,7 @@ public struct ExpiredAssetRecoveryHandler: Sendable {
         case recovered
         case deferred
         case cleared
+        case clearFailed
     }
 
     private enum RecoveryOutcome {

@@ -87,6 +87,7 @@ public actor AssetRenewalManager {
             var totalRenewed = 0
             var totalFailed = 0
             var allExpiredKeys: [String] = []
+            var allRenewedKeys: [String] = []
 
             for batch in assetKeys.chunked(into: Self.batchSize) {
                 do {
@@ -94,6 +95,7 @@ public actor AssetRenewalManager {
                     totalRenewed += result.renewed
                     totalFailed += result.failed
                     allExpiredKeys.append(contentsOf: result.expiredKeys)
+                    allRenewedKeys.append(contentsOf: result.renewedKeys)
 
                     let renewedKeySet = Set(result.renewedKeys)
                     let renewedAssets = renewedKeySet.compactMap { keyToAsset[$0] }
@@ -119,7 +121,7 @@ public actor AssetRenewalManager {
 
             Log.info("Asset renewal: \(totalRenewed) renewed, \(totalFailed) failed")
 
-            return AssetRenewalResult(renewed: totalRenewed, failed: totalFailed, expiredKeys: allExpiredKeys)
+            return AssetRenewalResult(renewed: totalRenewed, failed: totalFailed, expiredKeys: allExpiredKeys, renewedKeys: allRenewedKeys)
         } catch {
             Log.error("Asset renewal failed: \(error.localizedDescription)")
             return nil

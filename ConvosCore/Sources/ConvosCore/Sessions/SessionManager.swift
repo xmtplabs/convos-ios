@@ -665,7 +665,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             databaseWriter: databaseWriter,
             imageCache: ImageCacheContainer.shared,
             myProfileWriter: myProfileWriter,
-            conversationMetadataWriter: conversationMetadataWriter
+            conversationMetadataWriter: conversationMetadataWriter,
+            onRecoveryDeferred: { [weak self] asset in
+                guard let self else { return }
+                await self.enqueueDeferredAssetRecovery(asset)
+            }
         )
 
         let recoveryResult = await recoveryHandler.handleExpiredAsset(asset, cachedImage: cachedImage)
