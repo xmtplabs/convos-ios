@@ -4,12 +4,10 @@ import Foundation
 
 // MARK: - Private Key Provider
 
-/// Callback to retrieve the private key for an inbox
 public typealias PrivateKeyProvider = @Sendable (String) async throws -> Data
 
 // MARK: - Delegate
 
-/// Delegate for receiving invite coordinator events
 public protocol InviteCoordinatorDelegate: AnyObject, Sendable {
     func coordinator(_ coordinator: InviteCoordinator, didReceiveJoinRequest request: JoinRequest)
     func coordinator(_ coordinator: InviteCoordinator, didAddMember result: JoinResult)
@@ -28,12 +26,9 @@ public extension InviteCoordinatorDelegate {
 
 /// Coordinates invite creation and join request processing for XMTP groups.
 ///
-/// This is the main entry point for the invite system. It handles:
-/// - Creating shareable invite URLs
-/// - Processing incoming join requests via DMs
-/// - Adding approved joiners to conversations
-/// - Blocking spam/invalid requests
-/// - Sending error feedback to joiners when requests fail
+/// Accepts any `InviteClientProvider` — both `XMTPiOS.Client` (for direct SDK
+/// users) and app-level protocol wrappers (like ConvosCore's `AnyClientProvider`)
+/// conform out of the box.
 ///
 /// ## Usage
 ///
@@ -46,20 +41,13 @@ public extension InviteCoordinatorDelegate {
 /// )
 /// coordinator.delegate = self
 ///
-/// // Create an invite
-/// let invite = try await coordinator.createInvite(
-///     for: group,
-///     options: InviteOptions(name: "My Group")
-/// )
-///
-/// // Process a single incoming message
-/// let result = try await coordinator.processMessage(message)
-///
-/// // Batch-process all pending DMs
-/// let results = await coordinator.processJoinRequests(since: lastSyncDate)
+/// let invite = try await coordinator.createInvite(for: group)
+/// let results = await coordinator.processJoinRequests(since: lastSync)
 /// ```
 public actor InviteCoordinator {
-    private let client: XMTPiOS.Client
+    // actor serialization ensures safe access; the underlying XMTP types
+    // predate Swift 6 Sendable but are thread-safe in practice
+    private nonisolated(unsafe) let client: any InviteClientProvider
     private let privateKeyProvider: PrivateKeyProvider
     private let tagStorage: any InviteTagStorageProtocol
     private let baseURL: URL
@@ -67,7 +55,7 @@ public actor InviteCoordinator {
     public weak var delegate: InviteCoordinatorDelegate?
 
     public init(
-        client: XMTPiOS.Client,
+        client: any InviteClientProvider,
         privateKeyProvider: @escaping PrivateKeyProvider,
         tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage(),
         baseURL: URL = Constant.defaultBaseURL
@@ -84,9 +72,8 @@ public actor InviteCoordinator {
         for group: XMTPiOS.Group,
         options: InviteOptions = InviteOptions()
     ) async throws -> InviteURL {
-        let inboxId = client.inboxID
+        let inboxId = client.inviteInboxId
         let privateKey = try await privateKeyProvider(inboxId)
-
         let tag = try tagStorage.getInviteTag(for: group)
 
         let tokenBytes = try InviteToken.encrypt(
@@ -105,21 +92,14 @@ public actor InviteCoordinator {
         payload.creatorInboxID = inboxIdBytes
 
         if options.includePublicPreview {
-            if let name = options.name {
-                payload.name = name
-            }
-            if let description = options.description {
-                payload.description_p = description
-            }
-            if let imageURL = options.imageURL {
-                payload.imageURL = imageURL.absoluteString
-            }
+            if let name = options.name { payload.name = name }
+            if let description = options.description { payload.description_p = description }
+            if let imageURL = options.imageURL { payload.imageURL = imageURL.absoluteString }
         }
 
         if let expiresAt = options.expiresAt {
             payload.expiresAtUnix = Int64(expiresAt.timeIntervalSince1970)
         }
-
         payload.expiresAfterUse = options.singleUse
 
         let signature = try payload.sign(with: privateKey)
@@ -142,22 +122,13 @@ public actor InviteCoordinator {
     // MARK: - Join Request Sending (Joiner Side)
 
     public func sendJoinRequest(for signedInvite: SignedInvite) async throws -> XMTPiOS.Dm {
-        guard !signedInvite.hasExpired else {
-            throw JoinRequestError.expired
-        }
-
-        guard !signedInvite.conversationHasExpired else {
-            throw JoinRequestError.conversationExpired
-        }
+        guard !signedInvite.hasExpired else { throw JoinRequestError.expired }
+        guard !signedInvite.conversationHasExpired else { throw JoinRequestError.conversationExpired }
 
         let creatorInboxId = signedInvite.invitePayload.creatorInboxIdString
+        guard !creatorInboxId.isEmpty else { throw JoinRequestError.invalidFormat }
 
-        guard !creatorInboxId.isEmpty else {
-            throw JoinRequestError.invalidFormat
-        }
-
-        let dm = try await client.conversations.findOrCreateDm(with: creatorInboxId)
-
+        let dm = try await client.findOrCreateDm(with: creatorInboxId)
         let slug = try signedInvite.toURLSafeSlug()
         _ = try await dm.send(content: slug)
 
@@ -167,28 +138,13 @@ public actor InviteCoordinator {
     // MARK: - Join Request Processing (Creator Side)
 
     /// Process a single XMTP message as a potential join request.
-    ///
-    /// Returns a `JoinResult` if the message is a valid join request and the
-    /// joiner was successfully added. Returns `nil` if the message is not a
-    /// join request (e.g. regular text). Notifies the delegate on success,
-    /// rejection, or spam detection.
     public func processMessage(_ message: XMTPiOS.DecodedMessage) async -> JoinResult? {
-        let senderInboxId = message.senderInboxId
-
-        guard senderInboxId != client.inboxID else {
-            return nil
-        }
-
-        guard let text: String = try? message.content() else {
-            return nil
-        }
-
-        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(text) else {
-            return nil
-        }
+        guard message.senderInboxId != client.inviteInboxId else { return nil }
+        guard let text: String = try? message.content() else { return nil }
+        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(text) else { return nil }
 
         let request = JoinRequest(
-            joinerInboxId: senderInboxId,
+            joinerInboxId: message.senderInboxId,
             dmConversationId: message.conversationId,
             signedInvite: signedInvite,
             messageId: message.id
@@ -197,44 +153,28 @@ public actor InviteCoordinator {
         return await processJoinRequest(request)
     }
 
-    /// Scan DMs for pending join requests and process them.
-    ///
-    /// Lists all DMs with `.unknown` consent state (new, unprocessed DMs),
-    /// checks each for valid join request messages, and processes them.
-    ///
-    /// - Parameter since: Only check DMs created after this date (nil = all)
-    /// - Returns: All successfully processed join results
+    /// Scan DMs with `.unknown` consent for pending join requests.
     public func processJoinRequests(since: Date?) async -> [JoinResult] {
+        guard let dms = try? client.listDms(
+            createdAfterNs: since?.nanosecondsSince1970,
+            createdBeforeNs: nil,
+            lastActivityBeforeNs: nil,
+            lastActivityAfterNs: nil,
+            limit: nil,
+            consentStates: [.unknown],
+            orderBy: .lastActivity
+        ) else { return [] }
+
         var results: [JoinResult] = []
-
-        let dms: [XMTPiOS.Dm]
-        do {
-            dms = try client.conversations.listDms(
-                createdAfterNs: since?.nanosecondsSince1970,
-                createdBeforeNs: nil,
-                lastActivityBeforeNs: nil,
-                lastActivityAfterNs: nil,
-                limit: nil,
-                consentStates: [.unknown],
-                orderBy: .lastActivity
-            )
-        } catch {
-            return []
-        }
-
         for dm in dms {
             if let result = await processDm(dm) {
                 results.append(result)
             }
         }
-
         return results
     }
 
-    /// Check whether we have already sent a join request for a given group.
-    ///
-    /// Scans allowed DMs for an outgoing message whose invite tag matches the
-    /// group's current tag.
+    /// Check whether we already sent a join request for a group.
     public func hasOutgoingJoinRequest(for group: XMTPiOS.Group) async throws -> Bool {
         let tag: String
         do {
@@ -244,7 +184,7 @@ public actor InviteCoordinator {
         }
         guard !tag.isEmpty else { return false }
 
-        let dms = try client.conversations.listDms(
+        let dms = try client.listDms(
             createdAfterNs: nil,
             createdBeforeNs: nil,
             lastActivityBeforeNs: nil,
@@ -255,17 +195,17 @@ public actor InviteCoordinator {
         )
 
         for dm in dms {
-            if let invite = await dm.lastMessageAsSignedInvite(sentBy: client.inboxID),
+            if let invite = await dm.lastMessageAsSignedInvite(sentBy: client.inviteInboxId),
                invite.invitePayload.tag == tag {
                 return true
             }
         }
-
         return false
     }
 
-    // MARK: - Private Helpers
+    // MARK: - Core Processing
 
+    // swiftlint:disable:next cyclomatic_complexity
     private func processJoinRequest(_ request: JoinRequest) async -> JoinResult? {
         let signedInvite = request.signedInvite
 
@@ -287,7 +227,7 @@ public actor InviteCoordinator {
             return nil
         }
 
-        guard creatorInboxId == client.inboxID else {
+        guard creatorInboxId == client.inviteInboxId else {
             await blockSpammer(request)
             return nil
         }
@@ -333,7 +273,7 @@ public actor InviteCoordinator {
             return nil
         }
 
-        guard let conversation = try? await client.conversations.findConversation(conversationId: conversationId),
+        guard let conversation = try? await client.findConversation(conversationId: conversationId),
               (try? conversation.consentState()) == .allowed else {
             await sendJoinError(.conversationExpired, for: request)
             delegate?.coordinator(self, didRejectJoinRequest: request, error: .conversationNotFound(conversationId))
@@ -345,6 +285,20 @@ public actor InviteCoordinator {
             return nil
         }
 
+        // verify the invite tag has not been revoked
+        do {
+            let currentTag = try tagStorage.getInviteTag(for: group)
+            guard signedInvite.invitePayload.tag == currentTag else {
+                await sendJoinError(.conversationExpired, for: request)
+                delegate?.coordinator(self, didRejectJoinRequest: request, error: .revoked)
+                return nil
+            }
+        } catch {
+            await sendJoinError(.conversationExpired, for: request)
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .revoked)
+            return nil
+        }
+
         do {
             _ = try await group.addMembers(inboxIds: [request.joinerInboxId])
         } catch {
@@ -352,7 +306,7 @@ public actor InviteCoordinator {
             return nil
         }
 
-        if let dm = try? await client.conversations.findConversation(conversationId: request.dmConversationId) {
+        if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
             try? await dm.updateConsentState(state: .allowed)
         }
 
@@ -361,25 +315,25 @@ public actor InviteCoordinator {
             joinerInboxId: request.joinerInboxId,
             conversationName: try? group.name()
         )
-
         delegate?.coordinator(self, didAddMember: result)
-
         return result
     }
+
+    // MARK: - Helpers
 
     private func processDm(_ dm: XMTPiOS.Dm) async -> JoinResult? {
         guard let messages = try? await dm.messages(afterNs: nil) else { return nil }
 
-        let incomingTextMessages = messages.filter { message in
+        let candidates = messages.filter { message in
             guard let contentType = try? message.encodedContent.type,
                   contentType == ContentTypeText,
-                  message.senderInboxId != client.inboxID else {
+                  message.senderInboxId != client.inviteInboxId else {
                 return false
             }
             return true
         }
 
-        for message in incomingTextMessages {
+        for message in candidates {
             if let result = await processMessage(message) {
                 try? await dm.updateConsentState(state: .allowed)
                 return result
@@ -389,14 +343,14 @@ public actor InviteCoordinator {
     }
 
     private func blockSpammer(_ request: JoinRequest) async {
-        if let dm = try? await client.conversations.findConversation(conversationId: request.dmConversationId) {
+        if let dm = try? await client.findConversation(conversationId: request.dmConversationId) {
             try? await dm.updateConsentState(state: .denied)
         }
         delegate?.coordinator(self, didBlockSpammer: request.joinerInboxId, in: request.dmConversationId)
     }
 
     private func sendJoinError(_ errorType: InviteJoinErrorType, for request: JoinRequest) async {
-        guard let dm = try? await client.conversations.findConversation(conversationId: request.dmConversationId) else {
+        guard let dm = try? await client.findConversation(conversationId: request.dmConversationId) else {
             return
         }
 
@@ -423,12 +377,9 @@ public enum InviteCreationError: Error, LocalizedError {
 
     public var errorDescription: String? {
         switch self {
-        case .invalidInboxId:
-            return "Invalid inbox ID format"
-        case .signingFailed:
-            return "Failed to sign invite"
-        case .encodingFailed:
-            return "Failed to encode invite"
+        case .invalidInboxId: return "Invalid inbox ID format"
+        case .signingFailed: return "Failed to sign invite"
+        case .encodingFailed: return "Failed to encode invite"
         }
     }
 }

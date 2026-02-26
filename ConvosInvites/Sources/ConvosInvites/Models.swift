@@ -139,6 +139,9 @@ public enum JoinRequestError: Error, Sendable {
 
     /// The joiner is already a member
     case alreadyMember
+
+    /// The invite tag has been revoked (no longer matches group metadata)
+    case revoked
 }
 
 /// Error types sent back to joiners when their request fails
