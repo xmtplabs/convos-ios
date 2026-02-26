@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
+public struct ExpiredAssetRecoveryHandler: Sendable {
     private let databaseWriter: any DatabaseWriter
     private let imageCache: (any ImageCacheProtocol)?
     private let myProfileWriter: (any MyProfileWriterProtocol)?
@@ -22,21 +22,26 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
         self.onRecoveryDeferred = onRecoveryDeferred
     }
 
-    public func handleExpiredAsset(_ asset: RenewableAsset) async {
-        let outcome = await attemptRecoveryFromCache(asset)
+    public func handleExpiredAsset(
+        _ asset: RenewableAsset,
+        cachedImage: ImageType? = nil
+    ) async -> RecoveryResult {
+        let outcome = await attemptRecoveryFromCache(asset, cachedImage: cachedImage)
 
         switch outcome {
         case .recovered:
-            return
+            return .recovered
         case .deferred:
             guard let onRecoveryDeferred else {
                 Log.warning("Asset recovery deferred but no deferred handler configured: \(asset.url)")
                 await clearExpiredAsset(asset)
-                return
+                return .cleared
             }
             await onRecoveryDeferred(asset)
+            return .deferred
         case .notRecoverable:
             await clearExpiredAsset(asset)
+            return .cleared
         }
     }
 
@@ -45,16 +50,25 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
         await clearAssetUrl(asset)
     }
 
-    private func attemptRecoveryFromCache(_ asset: RenewableAsset) async -> RecoveryOutcome {
-        guard let imageCache else {
-            Log.info("No image cache available for recovery")
-            return .notRecoverable
-        }
+    private func attemptRecoveryFromCache(
+        _ asset: RenewableAsset,
+        cachedImage: ImageType?
+    ) async -> RecoveryOutcome {
+        let cachedImageToUse: ImageType
 
-        // Try to get image from cache using the URL string as identifier
-        guard let cachedImage = imageCache.image(for: asset.url) else {
-            Log.info("Image not found in cache for \(asset.url)")
-            return .notRecoverable
+        if let cachedImage {
+            cachedImageToUse = cachedImage
+        } else {
+            guard let imageCache else {
+                Log.info("No image cache available for recovery")
+                return .notRecoverable
+            }
+
+            guard let cachedImage = imageCache.image(for: asset.url) else {
+                Log.info("Image not found in cache for \(asset.url)")
+                return .notRecoverable
+            }
+            cachedImageToUse = cachedImage
         }
 
         do {
@@ -65,7 +79,7 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
                     return .deferred
                 }
 
-                try await myProfileWriter.update(avatar: cachedImage, conversationId: conversationId)
+                try await myProfileWriter.update(avatar: cachedImageToUse, conversationId: conversationId)
                 Log.info("Auto-recovered profile avatar for conversation \(conversationId)")
                 return .recovered
 
@@ -80,7 +94,7 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
                     return .notRecoverable
                 }
 
-                try await conversationMetadataWriter.updateImage(cachedImage, for: conversation)
+                try await conversationMetadataWriter.updateImage(cachedImageToUse, for: conversation)
                 Log.info("Auto-recovered group image for conversation \(conversationId)")
                 return .recovered
             }
@@ -138,6 +152,12 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
         } catch {
             Log.error("Failed to clear asset URL: \(error.localizedDescription)")
         }
+    }
+
+    public enum RecoveryResult: Sendable {
+        case recovered
+        case deferred
+        case cleared
     }
 
     private enum RecoveryOutcome {

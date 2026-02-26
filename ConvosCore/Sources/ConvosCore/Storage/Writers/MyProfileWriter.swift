@@ -1,7 +1,7 @@
 import Foundation
 import GRDB
 
-public protocol MyProfileWriterProtocol {
+public protocol MyProfileWriterProtocol: Sendable {
     func update(displayName: String, conversationId: String) async throws
     func update(avatar: ImageType?, conversationId: String) async throws
 }
@@ -10,7 +10,7 @@ enum MyProfileWriterError: Error {
     case imageCompressionFailed
 }
 
-class MyProfileWriter: MyProfileWriterProtocol {
+class MyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
     private let inboxStateManager: any InboxStateManagerProtocol
     private let databaseWriter: any DatabaseWriter
 

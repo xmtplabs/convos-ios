@@ -41,7 +41,7 @@ public actor AssetRenewalManager {
             let result = try await apiClient.renewAssetsBatch(assetKeys: [key])
 
             if result.expiredKeys.contains(key) {
-                await recoveryHandler.handleExpiredAsset(asset)
+                _ = await recoveryHandler.handleExpiredAsset(asset)
             }
 
             if result.renewedKeys.contains(key) {
@@ -100,7 +100,7 @@ public actor AssetRenewalManager {
 
                     for expiredKey in result.expiredKeys {
                         if let asset = keyToAsset[expiredKey] {
-                            await recoveryHandler.handleExpiredAsset(asset)
+                            _ = await recoveryHandler.handleExpiredAsset(asset)
                         }
                     }
 

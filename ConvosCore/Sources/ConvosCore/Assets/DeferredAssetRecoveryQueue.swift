@@ -1,23 +1,47 @@
 import Foundation
 
 public actor DeferredAssetRecoveryQueue {
-    private var assetsByURL: [String: RenewableAsset] = [:]
+    public struct Entry: Sendable {
+        public let asset: RenewableAsset
+        public let retryCount: Int
+
+        public init(asset: RenewableAsset, retryCount: Int) {
+            self.asset = asset
+            self.retryCount = retryCount
+        }
+    }
+
+    private var entriesByURL: [String: Entry] = [:]
     private var orderedURLs: [String] = []
+    private var isProcessing: Bool = false
 
     public init() {}
 
-    public func enqueue(_ asset: RenewableAsset) {
-        if assetsByURL[asset.url] == nil {
+    public func enqueue(_ asset: RenewableAsset, retryCount: Int = 0) {
+        let entry = Entry(asset: asset, retryCount: retryCount)
+        if entriesByURL[asset.url] == nil {
             orderedURLs.append(asset.url)
         }
-        assetsByURL[asset.url] = asset
+        entriesByURL[asset.url] = entry
     }
 
-    public func drain() -> [RenewableAsset] {
-        let assets = orderedURLs.compactMap { assetsByURL[$0] }
+    public func nextBatchForProcessing() -> [Entry]? {
+        guard !isProcessing else { return nil }
+
+        let entries = orderedURLs.compactMap { entriesByURL[$0] }
+        guard !entries.isEmpty else { return nil }
+
+        isProcessing = true
         orderedURLs.removeAll()
-        assetsByURL.removeAll()
-        return assets
+        entriesByURL.removeAll()
+        return entries
+    }
+
+    public func finishProcessing(requeue: [Entry]) {
+        for entry in requeue {
+            enqueue(entry.asset, retryCount: entry.retryCount)
+        }
+        isProcessing = false
     }
 
     public var count: Int {
