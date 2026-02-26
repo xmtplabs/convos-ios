@@ -23,36 +23,29 @@ protocol InviteJoinRequestsManagerProtocol: Sendable {
     ) async throws -> Bool
 }
 
-/// Thin bridge that creates an `InviteCoordinator` per call, adapting
-/// ConvosCore's `AnyClientProvider` to the package's `InviteClientProvider`.
-///
-/// All join request logic lives in ConvosInvites' `InviteCoordinator`;
-/// this type adds Convos-specific logging and QA events via the delegate.
-final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked Sendable {
-    private let identityStore: any KeychainIdentityStoreProtocol
-    private let tagStorage: any InviteTagStorageProtocol
+/// Bridges ConvosCore callers to `InviteCoordinator`, adding logging and QA events.
+final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendable {
+    private let coordinator: InviteCoordinator
 
-    init(
-        identityStore: any KeychainIdentityStoreProtocol,
-        tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()
-    ) {
-        self.identityStore = identityStore
-        self.tagStorage = tagStorage
+    init(identityStore: any KeychainIdentityStoreProtocol,
+         tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()) {
+        self.coordinator = InviteCoordinator(
+            privateKeyProvider: { inboxId in
+                let identity = try await identityStore.identity(for: inboxId)
+                return identity.keys.privateKey.secp256K1.bytes
+            },
+            tagStorage: tagStorage
+        )
     }
 
     func processJoinRequest(
         message: XMTPiOS.DecodedMessage,
         client: AnyClientProvider
     ) async -> JoinRequestResult? {
-        let coordinator = makeCoordinator(for: client)
-        guard let result = await coordinator.processMessage(message) else {
+        guard let result = await coordinator.processMessage(message, client: InviteClientProviderAdapter(client)) else {
             return nil
         }
-        Log.info("Successfully added \(result.joinerInboxId) to conversation \(result.conversationId)")
-        QAEvent.emit(.invite, "member_accepted", [
-            "conversation": result.conversationId,
-            "member": result.joinerInboxId,
-        ])
+        logAccepted(result)
         return JoinRequestResult(
             conversationId: result.conversationId,
             conversationName: result.conversationName,
@@ -64,14 +57,8 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unche
         since: Date?,
         client: AnyClientProvider
     ) async -> [JoinRequestResult] {
-        let coordinator = makeCoordinator(for: client)
-        let results = await coordinator.processJoinRequests(since: since)
-        return results.map {
-            Log.info("Successfully added \($0.joinerInboxId) to conversation \($0.conversationId)")
-            QAEvent.emit(.invite, "member_accepted", [
-                "conversation": $0.conversationId,
-                "member": $0.joinerInboxId,
-            ])
+        await coordinator.processJoinRequests(since: since, client: InviteClientProviderAdapter(client)).map {
+            logAccepted($0)
             return JoinRequestResult(
                 conversationId: $0.conversationId,
                 conversationName: $0.conversationName,
@@ -84,19 +71,14 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unche
         for conversation: XMTPiOS.Group,
         client: AnyClientProvider
     ) async throws -> Bool {
-        let coordinator = makeCoordinator(for: client)
-        return try await coordinator.hasOutgoingJoinRequest(for: conversation)
+        try await coordinator.hasOutgoingJoinRequest(for: conversation, client: InviteClientProviderAdapter(client))
     }
 
-    private func makeCoordinator(for client: AnyClientProvider) -> InviteCoordinator {
-        let identityStore = self.identityStore
-        return InviteCoordinator(
-            client: InviteClientProviderAdapter(client),
-            privateKeyProvider: { inboxId in
-                let identity = try await identityStore.identity(for: inboxId)
-                return identity.keys.privateKey.secp256K1.bytes
-            },
-            tagStorage: tagStorage
-        )
+    private func logAccepted(_ result: JoinResult) {
+        Log.info("Successfully added \(result.joinerInboxId) to conversation \(result.conversationId)")
+        QAEvent.emit(.invite, "member_accepted", [
+            "conversation": result.conversationId,
+            "member": result.joinerInboxId,
+        ])
     }
 }

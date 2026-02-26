@@ -136,6 +136,10 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
         nil
     }
 
+    public func findOrCreateDm(with peerInboxId: String) async throws -> XMTPiOS.Dm {
+        fatalError("not implemented in mock")
+    }
+
     public func sync() async throws {
         // No-op for mock
     }

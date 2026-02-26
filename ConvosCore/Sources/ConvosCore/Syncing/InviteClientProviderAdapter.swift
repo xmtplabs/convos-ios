@@ -2,10 +2,8 @@ import ConvosInvites
 import Foundation
 @preconcurrency import XMTPiOS
 
-/// Adapts ConvosCore's `XMTPClientProvider` protocol to ConvosInvites'
-/// `InviteClientProvider`, allowing a single `InviteCoordinator` to be
-/// used throughout the app.
-struct InviteClientProviderAdapter: InviteClientProvider, @unchecked Sendable {
+/// Adapts ConvosCore's `XMTPClientProvider` to ConvosInvites' `InviteClientProvider`.
+struct InviteClientProviderAdapter: InviteClientProvider {
     private let provider: any XMTPClientProvider
 
     init(_ provider: any XMTPClientProvider) {
@@ -19,9 +17,7 @@ struct InviteClientProviderAdapter: InviteClientProvider, @unchecked Sendable {
     }
 
     func findOrCreateDm(with inboxId: String) async throws -> XMTPiOS.Dm {
-        // only used by sendJoinRequest (joiner side); ConvosCore handles
-        // joining through ConversationStateMachine instead
-        throw InviteCreationError.encodingFailed
+        try await provider.conversationsProvider.findOrCreateDm(with: inboxId)
     }
 
     // swiftlint:disable:next function_parameter_count
