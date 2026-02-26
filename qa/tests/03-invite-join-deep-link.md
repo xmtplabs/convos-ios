@@ -69,37 +69,44 @@ Initialize log markers for both devices.
 
 This tests that the invite system works even when the inviter's device is completely offline — the joiner should see the "Verifying" state, and once the inviter comes back online, the joiner should be admitted automatically.
 
-#### Create a second conversation on Device A
+**Important:** Both simulators must be erased before Part 2 to avoid residual XMTP state from Part 1. If Device B has any prior relationship with Device A's XMTP identity (e.g., from joining a conversation in Part 1), the XMTP sync may resolve the invite as `.existing` and skip the "Verifying" state entirely.
 
-20. Navigate Device A back to the home screen (tap close/back).
-21. Tap compose to create another conversation.
-22. Name it "Offline Invite Test".
-23. Extract the invite URL from Device A's logs (use the latest `invite.url_displayed` event).
+#### Erase both simulators
+
+20. Terminate the app and shut down both simulators.
+21. Erase both simulators: `xcrun simctl erase $DEVICE_A_UDID && xcrun simctl erase $DEVICE_B_UDID`
+22. Boot Device A, install the app, and launch it.
+
+#### Create a conversation on Device A
+
+23. Tap compose to create a new conversation.
+24. Name it "Offline Invite Test".
+25. Extract the invite URL from Device A's logs (use the latest `invite.url_displayed` event).
 
 #### Shut down Device A completely
 
-24. Terminate the app on Device A: `xcrun simctl terminate $DEVICE_A_UDID org.convos.ios-preview`
-25. Shut down Device A's simulator: `xcrun simctl shutdown $DEVICE_A_UDID`
-26. Verify Device A is fully shut down (no background processing, no push notifications).
+26. Terminate the app on Device A: `xcrun simctl terminate $DEVICE_A_UDID org.convos.ios-preview`
+27. Shut down Device A's simulator: `xcrun simctl shutdown $DEVICE_A_UDID`
+28. Verify Device A is fully shut down (no background processing, no push notifications).
 
-#### Open the invite on Device B while Device A is offline
+#### Boot Device B and open the invite while Device A is offline
 
-27. On Device B, navigate back to the home screen.
-28. Open the invite URL on Device B using `sim_open_url`.
-29. Wait for the "Verifying" state to appear on Device B (`invite-accepted-view` with label containing "Verifying").
-30. Verify Device B shows "Verifying" — the join request was sent but cannot be processed because Device A is offline.
-31. Wait 5 seconds and verify Device B is still in the "Verifying" state (it should not resolve while Device A is offline).
+29. Boot Device B, install the app, and launch it.
+30. Open the invite URL on Device B using `sim_open_url`.
+31. Wait for the "Verifying" state to appear on Device B (`invite-accepted-view` with label containing "Verifying").
+32. Verify Device B shows "Verifying" — the join request was sent but cannot be processed because Device A is offline.
+33. Wait 5 seconds and verify Device B is still in the "Verifying" state (it should not resolve while Device A is offline).
 
 #### Bring Device A back online
 
-32. Boot Device A's simulator: `xcrun simctl boot $DEVICE_A_UDID`
-33. Launch the app on Device A: `xcrun simctl launch $DEVICE_A_UDID org.convos.ios-preview`
+34. Boot Device A's simulator: `xcrun simctl boot $DEVICE_A_UDID`
+35. Launch the app on Device A: `xcrun simctl launch $DEVICE_A_UDID org.convos.ios-preview`
 
 #### Verify Device B gets admitted
 
-34. On Device B, wait up to 60 seconds for the conversation to transition out of "Verifying" state.
-35. Verify Device B's conversation toolbar shows "Offline Invite Test" and "2 members".
-36. Verify two-way messaging works:
+36. On Device B, wait up to 60 seconds for the conversation to transition out of "Verifying" state.
+37. Verify Device B's conversation toolbar shows "Offline Invite Test" and "2 members".
+38. Verify two-way messaging works:
     - Device B sends "Hello after offline!"
     - Device A receives the message
     - Device A replies
