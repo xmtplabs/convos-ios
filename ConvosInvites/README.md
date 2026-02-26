@@ -29,7 +29,7 @@ Add ConvosInvites to your `Package.swift`:
 dependencies: [
     .package(path: "../ConvosInvites"),  // Local package
     // Or when published:
-    // .package(url: "https://github.com/ephemeraHQ/ConvosInvites.git", from: "1.0.0"),
+    // .package(url: "https://github.com/xmtplabs/ConvosInvites.git", from: "1.0.0"),
 ]
 ```
 
