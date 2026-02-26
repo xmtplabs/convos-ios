@@ -315,6 +315,7 @@ public final class InviteCoordinator: @unchecked Sendable {
             _ = try await group.addMembers(inboxIds: [request.joinerInboxId])
         } catch {
             await sendJoinError(.genericFailure, for: request, client: client)
+            delegate?.coordinator(self, didRejectJoinRequest: request, error: .addMemberFailed)
             return nil
         }
 

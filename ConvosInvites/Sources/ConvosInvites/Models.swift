@@ -142,6 +142,9 @@ public enum JoinRequestError: Error, Sendable {
 
     /// The invite tag has been revoked (no longer matches group metadata)
     case revoked
+
+    /// Failed to add the member to the group
+    case addMemberFailed
 }
 
 /// Error types sent back to joiners when their request fails
