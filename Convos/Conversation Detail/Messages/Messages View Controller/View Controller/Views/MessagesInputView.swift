@@ -17,6 +17,7 @@ struct MessagesInputView: View {
     private let focused: MessagesViewInputFocus = .message
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
+    let onImagePasted: (UIImage) -> Void
 
     private let attachmentPreviewSize: CGFloat = 80.0
     @State private var isPoofing: Bool = false
@@ -69,27 +70,21 @@ struct MessagesInputView: View {
                 .accessibilityLabel("Edit your profile")
                 .accessibilityIdentifier("profile-avatar-button")
 
-                Group {
-                    TextField(
-                        "Chat as \(profile.displayName)",
-                        text: $messageText,
-                        axis: .vertical
-                    )
-                    .focused($focusState, equals: focused)
-                    .font(.callout)
-                    .foregroundStyle(.colorTextPrimary)
-                    .tint(.colorTextPrimary)
-                    .frame(minHeight: Self.defaultHeight, maxHeight: 170.0, alignment: .center)
-                    .padding(.leading, DesignConstants.Spacing.step2x)
-                    .padding(.trailing, DesignConstants.Spacing.step3x)
-                    .disabled(!messagesTextFieldEnabled)
-                    .accessibilityLabel("Message input")
-                    .accessibilityIdentifier("message-text-field")
-                }
-                .onSubmit {
-                    onSendMessage()
-                    focusState = .message
-                }
+                ComposerTextView(
+                    text: $messageText,
+                    placeholder: "Chat as \(profile.displayName)",
+                    isEnabled: messagesTextFieldEnabled,
+                    maxHeight: 170.0,
+                    onSubmit: {
+                        onSendMessage()
+                        focusState = .message
+                    },
+                    onImagePasted: onImagePasted
+                )
+                .focused($focusState, equals: focused)
+                .frame(minHeight: Self.defaultHeight, alignment: .center)
+                .padding(.leading, DesignConstants.Spacing.step2x)
+                .padding(.trailing, DesignConstants.Spacing.step3x)
                 .frame(maxHeight: .infinity, alignment: .center)
 
                 Button {
@@ -204,7 +199,8 @@ struct MessagesInputView: View {
             animateAvatarForQuickname: animateAvatarForQuickname,
             messagesTextFieldEnabled: true,
             onProfilePhotoTap: {},
-            onSendMessage: {}
+            onSendMessage: {},
+            onImagePasted: { _ in }
         )
         .padding(DesignConstants.Spacing.step2x)
     }

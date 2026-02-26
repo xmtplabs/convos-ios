@@ -117,7 +117,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 onProfilePhotoTap: onProfilePhotoTap,
-                onSendMessage: onSendMessage
+                onSendMessage: onSendMessage,
+                onImagePasted: { image in
+                    selectedAttachmentImage = image
+                }
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
