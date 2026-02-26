@@ -47,6 +47,32 @@ struct MessageContextMenuOverlay: View {
         }
     }
 
+    private var formattedTimestamp: String? {
+        guard let message else { return nil }
+        let date = message.base.date
+        let timeFormatter = DateFormatter()
+        timeFormatter.dateFormat = "h:mm a"
+        let timeString = timeFormatter.string(from: date)
+
+        if Calendar.current.isDateInToday(date) {
+            return "Today · \(timeString)"
+        } else if Calendar.current.isDateInYesterday(date) {
+            return "Yesterday · \(timeString)"
+        } else if Calendar.current.isDate(date, equalTo: Date(), toGranularity: .weekOfYear) {
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "EEEE"
+            return "\(dayFormatter.string(from: date)) · \(timeString)"
+        } else if Calendar.current.isDate(date, equalTo: Date(), toGranularity: .year) {
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "MMM d"
+            return "\(dayFormatter.string(from: date)) · \(timeString)"
+        } else {
+            let dayFormatter = DateFormatter()
+            dayFormatter.dateFormat = "MMM d, yyyy"
+            return "\(dayFormatter.string(from: date)) · \(timeString)"
+        }
+    }
+
     private var shouldBlurPhoto: Bool {
         if let blurOverride { return blurOverride }
         guard let photoAttachment, let message else { return false }
@@ -486,6 +512,16 @@ struct MessageContextMenuOverlay: View {
 
         return GlassEffectContainer {
             VStack(spacing: 0) {
+                if let formattedTimestamp {
+                    Text(formattedTimestamp)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 28)
+                        .padding(.top, 6)
+                        .padding(.bottom, 4)
+                }
+
                 let replyAction = {
                     let msg = message
                     dismissMenu()
