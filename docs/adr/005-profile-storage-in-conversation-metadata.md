@@ -297,33 +297,31 @@ When reading compressed metadata:
 
 ## Related Files
 
-**Protobuf Schema:**
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/proto/conversation_custom_metadata.proto` - Profile protobuf definition
+### ConvosAppData package (reusable, shared foundation)
 
-**Core Implementation:**
+- `ConvosAppData/Sources/ConvosAppData/Proto/conversation_custom_metadata.pb.swift` - Protobuf schema (ConversationCustomMetadata, ConversationProfile, EncryptedImageRef)
+- `ConvosAppData/Sources/ConvosAppData/AppDataSerialization.swift` - Base64URL encoding, DEFLATE compression, compact serialization
+- `ConvosAppData/Sources/ConvosAppData/ProfileHelpers.swift` - Profile collection helpers (upsert, find, remove)
+
+### ConvosProfiles package (reusable, image encryption)
+
+- `ConvosProfiles/Sources/ConvosProfiles/Crypto/ImageEncryption.swift` - AES-256-GCM image encryption/decryption
+- `ConvosProfiles/Sources/ConvosProfiles/Crypto/EncryptedImageLoader.swift` - Encrypted image loading protocol
+
+### ConvosCore (app-specific integration)
+
 - `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift` - XMTP metadata interface
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/ConversationCustomMetadata+Serialization.swift` - Compression/encoding
 - `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/ConversationCustomMetadata+Profiles.swift` - Profile management
-
-**Database:**
 - `ConvosCore/Sources/ConvosCore/Storage/Database Models/DBMemberProfile.swift` - Profile database model
 - `ConvosCore/Sources/ConvosCore/Storage/Models/Profile.swift` - Domain model
-
-**Writers/Repositories:**
 - `ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift` - Profile updates
 - `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationWriter.swift` - Profile sync
 - `ConvosCore/Sources/ConvosCore/Storage/Repositories/MyProfileRepository.swift` - Profile queries
+- `ConvosCore/Sources/ConvosCore/Image Cache/ImageCache.swift` - Three-tier caching
 
 **Quickname:**
 - `Convos/Profile/QuicknameSettings.swift` - Local profile storage
 - `Convos/Profile/QuicknameSettingsViewModel.swift` - Quickname UI logic
-
-**Image Handling:**
-- `ConvosCore/Sources/ConvosCore/Image Cache/ImageCache.swift` - Three-tier caching
-- `ConvosCore/Sources/ConvosCore/Utilities/Data+Compression.swift` - DEFLATE compression
-
-**Tests:**
-- `ConvosCore/Tests/ConvosCoreTests/ConversationCustomMetadataTests.swift` - Capacity and encoding tests
 
 ## Related ADRs
 

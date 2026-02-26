@@ -1,7 +1,8 @@
 # Convos Extensions Architecture Plan
 
-> **Status**: Planning  
-> **Created**: 2026-02-25
+> **Status**: In Progress (Invites ✅, Profiles ✅, Explode pending)  
+> **Created**: 2026-02-25  
+> **Updated**: 2026-02-26
 
 ## Executive Summary
 
@@ -17,20 +18,46 @@ Extract Convos-specific patterns (invites, profiles, explode) into reusable exte
 | **Profiles** | Per-conversation identity storage | Group `appData` (8KB metadata) |
 | **Explode** | Conversation expiration/deletion | Custom content type, Group metadata |
 
-### Where These Live Today
+### Where These Live Now
+
+**Extracted to packages (✅ complete):**
+
+```
+ConvosAppData/                          # Shared foundation (21 tests)
+├── Proto/conversation_custom_metadata.pb.swift  # Protobuf types
+├── AppDataSerialization.swift          # Base64URL, DEFLATE, compact encoding
+└── ProfileHelpers.swift               # Profile collection helpers
+
+ConvosInvites/                          # Invite system (120 tests)
+├── ConvosInvitesCore/                  # Core crypto (no XMTP dependency)
+│   ├── Core/InviteToken.swift          # ChaCha20-Poly1305 token encryption
+│   ├── Core/InviteSigner.swift         # secp256k1 ECDSA signing
+│   ├── Core/InviteEncoding.swift       # URL-safe Base64 + DEFLATE
+│   ├── Core/Crypto.swift               # Key derivation, public key recovery
+│   └── Core/Proto/invite.pb.swift      # Invite protobuf schema
+└── ConvosInvites/                      # XMTP integration layer
+    ├── InviteCoordinator.swift         # High-level join request processing
+    ├── InviteTagStorage.swift          # Tag storage in group appData
+    ├── InviteClientProvider.swift      # XMTP client protocol
+    └── ContentTypes/InviteJoinErrorCodec.swift  # Join error feedback
+
+ConvosProfiles/                         # Profile system (25 tests)
+├── Crypto/ImageEncryption.swift        # AES-256-GCM image encryption
+└── Crypto/EncryptedImageLoader.swift   # Encrypted image loading protocol
+```
+
+**Still in ConvosCore (not yet extracted):**
 
 ```
 ConvosCore/
-├── Invites & Custom Metadata/
-│   ├── proto/invite.proto              # Invite token schema
-│   ├── InviteConversationToken.swift   # Token encryption (ChaCha20-Poly1305, HKDF)
-│   ├── SignedInvite+*.swift            # Signing, validation, encoding
-│   └── XMTPGroup+CustomMetadata.swift  # Profile/tag storage in appData
 ├── Custom Content Types/
-│   ├── ExplodeSettingsCodec.swift      # Explosion notifications
-│   └── InviteJoinErrorCodec.swift      # Join failure feedback
+│   └── ExplodeSettingsCodec.swift      # Explosion notifications (future: ConvosExplode package)
+├── Invites & Custom Metadata/
+│   ├── SignedInvite+Signing.swift      # Slug generation (uses ConvosInvitesCore)
+│   └── XMTPGroup+CustomMetadata.swift  # Metadata read/write (uses ConvosAppData)
 └── Syncing/
-    └── InviteJoinRequestsManager.swift # Join request processing
+    ├── InviteJoinRequestsManager.swift # Thin bridge (~80 lines) to InviteCoordinator
+    └── InviteClientProviderAdapter.swift # Adapts XMTP client to InviteClientProvider
 ```
 
 ### XMTP SDK Architecture (libxmtp)
@@ -234,23 +261,27 @@ For extensions to work, the SDK must expose:
 
 ## Migration Strategy
 
-### Phase 1: Extract to Swift Package (4-6 weeks)
+### Phase 1: Extract to Swift Packages ✅ Complete
 
-1. Create `ConvosExtensions` Swift package
-2. Move invite logic from ConvosCore
-3. Move profile logic from ConvosCore
-4. Move explode logic from ConvosCore
-5. Update Convos app to use the package
-6. Document APIs
+1. ✅ Created `ConvosAppData` package (shared protobuf types, serialization)
+2. ✅ Created `ConvosInvites` package (invite system, 120 tests)
+3. ✅ Created `ConvosProfiles` package (image encryption, 25 tests)
+4. ✅ Migrated ConvosCore to import from packages
+5. ✅ Removed ~1,388 lines of duplicated code from ConvosCore
+6. ✅ `InviteJoinRequestsManager` rewritten as thin bridge (~80 lines) to `InviteCoordinator`
 
-### Phase 2: Stabilize & Document (2-3 weeks)
+**Not yet extracted:**
+- ExplodeSettingsCodec (future ConvosExplode package)
 
-1. Write comprehensive documentation
-2. Add example implementations
-3. Gather feedback from potential adopters
-4. Refine API based on feedback
+### Phase 2: Stabilize & Document (in progress)
 
-### Phase 3: Rust Port (8-12 weeks, optional)
+1. ✅ ConvosInvites README with full API reference
+2. ✅ ADR 001 updated with package file references
+3. ✅ ADR 005 updated with package file references
+4. [ ] Gather feedback from potential adopters
+5. [ ] Refine API based on feedback
+
+### Phase 3: Rust Port (future, optional)
 
 1. Propose architecture to XMTP team
 2. Port cryptographic operations to Rust

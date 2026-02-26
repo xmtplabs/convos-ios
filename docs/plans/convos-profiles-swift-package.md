@@ -1,7 +1,8 @@
 # ConvosProfiles Swift Package Design
 
-> **Status**: Phase 1 Complete  
+> **Status**: Phase 2 Complete  
 > **Created**: 2025-02-25  
+> **Updated**: 2026-02-26  
 > **Stacked on**: convos-invites-package
 
 ## Overview
@@ -25,12 +26,16 @@ ConvosAppData/
 
 ### ConvosProfiles (This Package)
 
-Currently a thin layer that re-exports ConvosAppData:
+Image encryption and profile loading utilities:
 
 ```
 ConvosProfiles/
-├── Re-exports ConvosAppData types
-└── Future: Image encryption, content type handling
+├── ConvosProfiles/
+│   ├── Crypto/ImageEncryption.swift       # AES-256-GCM image encryption/decryption
+│   └── Crypto/EncryptedImageLoader.swift  # Encrypted image loading protocol
+└── ConvosProfilesCore/
+    ├── ProfileHelpers.swift               # Re-exported from ConvosAppData
+    └── Proto/conversation_profile.pb.swift
 ```
 
 ### Dependency Graph
@@ -44,13 +49,6 @@ ConvosCore (app-specific logic)
 ```
 
 ## Future Direction
-
-### Phase 2: Image Encryption Helpers
-
-Move image encryption utilities from ConvosCore to ConvosProfiles:
-- AES-256-GCM encryption/decryption
-- Group key management helpers
-- EncryptedImageRef creation
 
 ### Phase 3: Profile Content Type (Future)
 
@@ -91,13 +89,21 @@ public actor ProfileCoordinator {
 3. Migrated ConvosCore to import from ConvosAppData
 4. Removed ~1,250 lines of duplicated code from ConvosCore
 
+### Phase 2: Image Encryption ✅
+
+1. Moved AES-256-GCM image encryption/decryption to ConvosProfiles
+2. Added `EncryptedImageLoader` protocol for encrypted image loading
+3. 25 tests covering encryption, decryption, key derivation, and edge cases
+
 ### Test Coverage
 
 | Package | Tests |
 |---------|-------|
 | ConvosAppData | 21 |
-| ConvosProfiles | 3 |
-| ConvosCore | 425 |
+| ConvosProfiles | 25 |
+| ConvosInvites | 120 |
+| ConvosCore | 323 |
+| **Total** | **489** |
 
 ## API Reference
 

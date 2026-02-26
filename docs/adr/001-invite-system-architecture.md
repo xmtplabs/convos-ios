@@ -199,15 +199,25 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 
 ## Related Files
 
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/proto/invite.proto` - Protobuf schemas
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/InviteConversationToken.swift` - Token encryption
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/SignedInvite+Signing.swift` - Slug generation
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/SignedInvite+Validation.swift` - Signature verification
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/SignedInvite+Encoding.swift` - URL-safe encoding
+### ConvosInvites package (reusable, no app dependency)
+
+- `ConvosInvites/Sources/ConvosInvitesCore/Core/Proto/invite.pb.swift` - Protobuf schemas
+- `ConvosInvites/Sources/ConvosInvitesCore/Core/InviteToken.swift` - Token encryption (ChaCha20-Poly1305)
+- `ConvosInvites/Sources/ConvosInvitesCore/Core/InviteSigner.swift` - secp256k1 ECDSA signing
+- `ConvosInvites/Sources/ConvosInvitesCore/Core/InviteEncoding.swift` - URL-safe Base64 + DEFLATE
+- `ConvosInvites/Sources/ConvosInvitesCore/Core/Crypto.swift` - Key derivation, public key recovery
+- `ConvosInvites/Sources/ConvosInvites/InviteCoordinator.swift` - High-level join request processing
+- `ConvosInvites/Sources/ConvosInvites/InviteTagStorage.swift` - Tag storage in group appData
+- `ConvosInvites/Sources/ConvosInvites/InviteClientProvider.swift` - XMTP client protocol
+- `ConvosInvites/Sources/ConvosInvites/ContentTypes/InviteJoinErrorCodec.swift` - Join error content type
+
+### ConvosCore (app-specific integration)
+
+- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/SignedInvite+Signing.swift` - Slug generation (uses ConvosInvitesCore)
 - `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift` - Metadata storage
-- `ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift` - Join request processing
+- `ConvosCore/Sources/ConvosCore/Syncing/InviteJoinRequestsManager.swift` - Join request processing (thin bridge to InviteCoordinator)
+- `ConvosCore/Sources/ConvosCore/Syncing/InviteClientProviderAdapter.swift` - Adapts XMTP client to InviteClientProvider protocol
 - `ConvosCore/Sources/ConvosCore/Inboxes/ConversationStateMachine.swift` - Join flow state machine
-- `ConvosCore/Sources/ConvosCore/Custom Content Types/InviteJoinErrorCodec.swift` - Join error content type
 - `ConvosCore/Sources/ConvosCore/Inboxes/InviteJoinErrorHandler.swift` - Error handler protocol
 
 ## Related ADRs

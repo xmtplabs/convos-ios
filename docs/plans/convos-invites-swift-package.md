@@ -26,24 +26,25 @@ See [ConvosInvites/README.md](../../ConvosInvites/README.md) for full documentat
   - `InviteError.swift` - Error types
   - `InvitePayloadExtensions.swift` - Protobuf accessors
   - `Proto/invite.pb.swift` - Protobuf definitions
-- 65 tests covering all core functionality
+- Tests covering all core functionality
 
 ### ✅ Phase 2: XMTP Integration
 
 - Created `ConvosInvites` module with XMTP SDK integration
 - Implemented:
-  - `InviteCoordinator.swift` - High-level API
-  - `InviteTagStorage.swift` - Tag storage in group appData
-  - `Models.swift` - InviteOptions, JoinRequest, JoinResult, etc.
-- 4 tests for integration layer
+  - `InviteCoordinator.swift` - High-level join request processing (client per call, `@unchecked Sendable`)
+  - `InviteTagStorage.swift` - Tag storage in group appData (uses `SecRandomCopyBytes`)
+  - `InviteClientProvider.swift` - Protocol for XMTP client abstraction
+  - `ContentTypes/InviteJoinErrorCodec.swift` - Join error feedback content type
+  - `Models.swift` - InviteOptions, JoinRequest, JoinResult, JoinRequestError, etc.
 
 ### ✅ Phase 3: ConvosCore Migration
 
 - Added ConvosInvites as dependency in ConvosCore
-- Removed 10 files from ConvosCore (now in package)
-- Updated all imports to use ConvosInvites
-- Moved 61 tests from ConvosCore to ConvosInvites
-- Net reduction: ~1000 lines of code in ConvosCore
+- Removed duplicated files from ConvosCore (now in package)
+- `InviteJoinRequestsManager` rewritten as thin bridge (~80 lines) to `InviteCoordinator`
+- `InviteClientProviderAdapter` bridges XMTP client to `InviteClientProvider` protocol
+- Net reduction: ~1,388 lines of code removed from ConvosCore
 
 ### ✅ Phase 4: Documentation
 
@@ -60,21 +61,32 @@ See [ConvosInvites/README.md](../../ConvosInvites/README.md) for full documentat
 ```
 ConvosInvites/
 ├── Sources/
-│   ├── ConvosInvitesCore/     # Core crypto (no XMTP)
-│   │   ├── InviteToken.swift
-│   │   ├── InviteSigner.swift
-│   │   ├── InviteEncoding.swift
-│   │   └── Proto/invite.pb.swift
+│   ├── ConvosInvitesCore/           # Core crypto (no XMTP dependency)
+│   │   ├── Core/
+│   │   │   ├── InviteToken.swift         # ChaCha20-Poly1305 token encryption
+│   │   │   ├── InviteSigner.swift        # secp256k1 ECDSA signing
+│   │   │   ├── InviteEncoding.swift      # URL-safe Base64 + DEFLATE
+│   │   │   ├── Crypto.swift              # Key derivation, public key recovery
+│   │   │   ├── InviteError.swift         # Error types
+│   │   │   ├── InvitePayloadExtensions.swift  # Protobuf accessors
+│   │   │   └── Proto/invite.pb.swift     # Protobuf definitions
+│   │   └── ConvosInvitesCore.swift       # Module exports
 │   │
-│   └── ConvosInvites/         # XMTP integration
-│       ├── InviteCoordinator.swift
-│       ├── InviteTagStorage.swift
-│       └── Models.swift
+│   └── ConvosInvites/               # XMTP integration layer
+│       ├── InviteCoordinator.swift        # High-level join request processing
+│       ├── InviteClientProvider.swift      # XMTP client protocol
+│       ├── InviteTagStorage.swift         # Tag storage in group appData
+│       ├── Models.swift                   # Options, results, errors
+│       ├── ContentTypes/
+│       │   └── InviteJoinErrorCodec.swift # Join error content type
+│       └── ConvosInvites.swift            # Module exports
 │
 └── Tests/
-    ├── ConvosInvitesCoreTests/  # 65 tests
-    └── ConvosInvitesTests/      # 4 tests
+    ├── ConvosInvitesCoreTests/      # 91 tests
+    └── ConvosInvitesTests/          # 29 tests
 ```
+
+**Total: 120 tests**
 
 ## Key Design Decisions
 
