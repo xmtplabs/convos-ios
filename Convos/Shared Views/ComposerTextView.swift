@@ -34,6 +34,7 @@ struct ComposerTextView: UIViewRepresentable {
         context.coordinator.isUpdating = true
         defer { context.coordinator.isUpdating = false }
 
+        context.coordinator.parent = self
         uiView.onImagePasted = onImagePasted
         uiView.isEditable = isEnabled
         uiView.isSelectable = isEnabled
@@ -59,7 +60,7 @@ struct ComposerTextView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, UITextViewDelegate {
-        let parent: ComposerTextView
+        var parent: ComposerTextView
         var isUpdating: Bool = false
         private var placeholderLabel: UILabel?
 
