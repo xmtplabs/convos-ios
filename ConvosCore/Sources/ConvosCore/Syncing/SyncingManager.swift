@@ -148,8 +148,7 @@ actor SyncingManager: SyncingManagerProtocol {
             notificationCenter: notificationCenter
         )
         self.joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: identityStore,
-            databaseReader: databaseReader
+            identityStore: identityStore
         )
     }
 
