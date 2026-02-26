@@ -315,10 +315,11 @@ struct JoinRequestProcessingTests {
             .conversationNotFound("conv-123"),
             .invalidFormat,
             .creatorMismatch,
-            .alreadyMember,
+            .revoked,
+            .addMemberFailed,
         ]
 
-        #expect(errors.count == 7)
+        #expect(errors.count == 8)
     }
 
     // MARK: - InviteJoinError Feedback

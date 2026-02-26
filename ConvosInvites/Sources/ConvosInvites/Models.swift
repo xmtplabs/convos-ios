@@ -137,9 +137,6 @@ public enum JoinRequestError: Error, Sendable {
     /// The creator inbox ID doesn't match
     case creatorMismatch
 
-    /// The joiner is already a member
-    case alreadyMember
-
     /// The invite tag has been revoked (no longer matches group metadata)
     case revoked
 
