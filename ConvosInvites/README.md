@@ -231,11 +231,9 @@ static func decodeFromURL(_ urlString: String) throws -> SignedInvite
 ```
 
 **Supported URL Formats:**
-- `convos://join/{code}` (legacy app scheme)
-- `convos://invite/{code}` (app scheme)
-- `https://domain.com/v2?i={code}` (legacy universal link)
-- `https://convos.org/i/{code}` (universal link)
-- `https://convos.org/invite?code={code}` (query param)
+- `https://{domain}/v2?i={code}` (universal link — primary format)
+
+Convos uses `dev.convos.org` (development) and `popup.convos.org` (production) as domains. The parser also handles legacy formats (`convos://` scheme, `/i/` path) for backward compatibility.
 
 #### SignedInvite Extensions
 
