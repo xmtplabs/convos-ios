@@ -1,6 +1,7 @@
 import ConvosAppData
 import Foundation
-import XMTPiOS
+import Security
+@preconcurrency import XMTPiOS
 
 // MARK: - Invite Tag Storage Protocol
 
@@ -58,8 +59,10 @@ public struct ProtobufInviteTagStorage: InviteTagStorageProtocol {
     // MARK: - Private Helpers
 
     private func generateRandomTag() -> String {
-        let characters: String = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-        return String((0..<Self.tagLength).compactMap { _ in characters.randomElement() })
+        let characters: [Character] = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+        var randomBytes: [UInt8] = [UInt8](repeating: 0, count: Self.tagLength)
+        _ = SecRandomCopyBytes(kSecRandomDefault, Self.tagLength, &randomBytes)
+        return String(randomBytes.map { characters[Int($0) % characters.count] })
     }
 }
 

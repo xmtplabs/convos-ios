@@ -1,6 +1,6 @@
 import ConvosInvitesCore
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 // MARK: - Private Key Provider
 
@@ -236,7 +236,12 @@ public actor InviteCoordinator {
     /// Scans allowed DMs for an outgoing message whose invite tag matches the
     /// group's current tag.
     public func hasOutgoingJoinRequest(for group: XMTPiOS.Group) async throws -> Bool {
-        let tag = try tagStorage.getInviteTag(for: group)
+        let tag: String
+        do {
+            tag = try tagStorage.getInviteTag(for: group)
+        } catch {
+            return false
+        }
         guard !tag.isEmpty else { return false }
 
         let dms = try client.conversations.listDms(

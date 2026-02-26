@@ -38,5 +38,5 @@ let package = Package(
             path: "Tests/ConvosProfilesTests"
         ),
     ],
-    swiftLanguageModes: [.v5]
+    swiftLanguageModes: [.v6]
 )

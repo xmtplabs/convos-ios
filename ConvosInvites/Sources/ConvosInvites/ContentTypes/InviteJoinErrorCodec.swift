@@ -1,5 +1,5 @@
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 public let ContentTypeInviteJoinError = ContentTypeID(
     authorityID: "convos.org",

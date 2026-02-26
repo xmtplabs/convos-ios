@@ -31,5 +31,5 @@ let package = Package(
             path: "Tests/ConvosAppDataTests"
         ),
     ],
-    swiftLanguageModes: [.v5]
+    swiftLanguageModes: [.v6]
 )

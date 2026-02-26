@@ -114,7 +114,12 @@ class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, @unchecked S
         for conversation: XMTPiOS.Group,
         client: AnyClientProvider
     ) async throws -> Bool {
-        let inviteTag = try tagStorage.getInviteTag(for: conversation)
+        let inviteTag: String
+        do {
+            inviteTag = try tagStorage.getInviteTag(for: conversation)
+        } catch {
+            return false
+        }
         guard !inviteTag.isEmpty else { return false }
 
         let dms = try client.conversationsProvider.listDms(

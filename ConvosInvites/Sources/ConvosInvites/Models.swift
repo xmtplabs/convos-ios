@@ -1,6 +1,6 @@
 import ConvosInvitesCore
 import Foundation
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 // MARK: - Invite Options
 

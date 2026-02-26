@@ -66,7 +66,7 @@ extension Data {
     }
 
     /// Initialize Data from a hex string (package-internal)
-    package init?(hexString: String) {
+    public init?(hexString: String) {
         let hex = hexString.dropFirst(hexString.hasPrefix("0x") ? 2 : 0)
         guard hex.count.isMultiple(of: 2) else { return nil }
 
