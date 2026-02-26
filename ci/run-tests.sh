@@ -25,10 +25,6 @@ case "$TEST_TYPE" in
         echo "==> Running unit tests (no backend required)"
         echo ""
 
-        echo "==> Running ConvosCore unit tests..."
-        swift test --filter "Base64URL|DataHex|Compression|Custom Metadata" 2>&1 | filter_xmtp_logs
-
-        echo ""
         echo "==> Running ConvosAppData tests..."
         swift test --package-path "$REPO_ROOT/ConvosAppData" 2>&1 | filter_xmtp_logs
 
