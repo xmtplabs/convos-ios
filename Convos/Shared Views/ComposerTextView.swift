@@ -38,7 +38,7 @@ struct ComposerTextView: UIViewRepresentable {
         uiView.isEditable = isEnabled
         uiView.isSelectable = isEnabled
 
-        if uiView.text != text {
+        if uiView.text != text, !uiView.isPasting {
             uiView.text = text
             uiView.invalidateIntrinsicContentSize()
         }
@@ -108,12 +108,15 @@ struct ComposerTextView: UIViewRepresentable {
 
 final class ComposerUITextView: UITextView {
     var onImagePasted: ((UIImage) -> Void)?
+    private(set) var isPasting: Bool = false
 
     override func paste(_ sender: Any?) {
         let pasteboard = UIPasteboard.general
 
         if pasteboard.hasImages, let image = pasteboard.image {
+            isPasting = true
             onImagePasted?(image)
+            isPasting = false
             return
         }
 
