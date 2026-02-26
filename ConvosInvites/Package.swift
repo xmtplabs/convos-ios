@@ -27,6 +27,7 @@ let package = Package(
             url: "https://github.com/xmtp/libxmtp.git",
             revision: "ios-4.9.0-dev.6ecd439"
         ),
+        .package(path: "../ConvosAppData"),
     ],
     targets: [
         // Core crypto layer - no XMTP dependency
@@ -43,6 +44,7 @@ let package = Package(
             name: "ConvosInvites",
             dependencies: [
                 "ConvosInvitesCore",
+                "ConvosAppData",
                 .product(name: "XMTPiOS", package: "libxmtp"),
             ],
             path: "Sources/ConvosInvites"

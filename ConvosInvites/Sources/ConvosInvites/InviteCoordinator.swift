@@ -59,7 +59,7 @@ public actor InviteCoordinator {
     public init(
         client: XMTPiOS.Client,
         privateKeyProvider: @escaping PrivateKeyProvider,
-        tagStorage: any InviteTagStorageProtocol = XMTPInviteTagStorage(),
+        tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage(),
         baseURL: URL = Constant.defaultBaseURL
     ) {
         self.client = client
@@ -361,7 +361,7 @@ public enum InviteCreationError: Error, LocalizedError {
 
 // MARK: - Constant
 
-private enum Constant {
+public enum Constant {
     // swiftlint:disable:next force_unwrapping
-    static let defaultBaseURL: URL = URL(string: "https://convos.org/i/")!
+    public static let defaultBaseURL: URL = URL(string: "https://convos.org/i/")!
 }
