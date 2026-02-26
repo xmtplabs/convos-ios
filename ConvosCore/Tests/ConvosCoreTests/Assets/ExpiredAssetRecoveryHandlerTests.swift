@@ -90,6 +90,12 @@ private final class TestImageCache: ImageCacheProtocol, @unchecked Sendable {
 
     func cacheImage(_ image: NSImage, for identifier: String, imageFormat: ImageFormat) {}
     func removeImage(for identifier: String) {}
+
+    func cacheData(_ data: Data, for identifier: String, storageTier: ImageStorageTier) {}
+    func cacheImage(_ image: NSImage, for identifier: String, storageTier: ImageStorageTier) {}
+    func removePersistentImages(for identifiers: [String]) {}
+    func removeAllPersistentImages() {}
+
     func hasURLChanged(_ url: String?, for identifier: String) async -> Bool { false }
 
     var cacheUpdates: AnyPublisher<String, Never> {
