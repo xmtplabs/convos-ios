@@ -18,8 +18,8 @@ Validate (with reproducible evidence) the deep findings from review before imple
 | F1: Compile regression in asset recovery path | blocker | API/enum drift caused compile failure | done | fixed by updating enum destructuring + cache identifier lookups; `swift test --package-path ConvosCore --filter AssetRenewalURLCollectorTests` now builds/runs | confirmed + fixed |
 | F2: Batch renewal marks failed keys as renewed | high | non-`not_found` failures still get timestamps | done | added/updated test `testBatchRenewalRecordsOnlyExplicitlyRenewedKeys`; introduced `renewedKeys` in `AssetRenewalResult` and use it in manager | confirmed + fixed |
 | F3: `avatarLastRenewed` lost during conversation sync | high | member profile rows are recreated without preserving timestamp | done | fixed in `ConversationWriter` via preservation helper; added `AvatarRenewalPreservationTests` | confirmed + fixed |
-| F4: Startup path cannot auto re-upload expired assets | medium | startup recovery handler lacks cache/writers | done | `SessionManager` startup injects only `databaseWriter`; manual path injects cache + profile/group writers | confirmed |
-| F5: Test coverage gaps around recovery/integration | medium | missing tests fail to protect core recovery behavior | done | added manager/accounting tests + avatar renewal preservation tests; recovery/startup integration tests still missing | confirmed (partially addressed) |
+| F4: Startup path cannot auto re-upload expired assets | medium | startup recovery handler lacks cache/writers | done | implemented deferred queue: startup now defers recoverable assets, foreground processes queue with full writers | confirmed + fixed |
+| F5: Test coverage gaps around recovery/integration | medium | missing tests fail to protect core recovery behavior | done | added manager/accounting tests + avatar preservation + deferred queue/handler tests; startup integration still candidate for future hardening | confirmed (mostly addressed) |
 
 
 ---
@@ -184,21 +184,27 @@ Startup renewal cannot auto-reupload because recovery handler is instantiated wi
 
 ### Dependency matrix
 
-| Path | imageCache | myProfileWriter | conversationMetadataWriter | Expected behavior |
+| Path | imageCache | myProfileWriter | conversationMetadataWriter | Behavior |
 |---|---|---|---|---|
-| Startup task | no | no | no | clear URL fallback |
-| Manual force reupload | yes | yes | yes | cache re-upload possible |
+| Startup renewal task | yes | no | no | cache hits are deferred into queue |
+| Foreground deferred processing | yes | yes | yes | queued assets are re-uploaded via existing force path |
+| Manual force reupload | yes | yes | yes | immediate cache re-upload |
 
 ### Evidence recorded
-- Startup path wiring (`SessionManager` init task):
-  - `let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)`
-- Manual path wiring (`forceReuploadAssetFromCache`):
-  - injects `ImageCacheContainer.shared`, `MyProfileWriter`, and `ConversationMetadataWriter`.
+- Added `DeferredAssetRecoveryQueue` actor for deduped queuing by URL.
+- Startup recovery handler now receives:
+  - `imageCache: ImageCacheContainer.shared`
+  - `onRecoveryDeferred` callback to enqueue recoverable assets.
+- `SessionManager` foreground observer now triggers deferred queue processing.
+- Queue processing uses full writer path (`forceReuploadAssetFromCache`), and falls back to clear URL if unrecoverable.
+- Tests added:
+  - `DeferredAssetRecoveryQueueTests`
+  - `ExpiredAssetRecoveryHandlerTests`
 
 ### Verdict
 - Confirmed? ☑ yes
 - Why:
-  - Expired assets in startup renewal path cannot be re-uploaded from cache because required dependencies are not injected.
+  - Initial gap was real, and Option B deferred recovery is now implemented to avoid startup inbox wake while still auto-recovering when app is foregrounded.
 
 ---
 
@@ -218,16 +224,16 @@ Current tests do not cover recovery handler behavior and startup integration eno
 
 | Risk | Existing tests | Missing tests |
 |---|---|---|
-| Compile drift on enum/image cache API | `AssetRenewalManagerTests`, `AssetRenewalURLCollectorTests` compile indirectly | Direct tests for `ExpiredAssetRecoveryHandler` pattern matching/cache lookup API usage |
-| Per-key renewal success accounting | `AssetRenewalManagerTests` now includes explicit renewed-key accounting test | Additional integration coverage across API client parsing + manager path |
-| Profile timestamp preservation | `AvatarRenewalPreservationTests` | Full integration test through `ConversationWriter.store` + DB migration state |
-| Expired asset recovery paths | none | Unit tests for recovery success/fallback clear-url logic |
-| Startup integration behavior | none | Integration test validating startup renewal dependency injection behavior |
+| Compile drift on enum/image cache API | `AssetRenewalManagerTests`, `AssetRenewalURLCollectorTests`, `ExpiredAssetRecoveryHandlerTests` | Full integration regression across `SessionManager` startup task wiring |
+| Per-key renewal success accounting | `AssetRenewalManagerTests` explicit renewed-key accounting | API-decoding integration test with mixed server results |
+| Profile timestamp preservation | `AvatarRenewalPreservationTests` | End-to-end `ConversationWriter.store` integration path test |
+| Expired asset recovery paths | `ExpiredAssetRecoveryHandlerTests` (defer behavior) | Explicit fallback-clear path test when cache miss/no writers/no queue callback |
+| Startup integration behavior | Deferred queue unit tests + handler defer test | Full startup-to-foreground integration test in `SessionManager` |
 
 ### Verdict
-- Confirmed gaps? ☑ yes
+- Confirmed gaps? ☑ partial
 - Why:
-  - Current coverage is strong for collector and manager basics, but weak around recovery handler and end-to-end startup recovery behavior.
+  - Coverage now exists for key unit behaviors, but a full startup/foreground integration regression test is still pending.
 
 ---
 
