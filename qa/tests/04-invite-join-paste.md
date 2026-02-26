@@ -1,56 +1,77 @@
-# Test: Join Conversation via Paste in Scan View
+# Test: Join Conversation via Paste in Scan View (Two Simulators)
 
-Verify that the app can join a conversation by pasting an invite URL in the scan/join view.
+Verify that a conversation created on one device can be joined from a second device by pasting the invite URL in the scan view.
+
+## Requirements
+
+- **Two simulators required.** This test uses Device A (inviter) and Device B (joiner) — both running the Convos app. The CLI must not be used as a substitute for either device.
+- The `invite.url_displayed` QA event is used to extract the invite URL from Device A's logs.
 
 ## Prerequisites
 
-- The app is running and past onboarding.
-- The convos CLI is initialized for the dev environment.
+- Both simulators are booted with the app installed and launched.
+- Device A has at least one conversation (if running after test 03, this is already satisfied).
 
 ## Setup
 
-Use the CLI to create a conversation with a name like "Paste Invite Test" and a profile name for the CLI user.
+Resolve both simulator UDIDs. Throughout this test:
+- **Device A** = the inviter/creator simulator
+- **Device B** = the joiner simulator
 
-Generate an invite for the conversation and capture the invite URL.
+Initialize log markers for both devices.
 
 ## Steps
 
-### Copy the invite URL to the clipboard
+### Create a conversation on Device A
 
-1. Copy the invite URL to the simulator's clipboard. You can do this by running:
-   `xcrun simctl pbcopy booted` and piping the invite URL to it.
+1. On Device A, tap the compose button to create a new conversation.
+2. Wait for the QR code to appear.
+3. Name the conversation "Paste Invite Test" via the Customize flow.
+4. Extract the invite URL from Device A's logs:
+   ```bash
+   LOG=$(find ~/Library/Developer/CoreSimulator/Devices/$DEVICE_A_UDID/data/Containers/Shared/AppGroup -name "convos.log" -print -quit)
+   INVITE_URL=$(grep "invite.url_displayed" "$LOG" | tail -1 | grep -o 'url=https://[^ ]*' | sed 's/url=//')
+   ```
 
-### Open the scan view and paste
+### Copy the invite URL to Device B's clipboard
 
-2. From the conversations list, tap the scan button in the bottom toolbar.
-3. The scan/join view should appear with a camera viewfinder and a paste button in the top-right corner.
-4. Tap the paste button (clipboard icon, accessibility identifier "paste-invite-button").
-5. The app should process the pasted invite and begin the join flow.
+5. Write the invite URL to Device B's pasteboard:
+   ```bash
+   echo -n "$INVITE_URL" | xcrun simctl pbcopy $DEVICE_B_UDID
+   ```
 
-### Process the join request
+### Open the scan view on Device B and paste
 
-6. From the CLI, process the join request for the conversation using watch mode with a timeout.
-7. Wait for the join to be processed.
+6. On Device B, navigate to the home screen (conversations list).
+7. Tap the scan button in the bottom toolbar (accessibility identifier: `scan-button`).
+8. The scan/join view should appear.
+9. Tap the paste button (accessibility identifier: `paste-invite-button`).
+10. The app should process the pasted invite and begin the join flow.
 
-### Verify the app is in the conversation
+### Verify Device B joins the conversation
 
-8. The app should transition into the conversation view. Conversations should appear **instantly** after the join request is processed — there is no expected delay. If the conversation does not appear within a few seconds of the CLI confirming the join was processed, that is a bug.
-9. Verify the conversation name matches what was set in setup.
+11. Wait for Device B to show either:
+    - The "Verifying" state, followed by transition to the conversation view, or
+    - The conversation view directly (if Device A processes the join request quickly).
+12. Verify the conversation toolbar shows "Paste Invite Test" and "2 members".
+13. Verify "You joined as Somebody" or similar join message appears.
 
-### Exchange a message to confirm
+### Exchange messages between devices
 
-10. Send a message from the CLI and verify it appears in the app.
-11. Send a reply from the app and verify it appears via CLI.
+14. On Device B, send "Hello via paste!".
+15. On Device A, verify the message appears.
+16. On Device A, reply with "Paste reply!".
+17. On Device B, verify the reply appears.
 
 ## Teardown
 
-Explode the conversation via CLI.
+Navigate both devices back to the home screen.
 
 ## Pass/Fail Criteria
 
 - [ ] Scan view opens from the conversations list
 - [ ] Paste button is present and tappable
 - [ ] Pasting a valid invite URL triggers the join flow
-- [ ] Join request is sent and can be processed by the CLI
-- [ ] App enters the conversation after joining
-- [ ] Messages can be exchanged after joining
+- [ ] Device A auto-processes the join request (no CLI needed)
+- [ ] Device B enters the conversation with correct name and member count
+- [ ] Two-way messaging works between Device A and Device B
