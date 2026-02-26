@@ -31,6 +31,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
 
+    private let deferredAssetRecoveryQueue: DeferredAssetRecoveryQueue = DeferredAssetRecoveryQueue()
+    private var deferredAssetRecoveryProcessingTask: Task<Void, Never>?
+
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let environment: AppEnvironment
@@ -112,7 +115,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
+                let recoveryHandler = ExpiredAssetRecoveryHandler(
+                    databaseWriter: self.databaseWriter,
+                    imageCache: ImageCacheContainer.shared,
+                    onRecoveryDeferred: { [weak self] asset in
+                        guard let self else { return }
+                        await self.enqueueDeferredAssetRecovery(asset)
+                    }
+                )
                 let renewalManager = AssetRenewalManager(
                     databaseWriter: self.databaseWriter,
                     apiClient: self.apiClient,
@@ -128,6 +138,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         unusedInboxPrepTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
+        deferredAssetRecoveryProcessingTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -144,6 +155,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for await _ in foregroundNotifications {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
+                await self.scheduleDeferredAssetRecoveryProcessingIfNeeded()
             }
         }
 
@@ -525,6 +537,47 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         } catch {
             Log.error("Failed to look up inboxId for conversationId \(conversationId): \(error)")
             return nil
+        }
+    }
+
+    private func enqueueDeferredAssetRecovery(_ asset: RenewableAsset) async {
+        await deferredAssetRecoveryQueue.enqueue(asset)
+        await scheduleDeferredAssetRecoveryProcessingIfNeeded()
+    }
+
+    private func scheduleDeferredAssetRecoveryProcessingIfNeeded() async {
+        guard deferredAssetRecoveryProcessingTask == nil else { return }
+
+        let queuedCount = await deferredAssetRecoveryQueue.count
+        guard queuedCount > 0 else { return }
+
+        deferredAssetRecoveryProcessingTask = Task(priority: .utility) { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            await self.processDeferredAssetRecoveries()
+            self.deferredAssetRecoveryProcessingTask = nil
+        }
+    }
+
+    private func processDeferredAssetRecoveries() async {
+        let queuedAssets = await deferredAssetRecoveryQueue.drain()
+        guard !queuedAssets.isEmpty else { return }
+
+        Log.info("Processing \(queuedAssets.count) deferred asset recovery item(s)")
+
+        for asset in queuedAssets {
+            guard !Task.isCancelled else { return }
+
+            do {
+                let didRecover = try await forceReuploadAssetFromCache(asset)
+
+                guard !didRecover else { continue }
+
+                let clearOnlyRecoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
+                await clearOnlyRecoveryHandler.handleExpiredAsset(asset)
+            } catch {
+                Log.warning("Deferred asset recovery failed for \(asset.url), re-queuing: \(error.localizedDescription)")
+                await deferredAssetRecoveryQueue.enqueue(asset)
+            }
         }
     }
 

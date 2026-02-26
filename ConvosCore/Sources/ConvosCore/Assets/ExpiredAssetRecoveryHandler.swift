@@ -6,72 +6,87 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
     private let imageCache: (any ImageCacheProtocol)?
     private let myProfileWriter: (any MyProfileWriterProtocol)?
     private let conversationMetadataWriter: (any ConversationMetadataWriterProtocol)?
+    private let onRecoveryDeferred: (@Sendable (RenewableAsset) async -> Void)?
 
     public init(
         databaseWriter: any DatabaseWriter,
         imageCache: (any ImageCacheProtocol)? = nil,
         myProfileWriter: (any MyProfileWriterProtocol)? = nil,
-        conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil
+        conversationMetadataWriter: (any ConversationMetadataWriterProtocol)? = nil,
+        onRecoveryDeferred: (@Sendable (RenewableAsset) async -> Void)? = nil
     ) {
         self.databaseWriter = databaseWriter
         self.imageCache = imageCache
         self.myProfileWriter = myProfileWriter
         self.conversationMetadataWriter = conversationMetadataWriter
+        self.onRecoveryDeferred = onRecoveryDeferred
     }
 
     public func handleExpiredAsset(_ asset: RenewableAsset) async {
-        // Try to recover from cache first
-        if await attemptRecoveryFromCache(asset) {
-            return
-        }
+        let outcome = await attemptRecoveryFromCache(asset)
 
-        // Fall back to clearing the URL
+        switch outcome {
+        case .recovered:
+            return
+        case .deferred:
+            guard let onRecoveryDeferred else {
+                Log.warning("Asset recovery deferred but no deferred handler configured: \(asset.url)")
+                await clearExpiredAsset(asset)
+                return
+            }
+            await onRecoveryDeferred(asset)
+        case .notRecoverable:
+            await clearExpiredAsset(asset)
+        }
+    }
+
+    private func clearExpiredAsset(_ asset: RenewableAsset) async {
         Log.warning("Asset expired and cannot be recovered: \(asset.url) - clearing URL")
         await clearAssetUrl(asset)
     }
 
-    private func attemptRecoveryFromCache(_ asset: RenewableAsset) async -> Bool {
+    private func attemptRecoveryFromCache(_ asset: RenewableAsset) async -> RecoveryOutcome {
         guard let imageCache else {
             Log.info("No image cache available for recovery")
-            return false
+            return .notRecoverable
         }
 
         // Try to get image from cache using the URL string as identifier
         guard let cachedImage = imageCache.image(for: asset.url) else {
             Log.info("Image not found in cache for \(asset.url)")
-            return false
+            return .notRecoverable
         }
 
         do {
             switch asset {
             case let .profileAvatar(_, conversationId, _, _):
                 guard let myProfileWriter else {
-                    Log.info("No profile writer available for recovery")
-                    return false
+                    Log.info("Deferring profile avatar recovery until writer is available")
+                    return .deferred
                 }
 
                 try await myProfileWriter.update(avatar: cachedImage, conversationId: conversationId)
                 Log.info("Auto-recovered profile avatar for conversation \(conversationId)")
-                return true
+                return .recovered
 
             case let .groupImage(_, conversationId, _):
                 guard let conversationMetadataWriter else {
-                    Log.info("No conversation metadata writer available for recovery")
-                    return false
+                    Log.info("Deferring group image recovery until writer is available")
+                    return .deferred
                 }
 
                 guard let conversation = try await fetchConversation(id: conversationId) else {
                     Log.warning("Cannot recover group image - conversation not found: \(conversationId)")
-                    return false
+                    return .notRecoverable
                 }
 
                 try await conversationMetadataWriter.updateImage(cachedImage, for: conversation)
                 Log.info("Auto-recovered group image for conversation \(conversationId)")
-                return true
+                return .recovered
             }
         } catch {
             Log.error("Failed to recover asset from cache: \(error.localizedDescription)")
-            return false
+            return .notRecoverable
         }
     }
 
@@ -123,5 +138,11 @@ public struct ExpiredAssetRecoveryHandler: @unchecked Sendable {
         } catch {
             Log.error("Failed to clear asset URL: \(error.localizedDescription)")
         }
+    }
+
+    private enum RecoveryOutcome {
+        case recovered
+        case deferred
+        case notRecoverable
     }
 }
