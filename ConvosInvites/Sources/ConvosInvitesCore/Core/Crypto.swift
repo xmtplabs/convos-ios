@@ -87,4 +87,43 @@ extension Data {
     func toHexString() -> String {
         map { String(format: "%02x", $0) }.joined()
     }
+
+    /// Derive an uncompressed secp256k1 public key from a 32-byte private key
+    package static func derivePublicKey(from privateKey: Data) throws -> Data {
+        guard privateKey.count == 32 else {
+            throw InviteSignatureError.invalidPrivateKey
+        }
+
+        guard let ctx = secp256k1_context_create(
+            UInt32(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY)
+        ) else {
+            throw InviteSignatureError.invalidContext
+        }
+
+        defer { secp256k1_context_destroy(ctx) }
+
+        var pubkey = secp256k1_pubkey()
+
+        let result = privateKey.withUnsafeBytes { keyBuffer -> Int32 in
+            guard let ptr = keyBuffer.bindMemory(to: UInt8.self).baseAddress else { return 0 }
+            return secp256k1_ec_pubkey_create(ctx, &pubkey, ptr)
+        }
+
+        guard result == 1 else {
+            throw InviteSignatureError.invalidPrivateKey
+        }
+
+        let outputPtr = UnsafeMutablePointer<UInt8>.allocate(capacity: 65)
+        defer { outputPtr.deallocate() }
+
+        var outputLen: Int = 65
+        guard secp256k1_ec_pubkey_serialize(
+            ctx, outputPtr, &outputLen, &pubkey,
+            UInt32(SECP256K1_EC_UNCOMPRESSED)
+        ) == 1 else {
+            throw InviteSignatureError.invalidPublicKey
+        }
+
+        return Data(bytes: outputPtr, count: outputLen)
+    }
 }
