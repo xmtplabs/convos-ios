@@ -51,17 +51,20 @@ public struct ProtobufInviteTagStorage: InviteTagStorageProtocol {
     }
 
     public func regenerateInviteTag(for group: XMTPiOS.Group) async throws -> String {
-        let newTag = generateRandomTag()
+        let newTag = try generateRandomTag()
         try await setInviteTag(newTag, for: group)
         return newTag
     }
 
     // MARK: - Private Helpers
 
-    private func generateRandomTag() -> String {
+    private func generateRandomTag() throws -> String {
         let characters: [Character] = Array("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
         var randomBytes: [UInt8] = [UInt8](repeating: 0, count: Self.tagLength)
-        _ = SecRandomCopyBytes(kSecRandomDefault, Self.tagLength, &randomBytes)
+        let result = SecRandomCopyBytes(kSecRandomDefault, Self.tagLength, &randomBytes)
+        guard result == errSecSuccess else {
+            throw InviteTagStorageError.randomGenerationFailed
+        }
         return String(randomBytes.map { characters[Int($0) % characters.count] })
     }
 }
@@ -71,6 +74,7 @@ public struct ProtobufInviteTagStorage: InviteTagStorageProtocol {
 public enum InviteTagStorageError: Error, LocalizedError {
     case tagNotFound
     case encodingFailed
+    case randomGenerationFailed
 
     public var errorDescription: String? {
         switch self {
@@ -78,6 +82,8 @@ public enum InviteTagStorageError: Error, LocalizedError {
             return "Invite tag not found in group metadata"
         case .encodingFailed:
             return "Failed to encode invite tag data"
+        case .randomGenerationFailed:
+            return "SecRandomCopyBytes failed to generate random bytes"
         }
     }
 }
