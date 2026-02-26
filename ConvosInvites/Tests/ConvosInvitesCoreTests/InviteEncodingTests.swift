@@ -138,4 +138,74 @@ struct InviteEncodingTests {
 
         #expect(signedInvite.hasExpired == true)
     }
+
+    @Test("createSlug produces valid decodable invite")
+    func createSlugRoundtrip() throws {
+        let inboxId = Data(repeating: 0xAB, count: 32).toHexString()
+        let slug = try SignedInvite.createSlug(
+            conversationId: "test-convo-123",
+            creatorInboxId: inboxId,
+            privateKey: testPrivateKey,
+            tag: "my-tag"
+        )
+
+        let decoded = try SignedInvite.fromURLSafeSlug(slug)
+        #expect(decoded.invitePayload.tag == "my-tag")
+        #expect(decoded.invitePayload.creatorInboxIdString == inboxId)
+
+        let recoveredId = try InviteToken.decrypt(
+            tokenBytes: decoded.invitePayload.conversationToken,
+            creatorInboxId: inboxId,
+            privateKey: testPrivateKey
+        )
+        #expect(recoveredId == "test-convo-123")
+    }
+
+    @Test("createSlug with options includes public preview")
+    func createSlugWithOptions() throws {
+        let inboxId = Data(repeating: 0xAB, count: 32).toHexString()
+        let expiry = Date(timeIntervalSince1970: 2_000_000_000)
+        let slug = try SignedInvite.createSlug(
+            conversationId: "group-456",
+            creatorInboxId: inboxId,
+            privateKey: testPrivateKey,
+            tag: "tagged",
+            options: InviteSlugOptions(
+                name: "My Group",
+                description: "A test group",
+                imageURL: "https://example.com/img.png",
+                expiresAt: expiry,
+                expiresAfterUse: true,
+                conversationExpiresAt: Date(timeIntervalSince1970: 2_100_000_000)
+            )
+        )
+
+        let decoded = try SignedInvite.fromURLSafeSlug(slug)
+        #expect(decoded.name == "My Group")
+        #expect(decoded.description_p == "A test group")
+        #expect(decoded.imageURL == "https://example.com/img.png")
+        #expect(decoded.expiresAfterUse == true)
+        #expect(decoded.expiresAt == expiry)
+        #expect(decoded.conversationExpiresAt == Date(timeIntervalSince1970: 2_100_000_000))
+    }
+
+    @Test("createSlug without public preview omits name/description/image")
+    func createSlugNoPreview() throws {
+        let inboxId = Data(repeating: 0xAB, count: 32).toHexString()
+        let slug = try SignedInvite.createSlug(
+            conversationId: "private-group",
+            creatorInboxId: inboxId,
+            privateKey: testPrivateKey,
+            tag: "secret",
+            options: InviteSlugOptions(
+                name: "Should Not Appear",
+                includePublicPreview: false
+            )
+        )
+
+        let decoded = try SignedInvite.fromURLSafeSlug(slug)
+        #expect(decoded.name == nil)
+        #expect(decoded.description_p == nil)
+        #expect(decoded.imageURL == nil)
+    }
 }
