@@ -24,7 +24,21 @@ case "$TEST_TYPE" in
     --unit)
         echo "==> Running unit tests (no backend required)"
         echo ""
+
+        echo "==> Running ConvosCore unit tests..."
         swift test --filter "Base64URL|DataHex|Compression|Custom Metadata" 2>&1 | filter_xmtp_logs
+
+        echo ""
+        echo "==> Running ConvosAppData tests..."
+        swift test --package-path "$REPO_ROOT/ConvosAppData" 2>&1 | filter_xmtp_logs
+
+        echo ""
+        echo "==> Running ConvosInvites tests..."
+        swift test --package-path "$REPO_ROOT/ConvosInvites" 2>&1 | filter_xmtp_logs
+
+        echo ""
+        echo "==> Running ConvosProfiles tests..."
+        swift test --package-path "$REPO_ROOT/ConvosProfiles" 2>&1 | filter_xmtp_logs
         ;;
     --integration)
         echo "==> Running integration tests"
