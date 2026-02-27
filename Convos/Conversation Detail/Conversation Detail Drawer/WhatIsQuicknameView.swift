@@ -4,6 +4,7 @@ struct WhatIsQuicknameView: View {
     let onContinue: () -> Void
 
     @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
@@ -58,6 +59,7 @@ struct WhatIsQuicknameView: View {
             .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
     }
 }
 
