@@ -17,7 +17,7 @@ struct ConversationShareOverlay: View {
     private static let headerHeight: CGFloat = 40.0
     private static let cardPadding: CGFloat = 40.0
     private static let maxQRSize: CGFloat = 220.0
-    private static let shareSheetFraction: CGFloat = 0.45
+    private static let shareSheetFraction: CGFloat = 0.55
 
     private var qrDisplaySize: CGFloat {
         let screenHeight = UIScreen.main.bounds.height
@@ -187,11 +187,11 @@ private struct ShareSheetPresenter: UIViewControllerRepresentable {
                 popover.sourceView = uiViewController.view
                 popover.sourceRect = CGRect(
                     x: uiViewController.view.bounds.midX,
-                    y: uiViewController.view.bounds.midY,
+                    y: uiViewController.view.bounds.maxY,
                     width: 0,
                     height: 0
                 )
-                popover.permittedArrowDirections = []
+                popover.permittedArrowDirections = .up
             }
 
             activityVC.completionWithItemsHandler = { _, _, _, _ in
