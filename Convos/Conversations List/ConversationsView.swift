@@ -13,32 +13,7 @@ struct ConversationsView: View {
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var conversationPendingDeletion: Conversation?
     @State private var conversationPendingExplosion: Conversation?
-    @State private var scrollOffset: CGFloat = 0
-    @State private var pinnedSectionHeight: CGFloat = 0
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
-
-    private var pinnedSectionOffset: CGFloat {
-        guard pinnedSectionHeight > 0 else { return 0 }
-
-        // With adjusted scroll offset (accounting for safe area):
-        // - At rest with spacer: scrollOffset ≈ -pinnedSectionHeight
-        // - Calculate movement relative to natural position
-        return -scrollOffset
-    }
-
-    private var pinnedSectionProgress: CGFloat {
-        guard pinnedSectionHeight > 0 else { return 0 }
-        let progress = min(max(-pinnedSectionOffset / pinnedSectionHeight, 0), 1)
-        return progress * progress
-    }
-
-    private var pinnedSectionScale: CGFloat {
-        1.0 - (pinnedSectionProgress * 0.15)
-    }
-
-    private var pinnedSectionOpacity: Double {
-        1.0 - (pinnedSectionProgress * 0.5)
-    }
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
@@ -69,141 +44,36 @@ struct ConversationsView: View {
         .padding(.top, DesignConstants.Spacing.step6x)
     }
 
-    var conversationsList: some View {
-        List(selection: $viewModel.selectedConversationId) {
-            if !viewModel.pinnedConversations.isEmpty {
-                Color.clear.frame(height: pinnedSectionHeight)
-                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .listRowSeparator(.hidden)
-            }
-
-            if viewModel.isFilteredResultEmpty {
-                filteredEmptyStateView
-                    .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
-                    .listRowSeparator(.hidden)
-                    .listRowBackground(Color.clear)
-            }
-
-            ForEach(viewModel.unpinnedConversations, id: \.id) { conversation in
-                let isFirstAndOnly = viewModel.unpinnedConversations.first == conversation &&
-                                     viewModel.unpinnedConversations.count == 1
-                let shouldShowEmptyCTA = isFirstAndOnly &&
-                                         !viewModel.hasCreatedMoreThanOneConvo &&
-                                         horizontalSizeClass == .compact
-
-                if shouldShowEmptyCTA {
-                    emptyConversationsView
-                        .listRowInsets(.init(top: 0, leading: 0, bottom: 0, trailing: 0))
-                        .listRowSeparator(.hidden)
-                }
-
-                conversationListItem(conversation)
-            }
-        }
-        .listStyle(.plain)
-        .onScrollGeometryChange(for: CGFloat.self) { geometry in
-            geometry.contentOffset.y + geometry.contentInsets.top
-        } action: { _, newValue in
-            withAnimation(.interactiveSpring) {
-                scrollOffset = newValue
-            }
-        }
-    }
-
-    @ViewBuilder
-    func conversationListItem(_ conversation: Conversation) -> some View {
-        ConversationsListItem(conversation: conversation)
-            .background(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-                    .fill(.colorBackgroundSurfaceless)
-            )
-            .contentShape(
-                .contextMenuPreview,
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-            )
-            .contextMenu {
-                conversationContextMenuContent(
-                    conversation: conversation,
-                    viewModel: viewModel,
-                    onExplode: { conversationPendingExplosion = conversation },
-                    onDelete: { conversationPendingDeletion = conversation }
-                )
-            }
-            .swipeActions(edge: .leading, allowsFullSwipe: false) {
-                let deleteAction = { conversationPendingDeletion = conversation }
-                Button(action: deleteAction) {
-                    Image(systemName: "trash")
-                }
-                .tint(.colorCaution)
-                .accessibilityLabel("Delete conversation")
-
-                if !conversation.isPendingInvite && conversation.creator.isCurrentUser {
-                    let explodeAction = { conversationPendingExplosion = conversation }
-                    let iconColor: Color = colorScheme == .dark ? .black : .white
-                    Button(action: explodeAction) {
-                        Image(systemName: "burst")
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(iconColor)
-                            .font(.system(size: 20))
-                    }
-                    .tint(.colorBackgroundInverted)
-                    .accessibilityLabel("Explode conversation")
-                }
-            }
-            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                if !conversation.isPendingInvite {
-                    let toggleReadAction = { viewModel.toggleReadState(conversation: conversation) }
-                    let readIconColor: Color = colorScheme == .dark ? .black : .white
-                    Button(action: toggleReadAction) {
-                        Image(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
-                            .symbolRenderingMode(.palette)
-                            .foregroundStyle(readIconColor, readIconColor)
-                    }
-                    .tint(.colorBackgroundInverted)
-                    .accessibilityLabel(conversation.isUnread ? "Mark as read" : "Mark as unread")
-
-                    let toggleMuteAction = { viewModel.toggleMute(conversation: conversation) }
-                    Button(action: toggleMuteAction) {
-                        Image(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
-                    }
-                    .tint(.colorPurpleMute)
-                    .accessibilityLabel(conversation.isMuted ? "Unmute" : "Mute")
-                }
-            }
-            .confirmationDialog(
-                "This convo will be deleted immediately.",
-                isPresented: Binding(
-                    get: { conversationPendingDeletion?.id == conversation.id },
-                    set: { if !$0 { conversationPendingDeletion = nil } }
-                ),
-                titleVisibility: .visible
-            ) {
-                Button("Delete", role: .destructive) {
-                    viewModel.leave(conversation: conversation)
-                    conversationPendingDeletion = nil
-                }
-                Button("Cancel", role: .cancel) {
-                    conversationPendingDeletion = nil
-                }
-            }
-            .listRowSeparator(.hidden)
-            .listRowBackground(
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-                    .fill(
-                        conversation.id == viewModel.selectedConversationId ||
-                        conversationPendingDeletion?.id == conversation.id
-                        ? .colorFillMinimal : .clear
-                    )
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-            )
-            .listRowInsets(
-                .init(
-                    top: 0,
-                    leading: 0,
-                    bottom: 0,
-                    trailing: 0
-                )
-            )
+    var conversationsCollectionView: some View {
+        ConversationsViewRepresentable(
+            pinnedConversations: viewModel.pinnedConversations,
+            unpinnedConversations: viewModel.unpinnedConversations,
+            selectedConversationId: viewModel.selectedConversationId,
+            isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
+            filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
+            hasCreatedMoreThanOneConvo: viewModel.hasCreatedMoreThanOneConvo,
+            onSelectConversation: { conversation in
+                viewModel.selectedConversationId = conversation.id
+            },
+            onDeleteConversation: { conversation in
+                conversationPendingDeletion = conversation
+            },
+            onExplodeConversation: { conversation in
+                conversationPendingExplosion = conversation
+            },
+            onToggleMute: { conversation in
+                viewModel.toggleMute(conversation: conversation)
+            },
+            onToggleReadState: { conversation in
+                viewModel.toggleReadState(conversation: conversation)
+            },
+            onTogglePin: { conversation in
+                viewModel.togglePin(conversation: conversation)
+            },
+            onStartConvo: viewModel.onStartConvo,
+            onJoinConvo: viewModel.onJoinConvo,
+            onShowAllFilter: { viewModel.activeFilter = .all }
+        )
     }
 
     var body: some View {
@@ -214,44 +84,15 @@ struct ConversationsView: View {
             sidebarColumnWidth: $sidebarWidth
         ) { focusState, coordinator in
             NavigationSplitView(preferredCompactColumn: $preferredColumn) {
-                ZStack(alignment: .top) {
-                    Group {
-                        if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
-                            emptyConversationsViewScrollable
-                        } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
-                            ScrollView {
-                                filteredEmptyStateView
-                            }
-                        } else {
-                            conversationsList
+                Group {
+                    if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
+                        emptyConversationsViewScrollable
+                    } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
+                        ScrollView {
+                            filteredEmptyStateView
                         }
-                    }
-
-                    if !viewModel.pinnedConversations.isEmpty {
-                        PinnedConversationsSection(
-                            pinnedConversations: viewModel.pinnedConversations,
-                            viewModel: viewModel,
-                            conversationPendingDeletion: $conversationPendingDeletion,
-                            conversationPendingExplosion: $conversationPendingExplosion,
-                            onSelectConversation: { conversation in
-                                viewModel.selectedConversationId = conversation.id
-                            }
-                        )
-                        .padding(.vertical, DesignConstants.Spacing.step3x)
-                        .onGeometryChange(for: CGFloat.self) { geometry in
-                            geometry.size.height
-                        } action: { oldHeight, newHeight in
-                            guard oldHeight != 0 else {
-                                pinnedSectionHeight = newHeight
-                                return
-                            }
-                            withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) {
-                                pinnedSectionHeight = newHeight
-                            }
-                        }
-                        .scaleEffect(pinnedSectionScale)
-                        .opacity(pinnedSectionOpacity)
-                        .offset(y: pinnedSectionOffset)
+                    } else {
+                        conversationsCollectionView
                     }
                 }
                 .onGeometryChange(for: CGSize.self) {
@@ -395,6 +236,11 @@ struct ConversationsView: View {
                 guard let newState, case .exploded = newState else { return }
                 viewModel.selectedConversationId = nil
                 preferredColumn = .sidebar
+            }
+            .onChange(of: preferredColumn) { _, newColumn in
+                if newColumn == .sidebar && horizontalSizeClass == .compact {
+                    viewModel.selectedConversationId = nil
+                }
             }
         }
         .focusable(false)
