@@ -17,7 +17,7 @@ struct ConversationShareOverlay: View {
     private static let headerHeight: CGFloat = 40.0
     private static let cardPadding: CGFloat = 40.0
     private static let maxQRSize: CGFloat = 220.0
-    private static let shareSheetFraction: CGFloat = 0.45
+    private static let shareSheetFraction: CGFloat = 0.55
 
     private var qrDisplaySize: CGFloat {
         let screenHeight = UIScreen.main.bounds.height
