@@ -248,7 +248,8 @@ private struct AttachmentPlaceholder: View {
                 photoContent(image: image)
                     .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
                     .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-                    .frame(maxWidth: .infinity, alignment: isRegularWidth ? .center : .leading)
+                    .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
+                    .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
             } else if isLoading {
                 loadingPlaceholder
             } else {
@@ -346,7 +347,8 @@ private struct AttachmentPlaceholder: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
             .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-            .frame(maxWidth: .infinity, alignment: isRegularWidth ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
+            .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
     }
 
     private var errorPlaceholder: some View {
@@ -365,7 +367,8 @@ private struct AttachmentPlaceholder: View {
             }
             .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
             .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-            .frame(maxWidth: .infinity, alignment: isRegularWidth ? .center : .leading)
+            .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
+            .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
     }
 }
 
