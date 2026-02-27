@@ -72,11 +72,11 @@ private struct ActivityViewController: UIViewControllerRepresentable {
                 popover.sourceView = uiViewController.view
                 popover.sourceRect = CGRect(
                     x: uiViewController.view.bounds.midX,
-                    y: uiViewController.view.bounds.midY,
+                    y: uiViewController.view.bounds.maxY,
                     width: 0,
                     height: 0
                 )
-                popover.permittedArrowDirections = []
+                popover.permittedArrowDirections = .up
             }
 
             activityVC.completionWithItemsHandler = { _, _, _, _ in
