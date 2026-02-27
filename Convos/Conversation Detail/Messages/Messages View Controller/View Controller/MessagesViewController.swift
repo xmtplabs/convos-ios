@@ -64,6 +64,7 @@ final class MessagesViewController: UIViewController {
     }
 
     private var isFirstStateUpdate: Bool = true
+    private var hasPendingInterrupt: Bool = false
     private var previousLastMessageId: String?
     private var previousFocusState: MessagesViewInputFocus?
 
@@ -646,12 +647,18 @@ extension MessagesViewController: UIScrollViewDelegate, UICollectionViewDelegate
     }
 
     private func interruptCurrentUpdateAnimation() {
-        UIView.performWithoutAnimation {
-            self.collectionView.performBatchUpdates({}, completion: { _ in
-                let context = MessagesLayoutInvalidationContext()
-                context.invalidateLayoutMetrics = false
-                self.collectionView.collectionViewLayout.invalidateLayout(with: context)
-            })
+        guard !hasPendingInterrupt else { return }
+        hasPendingInterrupt = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.hasPendingInterrupt = false
+            UIView.performWithoutAnimation {
+                self.collectionView.performBatchUpdates({}, completion: { _ in
+                    let context = MessagesLayoutInvalidationContext()
+                    context.invalidateLayoutMetrics = false
+                    self.collectionView.collectionViewLayout.invalidateLayout(with: context)
+                })
+            }
         }
     }
 
