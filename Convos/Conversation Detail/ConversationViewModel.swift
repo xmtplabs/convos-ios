@@ -206,8 +206,12 @@ class ConversationViewModel {
     var canToggleLock: Bool {
         isCurrentUserSuperAdmin
     }
+    var pendingInviteCode: String?
+    var pendingInviteURL: String?
+    private var pendingInviteRange: Range<String.Index>?
+
     var sendButtonEnabled: Bool {
-        !messageText.isEmpty || selectedAttachmentImage != nil
+        !messageText.isEmpty || selectedAttachmentImage != nil || pendingInviteCode != nil
     }
     private(set) var isSendingPhoto: Bool = false
     var explodeState: ExplodeState = .ready
@@ -654,8 +658,9 @@ extension ConversationViewModel {
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         let hasText = !messageText.isEmpty
         let hasAttachment = selectedAttachmentImage != nil
+        let hasInvite = pendingInviteCode != nil
 
-        guard hasText || hasAttachment else { return }
+        guard hasText || hasAttachment || hasInvite else { return }
 
         onboardingCoordinator.skipAddQuickname()
 
@@ -663,11 +668,15 @@ extension ConversationViewModel {
         let replyTarget = replyingToMessage
         let prevAttachmentImage = selectedAttachmentImage
         let eagerUploadKey = currentEagerUploadKey
+        let prevInviteURL = pendingInviteURL
 
         messageText = ""
         replyingToMessage = nil
         selectedAttachmentImage = nil
         currentEagerUploadKey = nil
+        pendingInviteCode = nil
+        pendingInviteURL = nil
+        pendingInviteRange = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
         let messageWriter = cachedMessageWriter
@@ -700,6 +709,11 @@ extension ConversationViewModel {
                     }
                 } else {
                     photoTrackingKey = nil
+                }
+
+                // Send invite URL FIRST (renders as invite preview)
+                if let inviteURL = prevInviteURL {
+                    try await messageWriter.send(text: inviteURL, afterPhoto: nil)
                 }
 
                 if hasText {
@@ -1188,5 +1202,28 @@ extension UNUserNotificationCenter {
             trigger: trigger
         )
         try? await add(request)
+    }
+}
+
+// MARK: - Invite URL Detection
+
+extension ConversationViewModel {
+    /// Checks message text for invite URLs and extracts them as pending attachments
+    func checkForInviteURL() {
+        guard pendingInviteCode == nil else { return }
+
+        if let result = InviteURLDetector.detectInviteURL(in: messageText) {
+            pendingInviteCode = result.code
+            pendingInviteURL = result.fullURL
+            pendingInviteRange = result.range
+            messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
+        }
+    }
+
+    /// Clears the pending invite attachment
+    func clearPendingInvite() {
+        pendingInviteCode = nil
+        pendingInviteURL = nil
+        pendingInviteRange = nil
     }
 }

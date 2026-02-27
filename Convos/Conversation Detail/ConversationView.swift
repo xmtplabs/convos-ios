@@ -32,6 +32,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
             selectedAttachmentImage: $viewModel.selectedAttachmentImage,
+            pendingInviteCode: $viewModel.pendingInviteCode,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -49,6 +50,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onSendMessage: {
                 viewModel.onSendMessage(focusCoordinator: focusCoordinator)
             },
+            onClearInvite: viewModel.clearPendingInvite,
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onReaction: viewModel.onReaction(emoji:messageId:),
@@ -97,6 +99,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             } else if oldValue != nil {
                 viewModel.onPhotoRemoved()
             }
+        }
+        .onChange(of: viewModel.messageText) { _, _ in
+            viewModel.checkForInviteURL()
         }
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)

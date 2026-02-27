@@ -298,7 +298,7 @@ private struct ReplyReferenceInvitePreview: View {
         if let name = invite.conversationName, !name.isEmpty {
             return "Pop into my convo \"\(name)\""
         }
-        return "Pop into my convo before it explodes"
+        return "Pop into my convo"
     }
 
     private var description: String {
@@ -316,7 +316,7 @@ private struct ReplyReferenceInvitePreview: View {
                         .resizable()
                         .aspectRatio(contentMode: .fill)
                 } else {
-                    Image("convosIconLarge")
+                    Image("convosOrangeIcon")
                         .resizable()
                         .tint(.colorTextPrimaryInverted)
                         .foregroundStyle(.colorTextPrimaryInverted)

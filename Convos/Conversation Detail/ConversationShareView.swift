@@ -10,7 +10,7 @@ struct ConversationShareOverlay: View {
 
     @State private var showCard: Bool = false
     @State private var isShareSheetPresented: Bool = false
-    @State private var conversationImage: Image = Image("convosIcon")
+    @State private var conversationImage: Image = Image("convosOrangeIcon")
     @State private var qrCodeImage: UIImage?
     @Environment(\.displayScale) private var displayScale: CGFloat
 
@@ -109,7 +109,7 @@ struct ConversationShareOverlay: View {
                 Text("Convos code")
                     .kerning(1.0)
 
-                Image("convosIcon")
+                Image("convosOrangeIcon")
                     .renderingMode(.template)
                     .resizable()
                     .frame(width: 14.0, height: 14.0)
