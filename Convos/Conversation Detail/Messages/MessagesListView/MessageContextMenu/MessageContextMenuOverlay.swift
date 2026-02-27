@@ -330,8 +330,9 @@ struct MessageContextMenuOverlay: View {
                             .rotationEffect(.degrees(!drawerExpanded ? -45 : 0))
                     }
                     .buttonStyle(.plain)
-                    .frame(minWidth: readerHeight)
-                    .padding(.trailing, C.plusTrailingPadding)
+                    .contentShape(Rectangle())
+                    .frame(minWidth: readerHeight, minHeight: readerHeight)
+                    .padding(.horizontal, C.plusHorizontalPadding)
                     .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
                     .animation(.spring(response: 0.29, dampingFraction: 0.8), value: selectedEmoji)
                     .animation(.spring(response: 0.29, dampingFraction: 0.7), value: drawerExpanded)
@@ -390,7 +391,9 @@ struct MessageContextMenuOverlay: View {
         if isPhoto {
             let availableHeight: CGFloat = screenSize.height - minY - bottomPadding
             let centeredY: CGFloat = minY + (availableHeight - endHeight) / 2
-            finalX = (screenSize.width - endWidth) / 2
+            finalX = state.isOutgoing
+                ? screenSize.width - endWidth - C.photoHorizontalInset
+                : C.photoHorizontalInset
             finalY = max(centeredY, minY)
         } else {
             finalX = state.isOutgoing ? source.maxX - endWidth : source.minX
@@ -635,7 +638,7 @@ struct MessageContextMenuOverlay: View {
         static let selectedEmojiFrame: CGFloat = 32
         static let faceSmilingFontSize: CGFloat = 28
         static let plusIconFontSize: CGFloat = 24
-        static let plusTrailingPadding: CGFloat = 8
+        static let plusHorizontalPadding: CGFloat = 8
         static let blurRadius: CGFloat = 10
         static let emojiRotation: Double = -15
         static let emojiAppearanceDelayStep: TimeInterval = 0.025
