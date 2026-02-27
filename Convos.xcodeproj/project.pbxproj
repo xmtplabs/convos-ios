@@ -113,9 +113,8 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
-		4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = ConvosTests.xctestplan; sourceTree = "<group>"; };
-		07C257C387FC51B8BB93D4F0 /* QAAutomationServerTest.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServerTest.swift; sourceTree = "<group>"; };
 		36AF7B0709D3785D7AEF4DA4 /* QAAutomationServer.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = QAAutomationServer.swift; sourceTree = "<group>"; };
+		4849302E2F30AB3300841C5F /* ConvosTests.xctestplan */ = {isa = PBXFileReference; lastKnownFileType = text; path = ConvosTests.xctestplan; sourceTree = "<group>"; };
 		7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */ = {isa = PBXFileReference; lastKnownFileType = "wrapper.pb-project"; path = Convos.xcodeproj; sourceTree = "<group>"; };
 		7AC599312E5592F900D65D07 /* KeychainIdentityStoreExample.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = KeychainIdentityStoreExample.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -765,12 +764,12 @@
 			projectDirPath = "";
 			projectReferences = (
 				{
-					ProductGroup = 7A7BB1362DB6FF8E009B8BBF /* Products */;
-					ProjectRef = 7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */;
-				},
-				{
 					ProductGroup = 7A1C3C552DB6F75000B723C0 /* Products */;
 					ProjectRef = 7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */;
+				},
+				{
+					ProductGroup = 7A7BB1362DB6FF8E009B8BBF /* Products */;
+					ProjectRef = 7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */;
 				},
 			);
 			projectRoot = "";

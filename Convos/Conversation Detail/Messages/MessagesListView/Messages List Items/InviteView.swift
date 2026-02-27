@@ -25,6 +25,13 @@ struct InviteView: View {
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("Conversation invite QR code")
         .accessibilityIdentifier("invite-qr-code")
+        .onAppear {
+            if !invite.isEmpty {
+                QAEvent.emit(.invite, "url_displayed", [
+                    "url": invite.inviteURLString,
+                ])
+            }
+        }
     }
 }
 

@@ -1,5 +1,6 @@
+import ConvosAppData
+import ConvosProfiles
 import Foundation
-import SwiftProtobuf
 import XMTPiOS
 
 // swiftlint:disable:next orphaned_doc_comment

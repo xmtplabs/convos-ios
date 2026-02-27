@@ -1,4 +1,6 @@
 import Combine
+import ConvosAppData
+import ConvosProfiles
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS

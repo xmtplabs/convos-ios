@@ -421,6 +421,26 @@ extension UnusedConversationCache {
         do {
             let result = try await service.inboxStateManager.waitForInboxReadyResult()
             let inboxId = result.client.inboxId
+
+            // Verify the conversation was actually created by this inbox (defense against
+            // actor reentrancy race where keychain inbox and conversation get mismatched)
+            let conversationInboxId = try await databaseWriter.read { db in
+                try DBConversation.fetchOne(db, key: conversationId)?.inboxId
+            }
+            if let conversationInboxId, conversationInboxId != inboxId {
+                Log.warning("Unused conversation \(conversationId) belongs to inbox \(conversationInboxId), not \(inboxId) — discarding and creating fresh")
+                await cleanupOrphanedConversation(conversationId: conversationId, databaseWriter: databaseWriter)
+                clearUnusedFromKeychain()
+
+                scheduleBackgroundCreation(
+                    databaseWriter: databaseWriter,
+                    databaseReader: databaseReader,
+                    environment: environment
+                )
+
+                return (service: service, conversationId: nil)
+            }
+
             let identity = try await identityStore.identity(for: inboxId)
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
@@ -825,6 +845,17 @@ extension UnusedConversationCache {
                 databaseWriter: databaseWriter
             )
 
+            // After all async work, verify the service hasn't been swapped out by a consumer.
+            // Actor reentrancy during the await points above can allow consumeOrCreateMessagingService
+            // to take our service, clear keychain, and schedule a new background creation that sets a
+            // different unusedMessagingService. If we save our conversation to keychain now, it would
+            // be paired with the wrong inbox.
+            guard unusedMessagingService === messagingService else {
+                Log.warning("Unused service was consumed during conversation creation, cleaning up orphan: \(conversationId) (expected inbox: \(inboxId))")
+                await cleanupOrphanedConversation(conversationId: conversationId, databaseWriter: databaseWriter)
+                return
+            }
+
             let inviteWriter = InviteWriter(
                 identityStore: identityStore,
                 databaseWriter: databaseWriter
@@ -866,31 +897,37 @@ extension UnusedConversationCache {
             let member = DBMember(inboxId: inboxId)
             try member.save(db, onConflict: .ignore)
 
-            let dbConversation = DBConversation(
-                id: conversationId,
-                inboxId: inboxId,
-                clientId: clientId,
-                clientConversationId: conversationId,
-                inviteTag: inviteTag,
-                creatorId: creatorInboxId,
-                kind: .group,
-                consent: .allowed,
-                createdAt: conversation.createdAt,
-                name: nil,
-                description: nil,
-                imageURLString: nil,
-                publicImageURLString: nil,
-                includeInfoInPublicPreview: false,
-                expiresAt: nil,
-                debugInfo: .empty,
-                isLocked: false,
-                imageSalt: nil,
-                imageNonce: nil,
-                imageEncryptionKey: nil,
-                imageLastRenewed: nil,
-                isUnused: true
-            )
-            try dbConversation.save(db)
+            if let existing = try DBConversation.fetchOne(db, key: conversationId) {
+                let updated = existing.with(isUnused: true)
+                try updated.update(db)
+                Log.debug("Conversation already exists from sync, marked as unused: \(conversationId)")
+            } else {
+                let dbConversation = DBConversation(
+                    id: conversationId,
+                    inboxId: inboxId,
+                    clientId: clientId,
+                    clientConversationId: conversationId,
+                    inviteTag: inviteTag,
+                    creatorId: creatorInboxId,
+                    kind: .group,
+                    consent: .allowed,
+                    createdAt: conversation.createdAt,
+                    name: nil,
+                    description: nil,
+                    imageURLString: nil,
+                    publicImageURLString: nil,
+                    includeInfoInPublicPreview: false,
+                    expiresAt: nil,
+                    debugInfo: .empty,
+                    isLocked: false,
+                    imageSalt: nil,
+                    imageNonce: nil,
+                    imageEncryptionKey: nil,
+                    imageLastRenewed: nil,
+                    isUnused: true
+                )
+                try dbConversation.save(db)
+            }
 
             let conversationMember = DBConversationMember(
                 conversationId: conversationId,

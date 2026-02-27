@@ -1,3 +1,4 @@
+import ConvosProfiles
 import Foundation
 import GRDB
 

@@ -1,3 +1,4 @@
+import ConvosInvites
 import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
@@ -147,8 +148,7 @@ actor SyncingManager: SyncingManagerProtocol {
             notificationCenter: notificationCenter
         )
         self.joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: identityStore,
-            databaseReader: databaseReader
+            identityStore: identityStore
         )
     }
 

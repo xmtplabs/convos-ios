@@ -1,3 +1,4 @@
+import ConvosInvites
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -106,6 +107,8 @@ public protocol ConversationsProvider {
     func findConversation(conversationId: String) async throws
     -> XMTPiOS.Conversation?
 
+    func findOrCreateDm(with peerInboxId: String) async throws -> Dm
+
     func sync() async throws
     func syncAllConversations(consentStates: [ConsentState]?) async throws -> GroupSyncSummary
     func streamAllMessages(
@@ -164,6 +167,9 @@ extension XMTPiOS.Group: GroupConversationSender {
 }
 
 extension XMTPiOS.Conversations: ConversationsProvider {
+    public func findOrCreateDm(with peerInboxId: String) async throws -> Dm {
+        try await findOrCreateDm(with: peerInboxId, disappearingMessageSettings: nil)
+    }
 }
 
 extension XMTPiOS.Client: XMTPClientProvider {

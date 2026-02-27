@@ -1,4 +1,5 @@
 import Combine
+import ConvosProfiles
 import CryptoKit
 import Foundation
 import Observation
