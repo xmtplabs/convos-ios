@@ -18,29 +18,27 @@ struct AddToConversationMenu: View {
 
     var body: some View {
         Menu {
-            Section("Invite members") {
-                Button(action: onConvoCode) {
-                    Text("Convo code")
-                    Text("Show, share or AirDrop it")
-                    Image(systemName: "qrcode")
-                }
-                .accessibilityIdentifier("context-menu-convo-code")
+            Button(action: onCopyLink) {
+                Text("Invite link")
+                Text("Copy to clipboard")
+                Image(systemName: "link")
+            }
+            .accessibilityIdentifier("context-menu-copy-link")
 
-                Button(action: onCopyLink) {
-                    Text("Link")
-                    Text("Copy to clipboard")
-                    Image(systemName: "link")
-                }
-                .accessibilityIdentifier("context-menu-copy-link")
+            Button(action: onConvoCode) {
+                Text("Convo code")
+                Text("Show, share or AirDrop it")
+                Image(systemName: "qrcode")
+            }
+            .accessibilityIdentifier("context-menu-convo-code")
 
-                if isAssistantEnabled {
-                    Button(action: onInviteAssistant) {
-                        Text("Invite an assistant")
-                        Text("To help this group do things")
-                        Image(systemName: "a.circle")
-                    }
-                    .accessibilityIdentifier("context-menu-add-assistant")
+            if isAssistantEnabled {
+                Button(action: onInviteAssistant) {
+                    Text("Instant assistant")
+                    Text("Helps the group do things")
+                    Image(systemName: "a.circle")
                 }
+                .accessibilityIdentifier("context-menu-add-assistant")
             }
         } label: {
             Image(systemName: "plus")
