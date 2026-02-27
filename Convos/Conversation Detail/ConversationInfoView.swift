@@ -442,15 +442,18 @@ struct ConversationInfoView: View {
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
                             isEnabled: true,
-                            onNewAssistant: {
-                                viewModel.requestAssistantJoin()
-                            },
                             onConvoCode: {
                                 if viewModel.isFull {
                                     showingFullInfo = true
                                 } else {
                                     presentingShareView = true
                                 }
+                            },
+                            onCopyLink: {
+                                viewModel.copyInviteLink()
+                            },
+                            onInviteAssistant: {
+                                viewModel.requestAssistantJoin()
                             }
                         )
                         .accessibilityIdentifier("info-add-button")

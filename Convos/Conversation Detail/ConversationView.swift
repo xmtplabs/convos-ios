@@ -140,15 +140,18 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
                             isEnabled: messagesTopBarTrailingItemEnabled,
-                            onNewAssistant: {
-                                viewModel.requestAssistantJoin()
-                            },
                             onConvoCode: {
                                 if viewModel.isFull {
                                     showingFullInfo = true
                                 } else {
                                     viewModel.presentingShareView = true
                                 }
+                            },
+                            onCopyLink: {
+                                viewModel.copyInviteLink()
+                            },
+                            onInviteAssistant: {
+                                viewModel.requestAssistantJoin()
                             }
                         )
                     case .scan:
