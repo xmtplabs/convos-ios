@@ -18,10 +18,10 @@ Verify that a conversation can be created from the app, an invite can be generat
 
 ### Generate and share an invite
 
-5. Look for the share/invite button in the conversation toolbar (the share icon).
-6. Tap the share button to open the invite share view.
-7. The share view should display a QR code and an invite URL.
-8. Copy or note the invite URL from the share view.
+5. Tap the "+" button in the conversation toolbar (accessibility identifier: "add-to-conversation-button"). This opens the "Invite members" menu.
+6. To show the QR code share view, tap "Convo code" (accessibility identifier: "context-menu-convo-code").
+7. To copy the invite link to the clipboard, tap "Link" (accessibility identifier: "context-menu-copy-link").
+8. The share view (if opened) should display a QR code and an invite URL.
 
 ### Join from CLI
 
@@ -43,7 +43,8 @@ Explode the conversation from the app (since the app is the super admin).
 
 - [ ] New conversation can be created from the app
 - [ ] Conversation name is set correctly
-- [ ] Share/invite button opens the invite share view
-- [ ] Invite view shows a QR code and invite URL
+- [ ] "+" button opens the invite members menu
+- [ ] "Convo code" opens the QR code share view
+- [ ] "Link" copies the invite URL to clipboard
 - [ ] CLI can join using the invite URL
 - [ ] Messages can be exchanged between app and CLI after joining
