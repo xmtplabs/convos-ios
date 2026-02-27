@@ -6,16 +6,13 @@ final class FeatureFlags {
 
     var isAssistantEnabled: Bool {
         get {
-            guard !isProductionEnvironment else { return false }
-            return UserDefaults.standard.bool(forKey: Constant.assistantEnabledKey)
+            UserDefaults.standard.object(forKey: Constant.assistantEnabledKey) == nil
+                ? true
+                : UserDefaults.standard.bool(forKey: Constant.assistantEnabledKey)
         }
         set {
             UserDefaults.standard.set(newValue, forKey: Constant.assistantEnabledKey)
         }
-    }
-
-    private var isProductionEnvironment: Bool {
-        ConfigManager.shared.currentEnvironment.isProduction
     }
 
     private enum Constant {
