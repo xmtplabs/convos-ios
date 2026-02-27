@@ -85,7 +85,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                             viewModel.onProfilePhotoTap(focusCoordinator: focusCoordinator)
                         },
                         onUseQuickname: viewModel.onUseQuickname(_:_:),
-                        onRequestAssistant: viewModel.requestAssistantJoin,
                         onPresentProfileSettings: viewModel.onProfileSettings
                     )
                 }
@@ -141,10 +140,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
                             isEnabled: messagesTopBarTrailingItemEnabled,
-                            onNewAssistant: {
-                                viewModel.requestAssistantJoin()
-                                onboardingCoordinator.assistantWasRequested()
-                            },
                             onConvoCode: {
                                 if viewModel.isFull {
                                     showingFullInfo = true
@@ -152,10 +147,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                     viewModel.presentingShareView = true
                                 }
                             },
-                            onMenuOpen: {
-                                if onboardingCoordinator.state == .assistantHint {
-                                    onboardingCoordinator.dismissAssistantHint()
-                                }
+                            onCopyLink: {
+                                viewModel.copyInviteLink()
+                            },
+                            onInviteAssistant: {
+                                viewModel.requestAssistantJoin()
                             }
                         )
                     case .scan:

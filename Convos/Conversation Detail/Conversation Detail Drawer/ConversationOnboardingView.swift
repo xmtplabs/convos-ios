@@ -8,7 +8,6 @@ struct ConversationOnboardingView: View {
     let scrollOverscrollAmount: CGFloat
     let onTapSetupQuickname: () -> Void
     let onUseQuickname: (Profile, UIImage?) -> Void
-    let onRequestAssistant: () -> Void
     let onPresentProfileSettings: () -> Void
 
     private var permissionState: NotificationPermissionState? {
@@ -36,22 +35,6 @@ struct ConversationOnboardingView: View {
             case .idle, .started, .settingUpQuickname, .quicknameLearnMore, .presentingProfileSettings:
                 EmptyView()
 
-            case .assistantHint:
-                AssistantPullUpHintView(
-                    scrollOverscrollAmount: scrollOverscrollAmount,
-                    onRequestAssistant: {
-                        onRequestAssistant()
-                        coordinator.assistantWasRequested()
-                    },
-                    onDismiss: {
-                        coordinator.dismissAssistantHint()
-                    }
-                )
-                .transition(.blurReplace)
-
-            case .assistantRequested:
-                AssistantRequestedView()
-                    .transition(.blurReplace)
             case .setupQuickname:
                 SetupQuicknameView {
                     onTapSetupQuickname()
@@ -161,7 +144,6 @@ struct ConversationOnboardingView: View {
             scrollOverscrollAmount: 0,
             onTapSetupQuickname: {},
             onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-            onRequestAssistant: {},
             onPresentProfileSettings: {}
         )
         .onAppear {
@@ -181,7 +163,6 @@ struct ConversationOnboardingView: View {
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onRequestAssistant: {},
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -200,7 +181,6 @@ struct ConversationOnboardingView: View {
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onRequestAssistant: {},
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -219,7 +199,6 @@ struct ConversationOnboardingView: View {
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onRequestAssistant: {},
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -241,7 +220,6 @@ struct ConversationOnboardingView: View {
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onRequestAssistant: {},
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -260,7 +238,6 @@ struct ConversationOnboardingView: View {
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onRequestAssistant: {},
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -279,7 +256,6 @@ struct ConversationOnboardingView: View {
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onRequestAssistant: {},
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -298,7 +274,6 @@ struct ConversationOnboardingView: View {
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
         onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
-        onRequestAssistant: {},
         onPresentProfileSettings: {}
     )
     .onAppear {

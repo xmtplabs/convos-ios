@@ -840,6 +840,12 @@ extension ConversationViewModel {
         }
     }
 
+    func copyInviteLink() {
+        let urlString = invite.inviteURLString
+        guard !urlString.isEmpty else { return }
+        UIPasteboard.general.string = urlString
+    }
+
     func requestAssistantJoin() {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }

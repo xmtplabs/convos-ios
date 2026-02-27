@@ -3,9 +3,9 @@ import SwiftUI
 struct AddToConversationMenu: View {
     let isFull: Bool
     let isEnabled: Bool
-    let onNewAssistant: () -> Void
     let onConvoCode: () -> Void
-    var onMenuOpen: (() -> Void)?
+    let onCopyLink: () -> Void
+    let onInviteAssistant: () -> Void
 
     private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled }
 
@@ -17,56 +17,30 @@ struct AddToConversationMenu: View {
     }
 
     var body: some View {
-        if isAssistantEnabled {
-            menuView
-        } else {
-            Button(action: onConvoCode) {
-                Image(systemName: "plus")
-                    .foregroundStyle(labelColor)
-            }
-            .disabled(!isEnabled)
-            .accessibilityLabel("Add to conversation")
-            .accessibilityIdentifier("add-to-conversation-button")
-        }
-    }
-
-    private var menuView: some View {
         Menu {
-            Section {
-                EmptyView()
-                    .onAppear { onMenuOpen?() }
-            }
-
-            Section("Invite an AI member") {
-                Button(action: onNewAssistant) {
-                    Text("New Assistant")
-                    Text("How can I help?")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "triangle")
-                }
-                .accessibilityIdentifier("context-menu-add-assistant")
-
-                Button {} label: {
-                    Text("Outside Agent")
-                    Text("Claude, OpenClaw and others")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    Image(systemName: "viewfinder")
-                }
-                .accessibilityIdentifier("context-menu-add-outside-agent")
-                .disabled(true)
-            }
-
-            Section("Invite people") {
+            Section("Invite members") {
                 Button(action: onConvoCode) {
                     Text("Convo code")
-                    Text("Show or send an invitation")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                    Text("Show, share or AirDrop it")
                     Image(systemName: "qrcode")
                 }
                 .accessibilityIdentifier("context-menu-convo-code")
+
+                Button(action: onCopyLink) {
+                    Text("Link")
+                    Text("Copy to clipboard")
+                    Image(systemName: "link")
+                }
+                .accessibilityIdentifier("context-menu-copy-link")
+
+                if isAssistantEnabled {
+                    Button(action: onInviteAssistant) {
+                        Text("Invite an assistant")
+                        Text("To help this group do things")
+                        Image(systemName: "a.circle")
+                    }
+                    .accessibilityIdentifier("context-menu-add-assistant")
+                }
             }
         } label: {
             Image(systemName: "plus")
@@ -86,8 +60,9 @@ struct AddToConversationMenu: View {
                     AddToConversationMenu(
                         isFull: false,
                         isEnabled: true,
-                        onNewAssistant: {},
-                        onConvoCode: {}
+                        onConvoCode: {},
+                        onCopyLink: {},
+                        onInviteAssistant: {}
                     )
                 }
             }
