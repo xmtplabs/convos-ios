@@ -20,6 +20,8 @@ struct ReplyComposerBar: View {
             return "Photo"
         case .invite:
             return "Invite"
+        case .mcpApp(let mcpApp):
+            return String(mcpApp.fallbackText.prefix(50))
         default:
             return ""
         }

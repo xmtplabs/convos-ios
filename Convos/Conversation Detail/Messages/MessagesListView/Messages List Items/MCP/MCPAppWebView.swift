@@ -20,12 +20,6 @@ struct MCPAppWebView: UIViewRepresentable {
         config.preferences.isElementFullscreenEnabled = false
         config.defaultWebpagePreferences.allowsContentJavaScript = true
 
-        let sandboxRules: String = [
-            "allow-scripts",
-            "allow-same-origin"
-        ].joined(separator: " ")
-        config.setValue(sandboxRules, forKey: "sandboxValue")
-
         let webView = WKWebView(frame: .zero, configuration: config)
         webView.navigationDelegate = context.coordinator
         webView.scrollView.isScrollEnabled = false
@@ -41,11 +35,18 @@ struct MCPAppWebView: UIViewRepresentable {
 
         bridge?.attach(to: webView)
 
+        let wrappedHTML = wrapHTMLWithTheme(htmlContent)
+        webView.loadHTMLString(wrappedHTML, baseURL: baseURL)
+        context.coordinator.loadedContentHash = wrappedHTML.hashValue
+
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         let wrappedHTML = wrapHTMLWithTheme(htmlContent)
+        let newHash = wrappedHTML.hashValue
+        guard newHash != context.coordinator.loadedContentHash else { return }
+        context.coordinator.loadedContentHash = newHash
         webView.loadHTMLString(wrappedHTML, baseURL: baseURL)
     }
 
@@ -61,7 +62,6 @@ struct MCPAppWebView: UIViewRepresentable {
         controller.add(coordinator, name: Constant.heightMessageHandler)
 
         let csp = buildCSP()
-        let metaTag = "<meta http-equiv=\"Content-Security-Policy\" content=\"\(csp)\">"
         let cspScript = WKUserScript(
             source: """
                 var meta = document.createElement('meta');
@@ -161,6 +161,7 @@ struct MCPAppWebView: UIViewRepresentable {
 
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         let parent: MCPAppWebView
+        var loadedContentHash: Int = 0
 
         init(parent: MCPAppWebView) {
             self.parent = parent
@@ -186,7 +187,9 @@ struct MCPAppWebView: UIViewRepresentable {
         ) {
             switch navigationAction.navigationType {
             case .linkActivated:
-                if let url = navigationAction.request.url {
+                if let url = navigationAction.request.url,
+                   let scheme = url.scheme,
+                   Constant.allowedSchemes.contains(scheme) {
                     UIApplication.shared.open(url)
                 }
                 decisionHandler(.cancel)
@@ -215,5 +218,6 @@ struct MCPAppWebView: UIViewRepresentable {
 
     private enum Constant {
         static let heightMessageHandler: String = "mcpHeightReport"
+        static let allowedSchemes: Set<String> = ["https", "http"]
     }
 }

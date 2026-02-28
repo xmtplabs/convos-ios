@@ -98,8 +98,7 @@ struct MCPAppBubbleView: View {
 
         if let toolResult = mcpApp.toolResult, let resultData = toolResult.data(using: .utf8),
            let resultDict = try? JSONSerialization.jsonObject(with: resultData) as? [String: Any] {
-            let resultValue = jsonValueFromDict(resultDict)
-            appBridge.sendToolResult(resultValue)
+            appBridge.sendToolResult(JSONValue.from(resultDict))
         }
 
         bridge = appBridge
@@ -107,34 +106,6 @@ struct MCPAppBubbleView: View {
         // Resource fetching will be wired in a future milestone when MCPConnectionManager
         // can resolve ui:// URIs. For now, show fallback.
         loadState = .error
-    }
-
-    private func jsonValueFromDict(_ dict: [String: Any]) -> JSONValue {
-        .object(dict.mapValues { value -> JSONValue in
-            switch value {
-            case is NSNull:
-                return .null
-            case let bool as Bool:
-                return .bool(bool)
-            case let int as Int:
-                return .int(int)
-            case let double as Double:
-                return .double(double)
-            case let string as String:
-                return .string(string)
-            case let array as [Any]:
-                return .array(array.map { item in
-                    if let d = item as? [String: Any] { return jsonValueFromDict(d) }
-                    if let s = item as? String { return .string(s) }
-                    if let i = item as? Int { return .int(i) }
-                    return .null
-                })
-            case let nested as [String: Any]:
-                return jsonValueFromDict(nested)
-            default:
-                return .null
-            }
-        })
     }
 
     private enum LoadState {

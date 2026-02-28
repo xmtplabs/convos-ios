@@ -146,6 +146,27 @@ public enum JSONValue: Codable, Sendable, Hashable {
         guard case .object(let dict) = self else { return nil }
         return dict[key]
     }
+
+    public static func from(_ value: Any) -> JSONValue {
+        switch value {
+        case is NSNull:
+            return .null
+        case let bool as Bool:
+            return .bool(bool)
+        case let int as Int:
+            return .int(int)
+        case let double as Double:
+            return .double(double)
+        case let string as String:
+            return .string(string)
+        case let array as [Any]:
+            return .array(array.map { from($0) })
+        case let dict as [String: Any]:
+            return .object(dict.mapValues { from($0) })
+        default:
+            return .null
+        }
+    }
 }
 
 public struct MCPAppInitializeParams: Codable, Sendable {

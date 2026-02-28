@@ -18,7 +18,8 @@ extension MCPAppBridgeDelegate {
     func bridge(_ bridge: MCPAppBridge, didReportSize width: CGFloat?, height: CGFloat?) {}
 }
 
-final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable {
+@MainActor
+final class MCPAppBridge: NSObject, WKScriptMessageHandler {
     weak var delegate: MCPAppBridgeDelegate?
 
     private weak var webView: WKWebView?
@@ -27,12 +28,6 @@ final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable 
     private var isInitialized: Bool = false
     private var pendingToolInput: [String: Any]?
     private var pendingToolResult: JSONValue?
-
-    private enum Constant {
-        static let messageHandler: String = "mcpBridge"
-        static let hostName: String = "Convos"
-        static let hostVersion: String = "1.0.0"
-    }
 
     init(mcpApp: MCPAppContent, hostContext: MCPAppHostContext) {
         self.mcpApp = mcpApp
@@ -62,7 +57,7 @@ final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable 
             pendingToolInput = arguments
             return
         }
-        sendNotification(method: .toolInput, params: .object(["arguments": jsonValueFromAny(arguments)]))
+        sendNotification(method: .toolInput, params: .object(["arguments": JSONValue.from(arguments)]))
     }
 
     func sendToolResult(_ result: JSONValue) {
@@ -84,7 +79,7 @@ final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable 
     func sendHostContextChanged(_ context: MCPAppHostContext) {
         guard let data = try? JSONEncoder().encode(context),
               let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
-        sendNotification(method: .hostContextChanged, params: jsonValueFromAny(jsonObject))
+        sendNotification(method: .hostContextChanged, params: JSONValue.from(jsonObject))
     }
 
     func sendResourceTeardown() {
@@ -164,7 +159,7 @@ final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable 
             return
         }
 
-        sendSuccessResponse(id: id, result: jsonValueFromAny(resultDict))
+        sendSuccessResponse(id: id, result: JSONValue.from(resultDict))
     }
 
     private func handleInitialized() {
@@ -188,7 +183,7 @@ final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable 
             }
             return
         }
-        let contentValue = jsonValueFromAny(content)
+        let contentValue = JSONValue.from(content)
         if case .array(let items) = contentValue {
             delegate?.bridge(self, didReceiveMessage: items)
         }
@@ -202,13 +197,17 @@ final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable 
             }
             return
         }
+        guard let scheme = url.scheme, Constant.allowedURLSchemes.contains(scheme) else {
+            sendErrorResponse(id: id, error: .serverError("URL scheme not allowed"))
+            return
+        }
         delegate?.bridge(self, didRequestOpenLink: url)
         sendSuccessResponse(id: id, result: .object([:]))
     }
 
     private func handleUpdateModelContext(id: Int?, params: [String: Any]?) {
         guard let id else { return }
-        let contentValue: JSONValue? = params.map { jsonValueFromAny($0) }
+        let contentValue: JSONValue? = params.map { JSONValue.from($0) }
         delegate?.bridge(self, didUpdateModelContext: contentValue)
         sendSuccessResponse(id: id, result: .object([:]))
     }
@@ -274,29 +273,6 @@ final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable 
         }
     }
 
-    // MARK: - Helpers
-
-    private func jsonValueFromAny(_ value: Any) -> JSONValue {
-        switch value {
-        case is NSNull:
-            return .null
-        case let bool as Bool:
-            return .bool(bool)
-        case let int as Int:
-            return .int(int)
-        case let double as Double:
-            return .double(double)
-        case let string as String:
-            return .string(string)
-        case let array as [Any]:
-            return .array(array.map { jsonValueFromAny($0) })
-        case let dict as [String: Any]:
-            return .object(dict.mapValues { jsonValueFromAny($0) })
-        default:
-            return .null
-        }
-    }
-
     // MARK: - Bridge Script
 
     private static let bridgeInjectionScript: String = """
@@ -324,4 +300,11 @@ final class MCPAppBridge: NSObject, WKScriptMessageHandler, @unchecked Sendable 
             // The host calls evaluateJavaScript("window.postMessage(...)") which fires this listener.
         })();
         """
+
+    private enum Constant {
+        static let messageHandler: String = "mcpBridge"
+        static let hostName: String = "Convos"
+        static let hostVersion: String = "1.0.0"
+        static let allowedURLSchemes: Set<String> = ["https", "http"]
+    }
 }

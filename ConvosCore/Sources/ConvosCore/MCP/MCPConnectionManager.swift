@@ -55,7 +55,7 @@ public struct MCPDiscoveredResource: Sendable, Equatable, Identifiable {
     }
 }
 
-public struct MCPResourceContent: Sendable {
+public struct MCPResourceContent: Sendable, Equatable {
     public let uri: String
     public let mimeType: String?
     public let text: String?

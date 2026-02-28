@@ -34,6 +34,8 @@ struct MessageContextMenuOverlay: View {
         case .emoji(let text): return text
         case .invite(let invite):
             return "https://\(ConfigManager.shared.associatedDomain)/v2?i=\(invite.inviteSlug)"
+        case .mcpApp(let mcpApp):
+            return mcpApp.fallbackText
         default: return nil
         }
     }
@@ -461,6 +463,12 @@ struct MessageContextMenuOverlay: View {
                     profile: message.base.sender.profile,
                     onTapInvite: { _ in },
                     onTapAvatar: nil
+                )
+
+            case .mcpApp(let mcpApp):
+                MCPAppBubbleView(
+                    mcpApp: mcpApp,
+                    isOutgoing: state.isOutgoing
                 )
 
             default:
