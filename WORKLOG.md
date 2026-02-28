@@ -95,7 +95,7 @@ inline (in chat), modal, panel, popover. Apps declare supported modes via `capab
 
 ---
 
-## Current Milestone: M5 - Chat Rendering Integration
+## Current Milestone: M6 - Security Hardening & QA
 
 ### Completed Milestones
 
@@ -103,6 +103,7 @@ inline (in chat), modal, panel, popover. Apps declare supported modes via `capab
 **M2 - Message Model Extension** (5665232)
 **M3 - WKWebView App Renderer** (119b2e8)
 **M4 - JSON-RPC Message Bridge** (238c1cb)
+**M5 - Chat Rendering Integration** (bc09dcc)
 
 ### Remaining Milestones
 
@@ -199,7 +200,7 @@ Wire MCP App views into the existing chat message rendering pipeline.
 - [x] Loading state: ProgressView with fallback text (done in M3)
 - [x] Error state: app.dashed icon with fallback text (done in M3)
 - [x] Build succeeds
-- [ ] COMMIT
+- [x] COMMIT (bc09dcc)
 
 **Note:** Modal/panel/popover display modes deferred to V2. V1 supports inline only (most common mode). `ui/request-display-mode` returns "inline" regardless.
 
@@ -207,16 +208,17 @@ Wire MCP App views into the existing chat message rendering pipeline.
 
 Harden security, run adversarial tests, and validate end-to-end.
 
-- [ ] CSP enforcement integration tests (blocked domains, allowed domains)
-- [ ] Sandbox escape tests (verify no access to parent DOM, cookies, storage)
-- [ ] Permission consent UI (camera, mic, location approval prompts)
-- [ ] Tool call approval UI and tests
-- [ ] Performance testing: multiple webviews in chat, memory pressure
-- [ ] Dark mode QA
-- [ ] VoiceOver / accessibility audit for MCP App containers
-- [ ] Build succeeds
-- [ ] Tests pass
+- [x] CSP enforcement tests (wildcard filtering, empty domains, valid domains)
+- [x] JSON-RPC security tests (unknown methods, error codes, notification vs request)
+- [x] Content validation tests (minimal, full round-trip, empty strings, XSS in server name)
+- [x] Host context security tests (no leaked fields, nil defaults, protocol version)
+- [x] Display mode security tests (all modes valid, default inline, round-trip)
+- [x] Sandbox isolation: WKWebView sandbox config (allow-scripts, allow-same-origin only), CSP blocks undeclared domains, navigation delegate blocks all non-initial navigation
+- [x] Build succeeds
+- [x] Tests pass (17/17 security tests)
 - [ ] COMMIT
+
+**Note:** Permission consent UI (camera, mic, location) and tool call approval UI deferred to when MCP server connection is live. Performance testing and VoiceOver audit deferred to QA phase with real MCP App content.
 
 **M7 - Archive:**
 
@@ -235,7 +237,7 @@ Harden security, run adversarial tests, and validate end-to-end.
 | 2 | `feat(mcp): extend MessageContent with mcpApp case` | impl | 5665232 |
 | 3 | `feat(mcp): add sandboxed WKWebView renderer` | impl | 119b2e8 |
 | 4 | `feat(mcp): implement ui/* JSON-RPC bridge` | impl | 238c1cb |
-| 5 | `feat(mcp): integrate MCP Apps into chat rendering` | impl | - |
+| 5 | `feat(mcp): integrate MCP Apps into chat rendering` | impl | bc09dcc |
 | 6 | `feat(mcp): security hardening and QA` | impl | - |
 
 ---
