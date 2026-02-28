@@ -95,11 +95,12 @@ inline (in chat), modal, panel, popover. Apps declare supported modes via `capab
 
 ---
 
-## Current Milestone: M2 - Message Model Extension
+## Current Milestone: M3 - WKWebView App Renderer
 
 ### Completed Milestones
 
 **M1 - MCP Client Foundation** (21db4e4)
+**M2 - Message Model Extension** (5665232)
 
 ### Remaining Milestones
 
@@ -133,24 +134,26 @@ Extend `MessageContent` to carry MCP App data over XMTP.
 - [x] Backwards-compatibility tests (decode without new case)
 - [x] Build succeeds (macOS `swift build` and iOS simulator xcodebuild)
 - [x] Tests pass (17/17 MCP App Content tests pass on iOS simulator)
-- [ ] COMMIT
+- [x] COMMIT (5665232)
 
 **M3 - WKWebView App Renderer:**
 
 Build the sandboxed webview container that renders MCP App HTML inline in chat.
 
-- [ ] Create `MCPAppWebView` (UIViewRepresentable wrapping WKWebView)
+- [x] Create `MCPAppWebView` (UIViewRepresentable wrapping WKWebView)
   - Sandbox configuration: no navigation, no form submission, no parent access
   - CSP enforcement from server-declared `connectDomains` / `resourceDomains`
   - Permission gating (camera, mic, location) based on resource declarations
-- [ ] Theme injection: map Convos design tokens to MCP CSS variables
+- [x] Theme injection: map Convos design tokens to MCP CSS variables
   - `--mcp-color-primary`, `--mcp-color-text`, `--mcp-color-background`
   - `--mcp-font-family`, `--mcp-font-size-base`
   - `--mcp-border-radius`, `--mcp-spacing-unit`
   - Dark mode support via `--mcp-display-mode`
-- [ ] Content height reporting (JS -> Swift) for dynamic sizing in chat list
-- [ ] Memory management: destroy off-screen webviews, limit concurrent instances
-- [ ] Build succeeds
+- [x] Content height reporting (JS -> Swift) for dynamic sizing in chat list
+- [x] Memory management: UICollectionView cell reuse destroys off-screen webviews via `dismantleUIView`; `prepareForReuse()` clears hosting config
+- [x] Create `MCPAppBubbleView` container with loading/error/loaded states and server attribution
+- [x] Wire `MCPAppBubbleView` into `MessagesGroupItemView` for `.mcpApp` messages
+- [x] Build succeeds
 - [ ] COMMIT
 
 **M4 - JSON-RPC Message Bridge:**
@@ -219,7 +222,7 @@ Harden security, run adversarial tests, and validate end-to-end.
 | Order | Commit Message | Type | SHA |
 |-------|----------------|------|-----|
 | 1 | `feat(mcp): add MCP Swift SDK and connection manager` | impl | 21db4e4 |
-| 2 | `feat(mcp): extend MessageContent with mcpApp case` | impl | - |
+| 2 | `feat(mcp): extend MessageContent with mcpApp case` | impl | 5665232 |
 | 3 | `feat(mcp): add sandboxed WKWebView renderer` | impl | - |
 | 4 | `feat(mcp): implement ui/* JSON-RPC bridge` | impl | - |
 | 5 | `feat(mcp): integrate MCP Apps into chat rendering` | impl | - |
