@@ -6,9 +6,27 @@ struct MCPAppBubbleView: View {
     let isOutgoing: Bool
 
     @Environment(\.colorScheme) private var colorScheme
-    @State private var contentHeight: CGFloat = 0
-    @State private var loadState: LoadState = .loading
+    @State private var contentHeight: CGFloat
+    @State private var loadState: LoadState
     @State private var bridge: MCPAppBridge?
+
+    init(mcpApp: MCPAppContent, isOutgoing: Bool) {
+        self.mcpApp = mcpApp
+        self.isOutgoing = isOutgoing
+
+        let cache = MCPWidgetCache.shared
+        if let cachedHTML = cache.cachedHTML(for: mcpApp) {
+            _loadState = State(initialValue: .loaded(cachedHTML))
+            _contentHeight = State(initialValue: cache.cachedHeight(for: mcpApp) ?? Constant.minHeight)
+        } else if let html = MCPWidgetRenderer.render(mcpApp: mcpApp) {
+            cache.store(html: html, for: mcpApp)
+            _loadState = State(initialValue: .loaded(html))
+            _contentHeight = State(initialValue: cache.cachedHeight(for: mcpApp) ?? Constant.minHeight)
+        } else {
+            _loadState = State(initialValue: .loading)
+            _contentHeight = State(initialValue: 0)
+        }
+    }
 
     var body: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: DesignConstants.Spacing.stepX) {
@@ -29,6 +47,11 @@ struct MCPAppBubbleView: View {
                     .font(.caption2)
                     .foregroundStyle(.colorTextTertiary)
                     .lineLimit(1)
+            }
+        }
+        .onChange(of: contentHeight) { _, newHeight in
+            if newHeight > 0 {
+                MCPWidgetCache.shared.storeHeight(newHeight, for: mcpApp)
             }
         }
     }
@@ -103,8 +126,21 @@ struct MCPAppBubbleView: View {
 
         bridge = appBridge
 
-        // Resource fetching will be wired in a future milestone when MCPConnectionManager
-        // can resolve ui:// URIs. For now, show fallback.
+        if let html = MCPWidgetRenderer.render(mcpApp: mcpApp) {
+            MCPWidgetCache.shared.store(html: html, for: mcpApp)
+            loadState = .loaded(html)
+            return
+        }
+
+        if let html = try? await MCPServerRegistry.shared.readResource(
+            serverName: mcpApp.serverName,
+            uri: mcpApp.resourceURI
+        ) {
+            MCPWidgetCache.shared.store(html: html, for: mcpApp)
+            loadState = .loaded(html)
+            return
+        }
+
         loadState = .error
     }
 
