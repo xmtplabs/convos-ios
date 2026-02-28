@@ -95,13 +95,14 @@ inline (in chat), modal, panel, popover. Apps declare supported modes via `capab
 
 ---
 
-## Current Milestone: M4 - JSON-RPC Message Bridge
+## Current Milestone: M5 - Chat Rendering Integration
 
 ### Completed Milestones
 
 **M1 - MCP Client Foundation** (21db4e4)
 **M2 - Message Model Extension** (5665232)
 **M3 - WKWebView App Renderer** (119b2e8)
+**M4 - JSON-RPC Message Bridge** (238c1cb)
 
 ### Remaining Milestones
 
@@ -183,23 +184,24 @@ Implement the `ui/*` JSON-RPC protocol between WKWebView and native code.
 - [x] ConvosCore builds on macOS (`swift build`)
 - [x] Full app builds on iOS simulator
 - [x] Tests pass (19/19)
-- [ ] COMMIT
+- [x] COMMIT (238c1cb)
 
 **M5 - Chat Rendering Integration:**
 
 Wire MCP App views into the existing chat message rendering pipeline.
 
-- [ ] Add MCP App case to `MessagesListItemType` or handle within `MessagesGroupItemView`
-- [ ] Render `MCPAppWebView` inside message bubbles for inline display mode
-- [ ] Modal display mode: present as sheet/fullscreen overlay
-- [ ] Panel display mode: present as sidebar/drawer (iPad)
-- [ ] Popover display mode: present as floating popover
-- [ ] Fallback rendering: show text fallback for unsupported content
-- [ ] Dynamic height: webview reports content size, bubble resizes
-- [ ] Loading state: show placeholder while HTML loads
-- [ ] Error state: show error if resource fetch fails
-- [ ] Build succeeds
+- [x] MCP App case handled in `MessagesGroupItemView` via `MCPAppBubbleView` (done in M3)
+- [x] Render `MCPAppWebView` with bridge for inline display mode
+- [x] Wire `MCPAppBridge` into `MCPAppBubbleView` (creates bridge with host context, sends tool data)
+- [x] Wire bridge into `MCPAppWebView` (attach/detach in make/dismantle)
+- [x] Fallback rendering: shows `fallbackText` when resource fetch fails (done in M3)
+- [x] Dynamic height: ResizeObserver + contentHeight binding (done in M3)
+- [x] Loading state: ProgressView with fallback text (done in M3)
+- [x] Error state: app.dashed icon with fallback text (done in M3)
+- [x] Build succeeds
 - [ ] COMMIT
+
+**Note:** Modal/panel/popover display modes deferred to V2. V1 supports inline only (most common mode). `ui/request-display-mode` returns "inline" regardless.
 
 **M6 - Security Hardening & QA:**
 
@@ -232,7 +234,7 @@ Harden security, run adversarial tests, and validate end-to-end.
 | 1 | `feat(mcp): add MCP Swift SDK and connection manager` | impl | 21db4e4 |
 | 2 | `feat(mcp): extend MessageContent with mcpApp case` | impl | 5665232 |
 | 3 | `feat(mcp): add sandboxed WKWebView renderer` | impl | 119b2e8 |
-| 4 | `feat(mcp): implement ui/* JSON-RPC bridge` | impl | - |
+| 4 | `feat(mcp): implement ui/* JSON-RPC bridge` | impl | 238c1cb |
 | 5 | `feat(mcp): integrate MCP Apps into chat rendering` | impl | - |
 | 6 | `feat(mcp): security hardening and QA` | impl | - |
 

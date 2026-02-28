@@ -6,6 +6,7 @@ struct MCPAppWebView: UIViewRepresentable {
     let htmlContent: String
     let baseURL: URL?
     let allowedDomains: [String]
+    let bridge: MCPAppBridge?
     @Binding var contentHeight: CGFloat
     @Environment(\.colorScheme) private var colorScheme
 
@@ -38,6 +39,8 @@ struct MCPAppWebView: UIViewRepresentable {
         webView.isInspectable = true
         #endif
 
+        bridge?.attach(to: webView)
+
         return webView
     }
 
@@ -47,6 +50,7 @@ struct MCPAppWebView: UIViewRepresentable {
     }
 
     static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        coordinator.parent.bridge?.detach()
         webView.stopLoading()
         webView.configuration.userContentController.removeAllScriptMessageHandlers()
         webView.navigationDelegate = nil

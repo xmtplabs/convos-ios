@@ -5,8 +5,10 @@ struct MCPAppBubbleView: View {
     let mcpApp: MCPAppContent
     let isOutgoing: Bool
 
+    @Environment(\.colorScheme) private var colorScheme
     @State private var contentHeight: CGFloat = 0
     @State private var loadState: LoadState = .loading
+    @State private var bridge: MCPAppBridge?
 
     var body: some View {
         VStack(alignment: isOutgoing ? .trailing : .leading, spacing: DesignConstants.Spacing.stepX) {
@@ -41,6 +43,7 @@ struct MCPAppBubbleView: View {
                 htmlContent: html,
                 baseURL: nil,
                 allowedDomains: [],
+                bridge: bridge,
                 contentHeight: $contentHeight
             )
         case .error:
@@ -80,9 +83,58 @@ struct MCPAppBubbleView: View {
     }
 
     private func loadResource() async {
-        // For now, show fallback since we don't have the MCP server connection wired up yet.
-        // In M4/M5, this will fetch the ui:// resource via MCPConnectionManager.
+        let hostContext = MCPAppHostContext(
+            theme: colorScheme == .dark ? "dark" : "light",
+            displayMode: "inline",
+            availableDisplayModes: ["inline"],
+            platform: "mobile"
+        )
+        let appBridge = MCPAppBridge(mcpApp: mcpApp, hostContext: hostContext)
+
+        if let toolInput = mcpApp.toolInput, let inputData = toolInput.data(using: .utf8),
+           let inputDict = try? JSONSerialization.jsonObject(with: inputData) as? [String: Any] {
+            appBridge.sendToolInput(inputDict)
+        }
+
+        if let toolResult = mcpApp.toolResult, let resultData = toolResult.data(using: .utf8),
+           let resultDict = try? JSONSerialization.jsonObject(with: resultData) as? [String: Any] {
+            let resultValue = jsonValueFromDict(resultDict)
+            appBridge.sendToolResult(resultValue)
+        }
+
+        bridge = appBridge
+
+        // Resource fetching will be wired in a future milestone when MCPConnectionManager
+        // can resolve ui:// URIs. For now, show fallback.
         loadState = .error
+    }
+
+    private func jsonValueFromDict(_ dict: [String: Any]) -> JSONValue {
+        .object(dict.mapValues { value -> JSONValue in
+            switch value {
+            case is NSNull:
+                return .null
+            case let bool as Bool:
+                return .bool(bool)
+            case let int as Int:
+                return .int(int)
+            case let double as Double:
+                return .double(double)
+            case let string as String:
+                return .string(string)
+            case let array as [Any]:
+                return .array(array.map { item in
+                    if let d = item as? [String: Any] { return jsonValueFromDict(d) }
+                    if let s = item as? String { return .string(s) }
+                    if let i = item as? Int { return .int(i) }
+                    return .null
+                })
+            case let nested as [String: Any]:
+                return jsonValueFromDict(nested)
+            default:
+                return .null
+            }
+        })
     }
 
     private enum LoadState {
