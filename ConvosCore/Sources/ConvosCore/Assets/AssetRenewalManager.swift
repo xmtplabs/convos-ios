@@ -41,10 +41,10 @@ public actor AssetRenewalManager {
             let result = try await apiClient.renewAssetsBatch(assetKeys: [key])
 
             if result.expiredKeys.contains(key) {
-                await recoveryHandler.handleExpiredAsset(asset)
+                _ = await recoveryHandler.handleExpiredAsset(asset)
             }
 
-            if result.renewed > 0 {
+            if result.renewedKeys.contains(key) {
                 do {
                     try await recordRenewalInDatabase(for: [asset])
                 } catch {
@@ -87,6 +87,7 @@ public actor AssetRenewalManager {
             var totalRenewed = 0
             var totalFailed = 0
             var allExpiredKeys: [String] = []
+            var allRenewedKeys: [String] = []
 
             for batch in assetKeys.chunked(into: Self.batchSize) {
                 do {
@@ -94,15 +95,14 @@ public actor AssetRenewalManager {
                     totalRenewed += result.renewed
                     totalFailed += result.failed
                     allExpiredKeys.append(contentsOf: result.expiredKeys)
+                    allRenewedKeys.append(contentsOf: result.renewedKeys)
 
-                    let batchExpiredSet = Set(result.expiredKeys)
-                    let renewedAssets = batch
-                        .filter { !batchExpiredSet.contains($0) }
-                        .compactMap { keyToAsset[$0] }
+                    let renewedKeySet = Set(result.renewedKeys)
+                    let renewedAssets = renewedKeySet.compactMap { keyToAsset[$0] }
 
                     for expiredKey in result.expiredKeys {
                         if let asset = keyToAsset[expiredKey] {
-                            await recoveryHandler.handleExpiredAsset(asset)
+                            _ = await recoveryHandler.handleExpiredAsset(asset)
                         }
                     }
 
@@ -121,7 +121,7 @@ public actor AssetRenewalManager {
 
             Log.info("Asset renewal: \(totalRenewed) renewed, \(totalFailed) failed")
 
-            return AssetRenewalResult(renewed: totalRenewed, failed: totalFailed, expiredKeys: allExpiredKeys)
+            return AssetRenewalResult(renewed: totalRenewed, failed: totalFailed, expiredKeys: allExpiredKeys, renewedKeys: allRenewedKeys)
         } catch {
             Log.error("Asset renewal failed: \(error.localizedDescription)")
             return nil

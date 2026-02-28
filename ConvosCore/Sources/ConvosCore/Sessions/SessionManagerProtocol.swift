@@ -76,4 +76,8 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Asset Renewal
 
     func makeAssetRenewalManager() async -> AssetRenewalManager
+
+    /// Attempts to re-upload an expired asset from the local cache.
+    /// Returns true if the re-upload succeeded, false if the image wasn't in cache.
+    func forceReuploadAssetFromCache(_ asset: RenewableAsset) async throws -> Bool
 }

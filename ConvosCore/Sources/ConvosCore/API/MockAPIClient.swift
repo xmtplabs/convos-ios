@@ -77,7 +77,12 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     // MARK: - Asset Renewal
 
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult {
-        AssetRenewalResult(renewed: assetKeys.count, failed: 0, expiredKeys: [])
+        AssetRenewalResult(
+            renewed: assetKeys.count,
+            failed: 0,
+            expiredKeys: [],
+            renewedKeys: assetKeys
+        )
     }
 
     func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {

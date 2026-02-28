@@ -31,6 +31,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
 
+    private let deferredAssetRecoveryQueue: DeferredAssetRecoveryQueue = DeferredAssetRecoveryQueue()
+
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
     private let environment: AppEnvironment
@@ -112,7 +114,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             guard !Task.isCancelled else { return }
             self.assetRenewalTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
-                let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: self.databaseWriter)
+                let recoveryHandler = ExpiredAssetRecoveryHandler(
+                    databaseWriter: self.databaseWriter,
+                    imageCache: ImageCacheContainer.shared,
+                    onRecoveryDeferred: { [weak self] asset in
+                        guard let self else { return }
+                        await self.enqueueDeferredAssetRecovery(asset)
+                    }
+                )
                 let renewalManager = AssetRenewalManager(
                     databaseWriter: self.databaseWriter,
                     apiClient: self.apiClient,
@@ -144,6 +153,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for await _ in foregroundNotifications {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
+                await self.scheduleDeferredAssetRecoveryProcessingIfNeeded()
             }
         }
 
@@ -528,14 +538,145 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         }
     }
 
+    private func enqueueDeferredAssetRecovery(_ asset: RenewableAsset) async {
+        await deferredAssetRecoveryQueue.enqueue(asset)
+        await scheduleDeferredAssetRecoveryProcessingIfNeeded()
+    }
+
+    private func scheduleDeferredAssetRecoveryProcessingIfNeeded() async {
+        guard let queuedEntries = await deferredAssetRecoveryQueue.nextBatchForProcessing() else {
+            return
+        }
+
+        Task(priority: .utility) { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            await self.processDeferredAssetRecoveries(queuedEntries)
+        }
+    }
+
+    private func processDeferredAssetRecoveries(_ queuedEntries: [DeferredAssetRecoveryQueue.Entry]) async {
+        guard !queuedEntries.isEmpty else {
+            await deferredAssetRecoveryQueue.finishProcessing(requeue: [])
+            return
+        }
+
+        Log.info("Processing \(queuedEntries.count) deferred asset recovery item(s)")
+
+        var entriesToRequeue: [DeferredAssetRecoveryQueue.Entry] = []
+
+        for (index, entry) in queuedEntries.enumerated() {
+            guard !Task.isCancelled else {
+                let remaining = queuedEntries[index...]
+                entriesToRequeue.append(contentsOf: remaining)
+                break
+            }
+
+            let asset = entry.asset
+
+            do {
+                let didRecover = try await forceReuploadAssetFromCache(asset)
+
+                guard !didRecover else { continue }
+
+                let clearOnlyRecoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
+                _ = await clearOnlyRecoveryHandler.handleExpiredAsset(asset)
+            } catch {
+                let nextRetryCount = entry.retryCount + 1
+                guard nextRetryCount <= Constant.maxDeferredRecoveryRetries else {
+                    Log.warning("Deferred asset recovery exhausted retries for \(asset.url). Clearing URL.")
+                    let clearOnlyRecoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
+                    _ = await clearOnlyRecoveryHandler.handleExpiredAsset(asset)
+                    continue
+                }
+
+                Log.warning("Deferred asset recovery failed for \(asset.url), re-queuing (attempt \(nextRetryCount)): \(error.localizedDescription)")
+                entriesToRequeue.append(.init(asset: asset, retryCount: nextRetryCount))
+            }
+        }
+
+        await deferredAssetRecoveryQueue.finishProcessing(requeue: entriesToRequeue)
+        await scheduleDeferredAssetRecoveryProcessingIfNeeded()
+    }
+
     // MARK: - Asset Renewal
 
     public func makeAssetRenewalManager() async -> AssetRenewalManager {
-        let recoveryHandler = ExpiredAssetRecoveryHandler(databaseWriter: databaseWriter)
+        let recoveryHandler = ExpiredAssetRecoveryHandler(
+            databaseWriter: databaseWriter,
+            imageCache: ImageCacheContainer.shared,
+            onRecoveryDeferred: { [weak self] asset in
+                guard let self else { return }
+                await self.enqueueDeferredAssetRecovery(asset)
+            }
+        )
         return AssetRenewalManager(
             databaseWriter: databaseWriter,
             apiClient: apiClient,
             recoveryHandler: recoveryHandler
         )
+    }
+
+    public func forceReuploadAssetFromCache(_ asset: RenewableAsset) async throws -> Bool {
+        guard let cachedImage = ImageCacheContainer.shared.image(for: asset.url) else {
+            Log.info("Image not found in cache for re-upload: \(asset.url)")
+            return false
+        }
+
+        let clientId: String
+        let inboxId: String
+
+        switch asset {
+        case let .profileAvatar(_, conversationId, assetInboxId, _):
+            guard let conv = try await databaseReader.read({ db in
+                try DBConversation.fetchOne(db, key: conversationId)
+            }) else {
+                throw SessionManagerError.inboxNotFound
+            }
+            clientId = conv.clientId
+            inboxId = assetInboxId
+
+        case let .groupImage(_, conversationId, _):
+            guard let conv = try await databaseReader.read({ db in
+                try DBConversation.fetchOne(db, key: conversationId)
+            }) else {
+                throw SessionManagerError.inboxNotFound
+            }
+            clientId = conv.clientId
+            inboxId = conv.inboxId
+        }
+
+        let service = try await messagingService(for: clientId, inboxId: inboxId)
+
+        let myProfileWriter = MyProfileWriter(
+            inboxStateManager: service.inboxStateManager,
+            databaseWriter: databaseWriter
+        )
+        let inviteWriter = InviteWriter(
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
+        )
+        let conversationMetadataWriter = ConversationMetadataWriter(
+            inboxStateManager: service.inboxStateManager,
+            inviteWriter: inviteWriter,
+            databaseWriter: databaseWriter
+        )
+
+        let recoveryHandler = ExpiredAssetRecoveryHandler(
+            databaseWriter: databaseWriter,
+            imageCache: ImageCacheContainer.shared,
+            myProfileWriter: myProfileWriter,
+            conversationMetadataWriter: conversationMetadataWriter,
+            onRecoveryDeferred: { [weak self] asset in
+                guard let self else { return }
+                await self.enqueueDeferredAssetRecovery(asset)
+            }
+        )
+
+        let recoveryResult = await recoveryHandler.handleExpiredAsset(asset, cachedImage: cachedImage)
+        return recoveryResult == .recovered
+    }
+
+    private enum Constant {
+        static let maxDeferredRecoveryRetries: Int = 3
     }
 }

@@ -358,6 +358,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
             try localState.insert(db, onConflict: .ignore)
 
+            let existingProfiles = try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == dbConversation.id)
+                .fetchAll(db)
+            let existingProfilesByInboxId = Dictionary(uniqueKeysWithValues: existingProfiles.map { ($0.inboxId, $0) })
+
             // Delete old members
             try DBMemberProfile
                 .filter(DBMemberProfile.Columns.conversationId == dbConversation.id)
@@ -368,7 +373,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             try memberProfiles.forEach { profile in
                 let member = DBMember(inboxId: profile.inboxId)
                 try member.save(db)
-                try profile.save(db)
+
+                let existingProfile = existingProfilesByInboxId[profile.inboxId]
+                let profileToSave = Self.preservingAvatarLastRenewed(
+                    incomingProfile: profile,
+                    existingProfile: existingProfile
+                )
+                try profileToSave.save(db)
             }
 
             return (actualClientConversationId, oldImageURL)
@@ -456,6 +467,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         }
 
         return (actualClientConversationId, oldImageURL)
+    }
+
+    static func preservingAvatarLastRenewed(
+        incomingProfile: DBMemberProfile,
+        existingProfile: DBMemberProfile?
+    ) -> DBMemberProfile {
+        guard let existingProfile,
+              incomingProfile.avatar != nil,
+              existingProfile.avatar == incomingProfile.avatar else {
+            return incomingProfile.with(avatarLastRenewed: nil)
+        }
+
+        return incomingProfile.with(avatarLastRenewed: existingProfile.avatarLastRenewed)
     }
 
     private func saveMembers(_ dbMembers: [DBConversationMember], in db: Database) throws {
