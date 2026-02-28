@@ -95,12 +95,13 @@ inline (in chat), modal, panel, popover. Apps declare supported modes via `capab
 
 ---
 
-## Current Milestone: M3 - WKWebView App Renderer
+## Current Milestone: M4 - JSON-RPC Message Bridge
 
 ### Completed Milestones
 
 **M1 - MCP Client Foundation** (21db4e4)
 **M2 - Message Model Extension** (5665232)
+**M3 - WKWebView App Renderer** (119b2e8)
 
 ### Remaining Milestones
 
@@ -154,27 +155,34 @@ Build the sandboxed webview container that renders MCP App HTML inline in chat.
 - [x] Create `MCPAppBubbleView` container with loading/error/loaded states and server attribution
 - [x] Wire `MCPAppBubbleView` into `MessagesGroupItemView` for `.mcpApp` messages
 - [x] Build succeeds
-- [ ] COMMIT
+- [x] COMMIT (119b2e8)
 
 **M4 - JSON-RPC Message Bridge:**
 
 Implement the `ui/*` JSON-RPC protocol between WKWebView and native code.
 
-- [ ] Create `MCPAppBridge` class
+- [x] Create `MCPAppProtocol` types in ConvosCore (JSON-RPC 2.0, JSONValue, method enum, host context)
+- [x] Create `MCPAppBridge` class in app target
   - `WKScriptMessageHandler` for View -> Host messages
-  - `evaluateJavaScript` for Host -> View messages
+  - `evaluateJavaScript("window.postMessage(...)")` for Host -> View messages
   - JSON-RPC 2.0 request/response/notification serialization
-- [ ] Implement `ui/initialize` handshake (declare host capabilities, display modes)
-- [ ] Implement `ui/context` (send theme, environment to View)
-- [ ] Implement `ui/notifications/tool-input` and `ui/notifications/tool-result`
-- [ ] Implement `ui/requests/call-tool` (proxy to MCP server, with user consent gate)
-- [ ] Implement `ui/requests/use-prompt` and `ui/requests/use-resource`
-- [ ] Implement `ui/message` (inject message into chat)
-- [ ] Implement `ui/update-model-context` (update LLM context)
-- [ ] Implement `ui/open-link` (open URL via `UIApplication.shared.open`)
-- [ ] Unit tests for bridge protocol, JSON-RPC serialization
-- [ ] Build succeeds
-- [ ] Tests pass
+  - Bridge injection script overriding `window.parent.postMessage` for SDK compatibility
+- [x] Implement `ui/initialize` handshake (declare host capabilities, display modes, theme)
+- [x] Implement `ui/notifications/initialized` (triggers pending tool data delivery)
+- [x] Implement `ui/notifications/tool-input` and `ui/notifications/tool-result`
+- [x] Implement `ui/notifications/tool-cancelled`
+- [x] Implement `ui/notifications/host-context-changed`
+- [x] Implement `ui/message` (inject message into chat via delegate)
+- [x] Implement `ui/update-model-context` (update LLM context via delegate)
+- [x] Implement `ui/open-link` (open URL via delegate)
+- [x] Implement `ui/request-display-mode` (V1: always returns inline)
+- [x] Implement `ui/notifications/size-changed` (content size reporting)
+- [x] Implement `ui/resource-teardown` (graceful shutdown)
+- [x] Implement `ping` (health check)
+- [x] Unit tests for protocol types, JSON-RPC serialization (19 tests)
+- [x] ConvosCore builds on macOS (`swift build`)
+- [x] Full app builds on iOS simulator
+- [x] Tests pass (19/19)
 - [ ] COMMIT
 
 **M5 - Chat Rendering Integration:**
@@ -223,7 +231,7 @@ Harden security, run adversarial tests, and validate end-to-end.
 |-------|----------------|------|-----|
 | 1 | `feat(mcp): add MCP Swift SDK and connection manager` | impl | 21db4e4 |
 | 2 | `feat(mcp): extend MessageContent with mcpApp case` | impl | 5665232 |
-| 3 | `feat(mcp): add sandboxed WKWebView renderer` | impl | - |
+| 3 | `feat(mcp): add sandboxed WKWebView renderer` | impl | 119b2e8 |
 | 4 | `feat(mcp): implement ui/* JSON-RPC bridge` | impl | - |
 | 5 | `feat(mcp): integrate MCP Apps into chat rendering` | impl | - |
 | 6 | `feat(mcp): security hardening and QA` | impl | - |
