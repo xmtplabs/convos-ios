@@ -518,7 +518,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 invite: invite,
                 sourceMessageId: replyContext?.parentDbId,
                 attachmentUrls: [],
-                update: nil
+                update: nil,
+                mcpApp: nil
             )
             try localMessage.save(db)
             Log.debug("Saved text message optimistically with id: \(clientMessageId) sortId=\(sortId)")
@@ -562,7 +563,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 invite: nil,
                 sourceMessageId: replyContext?.parentDbId,
                 attachmentUrls: [localCacheURL.absoluteString],
-                update: nil
+                update: nil,
+                mcpApp: nil
             )
             try localMessage.save(db)
             Log.debug("Saved photo message optimistically with clientMessageId: \(clientMessageId) sortId=\(sortId)")

@@ -25,6 +25,8 @@ struct ReplyReferenceView: View {
             return "invite"
         case .update:
             return ""
+        case .mcpApp(let mcpApp):
+            return mcpApp.fallbackText
         }
     }
 

@@ -49,6 +49,12 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "sent an invite"
                 }
+            case .mcpApp:
+                if shouldShowSenderName {
+                    text = "\(senderName) shared an app"
+                } else {
+                    text = "shared an app"
+                }
             }
 
         case .reply:
@@ -73,6 +79,12 @@ extension DBLastMessageWithSource {
                     text = "\(senderName) replied with an invite"
                 } else {
                     text = "replied with an invite"
+                }
+            case .mcpApp:
+                if shouldShowSenderName {
+                    text = "\(senderName) replied with an app"
+                } else {
+                    text = "replied with an app"
                 }
             }
 

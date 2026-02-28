@@ -39,6 +39,7 @@ extension XMTPiOS.DecodedMessage {
         var attachmentUrls: [String]
         var text: String?
         var update: DBMessage.Update?
+        var mcpApp: MCPAppContent?
     }
 
     func dbRepresentation() throws -> DBMessage {
@@ -83,7 +84,8 @@ extension XMTPiOS.DecodedMessage {
             invite: components.invite,
             sourceMessageId: components.sourceMessageId,
             attachmentUrls: components.attachmentUrls,
-            update: components.update
+            update: components.update,
+            mcpApp: components.mcpApp
         )
     }
 

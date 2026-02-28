@@ -154,7 +154,8 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
                 invite: nil,
                 sourceMessageId: dbMessageId,
                 attachmentUrls: [],
-                update: nil
+                update: nil,
+                mcpApp: nil
             )
             try localReaction.save(db)
             Log.debug("Saved local reaction with id: \(reactionClientMessageId)")

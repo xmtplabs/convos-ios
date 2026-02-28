@@ -114,7 +114,8 @@ struct MessagesRepositoryBenchmarkTests {
                 invite: nil,
                 sourceMessageId: nil,
                 attachmentUrls: [],
-                update: nil
+                update: nil,
+                mcpApp: nil
             ).insert(db)
             messageIds.append(msgId)
         }
@@ -140,7 +141,8 @@ struct MessagesRepositoryBenchmarkTests {
                     invite: nil,
                     sourceMessageId: messageIds[i],
                     attachmentUrls: [],
-                    update: nil
+                    update: nil,
+                    mcpApp: nil
                 ).insert(db)
             }
         }
@@ -165,7 +167,8 @@ struct MessagesRepositoryBenchmarkTests {
                 invite: nil,
                 sourceMessageId: messageIds[sourceIdx],
                 attachmentUrls: [],
-                update: nil
+                update: nil,
+                mcpApp: nil
             ).insert(db)
         }
 

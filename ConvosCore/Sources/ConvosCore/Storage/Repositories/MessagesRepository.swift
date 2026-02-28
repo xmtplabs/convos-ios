@@ -390,6 +390,12 @@ extension Array where Element == DBMessage {
                             metadataChanges: metadataChanges
                         )
                     )
+                case .mcpApp:
+                    guard let mcpApp = dbMessage.mcpApp else {
+                        Log.error("MCP App message type is missing mcpApp object")
+                        return nil
+                    }
+                    messageContent = .mcpApp(mcpApp)
                 }
 
                 let message = Message(
@@ -448,7 +454,7 @@ extension Array where Element == DBMessage {
                     height: localState?.height
                 )
             })
-        case .update, .invite:
+        case .update, .invite, .mcpApp:
             return nil
         }
 
@@ -488,6 +494,12 @@ extension Array where Element == DBMessage {
             }
         case .update:
             parentContent = .text("[Update]")
+        case .mcpApp:
+            if let mcpApp = sourceDBMessage.mcpApp {
+                parentContent = .text(mcpApp.fallbackText)
+            } else {
+                parentContent = .text("[App]")
+            }
         }
 
         let parentMessage = Message(

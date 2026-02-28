@@ -167,6 +167,15 @@ struct MessagesGroupItemView: View {
 
         case .update:
             EmptyView()
+
+        case .mcpApp(let mcpApp):
+            MessageBubble(
+                style: bubbleType,
+                message: mcpApp.fallbackText,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile
+            )
+            .padding(.trailing, DesignConstants.Spacing.step4x)
         }
     }
 

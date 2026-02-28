@@ -180,7 +180,8 @@ struct InboxActivityRepositoryTests {
             invite: nil,
             sourceMessageId: nil,
             attachmentUrls: [],
-            update: nil
+            update: nil,
+            mcpApp: nil
         )
     }
 }

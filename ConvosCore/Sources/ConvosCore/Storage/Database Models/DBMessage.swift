@@ -57,6 +57,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
     let sourceMessageId: String? // replies and reactions
     let attachmentUrls: [String]
     let update: Update?
+    let mcpApp: MCPAppContent?
 
     var attachmentUrl: String? {
         attachmentUrls.first
@@ -130,7 +131,8 @@ extension DBMessage {
             invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            mcpApp: mcpApp
         )
     }
 
@@ -151,7 +153,8 @@ extension DBMessage {
             invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            mcpApp: mcpApp
         )
     }
 
@@ -172,7 +175,8 @@ extension DBMessage {
             invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            mcpApp: mcpApp
         )
     }
 
@@ -193,7 +197,8 @@ extension DBMessage {
             invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            mcpApp: mcpApp
         )
     }
 
@@ -214,7 +219,8 @@ extension DBMessage {
             invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            mcpApp: mcpApp
         )
     }
 
@@ -235,7 +241,8 @@ extension DBMessage {
             invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            mcpApp: mcpApp
         )
     }
 
@@ -256,7 +263,8 @@ extension DBMessage {
             invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            mcpApp: mcpApp
         )
     }
 
@@ -277,7 +285,8 @@ extension DBMessage {
             invite: invite,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
-            update: update
+            update: update,
+            mcpApp: mcpApp
         )
     }
 

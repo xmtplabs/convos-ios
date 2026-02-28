@@ -360,6 +360,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addMcpAppToMessage") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "mcpApp", .jsonText)
+            }
+        }
+
         return migrator
     }
 }

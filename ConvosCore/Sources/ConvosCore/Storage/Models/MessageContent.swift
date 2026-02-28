@@ -8,7 +8,8 @@ public enum MessageContent: Hashable, Codable, Sendable {
          emoji(String), // all emoji, not a reaction
          attachment(HydratedAttachment),
          attachments([HydratedAttachment]),
-         update(ConversationUpdate)
+         update(ConversationUpdate),
+         mcpApp(MCPAppContent)
 
     public var showsInMessagesList: Bool {
         switch self {

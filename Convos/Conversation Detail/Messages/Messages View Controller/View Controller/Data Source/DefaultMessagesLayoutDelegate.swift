@@ -100,6 +100,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 240.0
         case .update:
             height = 30.0
+        case .mcpApp:
+            height = 40.0
         }
 
         if case .reply(let reply, _) = message {

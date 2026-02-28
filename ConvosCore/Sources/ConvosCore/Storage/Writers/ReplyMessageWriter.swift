@@ -69,7 +69,8 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
                 invite: nil,
                 sourceMessageId: parentMessage.id,
                 attachmentUrls: [],
-                update: nil
+                update: nil,
+                mcpApp: nil
             )
             try localReply.save(db)
             Log.info("Saved local reply with id: \(clientMessageId)")
