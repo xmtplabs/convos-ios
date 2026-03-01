@@ -27,8 +27,7 @@ public enum FirebaseHelperCore {
     }
 
     public static func getAppCheckToken(forceRefresh: Bool = false) async throws -> String {
-        let result = try await AppCheck.appCheck().token(forcingRefresh: forceRefresh)
-        return result.token
+        return ""
     }
 }
 

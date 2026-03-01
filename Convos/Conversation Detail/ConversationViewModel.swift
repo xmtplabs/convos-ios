@@ -8,6 +8,30 @@ import UserNotifications
 @MainActor
 @Observable
 class ConversationViewModel {
+    struct ConnectedMCPApp: Identifiable, Hashable {
+        let serverName: String
+        let resourceURI: String
+        let toolName: String?
+        let fallbackText: String
+
+        var id: String {
+            "\(serverName)|\(resourceURI)"
+        }
+
+        var title: String {
+            if let toolName, !toolName.isEmpty {
+                return toolName
+            }
+
+            let cleanedResource = resourceURI.replacingOccurrences(of: "ui://", with: "")
+            return cleanedResource.isEmpty ? resourceURI : cleanedResource
+        }
+
+        var subtitle: String {
+            "\(serverName) • \(resourceURI)"
+        }
+    }
+
     // MARK: - Private
 
     private let session: any SessionManagerProtocol
@@ -247,6 +271,12 @@ class ConversationViewModel {
     }
 
     private static let revealToastKeyPrefix: String = "hasShownRevealToast_"
+    private static let removedMCPAppsKeyPrefix: String = "removedMCPApps"
+
+    private var removedMCPAppsStorageKey: String {
+        "\(Self.removedMCPAppsKeyPrefix)_\(conversation.id)"
+    }
+
     private var hasShownRevealToastKey: String {
         "\(Self.revealToastKeyPrefix)\(conversation.id)"
     }
@@ -255,11 +285,16 @@ class ConversationViewModel {
         set { UserDefaults.standard.set(newValue, forKey: hasShownRevealToastKey) }
     }
 
+    private(set) var removedMCPAppIds: Set<String> = []
+
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
+            defaults.removeObject(forKey: key)
+        }
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(removedMCPAppsKeyPrefix) {
             defaults.removeObject(forKey: key)
         }
     }
@@ -272,6 +307,36 @@ class ConversationViewModel {
 
     var shouldBlurPhotos: Bool {
         !autoRevealPhotos
+    }
+
+    var connectedMCPApps: [ConnectedMCPApp] {
+        var uniqueApps: [String: ConnectedMCPApp] = [:]
+
+        for item in messages {
+            guard case .messages(let group) = item else { continue }
+
+            for message in group.messages {
+                guard case .mcpApp(let appContent) = message.base.content else { continue }
+
+                let app = ConnectedMCPApp(
+                    serverName: appContent.serverName,
+                    resourceURI: appContent.resourceURI,
+                    toolName: appContent.toolName,
+                    fallbackText: appContent.fallbackText
+                )
+
+                guard !removedMCPAppIds.contains(app.id) else { continue }
+                uniqueApps[app.id] = app
+            }
+        }
+
+        return uniqueApps.values.sorted { lhs, rhs in
+            let serverCompare = lhs.serverName.localizedCaseInsensitiveCompare(rhs.serverName)
+            if serverCompare == .orderedSame {
+                return lhs.title.localizedCaseInsensitiveCompare(rhs.title) == .orderedAscending
+            }
+            return serverCompare == .orderedAscending
+        }
     }
 
     // MARK: - Onboarding
@@ -376,6 +441,7 @@ class ConversationViewModel {
 
         editingConversationName = self.conversation.name ?? ""
         editingDescription = self.conversation.description ?? ""
+        loadRemovedMCPApps()
 
         presentingConversationForked = self.conversation.isForked
 
@@ -444,6 +510,7 @@ class ConversationViewModel {
 
         observe()
         loadPhotoPreferences()
+        loadRemovedMCPApps()
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -483,6 +550,7 @@ class ConversationViewModel {
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
+                    self.loadRemovedMCPApps()
                 }
             }
             .store(in: &cancellables)
@@ -527,6 +595,15 @@ class ConversationViewModel {
             self.conversationImage = image
             self.isConversationImageDirty = false
         }
+    }
+
+    private func loadRemovedMCPApps() {
+        let storedIds = UserDefaults.standard.stringArray(forKey: removedMCPAppsStorageKey) ?? []
+        removedMCPAppIds = Set(storedIds)
+    }
+
+    private func persistRemovedMCPApps() {
+        UserDefaults.standard.set(Array(removedMCPAppIds), forKey: removedMCPAppsStorageKey)
     }
 
     // MARK: - Public
@@ -804,6 +881,13 @@ extension ConversationViewModel {
                 Log.error("Error removing member: \(error.localizedDescription)")
             }
         }
+    }
+
+    func removeConnectedMCPApp(_ app: ConnectedMCPApp) {
+        guard !removedMCPAppIds.contains(app.id) else { return }
+
+        removedMCPAppIds.insert(app.id)
+        persistRemovedMCPApps()
     }
 
     private func setNotificationsEnabled(_ enabled: Bool) {

@@ -95,7 +95,7 @@ inline (in chat), modal, panel, popover. Apps declare supported modes via `capab
 
 ---
 
-## Current Milestone: M6 - Security Hardening & QA
+## Current Milestone: M7 - Archive
 
 ### Completed Milestones
 
@@ -104,6 +104,7 @@ inline (in chat), modal, panel, popover. Apps declare supported modes via `capab
 **M3 - WKWebView App Renderer** (119b2e8)
 **M4 - JSON-RPC Message Bridge** (238c1cb)
 **M5 - Chat Rendering Integration** (bc09dcc)
+**M6 - Security Hardening & QA** (29b6a67)
 
 ### Remaining Milestones
 
@@ -216,7 +217,7 @@ Harden security, run adversarial tests, and validate end-to-end.
 - [x] Sandbox isolation: WKWebView sandbox config (allow-scripts, allow-same-origin only), CSP blocks undeclared domains, navigation delegate blocks all non-initial navigation
 - [x] Build succeeds
 - [x] Tests pass (17/17 security tests)
-- [ ] COMMIT
+- [x] COMMIT (29b6a67)
 
 **Note:** Permission consent UI (camera, mic, location) and tool call approval UI deferred to when MCP server connection is live. Performance testing and VoiceOver audit deferred to QA phase with real MCP App content.
 
@@ -238,7 +239,7 @@ Harden security, run adversarial tests, and validate end-to-end.
 | 3 | `feat(mcp): add sandboxed WKWebView renderer` | impl | 119b2e8 |
 | 4 | `feat(mcp): implement ui/* JSON-RPC bridge` | impl | 238c1cb |
 | 5 | `feat(mcp): integrate MCP Apps into chat rendering` | impl | bc09dcc |
-| 6 | `feat(mcp): security hardening and QA` | impl | - |
+| 6 | `feat(mcp): security hardening and QA` | impl | 29b6a67 |
 
 ---
 

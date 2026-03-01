@@ -197,7 +197,7 @@ public actor MCPConnectionManager: MCPConnectionManaging {
             supportsResources: capabilities.resources != nil,
             supportsTools: capabilities.tools != nil,
             supportsPrompts: capabilities.prompts != nil,
-            supportsUI: false
+            supportsUI: configuration.supportsUI
         )
     }
 }

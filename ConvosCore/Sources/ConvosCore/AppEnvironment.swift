@@ -200,7 +200,7 @@ public extension AppEnvironment {
         case .tests:
             true
         default:
-            false
+            true
         }
     }
 

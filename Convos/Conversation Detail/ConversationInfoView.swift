@@ -80,6 +80,7 @@ struct ConversationInfoView: View {
     @State private var showingFullInfo: Bool = false
     @State private var presentingShareView: Bool = false
     @State private var exportedLogsURL: URL?
+    @State private var mcpAppPendingRemoval: ConversationViewModel.ConnectedMCPApp?
 
     private let maxMembersToShow: Int = 6
     private var displayedMembers: [ConversationMember] {
@@ -88,6 +89,17 @@ struct ConversationInfoView: View {
     }
     private var showViewAllMembers: Bool {
         viewModel.conversation.members.count > maxMembersToShow
+    }
+
+    private var showingMCPAppRemovalConfirmation: Binding<Bool> {
+        Binding(
+            get: { mcpAppPendingRemoval != nil },
+            set: { isPresented in
+                if !isPresented {
+                    mcpAppPendingRemoval = nil
+                }
+            }
+        )
     }
 
     @ViewBuilder
@@ -181,6 +193,48 @@ struct ConversationInfoView: View {
         }
     }
 
+    @ViewBuilder
+    private var connectedMCPAppsSection: some View {
+        Section {
+            if viewModel.connectedMCPApps.isEmpty {
+                Text("No MCP apps connected to this convo yet.")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+            } else {
+                ForEach(viewModel.connectedMCPApps) { app in
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                            Text(app.title)
+                                .font(.body)
+                                .foregroundStyle(.colorTextPrimary)
+                                .lineLimit(1)
+                            Text(app.subtitle)
+                                .font(.footnote)
+                                .foregroundStyle(.colorTextSecondary)
+                                .lineLimit(1)
+                        }
+
+                        Spacer()
+
+                        Button("Remove", role: .destructive) {
+                            mcpAppPendingRemoval = app
+                        }
+                        .buttonStyle(.borderless)
+                        .font(.footnote.weight(.semibold))
+                        .accessibilityLabel("Remove \(app.title) MCP app")
+                    }
+                }
+            }
+        } header: {
+            Text("Connected MCP Apps")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        } footer: {
+            Text("Remove hides the MCP app from this convo's connected apps list on this device.")
+                .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -252,6 +306,8 @@ struct ConversationInfoView: View {
 
                     lockRow
                 }
+
+                connectedMCPAppsSection
 
                 if viewModel.canRemoveMembers {
                     Section {
@@ -458,6 +514,25 @@ struct ConversationInfoView: View {
                         )
                         .accessibilityIdentifier("info-add-button")
                     }
+                }
+            }
+            .confirmationDialog(
+                "Remove MCP app?",
+                isPresented: showingMCPAppRemovalConfirmation,
+                titleVisibility: .visible
+            ) {
+                Button("Remove", role: .destructive) {
+                    guard let app = mcpAppPendingRemoval else { return }
+                    viewModel.removeConnectedMCPApp(app)
+                    mcpAppPendingRemoval = nil
+                }
+
+                Button("Cancel", role: .cancel) {
+                    mcpAppPendingRemoval = nil
+                }
+            } message: {
+                if let app = mcpAppPendingRemoval {
+                    Text("Remove \(app.title) from this conversation's connected MCP apps?")
                 }
             }
             .selfSizingSheet(isPresented: $showingLockedInfo) {
