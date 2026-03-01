@@ -11,7 +11,6 @@ struct ConversationsView: View {
     @State private var sidebarWidth: CGFloat = 0.0
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
-    @State private var conversationPendingDeletion: Conversation?
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
 
@@ -54,9 +53,6 @@ struct ConversationsView: View {
             hasCreatedMoreThanOneConvo: viewModel.hasCreatedMoreThanOneConvo,
             onSelectConversation: { conversation in
                 viewModel.selectedConversationId = conversation.id
-            },
-            onDeleteConversation: { conversation in
-                conversationPendingDeletion = conversation
             },
             onConfirmedDeleteConversation: { conversation in
                 viewModel.leave(conversation: conversation)

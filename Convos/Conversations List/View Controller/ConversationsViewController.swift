@@ -72,15 +72,24 @@ final class ConversationsViewController: UIViewController {
 
     // MARK: - Properties
 
-    private var collectionView: UICollectionView!
-    private var dataSource: UICollectionViewDiffableDataSource<ConversationsSection, Item>!
+    private lazy var collectionView: UICollectionView = {
+        let cv = UICollectionView(frame: .zero, collectionViewLayout: createLayout())
+        cv.translatesAutoresizingMaskIntoConstraints = false
+        cv.backgroundColor = .clear
+        cv.clipsToBounds = false
+        cv.delegate = self
+        cv.alwaysBounceVertical = true
+        cv.contentInsetAdjustmentBehavior = .automatic
+        cv.register(PinnedConversationCell.self, forCellWithReuseIdentifier: PinnedConversationCell.cellReuseIdentifier)
+        cv.register(EmptyStateCell.self, forCellWithReuseIdentifier: EmptyStateCell.cellReuseIdentifier)
+        return cv
+    }()
+    private lazy var dataSource: UICollectionViewDiffableDataSource<ConversationsSection, Item> = makeDataSource()
     private var currentState: State = .empty
-    private var colorScheme: UIUserInterfaceStyle = .light
 
     // MARK: - Callbacks
 
     var onSelectConversation: ((Conversation) -> Void)?
-    var onDeleteConversation: ((Conversation) -> Void)?
     var onConfirmedDeleteConversation: ((Conversation) -> Void)?
     var onExplodeConversation: ((Conversation) -> Void)?
     var onToggleMute: ((Conversation) -> Void)?
@@ -95,14 +104,7 @@ final class ConversationsViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
         setupCollectionView()
-        setupDataSource()
-    }
-
-    override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        if traitCollection.userInterfaceStyle != previousTraitCollection?.userInterfaceStyle {
-            colorScheme = traitCollection.userInterfaceStyle
-        }
+        _ = dataSource
     }
 
     // MARK: - Public API
@@ -153,14 +155,6 @@ final class ConversationsViewController: UIViewController {
     }
 
     private func setupCollectionView() {
-        collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: createLayout())
-        collectionView.translatesAutoresizingMaskIntoConstraints = false
-        collectionView.backgroundColor = .clear
-        collectionView.clipsToBounds = false
-        collectionView.delegate = self
-        collectionView.alwaysBounceVertical = true
-        collectionView.contentInsetAdjustmentBehavior = .automatic
-
         view.addSubview(collectionView)
         NSLayoutConstraint.activate([
             collectionView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -168,10 +162,6 @@ final class ConversationsViewController: UIViewController {
             collectionView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             collectionView.trailingAnchor.constraint(equalTo: view.trailingAnchor)
         ])
-
-        // Register cells
-        collectionView.register(PinnedConversationCell.self, forCellWithReuseIdentifier: PinnedConversationCell.cellReuseIdentifier)
-        collectionView.register(EmptyStateCell.self, forCellWithReuseIdentifier: EmptyStateCell.cellReuseIdentifier)
     }
 
     private func createLayout() -> UICollectionViewLayout {
@@ -330,7 +320,7 @@ final class ConversationsViewController: UIViewController {
         return conversation
     }
 
-    private func setupDataSource() {
+    private func makeDataSource() -> UICollectionViewDiffableDataSource<ConversationsSection, Item> {
         // Cell registration for list items
         let listCellRegistration = UICollectionView.CellRegistration<ConversationListItemCell, Conversation> { [weak self] cell, _, conversation in
             guard let self = self else { return }
@@ -354,7 +344,7 @@ final class ConversationsViewController: UIViewController {
             cell.configure(with: type)
         }
 
-        dataSource = UICollectionViewDiffableDataSource(collectionView: collectionView) { [weak self] collectionView, indexPath, item in
+        return UICollectionViewDiffableDataSource(collectionView: collectionView) { [weak self] collectionView, indexPath, item in
             guard let self = self else { return nil }
 
             switch item {
@@ -554,7 +544,7 @@ final class ConversationsViewController: UIViewController {
                 completion(true)
             }
             explodeAction.image = UIImage(systemName: "burst")
-            explodeAction.backgroundColor = colorScheme == .dark ? .white : .black
+            explodeAction.backgroundColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
             actions.append(explodeAction)
         }
 
@@ -587,16 +577,18 @@ final class ConversationsViewController: UIViewController {
             completion(true)
         }
         readAction.image = UIImage(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
-        readAction.backgroundColor = colorScheme == .dark ? .white : .black
+        readAction.backgroundColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
         actions.append(readAction)
 
         let config = UISwipeActionsConfiguration(actions: actions)
         config.performsFirstActionWithFullSwipe = false
         return config
     }
+}
 
-    // MARK: - Helpers
+// MARK: - UICollectionViewDelegate
 
+extension ConversationsViewController: UICollectionViewDelegate {
     private func conversation(for indexPath: IndexPath) -> Conversation? {
         guard let item = dataSource.itemIdentifier(for: indexPath) else { return nil }
         switch item {
@@ -606,11 +598,7 @@ final class ConversationsViewController: UIViewController {
             return nil
         }
     }
-}
 
-// MARK: - UICollectionViewDelegate
-
-extension ConversationsViewController: UICollectionViewDelegate {
     func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
         collectionView.deselectItem(at: indexPath, animated: true)
 
