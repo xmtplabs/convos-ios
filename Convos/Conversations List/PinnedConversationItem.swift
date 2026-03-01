@@ -48,6 +48,7 @@ struct PinnedConversationItem: View {
                         .font(.caption)
                         .foregroundColor(.secondary)
                         .accessibilityHidden(true)
+                        .transition(.scale.combined(with: .opacity))
                 }
 
                 if conversation.isUnread {
@@ -55,8 +56,11 @@ struct PinnedConversationItem: View {
                         .fill(Color.primary)
                         .frame(width: 8.0, height: 8.0)
                         .accessibilityHidden(true)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: conversation.isMuted)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7), value: conversation.isUnread)
         }
         .frame(width: 96)
         .accessibilityElement(children: .combine)

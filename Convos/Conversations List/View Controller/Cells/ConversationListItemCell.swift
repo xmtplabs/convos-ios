@@ -3,10 +3,8 @@ import SwiftUI
 import UIKit
 
 final class ConversationListItemCell: UICollectionViewListCell {
-    private var conversation: Conversation?
-    private var isItemSelected: Bool = false
+    private var hostingWrapper: ConversationListItemWrapper?
     private var isCompact: Bool = true
-
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -17,18 +15,24 @@ final class ConversationListItemCell: UICollectionViewListCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func prepareForReuse() {
-        super.prepareForReuse()
-        contentConfiguration = nil
-        conversation = nil
-        isItemSelected = false
-    }
-
     func configure(with conversation: Conversation, isSelected: Bool, isCompact: Bool) {
-        self.conversation = conversation
-        self.isItemSelected = isSelected
         self.isCompact = isCompact
-        updateContentConfiguration()
+
+        if let wrapper = hostingWrapper {
+            wrapper.update(conversation: conversation, isSelected: isSelected, isCompact: isCompact)
+        } else {
+            let wrapper = ConversationListItemWrapper(
+                conversation: conversation,
+                isSelected: isSelected,
+                isCompact: isCompact
+            )
+            hostingWrapper = wrapper
+            contentConfiguration = UIHostingConfiguration {
+                ConversationListItemWrapperView(wrapper: wrapper)
+            }
+            .margins(.all, 0)
+            .background(.clear)
+        }
 
         accessibilityIdentifier = conversation.isPendingInvite
             ? "conversation-list-item-draft-\(conversation.id)"
@@ -37,28 +41,53 @@ final class ConversationListItemCell: UICollectionViewListCell {
 
     override func updateConfiguration(using state: UICellConfigurationState) {
         super.updateConfiguration(using: state)
-        updateContentConfiguration()
+        hostingWrapper?.isSwiped = state.isSwiped
     }
 
-    private func updateContentConfiguration() {
-        guard let conversation = conversation else { return }
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        contentConfiguration = nil
+        hostingWrapper = nil
+    }
+}
 
-        // On iPhone (compact), don't show persistent selection - just show momentary highlight
-        // On iPad (regular), show persistent selection with rounded corners
-        let shouldHighlight = !isCompact && isItemSelected
+@Observable
+@MainActor
+final class ConversationListItemWrapper {
+    var conversation: Conversation
+    var isSelected: Bool
+    var isCompact: Bool
+    var isSwiped: Bool = false
 
-        contentConfiguration = UIHostingConfiguration {
-            ConversationsListItem(conversation: conversation)
-        }
-        .margins(.all, 0)
-        .background {
-            if shouldHighlight {
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-                    .fill(Color(.systemGray5))
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-            } else {
-                Color.clear
+    init(conversation: Conversation, isSelected: Bool, isCompact: Bool) {
+        self.conversation = conversation
+        self.isSelected = isSelected
+        self.isCompact = isCompact
+    }
+
+    func update(conversation: Conversation, isSelected: Bool, isCompact: Bool) {
+        self.conversation = conversation
+        self.isSelected = isSelected
+        self.isCompact = isCompact
+    }
+}
+
+struct ConversationListItemWrapperView: View {
+    @State var wrapper: ConversationListItemWrapper
+
+    private var shouldHighlight: Bool {
+        wrapper.isSwiped || (!wrapper.isCompact && wrapper.isSelected)
+    }
+
+    var body: some View {
+        ConversationsListItem(conversation: wrapper.conversation)
+            .background {
+                if shouldHighlight {
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                        .fill(Color.colorFillMinimal)
+                        .padding(.horizontal, DesignConstants.Spacing.step3x)
+                }
             }
-        }
+            .animation(.easeInOut(duration: 0.2), value: wrapper.isSwiped)
     }
 }

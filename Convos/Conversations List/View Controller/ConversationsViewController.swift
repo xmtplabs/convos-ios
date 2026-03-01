@@ -81,6 +81,7 @@ final class ConversationsViewController: UIViewController {
 
     var onSelectConversation: ((Conversation) -> Void)?
     var onDeleteConversation: ((Conversation) -> Void)?
+    var onConfirmedDeleteConversation: ((Conversation) -> Void)?
     var onExplodeConversation: ((Conversation) -> Void)?
     var onToggleMute: ((Conversation) -> Void)?
     var onToggleReadState: ((Conversation) -> Void)?
@@ -107,17 +108,20 @@ final class ConversationsViewController: UIViewController {
     // MARK: - Public API
 
     func updateState(_ state: State) {
-        let oldPinnedCount = currentState.pinnedConversations.count
-        let newPinnedCount = state.pinnedConversations.count
+        let oldPinnedIds = Set(currentState.pinnedConversations.map(\.id))
+        let newPinnedIds = Set(state.pinnedConversations.map(\.id))
+        let pinnedMembershipChanged = oldPinnedIds != newPinnedIds
         let selectionChanged = currentState.selectedConversationId != state.selectedConversationId
         currentState = state
 
         // Recreate layout if pinned count changed (affects layout style)
+        let oldPinnedCount = oldPinnedIds.count
+        let newPinnedCount = newPinnedIds.count
         if oldPinnedCount != newPinnedCount || layoutNeedsRecreation(oldCount: oldPinnedCount, newCount: newPinnedCount) {
             collectionView.setCollectionViewLayout(createLayout(), animated: false)
         }
 
-        applySnapshot(animated: true)
+        applySnapshot(animated: !pinnedMembershipChanged)
 
         // Reconfigure visible cells if selection changed (to update background)
         if selectionChanged {
@@ -152,6 +156,7 @@ final class ConversationsViewController: UIViewController {
         collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: createLayout())
         collectionView.translatesAutoresizingMaskIntoConstraints = false
         collectionView.backgroundColor = .clear
+        collectionView.clipsToBounds = false
         collectionView.delegate = self
         collectionView.alwaysBounceVertical = true
         collectionView.contentInsetAdjustmentBehavior = .automatic
@@ -170,7 +175,7 @@ final class ConversationsViewController: UIViewController {
     }
 
     private func createLayout() -> UICollectionViewLayout {
-        UICollectionViewCompositionalLayout { [weak self] sectionIndex, environment in
+        ConversationsCompositionalLayout { [weak self] sectionIndex, environment in
             guard let self = self else { return nil }
 
             // Determine section based on current state and index
@@ -315,21 +320,33 @@ final class ConversationsViewController: UIViewController {
         )
     }
 
+    private func freshConversation(for conversation: Conversation) -> Conversation {
+        if let fresh = currentState.pinnedConversations.first(where: { $0.id == conversation.id }) {
+            return fresh
+        }
+        if let fresh = currentState.unpinnedConversations.first(where: { $0.id == conversation.id }) {
+            return fresh
+        }
+        return conversation
+    }
+
     private func setupDataSource() {
         // Cell registration for list items
         let listCellRegistration = UICollectionView.CellRegistration<ConversationListItemCell, Conversation> { [weak self] cell, _, conversation in
             guard let self = self else { return }
-            let isSelected = self.currentState.selectedConversationId == conversation.id
+            let fresh = self.freshConversation(for: conversation)
+            let isSelected = self.currentState.selectedConversationId == fresh.id
             let isCompact = self.currentState.horizontalSizeClass == .compact
-            cell.configure(with: conversation, isSelected: isSelected, isCompact: isCompact)
+            cell.configure(with: fresh, isSelected: isSelected, isCompact: isCompact)
         }
 
         // Cell registration for pinned items
         let pinnedCellRegistration = UICollectionView.CellRegistration<PinnedConversationCell, Conversation> { [weak self] cell, _, conversation in
             guard let self = self else { return }
-            let isSelected = self.currentState.selectedConversationId == conversation.id
+            let fresh = self.freshConversation(for: conversation)
+            let isSelected = self.currentState.selectedConversationId == fresh.id
             let isCompact = self.currentState.horizontalSizeClass == .compact
-            cell.configure(with: conversation, isSelected: isSelected, isCompact: isCompact)
+            cell.configure(with: fresh, isSelected: isSelected, isCompact: isCompact)
         }
 
         // Cell registration for empty states
@@ -407,6 +424,20 @@ final class ConversationsViewController: UIViewController {
 
         dataSource.apply(snapshot, animatingDifferences: animated)
 
+        // Reconfigure conversation cells from the applied snapshot
+        // so they pick up mute/read/unread state changes
+        var applied = dataSource.snapshot()
+        let conversationItems = applied.itemIdentifiers.filter { item in
+            switch item {
+            case .pinned, .conversation: return true
+            case .emptyCTA, .filteredEmpty: return false
+            }
+        }
+        if !conversationItems.isEmpty {
+            applied.reconfigureItems(conversationItems)
+            dataSource.apply(applied, animatingDifferences: animated)
+        }
+
         // Restore selection after applying snapshot
         updateSelection()
     }
@@ -444,6 +475,58 @@ final class ConversationsViewController: UIViewController {
         }
     }
 
+    // MARK: - Helpers
+
+    private func cellForConversation(_ conversation: Conversation) -> UIView? {
+        let snapshot = dataSource.snapshot()
+        for item in snapshot.itemIdentifiers {
+            let matchesId: Bool
+            switch item {
+            case .pinned(let c), .conversation(let c):
+                matchesId = c.id == conversation.id
+            case .emptyCTA, .filteredEmpty:
+                matchesId = false
+            }
+            if matchesId, let indexPath = dataSource.indexPath(for: item) {
+                return collectionView.cellForItem(at: indexPath)
+            }
+        }
+        return nil
+    }
+
+    // MARK: - Delete Confirmation
+
+    private func showDeleteConfirmation(for conversation: Conversation, sourceView: UIView? = nil) {
+        let alert = UIAlertController(
+            title: "This convo will be deleted immediately.",
+            message: nil,
+            preferredStyle: .actionSheet
+        )
+
+        let deleteAction = UIAlertAction(title: "Delete", style: .destructive) { [weak self] _ in
+            self?.onConfirmedDeleteConversation?(conversation)
+        }
+        alert.addAction(deleteAction)
+        alert.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+
+        if let popover = alert.popoverPresentationController {
+            let isPinned = currentState.pinnedConversations.contains { $0.id == conversation.id }
+            let cell = cellForConversation(conversation) ?? sourceView ?? view
+            popover.sourceView = cell
+            popover.permittedArrowDirections = []
+            if let cell {
+                popover.sourceRect = CGRect(
+                    x: cell.bounds.midX,
+                    y: isPinned ? cell.bounds.maxY : cell.bounds.minY,
+                    width: 0,
+                    height: 0
+                )
+            }
+        }
+
+        present(alert, animated: true)
+    }
+
     // MARK: - Swipe Actions
 
     private func leadingSwipeActions(for indexPath: IndexPath) -> UISwipeActionsConfiguration? {
@@ -456,7 +539,8 @@ final class ConversationsViewController: UIViewController {
 
         // Delete action
         let deleteAction = UIContextualAction(style: .destructive, title: nil) { [weak self] _, _, completion in
-            self?.onDeleteConversation?(conversation)
+            guard let self = self else { return completion(false) }
+            self.showDeleteConfirmation(for: conversation)
             completion(true)
         }
         deleteAction.image = UIImage(systemName: "trash")
@@ -539,11 +623,64 @@ extension ConversationsViewController: UICollectionViewDelegate {
         contextMenuConfigurationForItemAt indexPath: IndexPath,
         point: CGPoint
     ) -> UIContextMenuConfiguration? {
-        guard let conversation = conversation(for: indexPath) else { return nil }
+        guard let item = dataSource.itemIdentifier(for: indexPath),
+              let conversation = conversation(for: indexPath) else {
+            return nil
+        }
 
-        return UIContextMenuConfiguration(identifier: indexPath as NSCopying, previewProvider: nil) { [weak self] _ in
+        let isPinned: Bool
+        if case .pinned = item { isPinned = true } else { isPinned = false }
+
+        return UIContextMenuConfiguration(
+            identifier: indexPath as NSCopying,
+            previewProvider: isPinned ? {
+                let hostingController = UIHostingController(rootView:
+                    PinnedConversationItem(conversation: conversation)
+                        .padding(DesignConstants.Spacing.step4x)
+                )
+                hostingController.view.backgroundColor = .systemBackground
+                let size = hostingController.sizeThatFits(in: CGSize(width: 200, height: 400))
+                hostingController.preferredContentSize = size
+                return hostingController
+            } : nil
+        ) { [weak self] _ in
             self?.createContextMenu(for: conversation)
         }
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        previewForHighlightingContextMenuWithConfiguration configuration: UIContextMenuConfiguration
+    ) -> UITargetedPreview? {
+        targetedPreview(for: configuration)
+    }
+
+    func collectionView(
+        _ collectionView: UICollectionView,
+        previewForDismissingContextMenuWithConfiguration configuration: UIContextMenuConfiguration
+    ) -> UITargetedPreview? {
+        targetedPreview(for: configuration)
+    }
+
+    private func targetedPreview(for configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
+        guard let indexPath = configuration.identifier as? IndexPath,
+              let cell = collectionView.cellForItem(at: indexPath),
+              let item = dataSource.itemIdentifier(for: indexPath) else {
+            return nil
+        }
+
+        if case .pinned = item {
+            let parameters = UIPreviewParameters()
+            parameters.backgroundColor = .clear
+            let cornerRadius = DesignConstants.CornerRadius.mediumLarge
+            parameters.visiblePath = UIBezierPath(
+                roundedRect: cell.bounds,
+                cornerRadius: cornerRadius
+            )
+            return UITargetedPreview(view: cell, parameters: parameters)
+        }
+
+        return nil
     }
 
     private func createContextMenu(for conversation: Conversation) -> UIMenu {
@@ -601,7 +738,7 @@ extension ConversationsViewController: UICollectionViewDelegate {
             image: UIImage(systemName: "trash"),
             attributes: .destructive
         ) { [weak self] _ in
-            self?.onDeleteConversation?(conversation)
+            self?.showDeleteConfirmation(for: conversation)
         }
         let deleteMenu = UIMenu(title: "", options: .displayInline, children: [deleteAction])
         actions.append(deleteMenu)

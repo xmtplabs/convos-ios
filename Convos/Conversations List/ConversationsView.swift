@@ -58,6 +58,9 @@ struct ConversationsView: View {
             onDeleteConversation: { conversation in
                 conversationPendingDeletion = conversation
             },
+            onConfirmedDeleteConversation: { conversation in
+                viewModel.leave(conversation: conversation)
+            },
             onExplodeConversation: { conversation in
                 conversationPendingExplosion = conversation
             },
@@ -74,6 +77,7 @@ struct ConversationsView: View {
             onJoinConvo: viewModel.onJoinConvo,
             onShowAllFilter: { viewModel.activeFilter = .all }
         )
+        .ignoresSafeArea(edges: [.top, .bottom])
     }
 
     var body: some View {
