@@ -350,7 +350,8 @@ final class ConversationsViewController: UIViewController {
         let pinnedCellRegistration = UICollectionView.CellRegistration<PinnedConversationCell, Conversation> { [weak self] cell, _, conversation in
             guard let self = self else { return }
             let fresh = self.freshConversation(for: conversation)
-            cell.configure(with: fresh)
+            let isSelected = self.currentState.selectedConversationId == fresh.id
+            cell.configure(with: fresh, isSelected: isSelected)
         }
 
         // Cell registration for empty states

@@ -23,11 +23,11 @@ final class PinnedConversationCell: UICollectionViewCell {
         hostingWrapper = nil
     }
 
-    func configure(with conversation: Conversation) {
+    func configure(with conversation: Conversation, isSelected: Bool) {
         if let wrapper = hostingWrapper {
-            wrapper.update(conversation: conversation)
+            wrapper.update(conversation: conversation, isSelected: isSelected)
         } else {
-            let wrapper = PinnedConversationWrapper(conversation: conversation)
+            let wrapper = PinnedConversationWrapper(conversation: conversation, isSelected: isSelected)
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
                 PinnedConversationWrapperView(wrapper: wrapper)
@@ -62,20 +62,33 @@ final class PinnedConversationCell: UICollectionViewCell {
 @MainActor
 final class PinnedConversationWrapper {
     var conversation: Conversation
+    var isSelected: Bool
 
-    init(conversation: Conversation) {
+    init(conversation: Conversation, isSelected: Bool) {
         self.conversation = conversation
+        self.isSelected = isSelected
     }
 
-    func update(conversation: Conversation) {
+    func update(conversation: Conversation, isSelected: Bool) {
         self.conversation = conversation
+        self.isSelected = isSelected
     }
 }
 
 struct PinnedConversationWrapperView: View {
     var wrapper: PinnedConversationWrapper
 
+    private var shouldHighlight: Bool {
+        wrapper.isSelected && UIDevice.current.userInterfaceIdiom != .phone
+    }
+
     var body: some View {
         PinnedConversationItem(conversation: wrapper.conversation)
+            .background {
+                if shouldHighlight {
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                        .fill(Color.colorFillMinimal)
+                }
+            }
     }
 }
