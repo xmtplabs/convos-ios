@@ -81,6 +81,7 @@ final class ConversationsViewController: UIViewController {
         cv.delegate = self
         cv.alwaysBounceVertical = true
         cv.contentInsetAdjustmentBehavior = .automatic
+        cv.allowsFocus = false
         cv.register(PinnedConversationCell.self, forCellWithReuseIdentifier: PinnedConversationCell.cellReuseIdentifier)
         cv.register(EmptyStateCell.self, forCellWithReuseIdentifier: EmptyStateCell.cellReuseIdentifier)
         return cv
@@ -342,8 +343,7 @@ final class ConversationsViewController: UIViewController {
             guard let self = self else { return }
             let fresh = self.freshConversation(for: conversation)
             let isSelected = self.currentState.selectedConversationId == fresh.id
-            let isCompact = self.currentState.horizontalSizeClass == .compact
-            cell.configure(with: fresh, isSelected: isSelected, isCompact: isCompact)
+            cell.configure(with: fresh, isSelected: isSelected)
         }
 
         // Cell registration for pinned items

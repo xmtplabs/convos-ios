@@ -15,14 +15,13 @@ final class ConversationListItemCell: UICollectionViewListCell {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(with conversation: Conversation, isSelected: Bool, isCompact: Bool) {
+    func configure(with conversation: Conversation, isSelected: Bool) {
         if let wrapper = hostingWrapper {
-            wrapper.update(conversation: conversation, isSelected: isSelected, isCompact: isCompact)
+            wrapper.update(conversation: conversation, isSelected: isSelected)
         } else {
             let wrapper = ConversationListItemWrapper(
                 conversation: conversation,
-                isSelected: isSelected,
-                isCompact: isCompact
+                isSelected: isSelected
             )
             hostingWrapper = wrapper
             contentConfiguration = UIHostingConfiguration {
@@ -54,19 +53,16 @@ final class ConversationListItemCell: UICollectionViewListCell {
 final class ConversationListItemWrapper {
     var conversation: Conversation
     var isSelected: Bool
-    var isCompact: Bool
     var isSwiped: Bool = false
 
-    init(conversation: Conversation, isSelected: Bool, isCompact: Bool) {
+    init(conversation: Conversation, isSelected: Bool) {
         self.conversation = conversation
         self.isSelected = isSelected
-        self.isCompact = isCompact
     }
 
-    func update(conversation: Conversation, isSelected: Bool, isCompact: Bool) {
+    func update(conversation: Conversation, isSelected: Bool) {
         self.conversation = conversation
         self.isSelected = isSelected
-        self.isCompact = isCompact
     }
 }
 
@@ -74,7 +70,7 @@ struct ConversationListItemWrapperView: View {
     var wrapper: ConversationListItemWrapper
 
     private var shouldHighlight: Bool {
-        wrapper.isSwiped || (!wrapper.isCompact && wrapper.isSelected)
+        wrapper.isSwiped || (wrapper.isSelected && UIDevice.current.userInterfaceIdiom != .phone)
     }
 
     var body: some View {
