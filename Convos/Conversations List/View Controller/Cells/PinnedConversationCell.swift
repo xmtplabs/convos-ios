@@ -84,7 +84,6 @@ struct PinnedConversationWrapperView: View {
 
     var body: some View {
         PinnedConversationItem(conversation: wrapper.conversation)
-            .padding(shouldHighlight ? DesignConstants.Spacing.stepX : 0)
             .background {
                 if shouldHighlight {
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
