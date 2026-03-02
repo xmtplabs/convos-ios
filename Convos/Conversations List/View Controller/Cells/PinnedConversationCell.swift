@@ -82,8 +82,13 @@ struct PinnedConversationWrapperView: View {
         wrapper.isSelected && UIDevice.current.userInterfaceIdiom != .phone
     }
 
+    private var isIPad: Bool {
+        UIDevice.current.userInterfaceIdiom != .phone
+    }
+
     var body: some View {
         PinnedConversationItem(conversation: wrapper.conversation)
+            .padding(isIPad ? DesignConstants.Spacing.step2x : 0)
             .background {
                 if shouldHighlight {
                     RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)

@@ -207,22 +207,19 @@ final class ConversationsViewController: UIViewController {
         let itemCount = currentState.pinnedConversations.count
         guard itemCount > 0 else { return nil }
 
-        let isIPad = UIDevice.current.userInterfaceIdiom != .phone
-        let horizontalSpacing: CGFloat = DesignConstants.Spacing.step6x + (isIPad ? DesignConstants.Spacing.stepX : 0)
-        let verticalSpacing: CGFloat = DesignConstants.Spacing.step6x
+        let spacing: CGFloat = DesignConstants.Spacing.step6x
         let horizontalPadding: CGFloat = DesignConstants.Spacing.step6x
 
         if itemCount < 3 {
             return createHorizontalPinnedSection(
                 itemCount: itemCount,
-                spacing: horizontalSpacing,
+                spacing: spacing,
                 horizontalPadding: horizontalPadding,
                 environment: environment
             )
         } else {
             return createGridPinnedSection(
-                horizontalSpacing: horizontalSpacing,
-                verticalSpacing: verticalSpacing,
+                spacing: spacing,
                 horizontalPadding: horizontalPadding,
                 environment: environment
             )
@@ -273,14 +270,13 @@ final class ConversationsViewController: UIViewController {
     }
 
     private func createGridPinnedSection(
-        horizontalSpacing: CGFloat,
-        verticalSpacing: CGFloat,
+        spacing: CGFloat,
         horizontalPadding: CGFloat,
         environment: NSCollectionLayoutEnvironment
     ) -> NSCollectionLayoutSection {
         let containerWidth = environment.container.effectiveContentSize.width
         let availableWidth = containerWidth - (horizontalPadding * 2)
-        let itemWidth = (availableWidth - (horizontalSpacing * 2)) / 3
+        let itemWidth = (availableWidth - (spacing * 2)) / 3
 
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .absolute(itemWidth),
@@ -296,10 +292,10 @@ final class ConversationsViewController: UIViewController {
             layoutSize: groupSize,
             subitems: [item, item, item]
         )
-        group.interItemSpacing = .fixed(horizontalSpacing)
+        group.interItemSpacing = .fixed(spacing)
 
         let section = NSCollectionLayoutSection(group: group)
-        section.interGroupSpacing = verticalSpacing
+        section.interGroupSpacing = spacing
         section.contentInsets = NSDirectionalEdgeInsets(
             top: DesignConstants.Spacing.step3x,
             leading: horizontalPadding,
