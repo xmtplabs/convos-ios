@@ -1,22 +1,41 @@
 import Foundation
+import Observation
 
-// Safe because this type is a thin wrapper around UserDefaults.standard accessors.
+@Observable
 final class GlobalConvoDefaults: @unchecked Sendable {
     static let shared: GlobalConvoDefaults = .init()
 
     var revealModeEnabled: Bool {
-        get { UserDefaults.standard.object(forKey: Constant.revealModeKey) as? Bool ?? true }
-        set { UserDefaults.standard.set(newValue, forKey: Constant.revealModeKey) }
+        get {
+            access(keyPath: \.revealModeEnabled)
+            return UserDefaults.standard.object(forKey: Constant.revealModeKey) as? Bool ?? true
+        }
+        set {
+            withMutation(keyPath: \.revealModeEnabled) {
+                UserDefaults.standard.set(newValue, forKey: Constant.revealModeKey)
+            }
+        }
     }
 
     var includeInfoWithInvites: Bool {
-        get { UserDefaults.standard.object(forKey: Constant.includeInfoWithInvitesKey) as? Bool ?? false }
-        set { UserDefaults.standard.set(newValue, forKey: Constant.includeInfoWithInvitesKey) }
+        get {
+            access(keyPath: \.includeInfoWithInvites)
+            return UserDefaults.standard.object(forKey: Constant.includeInfoWithInvitesKey) as? Bool ?? false
+        }
+        set {
+            withMutation(keyPath: \.includeInfoWithInvites) {
+                UserDefaults.standard.set(newValue, forKey: Constant.includeInfoWithInvitesKey)
+            }
+        }
     }
 
     func reset() {
-        UserDefaults.standard.removeObject(forKey: Constant.revealModeKey)
-        UserDefaults.standard.removeObject(forKey: Constant.includeInfoWithInvitesKey)
+        withMutation(keyPath: \.revealModeEnabled) {
+            UserDefaults.standard.removeObject(forKey: Constant.revealModeKey)
+        }
+        withMutation(keyPath: \.includeInfoWithInvites) {
+            UserDefaults.standard.removeObject(forKey: Constant.includeInfoWithInvitesKey)
+        }
     }
 
     private enum Constant {

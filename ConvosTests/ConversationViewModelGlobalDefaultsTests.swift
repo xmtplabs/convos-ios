@@ -71,6 +71,39 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
         XCTAssertEqual(photoPreferencesWriter.autoRevealValues["real-seed-test"], true)
         withExtendedLifetime(viewModel) {}
     }
+
+    func testIncludeInfoPersistedWhenDraftBecomesRealConversation() async throws {
+        GlobalConvoDefaults.shared.includeInfoWithInvites = true
+
+        let draftConversation = Conversation.mock(id: "draft-info-test")
+        let draftRepository = TestDraftConversationRepository(conversation: draftConversation)
+        let metadataWriter = MockConversationMetadataWriter()
+        let stateManager = MockConversationStateManager(
+            draftConversationRepository: draftRepository,
+            conversationMetadataWriter: metadataWriter
+        )
+        let messagingService = MockMessagingService(conversationStateManager: stateManager)
+
+        let viewModel = ConversationViewModel(
+            conversation: draftConversation,
+            session: MockInboxesService(),
+            messagingService: messagingService,
+            conversationStateManager: stateManager,
+            applyGlobalDefaultsForNewConversation: true
+        )
+
+        XCTAssertTrue(viewModel.includeInfoInPublicPreview)
+
+        draftRepository.updateConversation(.mock(id: "real-info-test", name: "Real"))
+        try await Task.sleep(for: .milliseconds(100))
+
+        let includeInfoUpdate = metadataWriter.updatedIncludeInfoInPublicPreview.first {
+            $0.conversationId == "real-info-test"
+        }
+        XCTAssertNotNil(includeInfoUpdate)
+        XCTAssertEqual(includeInfoUpdate?.enabled, true)
+        withExtendedLifetime(viewModel) {}
+    }
 }
 
 private final class TestDraftConversationRepository: DraftConversationRepositoryProtocol, @unchecked Sendable {
@@ -214,5 +247,21 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
 
     func inboxId(for conversationId: String) async -> String? {
         await base.inboxId(for: conversationId)
+    }
+
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        try await base.requestAgentJoin(slug: slug, instructions: instructions)
+    }
+
+    func pendingInviteDetails() throws -> [PendingInviteDetail] {
+        try base.pendingInviteDetails()
+    }
+
+    func deleteExpiredPendingInvites() async throws -> Int {
+        try await base.deleteExpiredPendingInvites()
+    }
+
+    func makeAssetRenewalManager() async -> AssetRenewalManager {
+        await base.makeAssetRenewalManager()
     }
 }

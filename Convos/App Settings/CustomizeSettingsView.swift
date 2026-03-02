@@ -1,8 +1,7 @@
 import SwiftUI
 
 struct CustomizeSettingsView: View {
-    @State private var revealModeEnabled: Bool = GlobalConvoDefaults.shared.revealModeEnabled
-    @State private var includeInfoWithInvites: Bool = GlobalConvoDefaults.shared.includeInfoWithInvites
+    @Bindable private var defaults: GlobalConvoDefaults = .shared
 
     var body: some View {
         List {
@@ -30,14 +29,14 @@ struct CustomizeSettingsView: View {
                     symbolName: "eye.slash",
                     title: "Reveal mode",
                     subtitle: "Blur incoming pics",
-                    isOn: $revealModeEnabled
+                    isOn: $defaults.revealModeEnabled
                 )
 
                 customizeToggleRow(
                     symbolName: "qrcode",
                     title: "Include info with invites",
                     subtitle: "When enabled, anyone with your convo code can see its pic, name and description",
-                    isOn: $includeInfoWithInvites
+                    isOn: $defaults.includeInfoWithInvites
                 )
             }
 
@@ -54,16 +53,6 @@ struct CustomizeSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
         .navigationBarTitleDisplayMode(.inline)
-        .onAppear {
-            revealModeEnabled = GlobalConvoDefaults.shared.revealModeEnabled
-            includeInfoWithInvites = GlobalConvoDefaults.shared.includeInfoWithInvites
-        }
-        .onChange(of: revealModeEnabled) { _, value in
-            GlobalConvoDefaults.shared.revealModeEnabled = value
-        }
-        .onChange(of: includeInfoWithInvites) { _, value in
-            GlobalConvoDefaults.shared.includeInfoWithInvites = value
-        }
     }
 
     @ViewBuilder
