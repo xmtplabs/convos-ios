@@ -78,9 +78,9 @@ class ConversationViewModel {
             presentingConversationForked = conversation.isForked
             if oldValue.isDraft, !conversation.isDraft {
                 applyPendingDraftEdits()
-                _editingIncludeInfoInPublicPreview = nil
                 seedRevealPreferenceIfNeeded(for: conversation.id)
             }
+
             if oldValue.isPendingInvite, !conversation.isPendingInvite {
                 inviteWasAccepted()
             }
@@ -548,8 +548,6 @@ class ConversationViewModel {
     private func applyGlobalDefaultsForDraftConversationIfNeeded() {
         guard applyGlobalDefaultsForNewConversation else { return }
         guard conversation.isDraft else { return }
-        // Include-info can be seeded on the draft model, while reveal preference is persisted
-        // once a real (non-draft) conversation id exists.
         _editingIncludeInfoInPublicPreview = GlobalConvoDefaults.shared.includeInfoWithInvites
     }
 
