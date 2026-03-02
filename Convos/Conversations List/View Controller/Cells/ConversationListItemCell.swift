@@ -39,6 +39,12 @@ final class ConversationListItemCell: UICollectionViewListCell {
     override func updateConfiguration(using state: UICellConfigurationState) {
         super.updateConfiguration(using: state)
         hostingWrapper?.isSwiped = state.isSwiped
+
+        if UIDevice.current.userInterfaceIdiom != .phone {
+            var bg = UIBackgroundConfiguration.clear()
+            bg.backgroundColor = .clear
+            backgroundConfiguration = bg
+        }
     }
 
     override func prepareForReuse() {
