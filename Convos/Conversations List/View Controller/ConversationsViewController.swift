@@ -643,10 +643,11 @@ extension ConversationsViewController: UICollectionViewDelegate {
                 let fresh = self.freshConversation(for: conversation)
                 let hostingController = UIHostingController(rootView:
                     PinnedConversationItem(conversation: fresh)
-                        .padding(DesignConstants.Spacing.step4x)
+                        .scaleEffect(1.2)
+                        .padding(DesignConstants.Spacing.step8x)
                 )
                 hostingController.view.backgroundColor = .systemBackground
-                let size = hostingController.sizeThatFits(in: CGSize(width: 200, height: 400))
+                let size = hostingController.sizeThatFits(in: CGSize(width: 280, height: 500))
                 hostingController.preferredContentSize = size
                 return hostingController
             } : nil
