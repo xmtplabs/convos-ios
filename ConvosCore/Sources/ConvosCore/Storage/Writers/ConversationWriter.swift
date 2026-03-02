@@ -212,7 +212,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // like "draft-XXX" instead of the XMTP group ID) so cache notifications match
         // the ID that ViewModels subscribe to.
         // Also returns the old image URL for cache invalidation.
-        let (actualClientConversationId, oldImageURL, inviteTagChanged) = try await saveConversationToDatabase(
+        let (actualClientConversationId, oldImageURL) = try await saveConversationToDatabase(
             dbConversation: dbConversation,
             dbMembers: dbMembers,
             memberProfiles: memberProfiles
@@ -229,15 +229,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             oldImageURL: oldImageURL != metadata.imageURLString ? oldImageURL : nil
         )
 
-        if inviteTagChanged {
-            _ = try await inviteWriter.regenerate(for: dbConversation.id)
-        } else {
-            _ = try await inviteWriter.generate(
-                for: dbConversation,
-                expiresAt: nil,
-                expiresAfterUse: false
-            )
-        }
+        _ = try await inviteWriter.generate(
+            for: dbConversation,
+            expiresAt: nil,
+            expiresAfterUse: false
+        )
 
         // Fetch and store latest messages if requested
         if withLatestMessages {
@@ -341,12 +337,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         dbConversation: DBConversation,
         dbMembers: [DBConversationMember],
         memberProfiles: [DBMemberProfile]
-    ) async throws -> (clientConversationId: String, oldImageURL: String?, inviteTagChanged: Bool) {
+    ) async throws -> (clientConversationId: String, oldImageURL: String?) {
         try await databaseWriter.write { [self] db in
             let creator = DBMember(inboxId: dbConversation.creatorId)
             try creator.save(db)
-
-            let oldInviteTag = try DBConversation.fetchOne(db, key: dbConversation.id)?.inviteTag
 
             // Save conversation (handle local conversation updates)
             // This also handles imageLastRenewed preservation inside the transaction
@@ -376,11 +370,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 try profile.save(db)
             }
 
-            let inviteTagChanged = oldInviteTag != nil
-                && !oldInviteTag!.isEmpty
-                && oldInviteTag != dbConversation.inviteTag
-
-            return (actualClientConversationId, oldImageURL, inviteTagChanged)
+            return (actualClientConversationId, oldImageURL)
         }
     }
 

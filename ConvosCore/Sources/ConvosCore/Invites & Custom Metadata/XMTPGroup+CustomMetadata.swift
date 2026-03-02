@@ -216,7 +216,7 @@ extension XMTPiOS.Group {
         try await atomicUpdateMetadata { metadata in
             metadata.upsertProfile(conversationProfile)
         } verify: { metadata in
-            metadata.findProfile(inboxId: profile.inboxId) != nil
+            metadata.findProfile(inboxId: profile.inboxId) == conversationProfile
         }
     }
 
