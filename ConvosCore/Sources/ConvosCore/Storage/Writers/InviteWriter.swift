@@ -36,8 +36,13 @@ class InviteWriter: InviteWriterProtocol {
                 .fetchOne(db)
         }
         if let existingInvite {
-            Log.info("Existing invite found for conversation: \(conversation.id), \(existingInvite)")
-            return existingInvite.hydrateInvite()
+            if let cachedInvite = try? SignedInvite.fromURLSafeSlug(existingInvite.urlSlug),
+               cachedInvite.invitePayload.tag == conversation.inviteTag {
+                Log.info("Existing invite found for conversation: \(conversation.id)")
+                return existingInvite.hydrateInvite()
+            }
+            Log.warning("Cached invite tag mismatch for conversation \(conversation.id), regenerating")
+            try await delete(for: conversation.id)
         }
 
         let identity = try await identityStore.identity(for: conversation.inboxId)
