@@ -331,9 +331,7 @@ final class ConversationsViewController: UIViewController {
         let pinnedCellRegistration = UICollectionView.CellRegistration<PinnedConversationCell, Conversation> { [weak self] cell, _, conversation in
             guard let self = self else { return }
             let fresh = self.freshConversation(for: conversation)
-            let isSelected = self.currentState.selectedConversationId == fresh.id
-            let isCompact = self.currentState.horizontalSizeClass == .compact
-            cell.configure(with: fresh, isSelected: isSelected, isCompact: isCompact)
+            cell.configure(with: fresh)
         }
 
         // Cell registration for empty states
@@ -422,7 +420,7 @@ final class ConversationsViewController: UIViewController {
         }
         if !conversationItems.isEmpty {
             applied.reconfigureItems(conversationItems)
-            dataSource.apply(applied, animatingDifferences: animated)
+            dataSource.apply(applied, animatingDifferences: false)
         }
 
         // Restore selection after applying snapshot
@@ -524,20 +522,21 @@ final class ConversationsViewController: UIViewController {
 
         var actions: [UIContextualAction] = []
 
-        // Delete action
         let deleteAction = UIContextualAction(style: .destructive, title: nil) { [weak self] _, _, completion in
             guard let self = self else { return completion(false) }
-            self.showDeleteConfirmation(for: conversation)
+            let fresh = self.freshConversation(for: conversation)
+            self.showDeleteConfirmation(for: fresh)
             completion(true)
         }
         deleteAction.image = UIImage(systemName: "trash")
         deleteAction.backgroundColor = UIColor(named: "colorCaution") ?? .systemRed
         actions.append(deleteAction)
 
-        // Explode action (only for creators of non-pending conversations)
         if !conversation.isPendingInvite && conversation.creator.isCurrentUser {
             let explodeAction = UIContextualAction(style: .normal, title: nil) { [weak self] _, _, completion in
-                self?.onExplodeConversation?(conversation)
+                guard let self = self else { return completion(false) }
+                let fresh = self.freshConversation(for: conversation)
+                self.onExplodeConversation?(fresh)
                 completion(true)
             }
             explodeAction.image = UIImage(systemName: "burst")
@@ -559,18 +558,20 @@ final class ConversationsViewController: UIViewController {
 
         var actions: [UIContextualAction] = []
 
-        // Mute/Unmute action
         let muteAction = UIContextualAction(style: .normal, title: nil) { [weak self] _, _, completion in
-            self?.onToggleMute?(conversation)
+            guard let self = self else { return completion(false) }
+            let fresh = self.freshConversation(for: conversation)
+            self.onToggleMute?(fresh)
             completion(true)
         }
         muteAction.image = UIImage(systemName: conversation.isMuted ? "bell.fill" : "bell.slash.fill")
         muteAction.backgroundColor = UIColor(named: "colorPurpleMute") ?? .systemPurple
         actions.append(muteAction)
 
-        // Read/Unread action
         let readAction = UIContextualAction(style: .normal, title: nil) { [weak self] _, _, completion in
-            self?.onToggleReadState?(conversation)
+            guard let self = self else { return completion(false) }
+            let fresh = self.freshConversation(for: conversation)
+            self.onToggleReadState?(fresh)
             completion(true)
         }
         readAction.image = UIImage(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")

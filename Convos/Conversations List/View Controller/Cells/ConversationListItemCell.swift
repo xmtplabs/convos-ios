@@ -4,7 +4,7 @@ import UIKit
 
 final class ConversationListItemCell: UICollectionViewListCell {
     private var hostingWrapper: ConversationListItemWrapper?
-    private var isCompact: Bool = true
+
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
@@ -16,8 +16,6 @@ final class ConversationListItemCell: UICollectionViewListCell {
     }
 
     func configure(with conversation: Conversation, isSelected: Bool, isCompact: Bool) {
-        self.isCompact = isCompact
-
         if let wrapper = hostingWrapper {
             wrapper.update(conversation: conversation, isSelected: isSelected, isCompact: isCompact)
         } else {
@@ -73,7 +71,7 @@ final class ConversationListItemWrapper {
 }
 
 struct ConversationListItemWrapperView: View {
-    @State var wrapper: ConversationListItemWrapper
+    var wrapper: ConversationListItemWrapper
 
     private var shouldHighlight: Bool {
         wrapper.isSwiped || (!wrapper.isCompact && wrapper.isSelected)

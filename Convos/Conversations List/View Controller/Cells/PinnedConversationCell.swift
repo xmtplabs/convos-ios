@@ -23,7 +23,7 @@ final class PinnedConversationCell: UICollectionViewCell {
         hostingWrapper = nil
     }
 
-    func configure(with conversation: Conversation, isSelected: Bool, isCompact: Bool) {
+    func configure(with conversation: Conversation) {
         if let wrapper = hostingWrapper {
             wrapper.update(conversation: conversation)
         } else {
@@ -73,7 +73,7 @@ final class PinnedConversationWrapper {
 }
 
 struct PinnedConversationWrapperView: View {
-    @State var wrapper: PinnedConversationWrapper
+    var wrapper: PinnedConversationWrapper
 
     var body: some View {
         PinnedConversationItem(conversation: wrapper.conversation)
