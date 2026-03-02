@@ -207,7 +207,9 @@ final class ConversationsViewController: UIViewController {
         let itemCount = currentState.pinnedConversations.count
         guard itemCount > 0 else { return nil }
 
-        let spacing: CGFloat = DesignConstants.Spacing.step6x
+        let isIPad = UIDevice.current.userInterfaceIdiom != .phone
+        let extraSpacing: CGFloat = isIPad ? DesignConstants.Spacing.stepX : 0
+        let spacing: CGFloat = DesignConstants.Spacing.step6x + extraSpacing
         let horizontalPadding: CGFloat = DesignConstants.Spacing.step6x
 
         if itemCount < 3 {
