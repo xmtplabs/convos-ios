@@ -3,6 +3,7 @@ import ConvosCore
 import SwiftUI
 import UIKit
 
+@MainActor
 final class ConversationsViewController: UIViewController {
     // MARK: - Types
 
@@ -110,42 +111,60 @@ final class ConversationsViewController: UIViewController {
     // MARK: - Public API
 
     func updateState(_ state: State) {
-        let oldPinnedIds = Set(currentState.pinnedConversations.map(\.id))
+        let oldState = currentState
+        let oldPinnedIds = Set(oldState.pinnedConversations.map(\.id))
         let newPinnedIds = Set(state.pinnedConversations.map(\.id))
         let pinnedMembershipChanged = oldPinnedIds != newPinnedIds
-        let selectionChanged = currentState.selectedConversationId != state.selectedConversationId
+        let selectionChanged = oldState.selectedConversationId != state.selectedConversationId
         currentState = state
 
         if layoutNeedsRecreation(oldCount: oldPinnedIds.count, newCount: newPinnedIds.count) {
             collectionView.setCollectionViewLayout(createLayout(), animated: false)
         }
 
-        applySnapshot(animated: !pinnedMembershipChanged)
-
-        // Reconfigure visible cells if selection changed (to update background)
-        if selectionChanged {
-            reconfigureVisibleCells()
-        }
+        let changedIds = changedConversationIds(old: oldState, new: state, selectionChanged: selectionChanged)
+        applySnapshot(animated: !pinnedMembershipChanged, changedIds: changedIds)
     }
 
-    private func reconfigureVisibleCells() {
-        var snapshot = dataSource.snapshot()
-        let itemsToReconfigure = snapshot.itemIdentifiers.filter { item in
-            switch item {
-            case .conversation, .pinned:
-                return true
-            case .emptyCTA, .filteredEmpty:
-                return false
+    private func changedConversationIds(old: State, new: State, selectionChanged: Bool) -> Set<String> {
+        let oldMap = Dictionary(
+            uniqueKeysWithValues: (old.pinnedConversations + old.unpinnedConversations).map { ($0.id, $0) }
+        )
+        let newMap = Dictionary(
+            uniqueKeysWithValues: (new.pinnedConversations + new.unpinnedConversations).map { ($0.id, $0) }
+        )
+
+        var changed = Set<String>()
+        for (id, newConvo) in newMap {
+            guard let oldConvo = oldMap[id] else {
+                changed.insert(id)
+                continue
+            }
+            if oldConvo.isMuted != newConvo.isMuted ||
+                oldConvo.isUnread != newConvo.isUnread ||
+                oldConvo.isPinned != newConvo.isPinned ||
+                oldConvo.scheduledExplosionDate != newConvo.scheduledExplosionDate ||
+                oldConvo.displayName != newConvo.displayName ||
+                oldConvo.lastMessage != newConvo.lastMessage {
+                changed.insert(id)
             }
         }
-        snapshot.reconfigureItems(itemsToReconfigure)
-        dataSource.apply(snapshot, animatingDifferences: false)
+
+        if selectionChanged {
+            if let id = old.selectedConversationId { changed.insert(id) }
+            if let id = new.selectedConversationId { changed.insert(id) }
+        }
+
+        return changed
     }
 
     // MARK: - Private Setup
 
     private func layoutNeedsRecreation(oldCount: Int, newCount: Int) -> Bool {
-        // Layout changes at these thresholds: 0, 1, 2, 3+
+        // Pinned section has three layout states:
+        //   0 items: no pinned section
+        //   1-2 items: horizontal centered row
+        //   3+ items: 3-column grid
         let oldBucket = min(oldCount, 3)
         let newBucket = min(newCount, 3)
         return oldBucket != newBucket
@@ -382,23 +401,20 @@ final class ConversationsViewController: UIViewController {
         }
     }
 
-    private func applySnapshot(animated: Bool) {
+    private func applySnapshot(animated: Bool, changedIds: Set<String>) {
         var snapshot = NSDiffableDataSourceSnapshot<ConversationsSection, Item>()
 
-        // Pinned section
         if !currentState.pinnedConversations.isEmpty {
             snapshot.appendSections([.pinned])
             let pinnedItems = currentState.pinnedConversations.map { Item.pinned($0) }
             snapshot.appendItems(pinnedItems, toSection: .pinned)
         }
 
-        // List section
         snapshot.appendSections([.list])
 
         if currentState.isFilteredResultEmpty {
             snapshot.appendItems([.filteredEmpty(currentState.filterEmptyMessage)], toSection: .list)
         } else {
-            // Add empty CTA before first conversation if needed
             if currentState.shouldShowEmptyCTA {
                 snapshot.appendItems([.emptyCTA], toSection: .list)
             }
@@ -409,21 +425,22 @@ final class ConversationsViewController: UIViewController {
 
         dataSource.apply(snapshot, animatingDifferences: animated)
 
-        // Reconfigure conversation cells from the applied snapshot
-        // so they pick up mute/read/unread state changes
-        var applied = dataSource.snapshot()
-        let conversationItems = applied.itemIdentifiers.filter { item in
-            switch item {
-            case .pinned, .conversation: return true
-            case .emptyCTA, .filteredEmpty: return false
+        if !changedIds.isEmpty {
+            var applied = dataSource.snapshot()
+            let itemsToReconfigure = applied.itemIdentifiers.filter { item in
+                switch item {
+                case .pinned(let c), .conversation(let c):
+                    return changedIds.contains(c.id)
+                case .emptyCTA, .filteredEmpty:
+                    return false
+                }
+            }
+            if !itemsToReconfigure.isEmpty {
+                applied.reconfigureItems(itemsToReconfigure)
+                dataSource.apply(applied, animatingDifferences: false)
             }
         }
-        if !conversationItems.isEmpty {
-            applied.reconfigureItems(conversationItems)
-            dataSource.apply(applied, animatingDifferences: false)
-        }
 
-        // Restore selection after applying snapshot
         updateSelection()
     }
 
