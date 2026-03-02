@@ -3,6 +3,7 @@ import SwiftUI
 
 struct PinnedConversationItem: View {
     let conversation: Conversation
+    var avatarSize: CGFloat = 96
     @State private var showingMessagePreview: Bool = false
 
     private var hasUnreadMessage: Bool {
@@ -23,7 +24,7 @@ struct PinnedConversationItem: View {
         VStack(alignment: .center, spacing: DesignConstants.Spacing.step2x) {
             ZStack(alignment: .top) {
                 ConversationAvatarView(conversation: conversation, conversationImage: nil)
-                    .frame(width: 96, height: 96)
+                    .frame(width: avatarSize, height: avatarSize)
 
                 if hasUnreadMessage, let lastMessage = conversation.lastMessage {
                     messagePreviewOverlay(text: lastMessage.text)
@@ -62,7 +63,7 @@ struct PinnedConversationItem: View {
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: conversation.isMuted)
             .animation(.spring(response: 0.3, dampingFraction: 0.7), value: conversation.isUnread)
         }
-        .frame(width: 96)
+        .frame(width: avatarSize)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(pinnedAccessibilityLabel)
         .accessibilityIdentifier("pinned-conversation-\(conversation.id)")
@@ -90,7 +91,7 @@ struct PinnedConversationItem: View {
                 .truncationMode(.tail)
                 .padding(.horizontal, DesignConstants.Spacing.step3x)
                 .padding(.vertical, DesignConstants.Spacing.step2x)
-                .frame(width: 96, alignment: .center)
+                .frame(width: avatarSize, alignment: .center)
                 .background(Color.colorBackgroundRaised)
                 .cornerRadius(DesignConstants.CornerRadius.medium)
                 .overlay(

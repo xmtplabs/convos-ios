@@ -10,6 +10,8 @@ final class PinnedConversationCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
+        clipsToBounds = true
+        contentView.clipsToBounds = true
     }
 
     @available(*, unavailable)
@@ -36,6 +38,8 @@ final class PinnedConversationCell: UICollectionViewCell {
             .background(.clear)
         }
 
+        updateSelectionBackground(isSelected: isSelected)
+
         accessibilityIdentifier = "pinned-conversation-\(conversation.id)"
         accessibilityLabel = "\(conversation.displayName), pinned"
         isAccessibilityElement = true
@@ -44,6 +48,9 @@ final class PinnedConversationCell: UICollectionViewCell {
     override func preferredLayoutAttributesFitting(
         _ layoutAttributes: UICollectionViewLayoutAttributes
     ) -> UICollectionViewLayoutAttributes {
+        guard UIDevice.current.userInterfaceIdiom == .phone else {
+            return layoutAttributes
+        }
         let targetSize = CGSize(
             width: layoutAttributes.size.width,
             height: UIView.layoutFittingCompressedSize.height
@@ -55,6 +62,19 @@ final class PinnedConversationCell: UICollectionViewCell {
         )
         layoutAttributes.size.height = fittingSize.height
         return layoutAttributes
+    }
+
+    private func updateSelectionBackground(isSelected: Bool) {
+        guard UIDevice.current.userInterfaceIdiom != .phone else { return }
+
+        if isSelected {
+            var bg = UIBackgroundConfiguration.clear()
+            bg.cornerRadius = DesignConstants.CornerRadius.mediumLarge
+            bg.backgroundColor = .colorFillMinimal
+            backgroundConfiguration = bg
+        } else {
+            backgroundConfiguration = UIBackgroundConfiguration.clear()
+        }
     }
 }
 
@@ -78,22 +98,11 @@ final class PinnedConversationWrapper {
 struct PinnedConversationWrapperView: View {
     var wrapper: PinnedConversationWrapper
 
-    private var shouldHighlight: Bool {
-        wrapper.isSelected && UIDevice.current.userInterfaceIdiom != .phone
-    }
-
-    private var isIPad: Bool {
-        UIDevice.current.userInterfaceIdiom != .phone
+    private var avatarSize: CGFloat {
+        UIDevice.current.userInterfaceIdiom == .phone ? 96 : 72
     }
 
     var body: some View {
-        PinnedConversationItem(conversation: wrapper.conversation)
-            .padding(isIPad ? DesignConstants.Spacing.step2x : 0)
-            .background {
-                if shouldHighlight {
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-                        .fill(Color.colorFillMinimal)
-                }
-            }
+        PinnedConversationItem(conversation: wrapper.conversation, avatarSize: avatarSize)
     }
 }

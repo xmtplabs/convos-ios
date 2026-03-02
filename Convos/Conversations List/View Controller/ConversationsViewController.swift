@@ -207,8 +207,9 @@ final class ConversationsViewController: UIViewController {
         let itemCount = currentState.pinnedConversations.count
         guard itemCount > 0 else { return nil }
 
-        let spacing: CGFloat = DesignConstants.Spacing.step6x
-        let horizontalPadding: CGFloat = DesignConstants.Spacing.step6x
+        let isIPad = UIDevice.current.userInterfaceIdiom != .phone
+        let spacing: CGFloat = isIPad ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step6x
+        let horizontalPadding: CGFloat = isIPad ? DesignConstants.Spacing.step4x : DesignConstants.Spacing.step6x
 
         if itemCount < 3 {
             return createHorizontalPinnedSection(
@@ -235,8 +236,8 @@ final class ConversationsViewController: UIViewController {
         let containerWidth = environment.container.effectiveContentSize.width
         let availableWidth = containerWidth - (horizontalPadding * 2)
 
-        // Fixed item width for pinned tiles
-        let itemWidth: CGFloat = 100
+        let isIPad = UIDevice.current.userInterfaceIdiom != .phone
+        let itemWidth: CGFloat = isIPad ? 80 : 100
 
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .absolute(itemWidth),
@@ -277,16 +278,17 @@ final class ConversationsViewController: UIViewController {
         let containerWidth = environment.container.effectiveContentSize.width
         let availableWidth = containerWidth - (horizontalPadding * 2)
         let itemWidth = (availableWidth - (spacing * 2)) / 3
+        let itemHeight: CGFloat = 100
 
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .absolute(itemWidth),
-            heightDimension: .estimated(130)
+            heightDimension: .absolute(itemHeight)
         )
         let item = NSCollectionLayoutItem(layoutSize: itemSize)
 
         let groupSize = NSCollectionLayoutSize(
             widthDimension: .fractionalWidth(1.0),
-            heightDimension: .estimated(130)
+            heightDimension: .absolute(itemHeight)
         )
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: groupSize,
