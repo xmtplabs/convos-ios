@@ -116,10 +116,7 @@ final class ConversationsViewController: UIViewController {
         let selectionChanged = currentState.selectedConversationId != state.selectedConversationId
         currentState = state
 
-        // Recreate layout if pinned count changed (affects layout style)
-        let oldPinnedCount = oldPinnedIds.count
-        let newPinnedCount = newPinnedIds.count
-        if oldPinnedCount != newPinnedCount || layoutNeedsRecreation(oldCount: oldPinnedCount, newCount: newPinnedCount) {
+        if layoutNeedsRecreation(oldCount: oldPinnedIds.count, newCount: newPinnedIds.count) {
             collectionView.setCollectionViewLayout(createLayout(), animated: false)
         }
 
@@ -619,11 +616,15 @@ extension ConversationsViewController: UICollectionViewDelegate {
         let isPinned: Bool
         if case .pinned = item { isPinned = true } else { isPinned = false }
 
+        let conversationId = conversation.id
+
         return UIContextMenuConfiguration(
-            identifier: indexPath as NSCopying,
-            previewProvider: isPinned ? {
+            identifier: conversationId as NSCopying,
+            previewProvider: isPinned ? { [weak self] in
+                guard let self = self else { return nil }
+                let fresh = self.freshConversation(for: conversation)
                 let hostingController = UIHostingController(rootView:
-                    PinnedConversationItem(conversation: conversation)
+                    PinnedConversationItem(conversation: fresh)
                         .padding(DesignConstants.Spacing.step4x)
                 )
                 hostingController.view.backgroundColor = .systemBackground
@@ -632,7 +633,9 @@ extension ConversationsViewController: UICollectionViewDelegate {
                 return hostingController
             } : nil
         ) { [weak self] _ in
-            self?.createContextMenu(for: conversation)
+            guard let self = self else { return UIMenu(title: "", children: []) }
+            let fresh = self.freshConversation(for: conversation)
+            return self.createContextMenu(for: fresh)
         }
     }
 
@@ -651,24 +654,28 @@ extension ConversationsViewController: UICollectionViewDelegate {
     }
 
     private func targetedPreview(for configuration: UIContextMenuConfiguration) -> UITargetedPreview? {
-        guard let indexPath = configuration.identifier as? IndexPath,
-              let cell = collectionView.cellForItem(at: indexPath),
-              let item = dataSource.itemIdentifier(for: indexPath) else {
+        guard let conversationId = configuration.identifier as? String else { return nil }
+
+        let snapshot = dataSource.snapshot()
+        guard snapshot.sectionIdentifiers.contains(.pinned) else { return nil }
+
+        let pinnedItem = snapshot.itemIdentifiers(inSection: .pinned).first { item in
+            if case .pinned(let c) = item { return c.id == conversationId }
+            return false
+        }
+        guard let item = pinnedItem,
+              let indexPath = dataSource.indexPath(for: item),
+              let cell = collectionView.cellForItem(at: indexPath) else {
             return nil
         }
 
-        if case .pinned = item {
-            let parameters = UIPreviewParameters()
-            parameters.backgroundColor = .clear
-            let cornerRadius = DesignConstants.CornerRadius.mediumLarge
-            parameters.visiblePath = UIBezierPath(
-                roundedRect: cell.bounds,
-                cornerRadius: cornerRadius
-            )
-            return UITargetedPreview(view: cell, parameters: parameters)
-        }
-
-        return nil
+        let parameters = UIPreviewParameters()
+        parameters.backgroundColor = .clear
+        parameters.visiblePath = UIBezierPath(
+            roundedRect: cell.bounds,
+            cornerRadius: DesignConstants.CornerRadius.mediumLarge
+        )
+        return UITargetedPreview(view: cell, parameters: parameters)
     }
 
     private func createContextMenu(for conversation: Conversation) -> UIMenu {
