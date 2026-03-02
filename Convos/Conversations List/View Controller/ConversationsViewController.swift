@@ -19,7 +19,7 @@ final class ConversationsViewController: UIViewController {
         var shouldShowEmptyCTA: Bool {
             unpinnedConversations.count == 1 &&
             !hasCreatedMoreThanOneConvo &&
-            horizontalSizeClass == .compact
+            UIDevice.current.userInterfaceIdiom == .phone
         }
 
         static let empty: State = State(
