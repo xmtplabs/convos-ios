@@ -71,6 +71,8 @@ class ConversationViewModel {
         didSet {
             presentingConversationForked = conversation.isForked
             if oldValue.isDraft, !conversation.isDraft {
+                // Keep the draft include-info override until remote metadata changes propagate.
+                // Clearing it here can briefly show stale false values during async sync.
                 applyPendingDraftEdits()
             }
 
