@@ -713,9 +713,8 @@ extension ConversationViewModel {
                     photoTrackingKey = nil
                 }
 
-                // Send invite URL FIRST (renders as invite preview)
                 if let inviteURL = prevInviteURL {
-                    try await messageWriter.send(text: inviteURL, afterPhoto: nil)
+                    try await messageWriter.send(text: inviteURL, afterPhoto: photoTrackingKey)
                 }
 
                 if hasText {

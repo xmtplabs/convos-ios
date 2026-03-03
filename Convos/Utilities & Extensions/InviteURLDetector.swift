@@ -22,36 +22,29 @@ enum InviteURLDetector {
             return nil
         }
 
-        guard let trimmedRange = text.range(of: trimmedText) else { return nil }
-
-        let nsRange = NSRange(trimmedText.startIndex..., in: trimmedText)
+        let nsRange = NSRange(text.startIndex..., in: text)
 
         var foundInvite: InviteURLDetectionResult?
 
-        detector.enumerateMatches(in: trimmedText, options: [], range: nsRange) { match, _, stop in
+        detector.enumerateMatches(in: text, options: [], range: nsRange) { match, _, stop in
             guard let match = match,
                   let url = match.url,
-                  let matchRange = Range(match.range, in: trimmedText) else {
+                  let matchRange = Range(match.range, in: text) else {
                 return
             }
 
             if let code = extractInviteCode(from: url) {
-                let fullURL = url.absoluteString
-                let offset = text.distance(from: text.startIndex, to: trimmedRange.lowerBound)
-                let originalStart = text.index(text.startIndex, offsetBy: offset + trimmedText.distance(from: trimmedText.startIndex, to: matchRange.lowerBound))
-                let originalEnd = text.index(originalStart, offsetBy: trimmedText.distance(from: matchRange.lowerBound, to: matchRange.upperBound))
-                foundInvite = InviteURLDetectionResult(code: code, fullURL: fullURL, range: originalStart..<originalEnd)
+                foundInvite = InviteURLDetectionResult(code: code, fullURL: url.absoluteString, range: matchRange)
                 stop.pointee = true
             }
         }
 
         if foundInvite == nil {
             let potentialCode = trimmedText.replacingOccurrences(of: "*", with: "")
-            if isLikelyInviteCode(potentialCode) {
-                if (try? SignedInvite.fromURLSafeSlug(trimmedText)) != nil {
-                    let fullURL = "https://\(ConfigManager.shared.associatedDomain)/i/\(trimmedText)"
-                    foundInvite = InviteURLDetectionResult(code: trimmedText, fullURL: fullURL, range: trimmedRange)
-                }
+            if isLikelyInviteCode(potentialCode),
+               (try? SignedInvite.fromURLSafeSlug(potentialCode)) != nil {
+                let fullURL = "https://\(ConfigManager.shared.associatedDomain)/i/\(potentialCode)"
+                foundInvite = InviteURLDetectionResult(code: potentialCode, fullURL: fullURL, range: text.startIndex..<text.endIndex)
             }
         }
 
