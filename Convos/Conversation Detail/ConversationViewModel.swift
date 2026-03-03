@@ -61,10 +61,6 @@ class ConversationViewModel {
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedPhotoPreferencesConversationId: String?
-    @ObservationIgnored
-    private var seedingRevealPreferenceConversationIds: Set<String> = []
-    @ObservationIgnored
-    private var seededRevealPreferenceConversationIds: Set<String> = []
 
     // MARK: - Public
 
@@ -76,7 +72,6 @@ class ConversationViewModel {
             presentingConversationForked = conversation.isForked
             if oldValue.isDraft, !conversation.isDraft {
                 applyPendingDraftEdits()
-                seedRevealPreferenceIfNeeded(for: conversation.id)
             }
 
             if oldValue.isPendingInvite, !conversation.isPendingInvite {
@@ -499,7 +494,6 @@ class ConversationViewModel {
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
-                    self.seedRevealPreferenceIfNeeded(for: conversation.id)
                 }
             }
             .store(in: &cancellables)
@@ -541,27 +535,6 @@ class ConversationViewModel {
         guard applyGlobalDefaultsForNewConversation else { return }
         guard conversation.isDraft else { return }
         _editingIncludeInfoInPublicPreview = GlobalConvoDefaults.shared.includeInfoWithInvites
-    }
-
-    private func seedRevealPreferenceIfNeeded(for conversationId: String) {
-        guard applyGlobalDefaultsForNewConversation else { return }
-        guard !conversationId.hasPrefix("draft-") else { return }
-        guard !seededRevealPreferenceConversationIds.contains(conversationId) else { return }
-        guard seedingRevealPreferenceConversationIds.insert(conversationId).inserted else { return }
-
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            defer { seedingRevealPreferenceConversationIds.remove(conversationId) }
-            do {
-                let existing = try await photoPreferencesRepository.preferences(for: conversationId)
-                if existing == nil {
-                    try await photoPreferencesWriter.setAutoReveal(defaultAutoRevealForNewConversation, for: conversationId)
-                }
-                seededRevealPreferenceConversationIds.insert(conversationId)
-            } catch {
-                Log.error("Error seeding global reveal preference: \(error)")
-            }
-        }
     }
 
     private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {

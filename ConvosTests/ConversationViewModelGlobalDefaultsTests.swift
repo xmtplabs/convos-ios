@@ -41,12 +41,10 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
         XCTAssertFalse(viewModel.includeInfoInPublicPreview)
     }
 
-    func testRevealPreferenceSeededWhenDraftBecomesRealConversation() async throws {
+    func testRevealPreferenceSeededWhenConversationReadyAfterCreation() async throws {
         GlobalConvoDefaults.shared.autoRevealPhotos = true
 
-        let draftConversation = Conversation.mock(id: "draft-seed-test")
-        let draftRepository = TestDraftConversationRepository(conversation: draftConversation)
-        let stateManager = MockConversationStateManager(draftConversationRepository: draftRepository)
+        let stateManager = MockConversationStateManager(conversationId: "draft-seed-test")
         let messagingService = MockMessagingService(conversationStateManager: stateManager)
 
         let photoPreferencesRepository = MockPhotoPreferencesRepository(preferences: nil)
@@ -57,18 +55,16 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
             photoPreferencesWriter: photoPreferencesWriter
         )
 
-        let viewModel = ConversationViewModel(
-            conversation: draftConversation,
+        let viewModel = NewConversationViewModel(
             session: session,
             messagingService: messagingService,
-            conversationStateManager: stateManager,
-            applyGlobalDefaultsForNewConversation: true
+            autoCreateConversation: false
         )
 
-        draftRepository.updateConversation(.mock(id: "real-seed-test", name: "Real"))
+        try await stateManager.createConversation()
         try await Task.sleep(for: .milliseconds(100))
 
-        XCTAssertEqual(photoPreferencesWriter.autoRevealValues["real-seed-test"], true)
+        XCTAssertEqual(photoPreferencesWriter.autoRevealValues["draft-seed-test"], true)
         withExtendedLifetime(viewModel) {}
     }
 
