@@ -58,8 +58,6 @@ class ConversationViewModel {
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
-    private var suppressAutoRevealPersistence: Bool = false
-    @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedPhotoPreferencesConversationId: String?
@@ -243,13 +241,7 @@ class ConversationViewModel {
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
 
-    var autoRevealPhotos: Bool = false {
-        didSet {
-            guard oldValue != autoRevealPhotos else { return }
-            guard !suppressAutoRevealPersistence else { return }
-            persistAutoReveal(autoRevealPhotos)
-        }
-    }
+    var autoRevealPhotos: Bool = false
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -480,7 +472,7 @@ class ConversationViewModel {
             do {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
                 let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
-                setAutoRevealPhotos(prefs?.autoReveal ?? defaultAutoReveal, persist: false)
+                setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoReveal)
             } catch {
                 Log.error("Error loading photo preferences: \(error)")
             }
@@ -537,7 +529,7 @@ class ConversationViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                setAutoRevealPhotos(prefs?.autoReveal ?? defaultAutoRevealForNewConversation, persist: false)
+                setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoRevealForNewConversation)
             }
     }
 
@@ -572,10 +564,14 @@ class ConversationViewModel {
         }
     }
 
-    private func setAutoRevealPhotos(_ autoReveal: Bool, persist: Bool) {
-        suppressAutoRevealPersistence = !persist
+    private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {
         autoRevealPhotos = autoReveal
-        suppressAutoRevealPersistence = false
+    }
+
+    private func setAutoRevealPhotosPersisted(_ autoReveal: Bool) {
+        guard autoRevealPhotos != autoReveal else { return }
+        autoRevealPhotos = autoReveal
+        persistAutoReveal(autoReveal)
     }
 
     private func loadConversationImage(for conversation: Conversation) {
@@ -1127,7 +1123,7 @@ extension ConversationViewModel {
     }
 
     func setAutoReveal(_ autoReveal: Bool) {
-        setAutoRevealPhotos(autoReveal, persist: true)
+        setAutoRevealPhotosPersisted(autoReveal)
     }
 
     private func persistAutoReveal(_ autoReveal: Bool) {
