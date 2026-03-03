@@ -39,12 +39,11 @@ final class ConversationListItemCell: UICollectionViewListCell {
     override func updateConfiguration(using state: UICellConfigurationState) {
         super.updateConfiguration(using: state)
         hostingWrapper?.isSwiped = state.isSwiped
+        hostingWrapper?.isHighlighted = state.isHighlighted
 
-        if UIDevice.current.userInterfaceIdiom != .phone {
-            var bg = UIBackgroundConfiguration.clear()
-            bg.backgroundColor = .clear
-            backgroundConfiguration = bg
-        }
+        var bg = UIBackgroundConfiguration.clear()
+        bg.backgroundColor = .clear
+        backgroundConfiguration = bg
     }
 
     override func prepareForReuse() {
@@ -60,6 +59,7 @@ final class ConversationListItemWrapper {
     var conversation: Conversation
     var isSelected: Bool
     var isSwiped: Bool = false
+    var isHighlighted: Bool = false
 
     init(conversation: Conversation, isSelected: Bool) {
         self.conversation = conversation
@@ -75,17 +75,29 @@ final class ConversationListItemWrapper {
 struct ConversationListItemWrapperView: View {
     var wrapper: ConversationListItemWrapper
 
+    private var isPhone: Bool {
+        UIDevice.current.userInterfaceIdiom == .phone
+    }
+
     private var shouldHighlight: Bool {
-        wrapper.isSwiped || (wrapper.isSelected && UIDevice.current.userInterfaceIdiom != .phone)
+        if isPhone {
+            return wrapper.isSwiped || wrapper.isHighlighted
+        }
+        return wrapper.isSwiped || wrapper.isSelected
     }
 
     var body: some View {
         ConversationsListItem(conversation: wrapper.conversation)
             .background {
                 if shouldHighlight {
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
-                        .fill(Color.colorFillMinimal)
-                        .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    if isPhone, wrapper.isHighlighted, !wrapper.isSwiped {
+                        Rectangle()
+                            .fill(Color.colorFillMinimal)
+                    } else {
+                        RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarge)
+                            .fill(Color.colorFillMinimal)
+                            .padding(.horizontal, isPhone ? 0 : DesignConstants.Spacing.step3x)
+                    }
                 }
             }
             .animation(.easeInOut(duration: 0.2), value: wrapper.isSwiped)
