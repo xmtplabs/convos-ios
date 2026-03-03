@@ -10,7 +10,7 @@ struct MessagesInputView: View {
     let emptyDisplayNamePlaceholder: String
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
-    @Binding var pendingInviteCode: String?
+    var pendingInviteCode: String?
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForQuickname: Bool
@@ -242,7 +242,7 @@ struct MessagesInputView: View {
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
     @Previewable @State var selectedAttachmentImage: UIImage?
-    @Previewable @State var pendingInviteCode: String? = "test-invite-code"
+    @Previewable @State var pendingInviteCodePreview: String? = "test-invite-code"
     @Previewable @State var animateAvatarForQuickname: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
 
@@ -265,14 +265,14 @@ struct MessagesInputView: View {
             emptyDisplayNamePlaceholder: "Somebody",
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
-            pendingInviteCode: $pendingInviteCode,
+            pendingInviteCode: pendingInviteCodePreview,
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
             animateAvatarForQuickname: animateAvatarForQuickname,
             messagesTextFieldEnabled: true,
             onProfilePhotoTap: {},
             onSendMessage: {},
-            onClearInvite: { pendingInviteCode = nil }
+            onClearInvite: { pendingInviteCodePreview = nil }
         )
         .padding(DesignConstants.Spacing.step2x)
     }

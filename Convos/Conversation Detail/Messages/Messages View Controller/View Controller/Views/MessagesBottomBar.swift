@@ -12,7 +12,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
-    @Binding var pendingInviteCode: String?
+    var pendingInviteCode: String?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -114,7 +114,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
                 selectedAttachmentImage: $selectedAttachmentImage,
-                pendingInviteCode: $pendingInviteCode,
+                pendingInviteCode: pendingInviteCode,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
@@ -161,7 +161,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Previewable @State var profileName: String = ""
     @Previewable @State var messageText: String = ""
     @Previewable @State var selectedAttachmentImage: UIImage?
-    @Previewable @State var pendingInviteCode: String?
+    @Previewable @State var pendingInviteCodePreview: String?
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
     @Previewable @State var isPhotoPickerPresented: Bool = false
@@ -201,7 +201,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             displayName: $profileName,
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
-            pendingInviteCode: $pendingInviteCode,
+            pendingInviteCode: pendingInviteCodePreview,
             sendButtonEnabled: sendButtonEnabled,
             profileImage: $profileImage,
             isPhotoPickerPresented: $isPhotoPickerPresented,
@@ -213,7 +213,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 focusCoordinator.moveFocus(to: .displayName)
             },
             onSendMessage: {},
-            onClearInvite: { pendingInviteCode = nil },
+            onClearInvite: { pendingInviteCodePreview = nil },
             onDisplayNameEndedEditing: {
                 focusCoordinator.endEditing(for: .displayName)
             },

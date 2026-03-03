@@ -19,7 +19,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var displayName: String
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
-    @Binding var pendingInviteCode: String?
+    var pendingInviteCode: String?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -85,7 +85,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 displayName: $displayName,
                 messageText: $messageText,
                 selectedAttachmentImage: $selectedAttachmentImage,
-                pendingInviteCode: $pendingInviteCode,
+                pendingInviteCode: pendingInviteCode,
                 sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
                 isPhotoPickerPresented: $isPhotoPickerPresented,

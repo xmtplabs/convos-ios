@@ -5,6 +5,12 @@ import Observation
 import UIKit
 import UserNotifications
 
+struct PendingInvite {
+    let code: String
+    let fullURL: String
+    let range: Range<String.Index>
+}
+
 @MainActor
 @Observable
 class ConversationViewModel {
@@ -206,12 +212,10 @@ class ConversationViewModel {
     var canToggleLock: Bool {
         isCurrentUserSuperAdmin
     }
-    var pendingInviteCode: String?
-    var pendingInviteURL: String?
-    private var pendingInviteRange: Range<String.Index>?
+    var pendingInvite: PendingInvite?
 
     var sendButtonEnabled: Bool {
-        !messageText.isEmpty || selectedAttachmentImage != nil || pendingInviteCode != nil
+        !messageText.isEmpty || selectedAttachmentImage != nil || pendingInvite != nil
     }
     private(set) var isSendingPhoto: Bool = false
     var explodeState: ExplodeState = .ready
@@ -658,7 +662,7 @@ extension ConversationViewModel {
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         let hasText = !messageText.isEmpty
         let hasAttachment = selectedAttachmentImage != nil
-        let hasInvite = pendingInviteCode != nil
+        let hasInvite = pendingInvite != nil
 
         guard hasText || hasAttachment || hasInvite else { return }
 
@@ -668,15 +672,13 @@ extension ConversationViewModel {
         let replyTarget = replyingToMessage
         let prevAttachmentImage = selectedAttachmentImage
         let eagerUploadKey = currentEagerUploadKey
-        let prevInviteURL = pendingInviteURL
+        let prevInviteURL = pendingInvite?.fullURL
 
         messageText = ""
         replyingToMessage = nil
         selectedAttachmentImage = nil
         currentEagerUploadKey = nil
-        pendingInviteCode = nil
-        pendingInviteURL = nil
-        pendingInviteRange = nil
+        pendingInvite = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
         let messageWriter = cachedMessageWriter
@@ -1208,22 +1210,16 @@ extension UNUserNotificationCenter {
 // MARK: - Invite URL Detection
 
 extension ConversationViewModel {
-    /// Checks message text for invite URLs and extracts them as pending attachments
     func checkForInviteURL() {
-        guard pendingInviteCode == nil else { return }
+        guard pendingInvite == nil else { return }
 
         if let result = InviteURLDetector.detectInviteURL(in: messageText) {
-            pendingInviteCode = result.code
-            pendingInviteURL = result.fullURL
-            pendingInviteRange = result.range
+            pendingInvite = PendingInvite(code: result.code, fullURL: result.fullURL, range: result.range)
             messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
         }
     }
 
-    /// Clears the pending invite attachment
     func clearPendingInvite() {
-        pendingInviteCode = nil
-        pendingInviteURL = nil
-        pendingInviteRange = nil
+        pendingInvite = nil
     }
 }
