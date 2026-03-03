@@ -278,7 +278,7 @@ final class ConversationsViewController: UIViewController {
         let containerWidth = environment.container.effectiveContentSize.width
         let availableWidth = containerWidth - (horizontalPadding * 2)
         let itemWidth = (availableWidth - (spacing * 2)) / 3
-        let itemHeight: CGFloat = 100
+        let itemHeight: CGFloat = 116
 
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .absolute(itemWidth),

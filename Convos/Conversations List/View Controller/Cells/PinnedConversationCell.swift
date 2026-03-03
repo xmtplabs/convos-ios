@@ -104,5 +104,6 @@ struct PinnedConversationWrapperView: View {
 
     var body: some View {
         PinnedConversationItem(conversation: wrapper.conversation, avatarSize: avatarSize)
+            .padding(.vertical, UIDevice.current.userInterfaceIdiom == .phone ? 0 : DesignConstants.Spacing.step2x)
     }
 }

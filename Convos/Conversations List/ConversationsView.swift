@@ -266,6 +266,7 @@ struct ConversationsView: View {
                 quicknameViewModel: quicknameViewModel
             )
             .background(.colorBackgroundSurfaceless)
+            .presentationSizing(.page)
             .navigationTransition(
                 .zoom(
                     sourceID: "composer-transition-source",
