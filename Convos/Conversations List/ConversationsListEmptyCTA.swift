@@ -39,8 +39,8 @@ struct ConversationsListEmptyCTA: View {
                     .accessibilityIdentifier("join-convo-button")
                 }
             }
+            .frame(maxWidth: UIDevice.current.userInterfaceIdiom == .phone ? .infinity : 370, alignment: .topLeading)
             .padding(40)
-            .frame(maxWidth: .infinity, alignment: .topLeading)
             .background(.colorFillMinimal)
             .cornerRadius(32.0)
 
