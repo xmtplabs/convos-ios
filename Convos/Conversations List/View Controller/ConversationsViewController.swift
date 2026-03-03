@@ -239,9 +239,10 @@ final class ConversationsViewController: UIViewController {
         let isIPad = UIDevice.current.userInterfaceIdiom != .phone
         let itemWidth: CGFloat = isIPad ? 80 : 100
 
+        let itemHeight: CGFloat = isIPad ? 116 : 130
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .absolute(itemWidth),
-            heightDimension: .estimated(130)
+            heightDimension: .absolute(itemHeight)
         )
         let item = NSCollectionLayoutItem(layoutSize: itemSize)
 
@@ -251,7 +252,7 @@ final class ConversationsViewController: UIViewController {
 
         let groupSize = NSCollectionLayoutSize(
             widthDimension: .absolute(groupWidth),
-            heightDimension: .estimated(130)
+            heightDimension: .absolute(itemHeight)
         )
         let group = NSCollectionLayoutGroup.horizontal(
             layoutSize: groupSize,
@@ -278,7 +279,8 @@ final class ConversationsViewController: UIViewController {
         let containerWidth = environment.container.effectiveContentSize.width
         let availableWidth = containerWidth - (horizontalPadding * 2)
         let itemWidth = (availableWidth - (spacing * 2)) / 3
-        let itemHeight: CGFloat = 116
+        let isIPad = UIDevice.current.userInterfaceIdiom != .phone
+        let itemHeight: CGFloat = isIPad ? 116 : 130
 
         let itemSize = NSCollectionLayoutSize(
             widthDimension: .absolute(itemWidth),
@@ -645,7 +647,8 @@ extension ConversationsViewController: UICollectionViewDelegate {
                 guard let self = self else { return nil }
                 let fresh = self.freshConversation(for: conversation)
                 let hostingController = UIHostingController(rootView:
-                    PinnedConversationItem(conversation: fresh)
+                    PinnedConversationItem(conversation: fresh, animateOnAppear: false)
+                        .frame(width: 96)
                         .scaleEffect(1.2)
                         .padding(DesignConstants.Spacing.step8x)
                 )
@@ -693,10 +696,6 @@ extension ConversationsViewController: UICollectionViewDelegate {
 
         let parameters = UIPreviewParameters()
         parameters.backgroundColor = .clear
-        parameters.visiblePath = UIBezierPath(
-            roundedRect: cell.bounds,
-            cornerRadius: DesignConstants.CornerRadius.mediumLarge
-        )
         return UITargetedPreview(view: cell, parameters: parameters)
     }
 

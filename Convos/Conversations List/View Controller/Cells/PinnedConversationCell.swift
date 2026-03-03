@@ -10,13 +10,19 @@ final class PinnedConversationCell: UICollectionViewCell {
     override init(frame: CGRect) {
         super.init(frame: frame)
         backgroundColor = .clear
-        clipsToBounds = true
-        contentView.clipsToBounds = true
+        contentView.clipsToBounds = false
+        clipsToBounds = false
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
+    }
+
+    override func preferredLayoutAttributesFitting(
+        _ layoutAttributes: UICollectionViewLayoutAttributes
+    ) -> UICollectionViewLayoutAttributes {
+        layoutAttributes
     }
 
     override func prepareForReuse() {
@@ -43,25 +49,6 @@ final class PinnedConversationCell: UICollectionViewCell {
         accessibilityIdentifier = "pinned-conversation-\(conversation.id)"
         accessibilityLabel = "\(conversation.displayName), pinned"
         isAccessibilityElement = true
-    }
-
-    override func preferredLayoutAttributesFitting(
-        _ layoutAttributes: UICollectionViewLayoutAttributes
-    ) -> UICollectionViewLayoutAttributes {
-        guard UIDevice.current.userInterfaceIdiom == .phone else {
-            return layoutAttributes
-        }
-        let targetSize = CGSize(
-            width: layoutAttributes.size.width,
-            height: UIView.layoutFittingCompressedSize.height
-        )
-        let fittingSize = contentView.systemLayoutSizeFitting(
-            targetSize,
-            withHorizontalFittingPriority: .required,
-            verticalFittingPriority: .fittingSizeLevel
-        )
-        layoutAttributes.size.height = fittingSize.height
-        return layoutAttributes
     }
 
     private func updateSelectionBackground(isSelected: Bool) {
