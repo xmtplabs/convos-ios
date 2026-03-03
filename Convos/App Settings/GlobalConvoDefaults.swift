@@ -5,14 +5,14 @@ import Observation
 final class GlobalConvoDefaults: @unchecked Sendable {
     static let shared: GlobalConvoDefaults = .init()
 
-    var revealModeEnabled: Bool {
+    var autoRevealPhotos: Bool {
         get {
-            access(keyPath: \.revealModeEnabled)
-            return UserDefaults.standard.object(forKey: Constant.revealModeKey) as? Bool ?? true
+            access(keyPath: \.autoRevealPhotos)
+            return UserDefaults.standard.object(forKey: Constant.autoRevealPhotosKey) as? Bool ?? false
         }
         set {
-            withMutation(keyPath: \.revealModeEnabled) {
-                UserDefaults.standard.set(newValue, forKey: Constant.revealModeKey)
+            withMutation(keyPath: \.autoRevealPhotos) {
+                UserDefaults.standard.set(newValue, forKey: Constant.autoRevealPhotosKey)
             }
         }
     }
@@ -30,8 +30,8 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     }
 
     func reset() {
-        withMutation(keyPath: \.revealModeEnabled) {
-            UserDefaults.standard.removeObject(forKey: Constant.revealModeKey)
+        withMutation(keyPath: \.autoRevealPhotos) {
+            UserDefaults.standard.removeObject(forKey: Constant.autoRevealPhotosKey)
         }
         withMutation(keyPath: \.includeInfoWithInvites) {
             UserDefaults.standard.removeObject(forKey: Constant.includeInfoWithInvitesKey)
@@ -39,7 +39,7 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     }
 
     private enum Constant {
-        static let revealModeKey: String = "globalRevealMode"
+        static let autoRevealPhotosKey: String = "globalAutoRevealPhotos"
         static let includeInfoWithInvitesKey: String = "globalIncludeInfoWithInvites"
     }
 }

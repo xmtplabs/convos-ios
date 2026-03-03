@@ -3,6 +3,13 @@ import SwiftUI
 struct CustomizeSettingsView: View {
     @Bindable private var defaults: GlobalConvoDefaults = .shared
 
+    private var blurIncomingPhotosBinding: Binding<Bool> {
+        Binding(
+            get: { !defaults.autoRevealPhotos },
+            set: { defaults.autoRevealPhotos = !$0 }
+        )
+    }
+
     var body: some View {
         List {
             Section {
@@ -29,7 +36,7 @@ struct CustomizeSettingsView: View {
                     symbolName: "eye.slash",
                     title: "Reveal mode",
                     subtitle: "Blur incoming pics",
-                    isOn: $defaults.revealModeEnabled
+                    isOn: blurIncomingPhotosBinding
                 )
 
                 customizeToggleRow(

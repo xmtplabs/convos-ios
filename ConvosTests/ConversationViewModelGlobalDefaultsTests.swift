@@ -42,7 +42,7 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
     }
 
     func testRevealPreferenceSeededWhenDraftBecomesRealConversation() async throws {
-        GlobalConvoDefaults.shared.revealModeEnabled = false
+        GlobalConvoDefaults.shared.autoRevealPhotos = true
 
         let draftConversation = Conversation.mock(id: "draft-seed-test")
         let draftRepository = TestDraftConversationRepository(conversation: draftConversation)

@@ -479,7 +479,7 @@ class ConversationViewModel {
             guard let self else { return }
             do {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
-                let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? !GlobalConvoDefaults.shared.revealModeEnabled : false
+                let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
                 setAutoRevealPhotos(prefs?.autoReveal ?? defaultAutoReveal, persist: false)
             } catch {
                 Log.error("Error loading photo preferences: \(error)")
@@ -542,7 +542,7 @@ class ConversationViewModel {
     }
 
     private var defaultAutoRevealForNewConversation: Bool {
-        applyGlobalDefaultsForNewConversation ? !GlobalConvoDefaults.shared.revealModeEnabled : false
+        applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
     }
 
     private func applyGlobalDefaultsForDraftConversationIfNeeded() {
@@ -1082,7 +1082,7 @@ extension ConversationViewModel {
             }
         }
 
-        guard GlobalConvoDefaults.shared.revealModeEnabled else { return }
+        guard !GlobalConvoDefaults.shared.autoRevealPhotos else { return }
 
         if !hasShownRevealInfoSheet {
             hasShownRevealInfoSheet = true
