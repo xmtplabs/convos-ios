@@ -47,6 +47,7 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
                     .font(.callout)
                     .foregroundStyle(.colorFillTertiary)
                     .accessibilityHidden(true)
+                    .transition(.scale.combined(with: .opacity))
             }
 
             if isUnread {
@@ -54,8 +55,11 @@ struct ListItemView<LeadingContent: View, SubtitleContent: View, AccessoryConten
                     .fill(Color.primary)
                     .frame(width: 16, height: 16)
                     .accessibilityHidden(true)
+                    .transition(.scale.combined(with: .opacity))
             }
         }
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isMuted)
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: isUnread)
         .padding(.horizontal, DesignConstants.Spacing.step4x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -111,9 +115,11 @@ struct ConversationsListItem: View {
             accessoryContent: {
                 if let expiresAt = conversation.scheduledExplosionDate {
                     ExplosionCountdownBadge(expiresAt: expiresAt)
+                        .transition(.scale.combined(with: .opacity))
                 }
             }
         )
+        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: conversation.scheduledExplosionDate)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(accessibilityDescription)
         .accessibilityIdentifier("conversation-list-item-\(conversation.id)")
