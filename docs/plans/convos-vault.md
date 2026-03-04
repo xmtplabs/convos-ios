@@ -123,11 +123,14 @@ A new custom content type that replaces the current plain-text invite slug sent 
 |---|---|---|---|
 | `inviteSlug` | string | yes | The URL-safe encoded signed invite (same as current text message) |
 | `profile` | object | no | The joiner's profile (name, image) for display in join request UI |
-| `deviceName` | string | no | Device name for Vault pairing (e.g., "Jarod's iPad") |
-| `confirmationCode` | string | no | 6-digit code for Vault pairing verification |
-| `metadata` | map | no | Extensible key-value pairs for future use |
+| `metadata` | map | no | Extensible key-value pairs for context-specific data |
 
-For regular conversation joins, only `inviteSlug` is required (with optional `profile`). For Vault pairing, the join request also includes `deviceName` and `confirmationCode`.
+For regular conversation joins, only `inviteSlug` is required (with optional `profile`). For Vault pairing, the metadata map carries Vault-specific fields:
+
+| Metadata Key | Value | Description |
+|---|---|---|
+| `deviceName` | string | Device name (e.g., "Jarod's iPad") |
+| `confirmationCode` | string | 6-digit code for pairing verification |
 
 This is backward-compatible — existing join request processing checks for the invite slug and ignores unknown fields.
 
