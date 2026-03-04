@@ -278,6 +278,10 @@ actor StreamProcessor: StreamProcessorProtocol {
         }
 
         let senderInboxId = message.senderInboxId
+        guard !senderInboxId.isEmpty else {
+            Log.warning("ProfileUpdate with empty senderInboxId, skipping")
+            return
+        }
         do {
             try await databaseWriter.write { db in
                 let member = DBMember(inboxId: senderInboxId)

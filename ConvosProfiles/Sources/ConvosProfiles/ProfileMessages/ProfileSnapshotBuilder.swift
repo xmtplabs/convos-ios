@@ -8,7 +8,7 @@ public enum ProfileSnapshotBuilder {
         memberInboxIds: [String]
     ) async throws -> ProfileSnapshot {
         let messages = try await group.messages(
-            limit: 500,
+            limit: Constant.maxMessagesToScan,
             direction: .descending
         )
 
@@ -83,6 +83,14 @@ public enum ProfileSnapshotBuilder {
 
         let codec = ProfileSnapshotCodec()
         let encoded = try codec.encode(content: snapshot)
+        if encoded.content.count > Constant.snapshotSizeWarningThreshold {
+            print("[ConvosProfiles] Large ProfileSnapshot: \(encoded.content.count) bytes, \(snapshot.profiles.count) profiles")
+        }
         _ = try await group.send(encodedContent: encoded)
+    }
+
+    private enum Constant {
+        static let maxMessagesToScan: Int = 500
+        static let snapshotSizeWarningThreshold: Int = 50_000
     }
 }
