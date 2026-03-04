@@ -1053,7 +1053,7 @@ extension ConversationViewModel {
             }
         }
 
-        guard !GlobalConvoDefaults.shared.autoRevealPhotos else { return }
+        guard !autoRevealPhotos else { return }
 
         if !hasShownRevealInfoSheet {
             hasShownRevealInfoSheet = true

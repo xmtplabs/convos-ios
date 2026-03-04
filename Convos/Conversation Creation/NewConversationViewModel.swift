@@ -223,10 +223,7 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 do {
                     try await stateManager.createConversation()
-                    await self?.applyGlobalConversationDefaultsIfNeeded(
-                        conversationId: stateManager.conversationId,
-                        metadataWriter: stateManager.conversationMetadataWriter
-                    )
+                    await self?.applyGlobalConversationDefaultsIfNeeded(using: stateManager)
                 } catch {
                     Log.error("Error auto-creating conversation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -258,10 +255,7 @@ class NewConversationViewModel: Identifiable {
             guard !Task.isCancelled else { return }
             do {
                 try await conversationStateManager.joinConversation(inviteCode: inviteCode)
-                await self?.applyGlobalConversationDefaultsIfNeeded(
-                    conversationId: conversationStateManager.conversationId,
-                    metadataWriter: conversationStateManager.conversationMetadataWriter
-                )
+                await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
                 guard !Task.isCancelled else { return }
 
                 await MainActor.run { [weak self] in
@@ -318,10 +312,7 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 do {
                     try await conversationStateManager.createConversation()
-                    await self?.applyGlobalConversationDefaultsIfNeeded(
-                        conversationId: conversationStateManager.conversationId,
-                        metadataWriter: conversationStateManager.conversationMetadataWriter
-                    )
+                    await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
                 } catch {
                     Log.error("Error retrying conversation creation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -467,10 +458,8 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
-    private func applyGlobalConversationDefaultsIfNeeded(
-        conversationId: String,
-        metadataWriter: any ConversationMetadataWriterProtocol
-    ) async {
+    private func applyGlobalConversationDefaultsIfNeeded(using stateManager: any ConversationStateManagerProtocol) async {
+        let conversationId: String = stateManager.conversationId
         guard !conversationId.isEmpty else { return }
 
         do {
@@ -482,7 +471,7 @@ class NewConversationViewModel: Identifiable {
         guard autoCreateConversation else { return }
 
         do {
-            try await metadataWriter.updateIncludeInfoInPublicPreview(
+            try await stateManager.conversationMetadataWriter.updateIncludeInfoInPublicPreview(
                 GlobalConvoDefaults.shared.includeInfoWithInvites,
                 for: conversationId
             )
