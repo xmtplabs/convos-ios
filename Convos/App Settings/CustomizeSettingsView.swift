@@ -5,6 +5,7 @@ struct CustomizeSettingsView: View {
 
     private var blurIncomingPhotosBinding: Binding<Bool> {
         Binding(
+            // UI toggle represents blur-on, so it is the inverse of auto-reveal.
             get: { !defaults.autoRevealPhotos },
             set: { defaults.autoRevealPhotos = !$0 }
         )
@@ -36,14 +37,16 @@ struct CustomizeSettingsView: View {
                     symbolName: "eye.slash",
                     title: "Reveal mode",
                     subtitle: "Blur incoming pics",
-                    isOn: blurIncomingPhotosBinding
+                    isOn: blurIncomingPhotosBinding,
+                    toggleAccessibilityIdentifier: "customize-reveal-mode-toggle"
                 )
 
                 customizeToggleRow(
                     symbolName: "qrcode",
                     title: "Include info with invites",
                     subtitle: "When enabled, anyone with your convo code can see its pic, name and description",
-                    isOn: $defaults.includeInfoWithInvites
+                    isOn: $defaults.includeInfoWithInvites,
+                    toggleAccessibilityIdentifier: "customize-include-info-toggle"
                 )
             }
 
@@ -67,7 +70,8 @@ struct CustomizeSettingsView: View {
         symbolName: String,
         title: String,
         subtitle: String,
-        isOn: Binding<Bool>
+        isOn: Binding<Bool>,
+        toggleAccessibilityIdentifier: String
     ) -> some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             Image(systemName: symbolName)
@@ -97,6 +101,7 @@ struct CustomizeSettingsView: View {
 
             Toggle("", isOn: isOn)
                 .labelsHidden()
+                .accessibilityIdentifier(toggleAccessibilityIdentifier)
         }
     }
 }

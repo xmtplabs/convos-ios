@@ -8,6 +8,7 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     var autoRevealPhotos: Bool {
         get {
             access(keyPath: \.autoRevealPhotos)
+            // Default false means photos are not auto-revealed (blur incoming pics is on).
             return UserDefaults.standard.object(forKey: Constant.autoRevealPhotosKey) as? Bool ?? false
         }
         set {
