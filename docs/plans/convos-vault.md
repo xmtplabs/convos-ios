@@ -62,11 +62,11 @@ The main device (Device A) initiates pairing from Vault settings:
 1. Device A taps "Pair Device" — this generates a standard Convos invite for the Vault (60-second expiry, single-use) and displays the QR code
 2. Device B (new device) scans the QR code
 3. Device B generates a random 6-digit confirmation code and displays it on screen
-4. Device B sends a join request via DM (the standard invite join flow) — the join request includes Device B's inbox ID and the 6-digit code
+4. Device B sends a join request via DM (the standard invite join flow) — the join request includes Device B's inbox ID, the 6-digit code, and the device name (e.g., "Jarod's iPad")
 5. Device A receives the join request and prompts: "Enter the code shown on your new device"
 6. The owner reads the code off Device B's screen and types it into Device A
 7. Device A matches the entered code against the code in the join request — this confirms the correct inbox ID to add
-8. Device A adds Device B to the Vault conversation
+8. Device A adds Device B to the Vault conversation — Device B's profile display name in the Vault is set to the device name from the join request
 9. The invite tag is invalidated and the Vault is re-locked
 
 **Reuses the existing invite system:** The QR code is a standard Convos invite slug. The join request travels via DM, the same as any conversation invite. The only addition is the 6-digit confirmation code embedded in the join request, which Device A must verify before accepting.
