@@ -132,6 +132,18 @@ extension XMTPiOS.DecodedMessage {
                 throw DecodedMessageDBRepresentationError.mismatchedContentType
             }
             let isContentEmoji = contentString.allCharactersEmoji
+            if !isContentEmoji, let invite = MessageInvite.from(text: contentString) {
+                return DBMessageComponents(
+                    messageType: .reply,
+                    contentType: .invite,
+                    sourceMessageId: sourceMessageId,
+                    emoji: nil,
+                    invite: invite,
+                    attachmentUrls: [],
+                    text: contentString,
+                    update: nil
+                )
+            }
             let trimmedContent = contentString.trimmingCharacters(in: .whitespacesAndNewlines)
             return DBMessageComponents(
                 messageType: .reply,

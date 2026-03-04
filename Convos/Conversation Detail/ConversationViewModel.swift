@@ -714,7 +714,12 @@ extension ConversationViewModel {
                 }
 
                 if let inviteURL = prevInviteURL {
-                    try await messageWriter.send(text: inviteURL, afterPhoto: photoTrackingKey)
+                    let inviteIsReply = replyTarget != nil && !hasAttachment && !hasText
+                    if inviteIsReply, let replyTarget {
+                        try await messageWriter.sendReply(text: inviteURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
+                    } else {
+                        try await messageWriter.send(text: inviteURL, afterPhoto: photoTrackingKey)
+                    }
                 }
 
                 if hasText {
