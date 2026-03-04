@@ -163,6 +163,32 @@ internally, not just that the UI updated. Use alongside `verify` checks for stro
 | `expect_event: "event.name"` | Verify the app emitted this [EVENT] after the step |
 | `expect_events: [...]` | Verify multiple [EVENT]s after the step |
 
+## Validated Tests
+
+Tests that have been run against the live iOS app in the simulator and
+had their YAMLs corrected to match actual UI behavior.
+
+| Test | Status | Key Findings |
+|------|--------|-------------|
+| 01 | ✅ | Fresh onboarding flow |
+| 02 | ✅ | Send/receive text messages |
+| 05 | ✅ | Reactions via long-press picker |
+| 06 | ✅ | Replies (streaming issue: CLI reply may need app re-entry) |
+| 09 | ✅ | Explode uses 3s tap-and-hold, not confirm dialog |
+| 10 | ✅ | Pin/unpin; pinned tile is large circular avatar |
+| 11 | ✅ | Mute/unmute; bell.slash.fill / bell.fill icons |
+| 12 | ✅ | Create conversation from app |
+| 16 | ✅ | 4 filters: All, Unread, Exploding, Pending invites |
+| 17 | ✅ | Swipe actions: full labels "Mark as read" / "Mark as unread" |
+| 18 | ✅ | Delete all data: hold-to-delete 3.5s, returns to onboarding |
+| 21 | ✅ | Context menu: 6 quick emojis + Reply + Copy; swipe-to-reply |
+| 22 | ✅ | Rejoin via deep link navigates to existing conversation |
+| 23b | ✅ | Scheduled explode: red countdown in title, auto-cleanup |
+
+Tests not yet validated against live app: 03, 04, 07, 08, 13, 14, 15,
+19, 20, 23, 24. Multi-device tests (03, 04) need two simulators.
+Special tests (13, 15) need dedicated setups.
+
 ## File Naming
 
 Files match the test ID: `01-onboarding.yaml`, `02-send-receive-messages.yaml`, etc.
