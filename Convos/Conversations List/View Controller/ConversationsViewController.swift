@@ -522,13 +522,13 @@ final class ConversationsViewController: UIViewController {
 
         if let popover = alert.popoverPresentationController {
             let isPinned = currentState.pinnedConversations.contains { $0.id == conversation.id }
-            let cell = cellForConversation(conversation) ?? sourceView ?? view
-            popover.sourceView = cell
+            let source = cellForConversation(conversation) ?? sourceView
+            popover.sourceView = source ?? view
             popover.permittedArrowDirections = []
-            if let cell {
+            if let source {
                 popover.sourceRect = CGRect(
-                    x: cell.bounds.midX,
-                    y: isPinned ? cell.bounds.maxY : cell.bounds.minY,
+                    x: source.bounds.midX,
+                    y: isPinned ? source.bounds.maxY : source.bounds.minY,
                     width: 0,
                     height: 0
                 )

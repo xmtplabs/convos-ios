@@ -104,7 +104,6 @@ struct PinnedConversationItem: View {
                         .inset(by: 0.5)
                         .stroke(Color.colorBorderSubtle, lineWidth: 1)
                 )
-
         }
     }
 }
