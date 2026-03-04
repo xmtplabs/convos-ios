@@ -115,10 +115,28 @@ Whenever any linked device creates or joins a conversation:
 
 ## Custom Content Types
 
+### JoinRequest (phase 1 — prerequisite)
+
+A new custom content type that replaces the current plain-text invite slug sent via DM. The current join request is just the invite slug as a text message. A structured `JoinRequest` content type is more flexible and supports both regular conversation joins and Vault pairing.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `inviteSlug` | string | yes | The URL-safe encoded signed invite (same as current text message) |
+| `profile` | object | no | The joiner's profile (name, image) for display in join request UI |
+| `deviceName` | string | no | Device name for Vault pairing (e.g., "Jarod's iPad") |
+| `confirmationCode` | string | no | 6-digit code for Vault pairing verification |
+| `metadata` | map | no | Extensible key-value pairs for future use |
+
+For regular conversation joins, only `inviteSlug` is required (with optional `profile`). For Vault pairing, the join request also includes `deviceName` and `confirmationCode`.
+
+This is backward-compatible — existing join request processing checks for the invite slug and ignores unknown fields.
+
+### Vault Content Types
+
 | Content Type | Purpose |
 |---|---|
-| `DeviceKeyBundle` | Full export of all conversation private keys (sent during initial pairing) |
-| `DeviceKeyShare` | Single conversation key (sent when a new conversation is created or joined) |
+| `DeviceKeyBundle` | Full export of all conversation private keys + installation IDs (sent during initial pairing) |
+| `DeviceKeyShare` | Single conversation key + installation ID (sent when a new conversation is created or joined) |
 | `DeviceKeyRequest` | Request keys from other devices (e.g., after reinstall with recovery key) |
 
 All content types are XMTP custom content types, encrypted end-to-end by MLS. The key material is only readable by Vault members (the user's devices).
