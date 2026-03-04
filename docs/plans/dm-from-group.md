@@ -28,7 +28,7 @@ In any conversation, you can toggle "Allow DMs" in settings:
 - **From everyone**: Anyone in this convo can DM you (default when enabled)
 - **From select members**: Only specific people you choose can DM you
 
-Your `allowsDMs` flag is stored in your profile metadata for the group. Everyone can see who has DMs enabled, but they can't see if someone only allows select members.
+When you toggle this setting, your client sends a `ProfileUpdate` message to the group with the updated `allows_dms` field. Everyone can see who has DMs enabled, but they can't see if someone only allows select members.
 
 ## Sending a DM
 
@@ -39,7 +39,7 @@ When you want to DM someone:
 
 The "Send DM" button only appears if they have DMs enabled for this convo.
 
-Behind the scenes, your client creates a fresh inbox (your new identity for this DM) and sends a DM request to the other person via XMTP as a disappearing message, so the tie to the original convo is ephemeral.
+Behind the scenes, your client creates a fresh inbox (your new identity for this DM) and sends a DM request as a disappearing message through the 1:1 back channel between your group inbox IDs (the same channel used for join requests), so the tie to the original convo is ephemeral.
 
 ## Receiving a DM request
 
@@ -76,21 +76,48 @@ Convos DMs are different. They're initiated with mutual consent, filtered by you
 
 ## Profile metadata
 
-The `allowsDMs` flag is stored in the user's Profile in the group's custom metadata:
+The `allowsDMs` flag is a field on the `ProfileUpdate` message type (see PR #552). When a member enables or disables DMs, their client sends a `ProfileUpdate` with the updated `allows_dms` field. This follows the same infrastructure used for name and avatar updates:
 
-- Everyone in the group can read this flag
+- The flag is included in `ProfileSnapshot` messages, so new joiners immediately know who has DMs enabled
+- Everyone in the group can read this flag (it's in the profile data)
 - Used to conditionally show the "Send DM" button
 - Does not reveal whether the user has a select members list
 
+The select members list is private — it is never shared with the group or any other member. See "Select members list" below for storage.
+
+### Proto changes
+
+```protobuf
+message ProfileUpdate {
+    optional string name = 1;
+    optional EncryptedProfileImageRef encrypted_image = 2;
+    MemberKind member_kind = 3;
+    optional bool allows_dms = 4;  // new
+}
+
+message MemberProfile {
+    bytes inbox_id = 1;
+    optional string name = 2;
+    optional EncryptedProfileImageRef encrypted_image = 3;
+    MemberKind member_kind = 4;
+    optional bool allows_dms = 5;  // new
+}
+```
+
+Old clients ignore the `allows_dms` field (protobuf forward compatibility). Members on old clients will appear as DMs-disabled (field absent = false).
+
 ## The DMRequest message
 
-When you send a DM request, your client sends a custom XMTP content type:
+A new custom XMTP content type (`convos.org/dm_request`) sent via the 1:1 DM back channel between the two members' group inbox IDs — the same mechanism used for invite join requests. This keeps DM requests out of the group message history entirely.
+
+The message contains:
 
 - **Your new inbox ID**: The fresh identity you'll use for the DM
 - **A DM tag**: A random identifier to correlate your request with the conversation you're added to
+- **The origin conversation ID**: So the receiver's client can look up DM settings for that group
 - **Expiration**: This is a disappearing message. When it expires, the context linking the DM to the original convo disappears
 
-This message is delivered because your existing inbox ID (from the group) already has approved consent state with the recipient.
+This message is delivered because both members' group inbox IDs already have an XMTP DM channel between them (used for join request processing). The DM request is processed silently by the receiver's client — not displayed as a chat message.
 
 ## Conversation creation
 
@@ -98,17 +125,23 @@ When the receiver's client processes the request:
 
 1. Creates a new inbox (their fresh DM identity)
 2. Creates a new XMTP conversation (they're super admin)
-3. Adds the sender's inbox ID to the conversation
+3. Adds the sender's new inbox ID to the conversation
 4. Sets the DM tag in conversation metadata
 5. Locks the conversation (no additional members allowed)
 6. Sets consent state based on their DM settings
+
+## Select members list
+
+The select members list is stored as a self-addressed XMTP message — you send it to your own inbox ID's DM channel. XMTP encryption means only your installations can read it.
+
+Each message contains a conversation ID and the list of allowed inbox IDs. When you update the list, send a new message. On new device or reinstall, read the latest per conversation.
 
 ## Consent logic
 
 The consent check happens on the receiver's device:
 
 - If "From everyone": consent is set to approved immediately
-- If "From select members": consent is approved only if sender is in the list
+- If "From select members": checks the local select members list (stored in GRDB, never shared). Approved only if sender is in the list
 - If not approved, the conversation exists but won't surface notifications or appear prominently
 
 The sender has no way to know which path was taken.
@@ -120,6 +153,44 @@ XMTP group permissions are set so:
 - Only the two inbox IDs can be members
 - No one can add additional members
 - The creator (receiver) retains super admin for explode control
+
+---
+
+# Group spinoffs
+
+The DM flow generalizes to starting a new group with a subset of members from an existing conversation — without the rest knowing.
+
+## How it works
+
+1. In the member list, select multiple members
+2. Your client creates a fresh inbox and a new XMTP group
+3. Sends a `GroupInviteRequest` through the back channel to each selected member individually
+4. Each recipient's client checks DM settings independently, creates a fresh inbox, and joins the group if approved
+
+The sender creates the group immediately — no waiting for acceptance. Recipients join asynchronously as they come online and process the request.
+
+## Reuses the DM infrastructure
+
+- **Same back channel**: 1:1 DM channel between group inbox IDs (used for join requests and DM requests)
+- **Same consent logic**: `allowsDMs` setting controls reachability for both DMs and group spinoffs
+- **Same fresh identities**: Everyone gets a new inbox for the new group
+- **Same select members filtering**: If a recipient only allows DMs from select members, the group invite is filtered the same way
+
+## Differences from DMs
+
+- The sender creates the group upfront (not the receiver)
+- The group is not locked — members could add others later
+- Each invited member receives their own back channel message and decides independently
+- Members who don't accept (or have DMs off) simply never join — no one knows they were invited
+
+## The GroupInviteRequest message
+
+Sent through the back channel to each invitee:
+
+- **Sender's new inbox ID**: Their fresh identity for the new group
+- **Conversation ID**: The new group's XMTP conversation ID (to join)
+- **Origin conversation ID**: Which group the invite came from (for consent checks)
+- **Expiration**: Disappearing message, same as DM requests
 
 ---
 
@@ -146,11 +217,13 @@ Yes. When you send a DM request, a new inbox is created. You can choose to use y
 
 1. **Allow DMs toggle**: Per-conversation setting with three states: off, everyone, select members.
 
-2. **Profile metadata**: The `allowsDMs` flag is public within the group. Select members list is private.
+2. **Profile messages for `allowsDMs`**: The flag is a field on `ProfileUpdate` / `MemberProfile` (PR #552's profile message infrastructure). It flows through the existing codec, snapshot, and GRDB persistence pipeline. No new content type needed for the flag itself.
 
-3. **Silent filtering**: Senders don't know if they're on the approved list. No rejection notification.
+3. **Select members list is private**: Synced across your devices via self-addressed XMTP messages. Never shared with the group. The sender cannot determine whether they're on someone's list.
 
-4. **Context expiration**: The link between DM and origin convo is ephemeral, tied to the DM request message lifetime.
+4. **Silent filtering**: Senders don't know if they're on the approved list. No rejection notification.
+
+5. **Context expiration**: The link between DM and origin convo is ephemeral, tied to the DM request message lifetime.
 
 ---
 
