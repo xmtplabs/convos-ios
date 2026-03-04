@@ -140,7 +140,6 @@ This is backward-compatible — existing join request processing checks for the 
 |---|---|
 | `DeviceKeyBundle` | Full export of all conversation private keys + installation IDs (sent during initial pairing) |
 | `DeviceKeyShare` | Single conversation key + installation ID (sent when a new conversation is created or joined) |
-| `DeviceKeyRequest` | Request keys from other devices (e.g., after reinstall with recovery key) |
 
 All content types are XMTP custom content types, encrypted end-to-end by MLS. The key material is only readable by Vault members (the user's devices).
 
@@ -182,9 +181,10 @@ Since the Vault key is stored in iCloud Keychain, installing Convos on a new dev
 
 1. User installs Convos on a new device
 2. The Vault key is retrieved from iCloud Keychain
-3. The app rebuilds the XMTP client for the Vault inbox and syncs message history
-4. Replays all `DeviceKeyBundle` and `DeviceKeyShare` messages to reconstruct the full set of conversation keys
-5. Creates installations for each conversation
+3. The app creates a new installation on the Vault inbox using the recovered key (with `deviceSyncEnabled: true`)
+4. XMTP history sync replicates all Vault messages to the new installation — including all `DeviceKeyBundle` and `DeviceKeyShare` messages ever sent
+5. The app replays the synced messages to reconstruct the full set of conversation keys
+6. Creates installations for each conversation
 
 ### Lost all devices (different Apple ID / no iCloud Keychain)
 
@@ -192,7 +192,7 @@ If the user backed up their Vault key (manual backup on non-Apple platforms, or 
 
 1. User installs Convos on a new device
 2. Enters their Vault key manually
-3. Same recovery flow as above — rebuild client, replay history, restore keys
+3. Same recovery flow as above — create installation, history sync, replay messages, restore keys
 
 If no backup exists, this is unrecoverable in a trustless model. No server holds the keys.
 
