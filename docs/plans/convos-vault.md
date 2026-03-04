@@ -18,10 +18,27 @@ XMTP supports associating multiple wallet identities with a single inbox via `ad
 
 The Vault is a standard XMTP group conversation with:
 
-- Custom metadata flag (`conversationType: "vault"`) to filter it from the conversations list
+- A `conversationType` field in `ConversationCustomMetadata` (protobuf field 6) set to `"vault"` — this is how any device identifies the Vault after syncing its conversation list
 - Custom XMTP content types for key exchange
 - Locked by default (no new members can join without explicit user action)
 - Members represent devices, with profile display names as device names
+
+### Conversation type in custom metadata
+
+The Vault must be identifiable by any device that syncs the conversation, without prior local state. When a new device joins and pulls its conversation list, it reads `ConversationCustomMetadata.conversationType` to distinguish the Vault from regular conversations.
+
+```protobuf
+message ConversationCustomMetadata {
+    string tag = 1;
+    repeated ConversationProfile profiles = 2;
+    optional sfixed64 expiresAtUnix = 3;
+    optional bytes imageEncryptionKey = 4;
+    optional EncryptedImageRef encryptedGroupImage = 5;
+    optional string conversationType = 6;  // "vault" for Convos Vault
+}
+```
+
+The conversations list filters out any conversation where `conversationType == "vault"`. The Vault is only accessible through Settings → Convos Vault.
 
 ## Lifecycle
 
