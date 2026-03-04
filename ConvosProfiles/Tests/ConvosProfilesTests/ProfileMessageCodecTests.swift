@@ -4,7 +4,7 @@ import Testing
 
 @Suite("ProfileUpdate Codec Tests")
 struct ProfileUpdateCodecTests {
-    let codec = ProfileUpdateCodec()
+    let codec: ProfileUpdateCodec = ProfileUpdateCodec()
 
     @Test("Encode and decode profile update with name only")
     func roundTripNameOnly() throws {
@@ -85,7 +85,7 @@ struct ProfileUpdateCodecTests {
 
 @Suite("ProfileSnapshot Codec Tests")
 struct ProfileSnapshotCodecTests {
-    let codec = ProfileSnapshotCodec()
+    let codec: ProfileSnapshotCodec = ProfileSnapshotCodec()
     let inboxIdHex: String = "0011223344556677889900112233445566778899001122334455667788990011"
 
     @Test("Encode and decode snapshot with multiple profiles")

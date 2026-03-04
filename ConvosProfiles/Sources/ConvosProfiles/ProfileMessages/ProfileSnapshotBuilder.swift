@@ -19,35 +19,9 @@ public enum ProfileSnapshotBuilder {
             guard let contentType = try? message.encodedContent.type else { continue }
 
             if contentType == ContentTypeProfileUpdate {
-                let senderInboxId = message.senderInboxId
-                guard profilesByInboxId[senderInboxId] == nil else { continue }
-
-                guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else {
-                    continue
-                }
-
-                var memberProfile = MemberProfile()
-                guard let inboxIdBytes = Data(hexString: senderInboxId), !inboxIdBytes.isEmpty else {
-                    continue
-                }
-                memberProfile.inboxID = inboxIdBytes
-                if update.hasName {
-                    memberProfile.name = update.name
-                }
-                if update.hasEncryptedImage {
-                    memberProfile.encryptedImage = update.encryptedImage
-                }
-                memberProfile.memberKind = update.memberKind
-                profilesByInboxId[senderInboxId] = memberProfile
+                processProfileUpdate(message: message, into: &profilesByInboxId)
             } else if contentType == ContentTypeProfileSnapshot, latestSnapshotProfiles.isEmpty {
-                guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else {
-                    continue
-                }
-                for profile in snapshot.profiles {
-                    let inboxId = profile.inboxIdString
-                    guard !inboxId.isEmpty else { continue }
-                    latestSnapshotProfiles[inboxId] = profile
-                }
+                processProfileSnapshot(message: message, into: &latestSnapshotProfiles)
             }
 
             let allMembersResolved = memberInboxIds.allSatisfy { profilesByInboxId[$0] != nil }
@@ -64,6 +38,39 @@ public enum ProfileSnapshotBuilder {
         }
 
         return ProfileSnapshot(profiles: result)
+    }
+
+    private static func processProfileUpdate(
+        message: DecodedMessage,
+        into profiles: inout [String: MemberProfile]
+    ) {
+        let senderInboxId = message.senderInboxId
+        guard profiles[senderInboxId] == nil else { return }
+        guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { return }
+        guard let inboxIdBytes = Data(hexString: senderInboxId), !inboxIdBytes.isEmpty else { return }
+
+        var memberProfile = MemberProfile()
+        memberProfile.inboxID = inboxIdBytes
+        if update.hasName {
+            memberProfile.name = update.name
+        }
+        if update.hasEncryptedImage {
+            memberProfile.encryptedImage = update.encryptedImage
+        }
+        memberProfile.memberKind = update.memberKind
+        profiles[senderInboxId] = memberProfile
+    }
+
+    private static func processProfileSnapshot(
+        message: DecodedMessage,
+        into profiles: inout [String: MemberProfile]
+    ) {
+        guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { return }
+        for profile in snapshot.profiles {
+            let inboxId = profile.inboxIdString
+            guard !inboxId.isEmpty else { continue }
+            profiles[inboxId] = profile
+        }
     }
 
     public static func sendSnapshot(
