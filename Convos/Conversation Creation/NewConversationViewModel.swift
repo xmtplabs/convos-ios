@@ -205,7 +205,7 @@ class NewConversationViewModel: Identifiable {
             session: session,
             messagingService: messagingService,
             conversationStateManager: stateManager,
-            applyGlobalDefaultsForNewConversation: autoCreateConversation && existingConversationId == nil
+            applyGlobalDefaultsForNewConversation: autoCreateConversation
         )
         if startedWithFullscreenScanner {
             convoVM.showsInfoView = false
