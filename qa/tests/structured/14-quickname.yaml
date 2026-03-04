@@ -50,8 +50,6 @@ steps:
     verify:
       - element_exists: { id: "message-text-field" }
     criteria: conversation_joined
-    save:
-      conversation_id: "from CLI create response"
 
   - id: quickname_banner
     name: "Quickname setup banner appears"
