@@ -243,6 +243,12 @@
 				"Conversations List/ConversationsListItem.swift",
 				"Conversations List/ConversationsView.swift",
 				"Conversations List/ConversationsViewModel.swift",
+				"Conversations List/View Controller/Cells/ConversationListItemCell.swift",
+				"Conversations List/View Controller/Cells/EmptyStateCell.swift",
+				"Conversations List/View Controller/Cells/PinnedConversationCell.swift",
+				"Conversations List/View Controller/ConversationsCollectionLayout.swift",
+				"Conversations List/View Controller/ConversationsViewController.swift",
+				"Conversations List/View Controller/ConversationsViewRepresentable.swift",
 				ConvosAppDelegate.swift,
 				"Debug View/DebugExportView.swift",
 				"Debug View/DebugView.swift",
@@ -764,12 +770,12 @@
 			projectDirPath = "";
 			projectReferences = (
 				{
-					ProductGroup = 7A1C3C552DB6F75000B723C0 /* Products */;
-					ProjectRef = 7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */;
-				},
-				{
 					ProductGroup = 7A7BB1362DB6FF8E009B8BBF /* Products */;
 					ProjectRef = 7A7BB1322DB6FF8E009B8BBF /* Convos.xcodeproj */;
+				},
+				{
+					ProductGroup = 7A1C3C552DB6F75000B723C0 /* Products */;
+					ProjectRef = 7A1C3C512DB6F75000B723C0 /* Convos.xcodeproj */;
 				},
 			);
 			projectRoot = "";

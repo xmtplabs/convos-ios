@@ -41,6 +41,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 21 | `qa/tests/21-message-gestures.md` | All message gestures: double-tap, swipe reply, long-press menu, link tap, avatar tap |
 | 22 | `qa/tests/22-rejoin-existing-conversation.md` | Rejoin existing conversation via deep link or paste in scanner |
 | 23 | `qa/tests/23-pending-invites-home-view.md` | Pending invites appear in home view, filter, swipe/context restrictions, approval transition |
+| 25 | `qa/tests/25-conversations-list-baseline.md` | Conversations list baseline for UICollectionView migration - captures all UI states and interactions |
 
 ## Running Tests
 
