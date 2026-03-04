@@ -52,9 +52,11 @@ extension XMTPiOS.Group {
 
     public func updateExpiresAt(date: Date) async throws {
         let expiresAtUnix = Int64(date.timeIntervalSince1970)
-        var metadata = try currentCustomMetadata
-        metadata.expiresAtUnix = expiresAtUnix
-        try await updateMetadata(metadata)
+        try await atomicUpdateMetadata { metadata in
+            metadata.expiresAtUnix = expiresAtUnix
+        } verify: { metadata in
+            metadata.hasExpiresAtUnix && metadata.expiresAtUnix == expiresAtUnix
+        }
     }
 
     // MARK: - Image Encryption Key Management
@@ -131,9 +133,13 @@ extension XMTPiOS.Group {
     /// Rotates the invite tag, invalidating all existing invites for this conversation.
     /// This is used when locking a conversation to ensure no outstanding invites can be used.
     public func rotateInviteTag() async throws {
-        var customMetadata = try currentCustomMetadata
-        customMetadata.tag = try generateSecureRandomString(length: 10)
-        try await updateMetadata(customMetadata)
+        let oldTag = try inviteTag
+        let newTag = try generateSecureRandomString(length: 10)
+        try await atomicUpdateMetadata { metadata in
+            metadata.tag = newTag
+        } verify: { metadata in
+            metadata.tag != oldTag && !metadata.tag.isEmpty
+        }
     }
 
     /// Generates a cryptographically secure random string of specified length
@@ -207,9 +213,11 @@ extension XMTPiOS.Group {
         guard let conversationProfile = profile.conversationProfile else {
             throw ConversationCustomMetadataError.invalidInboxIdHex(profile.inboxId)
         }
-        var metadata = try currentCustomMetadata
-        metadata.upsertProfile(conversationProfile)
-        try await updateMetadata(metadata)
+        try await atomicUpdateMetadata { metadata in
+            metadata.upsertProfile(conversationProfile)
+        } verify: { metadata in
+            metadata.findProfile(inboxId: profile.inboxId) == conversationProfile
+        }
     }
 
     /// Performs an optimistic concurrency update on group metadata with verification.
