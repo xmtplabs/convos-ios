@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosProfiles
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -46,6 +47,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             return nil
         }
         logAccepted(result)
+        await sendProfileSnapshotAfterJoin(conversationId: result.conversationId, client: client)
         return JoinRequestResult(
             conversationId: result.conversationId,
             conversationName: result.conversationName,
@@ -80,5 +82,23 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             "conversation": result.conversationId,
             "member": result.joinerInboxId,
         ])
+    }
+
+    private func sendProfileSnapshotAfterJoin(conversationId: String, client: AnyClientProvider) async {
+        do {
+            guard let conversation = try await client.conversationsProvider.findConversation(
+                conversationId: conversationId
+            ), case .group(let group) = conversation else {
+                return
+            }
+            let allMemberInboxIds = try await group.members.map(\.inboxId)
+            try await ProfileSnapshotBuilder.sendSnapshot(
+                group: group,
+                memberInboxIds: allMemberInboxIds
+            )
+            Log.debug("Sent ProfileSnapshot after join request for \(conversationId)")
+        } catch {
+            Log.warning("Failed to send ProfileSnapshot after join: \(error.localizedDescription)")
+        }
     }
 }

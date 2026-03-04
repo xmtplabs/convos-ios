@@ -1,6 +1,7 @@
 import ConvosProfiles
 import Foundation
 import GRDB
+@preconcurrency import XMTPiOS
 
 public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
@@ -52,6 +53,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         try await group.updateProfile(profile)
+        await sendProfileUpdate(profile: profile, group: group)
     }
 
     func update(avatar: ImageType?, conversationId: String) async throws {
@@ -86,6 +88,7 @@ class MyProfileWriter: MyProfileWriterProtocol {
                 try updatedProfile.save(db)
             }
             try await group.updateProfile(updatedProfile)
+            await sendProfileUpdate(profile: updatedProfile, group: group)
             return
         }
 
@@ -119,7 +122,6 @@ class MyProfileWriter: MyProfileWriterProtocol {
 
         try await group.updateProfile(updatedProfile)
 
-        // Cache the uploaded image using the new URL-tracking API
         if let image = ImageType(data: compressedImageData) {
             ImageCacheContainer.shared.cacheAfterUpload(image, for: hydratedProfile, url: uploadedAssetUrl)
         }
@@ -127,6 +129,27 @@ class MyProfileWriter: MyProfileWriterProtocol {
         try await databaseWriter.write { db in
             Log.info("Updated encrypted avatar for profile: \(updatedProfile)")
             try updatedProfile.save(db)
+        }
+
+        await sendProfileUpdate(profile: updatedProfile, group: group)
+    }
+
+    private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {
+        var update = ProfileUpdate()
+        if let name = profile.name {
+            update.name = name
+        }
+        if let encryptedRef = profile.encryptedImageRef {
+            update.encryptedImage = EncryptedProfileImageRef(encryptedRef)
+        }
+
+        do {
+            let codec = ProfileUpdateCodec()
+            let encoded = try codec.encode(content: update)
+            _ = try await group.send(encodedContent: encoded)
+            Log.debug("Sent ProfileUpdate message for \(profile.inboxId) in \(profile.conversationId)")
+        } catch {
+            Log.warning("Failed to send ProfileUpdate message: \(error.localizedDescription)")
         }
     }
 }
