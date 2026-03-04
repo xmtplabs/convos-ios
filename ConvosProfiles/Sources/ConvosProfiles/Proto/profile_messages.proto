@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+// ProfileUpdate is sent by a member when they change their own profile.
+// The sender's inbox ID is implicit from the XMTP message — only the
+// sender can author their own profile update, preventing spoofing.
+//
+// Sending a ProfileUpdate with no name and no encrypted_image clears the profile.
+message ProfileUpdate {
+    optional string name = 1;
+    optional EncryptedProfileImageRef encrypted_image = 2;
+}
+
+// ProfileSnapshot is sent by the member who adds new members to a group.
+// It contains all current member profiles so new joiners have everyone's
+// profiles immediately, solving the MLS forward secrecy gap.
+//
+// Snapshot preparation precedence per member:
+// 1. Latest ProfileUpdate from that member (highest priority)
+// 2. Most recent ProfileSnapshot containing that member (fallback)
+message ProfileSnapshot {
+    repeated MemberProfile profiles = 1;
+}
+
+// A single member's profile within a ProfileSnapshot.
+message MemberProfile {
+    bytes inbox_id = 1;  // XMTP inbox ID as hex-decoded bytes (32 bytes)
+    optional string name = 2;
+    optional EncryptedProfileImageRef encrypted_image = 3;
+}
+
+// Reference to an encrypted profile image (matches EncryptedImageRef from ConvosAppData
+// but scoped to profile messages to avoid cross-proto dependencies).
+message EncryptedProfileImageRef {
+    string url = 1;   // URL to encrypted ciphertext (e.g. S3)
+    bytes salt = 2;   // 32-byte HKDF salt for key derivation
+    bytes nonce = 3;  // 12-byte AES-GCM nonce
+}
