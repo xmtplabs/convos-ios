@@ -1874,3 +1874,100 @@ struct ConversationStateMachineTests {
         try? await joinerFixtures.cleanup()
     }
 }
+
+// MARK: - StateSequence Contract Tests
+
+private actor StateCollector {
+    var values: [String] = []
+    func append(_ value: String) { values.append(value) }
+}
+
+private actor StateCounter {
+    var value: Int = 0
+    func increment() { value += 1 }
+}
+
+@Suite("ConversationStateManager stateSequence", .serialized)
+struct ConversationStateManagerStateSequenceTests {
+    @Test("stateSequence delivers current state immediately on subscribe")
+    func testCurrentStateOnSubscribe() async throws {
+        let mock = MockConversationStateManager()
+        let readyResult = ConversationReadyResult(conversationId: "test-123", origin: .created)
+        mock.setState(.ready(readyResult))
+
+        var receivedState: ConversationStateMachine.State?
+        for await state in mock.stateSequence {
+            receivedState = state
+            break
+        }
+
+        guard case .ready(let result) = receivedState else {
+            Issue.record("Expected .ready state, got \(String(describing: receivedState))")
+            return
+        }
+        #expect(result.conversationId == "test-123")
+    }
+
+    @Test("Multiple observers receive the same state updates")
+    func testMultipleObservers() async throws {
+        let mock = MockConversationStateManager()
+        let collector1 = StateCollector()
+        let collector2 = StateCollector()
+
+        async let result1: Void = {
+            for await state in mock.stateSequence {
+                await collector1.append("\(state)")
+                if case .ready = state { break }
+            }
+        }()
+
+        async let result2: Void = {
+            for await state in mock.stateSequence {
+                await collector2.append("\(state)")
+                if case .ready = state { break }
+            }
+        }()
+
+        try await Task.sleep(for: .milliseconds(50))
+        mock.setState(.creating)
+        try await Task.sleep(for: .milliseconds(50))
+        mock.setState(.ready(ConversationReadyResult(conversationId: "abc", origin: .created)))
+
+        await result1
+        await result2
+
+        let states1 = await collector1.values
+        let states2 = await collector2.values
+
+        #expect(states1.count >= 2, "Observer 1 should have received at least initial + ready states")
+        #expect(states2.count >= 2, "Observer 2 should have received at least initial + ready states")
+
+        let ready1 = states1.contains { $0.contains("ready") }
+        let ready2 = states2.contains { $0.contains("ready") }
+        #expect(ready1, "Observer 1 should have received ready state")
+        #expect(ready2, "Observer 2 should have received ready state")
+    }
+
+    @Test("Canceling observation stops receiving updates")
+    func testCancelStopsUpdates() async throws {
+        let mock = MockConversationStateManager()
+        let counter = StateCounter()
+
+        let task = Task {
+            for await _ in mock.stateSequence {
+                await counter.increment()
+                if await counter.value >= 2 { break }
+            }
+        }
+
+        try await Task.sleep(for: .milliseconds(50))
+        mock.setState(.creating)
+        await task.value
+
+        let countAfterCancel = await counter.value
+        mock.setState(.ready(ConversationReadyResult(conversationId: "abc", origin: .created)))
+        try await Task.sleep(for: .milliseconds(50))
+
+        #expect(await counter.value == countAfterCancel)
+    }
+}

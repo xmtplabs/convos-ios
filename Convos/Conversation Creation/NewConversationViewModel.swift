@@ -81,7 +81,7 @@ class NewConversationViewModel: Identifiable {
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
-    private var stateObserverHandle: ConversationStateObserverHandle?
+    private var stateObservationTask: Task<Void, Never>?
     @ObservationIgnored
     private var dismissAction: DismissAction?
     private var pendingInviteCode: String?
@@ -147,7 +147,7 @@ class NewConversationViewModel: Identifiable {
         newConversationTask?.cancel()
         joinConversationTask?.cancel()
         resetTask?.cancel()
-        stateObserverHandle?.cancel()
+        stateObservationTask?.cancel()
     }
 
     // MARK: - Inbox Acquisition
@@ -370,9 +370,13 @@ class NewConversationViewModel: Identifiable {
     @MainActor
     private func setupStateObservation() {
         guard let conversationStateManager else { return }
-        stateObserverHandle?.cancel()
-        stateObserverHandle = conversationStateManager.observeState { [weak self] state in
-            self?.handleStateChange(state)
+        stateObservationTask?.cancel()
+        stateObservationTask = Task { [weak self, conversationStateManager] in
+            for await state in conversationStateManager.stateSequence {
+                guard let self else { break }
+                self.handleStateChange(state)
+                if Task.isCancelled { break }
+            }
         }
     }
 

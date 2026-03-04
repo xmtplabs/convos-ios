@@ -285,23 +285,12 @@ struct UnusedConversationConsumptionTests {
         // Step 3: Create state manager with existing ID
         let conversationStateManager = messagingService.conversationStateManager(for: existingConversationId)
 
-        // Step 4: Wait for state machine to reach ready state
-        // When useExisting is called, it should transition to .ready with origin = .existing
         var finalState: ConversationStateMachine.State?
-        var stateCount = 0
 
-        let observerHandle = await MainActor.run {
-            conversationStateManager.observeState { state in
-                stateCount += 1
-                finalState = state
-            }
-        }
-
-        // Wait for state to settle
         let deadline = ContinuousClock.now + .seconds(5)
-        while ContinuousClock.now < deadline {
-            if case .ready(let result) = finalState {
-                // Verify it's using the existing conversation
+        for await state in conversationStateManager.stateSequence {
+            finalState = state
+            if case .ready(let result) = state {
                 #expect(
                     result.conversationId == existingConversationId,
                     "Ready state should use existing conversation ID"
@@ -312,12 +301,9 @@ struct UnusedConversationConsumptionTests {
                 )
                 break
             }
-            try await Task.sleep(for: .milliseconds(100))
+            if ContinuousClock.now > deadline { break }
         }
 
-        observerHandle.cancel()
-
-        // Verify we reached ready state
         if case .ready = finalState {
             // Success
         } else {
