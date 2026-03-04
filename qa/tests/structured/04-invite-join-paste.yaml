@@ -1,71 +1,102 @@
 id: "04"
 name: "Join Conversation via Paste in Scan View"
 description: >
-  Verify that a conversation created on one device can be joined from a
-  second device by pasting the invite URL in the scan view.
-  Requires TWO simulators — Device A (inviter) and Device B (joiner).
-tags: [invites, paste, multi-device]
+  Verify that a conversation can be joined by pasting the invite URL
+  in the scan view. Requires copying the invite URL to the simulator
+  pasteboard, then tapping the paste button in the scan view.
+tags: [invites, paste, core]
 depends_on: ["01"]
 estimated_duration_s: 180
 
 prerequisites:
-  two_simulators: true
-  app_installed_on_both: true
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
 
 state:
-  device_a_udid: null
-  device_b_udid: null
+  conversation_id: null
   invite_url: null
 
-steps:
-  - id: create_conversation_device_a
-    name: "Device A creates a conversation"
-    device: A
-    actions:
-      - tap: { id: "compose-button" }
-      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
-      - sim_log_events: { event_filter: "invite.url_displayed" }
-    save:
-      invite_url: "from invite.url_displayed event"
-    criteria: conversation_created
+setup:
+  - action: cli_create_conversation
+    args: { name: "Paste Test" }
+    save: conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save: invite_url
+  - action: pbcopy_to_simulator
+    args: { text: "$invite_url" }
+    note: >
+      Use `echo -n "$invite_url" | xcrun simctl pbcopy $UDID`
+      to copy the invite URL to the simulator's pasteboard.
 
-  - id: paste_invite_device_b
-    name: "Device B pastes invite in scan view"
-    device: B
+steps:
+  - id: open_scan_view
+    name: "Open scan view and verify paste button"
     actions:
-      - pbcopy: { text: "$invite_url", udid: "$device_b_udid" }
       - tap: { id: "scan-button" }
       - wait_for_element: { id: "paste-invite-button", timeout: 10 }
-      - tap: { id: "paste-invite-button" }
-      - wait_for_element: { id: "message-text-field", timeout: 60 }
     verify:
-      - element_exists: { id: "message-text-field" }
-      - element_label_contains: { label_contains: "2 members" }
-    criteria: paste_join_succeeds
+      - element_exists: { id: "paste-invite-button" }
+    criteria: scan_view_has_paste
     note: >
-      Copy the invite URL to Device B's pasteboard using simctl pbcopy,
-      then open the scan view and tap the paste button.
+      Scan view UI elements:
+      - X close button (top-left)
+      - paste-invite-button (top-right, clipboard icon,
+        label="Paste invite code from clipboard")
+      - Camera viewfinder area with "Scan" pill button
+      - "Scan a convo code" text below viewfinder
 
-  - id: exchange_messages
-    name: "Two-way messaging works"
+  - id: paste_and_join
+    name: "Paste invite URL and join"
     actions:
-      - device_b_send: { text: "Hello via paste!" }
-      - device_a_wait: { label_contains: "Hello via paste!", timeout: 15 }
-      - device_a_send: { text: "Paste reply!" }
-      - device_b_wait: { label_contains: "Paste reply!", timeout: 15 }
+      - tap: { id: "paste-invite-button" }
+      - dismiss_system_dialog: { button: "Allow Paste" }
+      - wait_for_element: { label_contains: "Verifying", timeout: 30 }
     verify:
-      - device_a_has: { label_contains: "Hello via paste!" }
-      - device_b_has: { label_contains: "Paste reply!" }
-    criteria: two_way_messaging
+      - element_exists: { label_contains: "Verifying" }
+    criteria: paste_join_enters_verifying
+    note: >
+      iOS shows a system paste permission dialog: "Convos would like to
+      paste from CoreSimulatorBridge. Do you want to allow this?"
+      Options: "Don't Allow Paste" (blue) and "Allow Paste".
+      After allowing, app enters Verifying state with the conversation
+      name, 1 member count, and disabled message input.
+
+  - id: approve_and_verify
+    name: "Approve join and verify conversation is active"
+    actions:
+      - cli_process_join_requests:
+          conversation: "$conversation_id"
+          watch: true
+          timeout: 30
+      - wait_for_element: { label_contains: "2 members", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "2 members" }
+      - element_exists: { id: "message-text-field" }
+    criteria: paste_join_succeeds
+
+  - id: send_message
+    name: "Send message after paste join"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Paste join works!" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Paste join works!", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Paste join works!" }
+    criteria: messaging_works
 
 teardown:
-  - action: navigate_home
+  - action: cli_explode
+    args: { conversation: "$conversation_id" }
     optional: true
 
 criteria:
-  conversation_created:
-    description: "Device A creates a conversation and invite URL is extractable"
+  scan_view_has_paste:
+    description: "Scan view has paste-invite-button"
+  paste_join_enters_verifying:
+    description: "Pasting invite URL enters Verifying state"
   paste_join_succeeds:
-    description: "Pasting invite URL in scan view triggers successful join flow"
-  two_way_messaging:
-    description: "Two-way messaging works between Device A and Device B"
+    description: "Paste join completes after CLI approval"
+  messaging_works:
+    description: "Messaging works after paste join"
