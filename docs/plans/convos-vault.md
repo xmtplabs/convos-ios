@@ -51,7 +51,9 @@ When a user installs Convos for the first time:
 - The device's profile display name is set to the device name (e.g., "Jarod's iPhone")
 - The Vault is locked immediately
 
-The Vault's private key is stored in iCloud Keychain by default, syncing automatically across the user's Apple devices.
+The Vault's private key is stored in iCloud Keychain by default on Apple devices, syncing automatically across the user's Apple devices.
+
+On non-Apple platforms (Android, web), the Vault key must be presented to the user for manual backup during setup. This could be a mnemonic phrase or a copyable key string. The app should block progression until the user confirms they've saved it, since there is no platform-level key sync equivalent to iCloud Keychain.
 
 ### 2. Pairing a second device
 
@@ -144,7 +146,13 @@ Since the Vault key is stored in iCloud Keychain, installing Convos on a new dev
 
 ### Lost all devices (different Apple ID / no iCloud Keychain)
 
-Unrecoverable in a trustless model. No server holds the keys. This is the fundamental tradeoff — the mitigation is that iCloud Keychain provides durable, automatic backup for the vast majority of users.
+If the user backed up their Vault key (manual backup on non-Apple platforms, or exported from settings):
+
+1. User installs Convos on a new device
+2. Enters their Vault key manually
+3. Same recovery flow as above — rebuild client, replay history, restore keys
+
+If no backup exists, this is unrecoverable in a trustless model. No server holds the keys.
 
 ## Future Extensions
 
