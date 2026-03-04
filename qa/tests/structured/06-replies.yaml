@@ -83,14 +83,16 @@ steps:
       - wait_for_element: { label: "Reply", timeout: 5 }
       - tap: { label: "Reply" }
       - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
-      - tap: { id: "reply-composer-bar" }
+      - tap: { x_offset: "right", id: "reply-composer-bar" }
       - wait_for_element: { id: "message-text-field", timeout: 5 }
     verify:
       - element_not_exists: { id: "reply-composer-bar" }
     criteria: reply_cancellable
     note: >
-      Tapping the reply-composer-bar triggers its "Cancel reply" action.
-      Alternatively, pressing Escape may dismiss it (but may also navigate back).
+      The reply-composer-bar has a custom action "Cancel reply" and
+      an X button on the right side. Tap the X button (right edge of
+      the bar, approximately x=370) to dismiss. The bar has
+      id="reply-composer-bar" and label="Replying to <name>: <text>".
 
 teardown: []
 
