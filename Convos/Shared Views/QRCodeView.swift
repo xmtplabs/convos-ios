@@ -112,7 +112,7 @@ struct QRCodeView: View {
     @Previewable @State var url: URL = URL(string: "https://local.convos.org/12346")!
 
     VStack(spacing: 40.0) {
-        QRCodeView(url: url, centerImage: Image("convosIcon"))
+        QRCodeView(url: url, centerImage: Image("convosOrangeIcon"))
     }
 }
 

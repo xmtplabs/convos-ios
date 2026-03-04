@@ -10,6 +10,7 @@ struct MessagesInputView: View {
     let emptyDisplayNamePlaceholder: String
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
+    var pendingInviteCode: String?
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForQuickname: Bool
@@ -17,9 +18,11 @@ struct MessagesInputView: View {
     private let focused: MessagesViewInputFocus = .message
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
+    let onClearInvite: () -> Void
 
     private let attachmentPreviewSize: CGFloat = 80.0
     @State private var isPoofing: Bool = false
+    @State private var isPoofingInvite: Bool = false
 
     static var defaultHeight: CGFloat {
         32.0
@@ -43,9 +46,13 @@ struct MessagesInputView: View {
         }
     }
 
+    private var hasAttachments: Bool {
+        selectedAttachmentImage != nil || pendingInviteCode != nil
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if selectedAttachmentImage != nil {
+            if hasAttachments {
                 attachmentPreviewArea
             }
 
@@ -122,6 +129,9 @@ struct MessagesInputView: View {
                 if let image = selectedAttachmentImage {
                     attachmentPreview(image: image)
                 }
+                if pendingInviteCode != nil {
+                    inviteAttachmentPreview
+                }
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
             .padding(.bottom, DesignConstants.Spacing.step2x)
@@ -168,6 +178,61 @@ struct MessagesInputView: View {
             .accessibilityIdentifier("remove-attachment-button")
         }
     }
+
+    @ViewBuilder
+    private var inviteAttachmentPreview: some View {
+        let invitePreviewWidth: CGFloat = 90
+        ZStack(alignment: .topTrailing) {
+            VStack(spacing: 0) {
+                ZStack {
+                    Image("convosOrangeIcon")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .frame(width: 22, height: 22)
+                }
+                .frame(width: invitePreviewWidth, height: attachmentPreviewSize * 0.6)
+                .background(.colorFillPrimary)
+
+                Text("Invite")
+                    .font(.caption2.weight(.medium))
+                    .foregroundStyle(.colorTextPrimary)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: attachmentPreviewSize * 0.4)
+                    .background(.colorFillMinimal)
+            }
+            .frame(width: invitePreviewWidth, height: attachmentPreviewSize)
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
+            .blur(radius: isPoofingInvite ? 12.0 : 0.0)
+            .opacity(isPoofingInvite ? 0.0 : 1.0)
+            .accessibilityLabel("Invite attachment preview")
+            .accessibilityIdentifier("invite-attachment-preview")
+
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) {
+                    isPoofingInvite = true
+                }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+                    onClearInvite()
+                    isPoofingInvite = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10.0, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 20.0, height: 20.0)
+                    .background(.black)
+                    .clipShape(.circle)
+                    .overlay(Circle().stroke(.white.opacity(0.6), lineWidth: 1.0))
+            }
+            .opacity(isPoofingInvite ? 0.0 : 1.0)
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.trailing, DesignConstants.Spacing.step2x)
+            .accessibilityLabel("Remove invite")
+            .accessibilityIdentifier("remove-invite-button")
+        }
+    }
 }
 
 #Preview {
@@ -177,6 +242,7 @@ struct MessagesInputView: View {
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
     @Previewable @State var selectedAttachmentImage: UIImage?
+    @Previewable @State var pendingInviteCodePreview: String? = "test-invite-code"
     @Previewable @State var animateAvatarForQuickname: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
 
@@ -199,12 +265,14 @@ struct MessagesInputView: View {
             emptyDisplayNamePlaceholder: "Somebody",
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
+            pendingInviteCode: pendingInviteCodePreview,
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
             animateAvatarForQuickname: animateAvatarForQuickname,
             messagesTextFieldEnabled: true,
             onProfilePhotoTap: {},
-            onSendMessage: {}
+            onSendMessage: {},
+            onClearInvite: { pendingInviteCodePreview = nil }
         )
         .padding(DesignConstants.Spacing.step2x)
     }
