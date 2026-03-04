@@ -448,7 +448,13 @@ extension Array where Element == DBMessage {
                     height: localState?.height
                 )
             })
-        case .update, .invite:
+        case .invite:
+            if let invite = dbMessage.invite {
+                replyContent = .invite(invite)
+            } else {
+                replyContent = .text(dbMessage.text ?? "")
+            }
+        case .update:
             return nil
         }
 

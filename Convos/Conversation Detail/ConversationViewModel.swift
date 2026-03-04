@@ -5,6 +5,12 @@ import Observation
 import UIKit
 import UserNotifications
 
+struct PendingInvite {
+    let code: String
+    let fullURL: String
+    let range: Range<String.Index>
+}
+
 @MainActor
 @Observable
 class ConversationViewModel {
@@ -206,8 +212,10 @@ class ConversationViewModel {
     var canToggleLock: Bool {
         isCurrentUserSuperAdmin
     }
+    var pendingInvite: PendingInvite?
+
     var sendButtonEnabled: Bool {
-        !messageText.isEmpty || selectedAttachmentImage != nil
+        !messageText.isEmpty || selectedAttachmentImage != nil || pendingInvite != nil
     }
     private(set) var isSendingPhoto: Bool = false
     var explodeState: ExplodeState = .ready
@@ -654,8 +662,9 @@ extension ConversationViewModel {
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         let hasText = !messageText.isEmpty
         let hasAttachment = selectedAttachmentImage != nil
+        let hasInvite = pendingInvite != nil
 
-        guard hasText || hasAttachment else { return }
+        guard hasText || hasAttachment || hasInvite else { return }
 
         onboardingCoordinator.skipAddQuickname()
 
@@ -663,11 +672,13 @@ extension ConversationViewModel {
         let replyTarget = replyingToMessage
         let prevAttachmentImage = selectedAttachmentImage
         let eagerUploadKey = currentEagerUploadKey
+        let prevInviteURL = pendingInvite?.fullURL
 
         messageText = ""
         replyingToMessage = nil
         selectedAttachmentImage = nil
         currentEagerUploadKey = nil
+        pendingInvite = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
         let messageWriter = cachedMessageWriter
@@ -700,6 +711,15 @@ extension ConversationViewModel {
                     }
                 } else {
                     photoTrackingKey = nil
+                }
+
+                if let inviteURL = prevInviteURL {
+                    let inviteIsReply = replyTarget != nil && !hasAttachment && !hasText
+                    if inviteIsReply, let replyTarget {
+                        try await messageWriter.sendReply(text: inviteURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
+                    } else {
+                        try await messageWriter.send(text: inviteURL, afterPhoto: photoTrackingKey)
+                    }
                 }
 
                 if hasText {
@@ -1188,5 +1208,22 @@ extension UNUserNotificationCenter {
             trigger: trigger
         )
         try? await add(request)
+    }
+}
+
+// MARK: - Invite URL Detection
+
+extension ConversationViewModel {
+    func checkForInviteURL() {
+        guard pendingInvite == nil else { return }
+
+        if let result = InviteURLDetector.detectInviteURL(in: messageText) {
+            pendingInvite = PendingInvite(code: result.code, fullURL: result.fullURL, range: result.range)
+            messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
+        }
+    }
+
+    func clearPendingInvite() {
+        pendingInvite = nil
     }
 }

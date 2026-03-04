@@ -143,7 +143,7 @@ extension AutoShareSheetView where Content == AnyView {
                             Text("Convos code")
                                 .kerning(1.0)
 
-                            Image("convosIcon")
+                            Image("convosOrangeIcon")
                                 .renderingMode(.template)
                                 .resizable()
                                 .frame(width: 14.0, height: 14.0)
