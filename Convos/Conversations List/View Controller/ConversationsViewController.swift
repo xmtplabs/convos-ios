@@ -480,6 +480,10 @@ final class ConversationsViewController: UIViewController {
                 }
             }
         }
+
+        collectionView.indexPathsForSelectedItems?.forEach { indexPath in
+            collectionView.deselectItem(at: indexPath, animated: false)
+        }
     }
 
     // MARK: - Helpers
