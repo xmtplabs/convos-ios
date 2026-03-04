@@ -51,7 +51,7 @@ When a user installs Convos for the first time:
 - The device's profile display name is set to the device name (e.g., "Jarod's iPhone")
 - The Vault is locked immediately
 
-The Vault's private key is the user's recovery key. It should be presented to the user once for backup (e.g., "Save your recovery key") and stored in iCloud Keychain as an additional safety net.
+The Vault's private key is stored in iCloud Keychain by default, syncing automatically across the user's Apple devices.
 
 ### 2. Pairing a second device
 
@@ -132,21 +132,19 @@ Accessible from Settings → Convos Vault:
 
 User removes the lost device from the Vault on another device. The removed device's inbox is kicked from the group, preventing it from receiving future keys. For conversation keys the lost device already had, those installations should be revoked via `revokeInstallations()`.
 
-### Lost all devices (recovery key available)
+### Lost all devices (same Apple ID)
+
+Since the Vault key is stored in iCloud Keychain, installing Convos on a new device signed into the same Apple ID will automatically recover the Vault key:
 
 1. User installs Convos on a new device
-2. Enters their recovery key (the Vault's private key)
+2. The Vault key is retrieved from iCloud Keychain
 3. The app rebuilds the XMTP client for the Vault inbox and syncs message history
 4. Replays all `DeviceKeyBundle` and `DeviceKeyShare` messages to reconstruct the full set of conversation keys
 5. Creates installations for each conversation
 
-### Lost all devices (no recovery key)
+### Lost all devices (different Apple ID / no iCloud Keychain)
 
-Unrecoverable in a trustless model. No server holds the keys. This is the fundamental tradeoff — the mitigation is encouraging users to:
-
-- Back up their recovery key
-- Link a second device early (which effectively serves as a backup)
-- Allow iCloud Keychain to store the Vault key
+Unrecoverable in a trustless model. No server holds the keys. This is the fundamental tradeoff — the mitigation is that iCloud Keychain provides durable, automatic backup for the vast majority of users.
 
 ## Future Extensions
 
@@ -176,9 +174,7 @@ Keys accumulate as messages in the Vault. When the device comes back online, it 
 
 ## Open Questions
 
-1. **Recovery key UX**: How and when to present the recovery key to the user? On first install? In settings? Should it be a mnemonic phrase or raw key?
-2. **iCloud Keychain for Vault key**: Should we automatically store the Vault private key in iCloud Keychain (syncs across Apple devices) as a safety net, or keep it fully manual?
-3. **Bidirectional verification**: Should pairing require both devices to confirm codes from each other's screens (like Bluetooth pairing), or is the one-way 6-digit code sufficient?
-4. **Key rotation**: Should conversation keys in the Vault be rotatable? If a device is compromised and removed, can existing conversation keys be rotated?
-5. **Maximum devices**: Should there be a limit on linked devices?
-6. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
+1. **Bidirectional verification**: Should pairing require both devices to confirm codes from each other's screens (like Bluetooth pairing), or is the one-way 6-digit code sufficient?
+2. **Key rotation**: Should conversation keys in the Vault be rotatable? If a device is compromised and removed, can existing conversation keys be rotated?
+3. **Maximum devices**: Should there be a limit on linked devices?
+4. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
