@@ -357,13 +357,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
             try localState.insert(db, onConflict: .ignore)
 
-            // Delete old members
-            try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == dbConversation.id)
-                .deleteAll(db)
-            // Save members
+            // Remove conversation_members rows for members no longer in the group
+            let currentInboxIds = dbMembers.map(\.inboxId)
+            if !currentInboxIds.isEmpty {
+                try DBConversationMember
+                    .filter(DBConversationMember.Columns.conversationId == dbConversation.id)
+                    .filter(!currentInboxIds.contains(DBConversationMember.Columns.inboxId))
+                    .deleteAll(db)
+            }
+
+            // Save members (upserts conversation_members + stub memberProfile rows)
             try self.saveMembers(dbMembers, in: db)
-            // Update profiles - ensure Member exists first
+
+            // Upsert profiles for current members with latest data from XMTP metadata.
+            // Historical memberProfile rows for removed members are intentionally preserved
+            // so their past messages still display sender names and avatars.
             try memberProfiles.forEach { profile in
                 let member = DBMember(inboxId: profile.inboxId)
                 try member.save(db)
