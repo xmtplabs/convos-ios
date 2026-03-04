@@ -223,7 +223,10 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 do {
                     try await stateManager.createConversation()
-                    await self?.applyGlobalAutoRevealPreferenceIfNeeded(conversationId: stateManager.conversationId)
+                    await self?.applyGlobalConversationDefaultsIfNeeded(
+                        conversationId: stateManager.conversationId,
+                        metadataWriter: stateManager.conversationMetadataWriter
+                    )
                 } catch {
                     Log.error("Error auto-creating conversation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -255,7 +258,10 @@ class NewConversationViewModel: Identifiable {
             guard !Task.isCancelled else { return }
             do {
                 try await conversationStateManager.joinConversation(inviteCode: inviteCode)
-                await self?.applyGlobalAutoRevealPreferenceIfNeeded(conversationId: conversationStateManager.conversationId)
+                await self?.applyGlobalConversationDefaultsIfNeeded(
+                    conversationId: conversationStateManager.conversationId,
+                    metadataWriter: conversationStateManager.conversationMetadataWriter
+                )
                 guard !Task.isCancelled else { return }
 
                 await MainActor.run { [weak self] in
@@ -312,7 +318,10 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 do {
                     try await conversationStateManager.createConversation()
-                    await self?.applyGlobalAutoRevealPreferenceIfNeeded(conversationId: conversationStateManager.conversationId)
+                    await self?.applyGlobalConversationDefaultsIfNeeded(
+                        conversationId: conversationStateManager.conversationId,
+                        metadataWriter: conversationStateManager.conversationMetadataWriter
+                    )
                 } catch {
                     Log.error("Error retrying conversation creation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -458,13 +467,27 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
-    private func applyGlobalAutoRevealPreferenceIfNeeded(conversationId: String) async {
+    private func applyGlobalConversationDefaultsIfNeeded(
+        conversationId: String,
+        metadataWriter: any ConversationMetadataWriterProtocol
+    ) async {
         guard !conversationId.isEmpty else { return }
 
         do {
             try await session.photoPreferencesWriter().setAutoReveal(GlobalConvoDefaults.shared.autoRevealPhotos, for: conversationId)
         } catch {
             Log.error("Error applying global auto reveal preference: \(error)")
+        }
+
+        guard autoCreateConversation else { return }
+
+        do {
+            try await metadataWriter.updateIncludeInfoInPublicPreview(
+                GlobalConvoDefaults.shared.includeInfoWithInvites,
+                for: conversationId
+            )
+        } catch {
+            Log.error("Error applying global include-info preference: \(error)")
         }
     }
 
