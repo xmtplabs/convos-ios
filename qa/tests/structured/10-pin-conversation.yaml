@@ -29,9 +29,9 @@ steps:
   - id: pin_conversation
     name: "Pin a conversation from context menu"
     actions:
-      - long_press: { id: "conversation-list-item-$conv_a_id", duration: 1.0 }
-      - wait_for_element: { label: "Pin", timeout: 5 }
-      - tap: { label: "Pin" }
+      - long_press: { id: "conversation-list-item-$conv_a_id", duration: 1.5 }
+      - wait_for_element: { label: "Fav", timeout: 5 }
+      - tap: { label: "Fav" }
       - wait_for_element: { pattern: "pinned-conversation", timeout: 5 }
     verify:
       - element_exists: { pattern: "pinned-conversation" }
@@ -51,12 +51,12 @@ steps:
     name: "Pin multiple conversations"
     actions:
       - long_press: { id: "conversation-list-item-$conv_b_id", duration: 1.0 }
-      - wait_for_element: { label: "Pin", timeout: 5 }
-      - tap: { label: "Pin" }
+      - wait_for_element: { label: "Fav", timeout: 5 }
+      - tap: { label: "Fav" }
       - wait_for_element: { pattern: "pinned-conversation", timeout: 5 }
       - long_press: { id: "conversation-list-item-$conv_c_id", duration: 1.0 }
-      - wait_for_element: { label: "Pin", timeout: 5 }
-      - tap: { label: "Pin" }
+      - wait_for_element: { label: "Fav", timeout: 5 }
+      - tap: { label: "Fav" }
       - wait_for_element: { pattern: "pinned-conversation", timeout: 5 }
     verify:
       - element_count_gte: { pattern: "pinned-conversation", min: 3 }
@@ -77,8 +77,8 @@ steps:
     name: "Unpin a conversation from context menu"
     actions:
       - long_press: { pattern: "pinned-conversation-$conv_a_id", duration: 1.0 }
-      - wait_for_element: { label: "Unpin", timeout: 5 }
-      - tap: { label: "Unpin" }
+      - wait_for_element: { label: "Unfav", timeout: 5 }
+      - tap: { label: "Unfav" }
       - wait_for_element: { id: "compose-button", timeout: 5 }
     verify:
       - element_exists: { id: "conversation-list-item-$conv_a_id" }
@@ -90,12 +90,12 @@ steps:
     name: "Pinned section disappears when all unpinned"
     actions:
       - long_press: { pattern: "pinned-conversation-$conv_b_id", duration: 1.0 }
-      - wait_for_element: { label: "Unpin", timeout: 5 }
-      - tap: { label: "Unpin" }
+      - wait_for_element: { label: "Unfav", timeout: 5 }
+      - tap: { label: "Unfav" }
       - wait_for_element: { id: "compose-button", timeout: 5 }
       - long_press: { pattern: "pinned-conversation-$conv_c_id", duration: 1.0 }
-      - wait_for_element: { label: "Unpin", timeout: 5 }
-      - tap: { label: "Unpin" }
+      - wait_for_element: { label: "Unfav", timeout: 5 }
+      - tap: { label: "Unfav" }
       - wait_for_element: { id: "compose-button", timeout: 5 }
     verify:
       - element_not_exists: { pattern: "pinned-conversation" }

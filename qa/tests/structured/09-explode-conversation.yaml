@@ -38,11 +38,11 @@ steps:
     criteria: explode_option_visible
 
   - id: trigger_explode
-    name: "Explode with confirmation"
+    name: "Explode with tap-and-hold confirmation"
     actions:
-      - tap: { label_contains: "Explode" }
-      - wait_for_element: { label_contains: "Explode", timeout: 5 }
-      - tap: { label_contains: "Explode" }
+      - tap: { id: "context-menu-explode" }
+      - wait_for_element: { label_contains: "Explode Now", timeout: 5 }
+      - long_press: { label_contains: "Explode Now, Tap and hold", duration: 3 }
       - wait_for_element: { id: "compose-button", timeout: 15 }
     verify:
       - element_not_exists: { id: "conversation-list-item-$conversation_id" }
@@ -50,9 +50,11 @@ steps:
     expect_events:
       - "conversation.exploded"
     note: >
-      First tap opens the explode option, second tap confirms in the
-      confirmation dialog. After explosion, app navigates back to
-      conversations list.
+      Context menu Explode opens a schedule picker with options like
+      "60 seconds", "1 hour", "24 hours", and "Explode Now (Tap and hold)".
+      The "Explode Now" button requires a 3-second long press to confirm.
+      Use describe_all to find exact button coordinates. After explosion,
+      a "💥 <Name> 💥 — A convo exploded" notification appears briefly.
 
   - id: verify_cli
     name: "Conversation no longer accessible via CLI"
