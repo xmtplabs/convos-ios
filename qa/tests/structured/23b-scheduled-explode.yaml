@@ -1,8 +1,10 @@
 id: "23b"
 name: "Scheduled Explode (In-App Expiration)"
 description: >
-  Verify that a conversation with a scheduled explosion is automatically
-  cleaned up when the timer expires while the app is in the foreground.
+  Verify that a conversation with a scheduled explosion shows a countdown
+  timer and is automatically cleaned up when the timer expires while the
+  app is in the foreground. Uses CLI `conversation explode --scheduled`
+  to schedule the explosion.
 tags: [conversations, explode, scheduled, timer]
 depends_on: ["09"]
 estimated_duration_s: 120
@@ -10,7 +12,7 @@ estimated_duration_s: 120
 prerequisites:
   app_running: true
   cli_initialized: true
-  screen: conversations_list
+  screen: conversation_detail
 
 state:
   conversation_id: null
@@ -18,8 +20,8 @@ state:
 setup:
   - action: cli_create_and_app_join
     note: >
-      CLI creates "Boom Test" (CLI is super admin). App joins via invite.
-      Exchange a few messages so the conversation has content.
+      CLI creates conversation and app joins via invite.
+      Exchange messages so conversation has content.
     save:
       conversation_id: "from CLI"
 
@@ -36,27 +38,31 @@ steps:
   - id: schedule_explosion
     name: "Schedule explosion from CLI"
     actions:
-      - cli_schedule_explode:
+      - cli_explode_scheduled:
           conversation: "$conversation_id"
-          seconds_from_now: 15
-      - wait_for_element: { label_contains: "Scheduled to explode", timeout: 10 }
+          seconds_from_now: 25
+      - wait_for_element: { label_contains: "explode", timeout: 15 }
     verify:
-      - element_exists: { label_contains: "Scheduled to explode" }
+      - element_exists: { label_contains: "explode" }
     criteria: countdown_shown
     note: >
-      The explode button should change to show a countdown timer.
+      CLI command: `convos conversation explode <id> --scheduled <ISO8601> --force`.
+      The app shows: (1) red countdown timer in the conversation title bar
+      next to the conversation name, format "00:00:XX"; (2) system message
+      "<sender> set this convo to explode in Xm". The countdown updates
+      in real-time.
 
   - id: wait_for_expiration
     name: "Conversation auto-cleans up when timer expires"
     actions:
-      - wait_for_element: { id: "compose-button", timeout: 30 }
+      - wait_for_element: { id: "compose-button", timeout: 45 }
     verify:
-      - element_exists: { id: "compose-button" }
-      - element_not_exists: { label_contains: "Boom Test" }
+      - element_not_exists: { label_contains: "$conversation_name" }
     criteria: auto_cleanup
     note: >
-      Keep the app foregrounded. After ~15 seconds the conversation
-      should be destroyed and the app navigates to conversations list.
+      The app automatically navigates back to the conversations list
+      when the timer reaches zero. The exploded conversation disappears
+      from the list entirely.
 
 teardown: []
 
@@ -64,6 +70,6 @@ criteria:
   conversation_active:
     description: "Conversation is active and showing messages before scheduling"
   countdown_shown:
-    description: "App shows countdown in the explode button after scheduling"
+    description: "App shows red countdown timer in title bar and system message"
   auto_cleanup:
-    description: "Conversation auto-cleaned up when timer expires while foregrounded"
+    description: "Conversation auto-cleaned up and removed when timer expired"

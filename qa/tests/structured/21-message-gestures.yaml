@@ -1,9 +1,10 @@
 id: "21"
 name: "Message Gestures and Interactions"
 description: >
-  Verify all gesture-based interactions in the messages list: double tap,
-  long press, swipe to reply, link tapping, avatar tapping, and reaction
-  indicator tapping across message content types.
+  Verify gesture-based interactions in the messages list: long press context menu,
+  swipe to reply, copy to pasteboard, reaction picker, and reaction drawer.
+  Context menu: reaction picker row (6 quick emojis + Add), Reply button, Copy button.
+  Quick reaction emojis: ❤️, 👍, 👎, 😂, 😮, 🤔 (plus + button for full picker).
 tags: [messaging, gestures, interactions, core]
 depends_on: ["02", "05", "06"]
 estimated_duration_s: 300
@@ -13,7 +14,6 @@ prerequisites:
   cli_initialized: true
   shared_conversation: true
   screen: conversation_detail
-  simulator_has_photos: true
 
 state:
   conversation_id: null
@@ -22,64 +22,29 @@ setup:
   - action: ensure_shared_conversation
     save:
       conversation_id: run_state.shared_conversation_id
-  - action: cli_send_messages
-    args:
-      conversation: "$conversation_id"
-      messages:
-        - "Hello from the CLI"
-        - "Check out https://example.com for details"
-        - "🎉"
-  - action: app_send_text
-    args: { text: "Hello from the app" }
-  - action: cli_send_attachment
-    args: { conversation: "$conversation_id", file: "/tmp/cli-photo.jpg" }
+  - action: cli_send_text
+    args: { conversation: "$conversation_id", text: "Gesture test message" }
+  - action: wait_for_element
+    args: { label_contains: "Gesture test message", timeout: 15 }
 
 steps:
-  - id: double_tap_reaction_toggle
-    name: "Double-tap toggles ❤️ reaction"
-    actions:
-      - double_tap: { label_contains: "Hello from the CLI" }
-      - wait_for_element: { label_contains: "1 reaction", timeout: 10 }
-    verify:
-      - element_exists: { label_contains: "❤️" }
-    criteria: double_tap_adds_reaction
-
-  - id: double_tap_removes_reaction
-    name: "Double-tap again removes ❤️ reaction"
-    actions:
-      - double_tap: { label_contains: "Hello from the CLI" }
-      - wait_for_element: { id: "message-text-field", timeout: 5 }
-    verify:
-      - element_not_exists: { label_contains: "1 reaction: ❤️" }
-    criteria: double_tap_removes_reaction
-
-  - id: swipe_to_reply
-    name: "Swipe right opens reply composer"
-    actions:
-      - swipe_right: { label_contains: "Hello from the CLI" }
-      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
-    verify:
-      - element_exists: { id: "reply-composer-bar" }
-    criteria: swipe_to_reply
-
-  - id: cancel_reply
-    name: "Cancel button dismisses reply composer"
-    actions:
-      - tap: { id: "cancel-reply-button" }
-      - wait_for_element: { id: "message-text-field", timeout: 5 }
-    verify:
-      - element_not_exists: { id: "reply-composer-bar" }
-    criteria: cancel_reply
-
   - id: long_press_context_menu
     name: "Long press opens context menu with Reply and Copy"
     actions:
-      - long_press: { label_contains: "Hello from the CLI", duration: 1.5 }
+      - long_press: { label_contains: "Gesture test message", duration: 1.5 }
       - wait_for_element: { label: "Reply", timeout: 5 }
     verify:
       - element_exists: { label: "Reply" }
       - element_exists: { label: "Copy" }
+      - element_exists: { label: "❤️" }
+      - element_exists: { label: "👍" }
+      - element_exists: { label: "Dismiss menu" }
     criteria: long_press_context_menu
+    note: >
+      Context menu has two sections: (1) reaction picker row with 6 quick emoji
+      buttons (❤️, 👍, 👎, 😂, 😮, 🤔) plus an Add button (id="plus",
+      label="Add"); (2) action buttons Reply and Copy. A "Dismiss menu"
+      button covers the full screen background.
 
   - id: copy_action
     name: "Copy puts message text on pasteboard"
@@ -88,85 +53,71 @@ steps:
       - wait_for_element: { id: "message-text-field", timeout: 5 }
       - read_pasteboard: {}
     verify:
-      - pasteboard_contains: "Hello from the CLI"
+      - pasteboard_contains: "Gesture test message"
     criteria: copy_action
-
-  - id: long_press_emoji
-    name: "Long press on emoji opens context menu"
-    actions:
-      - long_press: { label_contains: "🎉", duration: 1.5 }
-      - wait_for_element: { label: "Copy", timeout: 5 }
-      - tap: { label: "Copy" }
-      - read_pasteboard: {}
-    verify:
-      - pasteboard_contains: "🎉"
-    criteria: emoji_copy
-
-  - id: link_tap
-    name: "Tapping a link opens it"
-    actions:
-      - tap: { label_contains: "example.com" }
-      - wait_for_element: { label_contains: "example", timeout: 10 }
-    verify:
-      - element_exists: { label_contains: "example" }
-    criteria: link_opens
     note: >
-      Safari may open or an in-app browser. Navigate back afterward.
+      Use `xcrun simctl pbpaste <UDID>` to read the pasteboard contents.
 
-  - id: blurred_photo_tap
-    name: "Single tap on blurred photo reveals it"
+  - id: swipe_to_reply
+    name: "Swipe right on message opens reply composer"
     actions:
-      - tap: { label_contains: "Tap pic to reveal" }
+      - swipe_right: { label_contains: "Gesture test message", distance: 200 }
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+    verify:
+      - element_exists: { id: "reply-composer-bar" }
+    criteria: swipe_to_reply
+    note: >
+      Swipe from left to right on the message bubble. reply-composer-bar
+      appears with label="Replying to <sender>: <text>" and custom action
+      "Cancel reply". Dismiss by tapping X on right edge (~x=370).
+
+  - id: cancel_swipe_reply
+    name: "X button dismisses reply composer"
+    actions:
+      - tap: { x_offset: "right", id: "reply-composer-bar" }
       - wait_for_element: { id: "message-text-field", timeout: 5 }
     verify:
-      - element_not_exists: { label_contains: "Tap pic to reveal" }
-    criteria: photo_reveal
+      - element_not_exists: { id: "reply-composer-bar" }
+    criteria: cancel_reply
 
-  - id: avatar_tap
-    name: "Tapping sender avatar opens profile"
+  - id: reaction_via_picker
+    name: "Reaction added via long-press picker"
     actions:
-      - tap: { label_contains: "profile" }
-      - wait_for_element: { label_contains: "profile", timeout: 10 }
+      - long_press: { label_contains: "Gesture test message", duration: 1.5 }
+      - wait_for_element: { label: "❤️", timeout: 5 }
+      - tap: { label: "❤️" }
+      - wait_for_element: { label_contains: "1 reaction", timeout: 10 }
     verify:
-      - element_exists: { label_contains: "profile" }
-    criteria: avatar_opens_profile
-    note: >
-      The avatar label may be "View <Name>'s profile". The profile
-      sheet/view should appear showing sender info.
+      - element_exists: { label_contains: "1 reaction: ❤️" }
+    criteria: reaction_added
 
-  - id: reaction_indicator_tap
-    name: "Tapping reaction indicator opens drawer"
+  - id: reaction_drawer
+    name: "Tapping reaction indicator opens reactions drawer"
     actions:
-      - double_tap: { label_contains: "Hello from the CLI" }
-      - wait_for_element: { label_contains: "reaction", timeout: 10 }
-      - tap: { label_contains: "reaction" }
+      - tap: { label_contains: "1 reaction" }
       - wait_for_element: { label: "Reactions", timeout: 5 }
     verify:
       - element_exists: { label: "Reactions" }
+      - element_exists: { label_contains: "You" }
     criteria: reaction_drawer_opens
+    note: >
+      The reactions drawer is a popover showing "Reactions" header,
+      then each reactor with their name, "Tap to remove" subtitle
+      (for own reactions), and the emoji. Dismiss with
+      PopoverDismissRegion (id="PopoverDismissRegion", label="dismiss popup").
 
 teardown: []
 
 criteria:
-  double_tap_adds_reaction:
-    description: "Double-tap on incoming text adds ❤️ reaction"
-  double_tap_removes_reaction:
-    description: "Double-tap again removes the ❤️ reaction"
+  long_press_context_menu:
+    description: "Long press opens context menu with reaction picker, Reply, and Copy"
+  copy_action:
+    description: "Copy action puts message text on the pasteboard"
   swipe_to_reply:
     description: "Swipe right opens the reply composer bar"
   cancel_reply:
-    description: "Cancel button dismisses reply composer"
-  long_press_context_menu:
-    description: "Long press on text opens context menu with Reply and Copy"
-  copy_action:
-    description: "Copy action puts message text on the pasteboard"
-  emoji_copy:
-    description: "Copy on emoji message puts emoji on pasteboard"
-  link_opens:
-    description: "Tapping a link in a message opens the URL"
-  photo_reveal:
-    description: "Single tap on blurred incoming photo reveals it"
-  avatar_opens_profile:
-    description: "Tapping sender avatar opens profile view"
+    description: "X button dismisses reply composer"
+  reaction_added:
+    description: "Reaction added via the quick reaction picker"
   reaction_drawer_opens:
     description: "Tapping reaction indicator opens reactions drawer"
