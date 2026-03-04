@@ -1,5 +1,13 @@
 syntax = "proto3";
 
+// MemberKind identifies what kind of member this is.
+// UNSPECIFIED is the default — existing clients that don't set this
+// are treated as regular (non-agent) members for backward compatibility.
+enum MemberKind {
+    MEMBER_KIND_UNSPECIFIED = 0;
+    MEMBER_KIND_AGENT = 1;
+}
+
 // ProfileUpdate is sent by a member when they change their own profile.
 // The sender's inbox ID is implicit from the XMTP message — only the
 // sender can author their own profile update, preventing spoofing.
@@ -8,6 +16,7 @@ syntax = "proto3";
 message ProfileUpdate {
     optional string name = 1;
     optional EncryptedProfileImageRef encrypted_image = 2;
+    MemberKind member_kind = 3;
 }
 
 // ProfileSnapshot is sent by the member who adds new members to a group.
@@ -26,6 +35,7 @@ message MemberProfile {
     bytes inbox_id = 1;  // XMTP inbox ID as hex-decoded bytes (32 bytes)
     optional string name = 2;
     optional EncryptedProfileImageRef encrypted_image = 3;
+    MemberKind member_kind = 4;
 }
 
 // Reference to an encrypted profile image (matches EncryptedImageRef from ConvosAppData

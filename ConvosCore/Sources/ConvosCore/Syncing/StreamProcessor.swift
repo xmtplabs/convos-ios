@@ -307,6 +307,8 @@ actor StreamProcessor: StreamProcessorProtocol {
                     profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
                 }
 
+                profile = profile.with(memberKind: update.memberKind.dbMemberKind)
+
                 try profile.save(db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
@@ -357,6 +359,8 @@ actor StreamProcessor: StreamProcessorProtocol {
                             key: profile.avatarKey
                         )
                     }
+
+                    profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
 
                     try profile.save(db)
                 }

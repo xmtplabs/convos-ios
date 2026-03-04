@@ -37,6 +37,7 @@ public enum ProfileSnapshotBuilder {
                 if update.hasEncryptedImage {
                     memberProfile.encryptedImage = update.encryptedImage
                 }
+                memberProfile.memberKind = update.memberKind
                 profilesByInboxId[senderInboxId] = memberProfile
             } else if contentType == ContentTypeProfileSnapshot, latestSnapshotProfiles.isEmpty {
                 guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else {

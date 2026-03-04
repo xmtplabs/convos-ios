@@ -142,6 +142,9 @@ class MyProfileWriter: MyProfileWriterProtocol {
         if let encryptedRef = profile.encryptedImageRef {
             update.encryptedImage = EncryptedProfileImageRef(encryptedRef)
         }
+        if let kind = profile.memberKind {
+            update.memberKind = kind.protoMemberKind
+        }
 
         do {
             let codec = ProfileUpdateCodec()

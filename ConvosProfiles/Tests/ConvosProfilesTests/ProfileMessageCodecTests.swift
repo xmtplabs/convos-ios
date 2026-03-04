@@ -59,6 +59,28 @@ struct ProfileUpdateCodecTests {
         let update = ProfileUpdate(name: "Alice")
         #expect(try codec.fallback(content: update) == nil)
     }
+
+    @Test("Encode and decode profile update with agent member kind")
+    func roundTripAgentMemberKind() throws {
+        var update = ProfileUpdate(name: "My Agent")
+        update.memberKind = .agent
+
+        let encoded = try codec.encode(content: update)
+        let decoded = try codec.decode(content: encoded)
+
+        #expect(decoded.name == "My Agent")
+        #expect(decoded.memberKind == .agent)
+    }
+
+    @Test("Member kind defaults to unspecified")
+    func memberKindDefaultsToUnspecified() throws {
+        let update = ProfileUpdate(name: "Alice")
+
+        let encoded = try codec.encode(content: update)
+        let decoded = try codec.decode(content: encoded)
+
+        #expect(decoded.memberKind == .unspecified)
+    }
 }
 
 @Suite("ProfileSnapshot Codec Tests")
@@ -112,6 +134,22 @@ struct ProfileSnapshotCodecTests {
     func shouldNotPush() throws {
         let snapshot = ProfileSnapshot()
         #expect(try codec.shouldPush(content: snapshot) == false)
+    }
+
+    @Test("Snapshot preserves member kind")
+    func snapshotPreservesMemberKind() throws {
+        var agentProfile = try #require(MemberProfile(
+            inboxIdString: inboxIdHex,
+            name: "My Agent"
+        ))
+        agentProfile.memberKind = .agent
+
+        let snapshot = ProfileSnapshot(profiles: [agentProfile])
+        let encoded = try codec.encode(content: snapshot)
+        let decoded = try codec.decode(content: encoded)
+
+        #expect(decoded.profiles.count == 1)
+        #expect(decoded.profiles[0].memberKind == .agent)
     }
 
     @Test("Snapshot findProfile lookup")

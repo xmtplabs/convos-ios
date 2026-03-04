@@ -21,6 +21,43 @@ fileprivate struct _GeneratedWithProtocGenSwiftVersion: SwiftProtobuf.ProtobufAP
   typealias Version = _2
 }
 
+/// MemberKind identifies what kind of member this is.
+/// UNSPECIFIED is the default — existing clients that don't set this
+/// are treated as regular (non-agent) members for backward compatibility.
+public enum MemberKind: SwiftProtobuf.Enum, Swift.CaseIterable {
+  public typealias RawValue = Int
+  case unspecified // = 0
+  case agent // = 1
+  case UNRECOGNIZED(Int)
+
+  public init() {
+    self = .unspecified
+  }
+
+  public init?(rawValue: Int) {
+    switch rawValue {
+    case 0: self = .unspecified
+    case 1: self = .agent
+    default: self = .UNRECOGNIZED(rawValue)
+    }
+  }
+
+  public var rawValue: Int {
+    switch self {
+    case .unspecified: return 0
+    case .agent: return 1
+    case .UNRECOGNIZED(let i): return i
+    }
+  }
+
+  // The compiler won't synthesize support with the UNRECOGNIZED case.
+  public static let allCases: [MemberKind] = [
+    .unspecified,
+    .agent,
+  ]
+
+}
+
 /// ProfileUpdate is sent by a member when they change their own profile.
 /// The sender's inbox ID is implicit from the XMTP message — only the
 /// sender can author their own profile update, preventing spoofing.
@@ -48,6 +85,8 @@ public struct ProfileUpdate: Sendable {
   public var hasEncryptedImage: Bool {self._encryptedImage != nil}
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
+
+  public var memberKind: MemberKind = .unspecified
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -103,6 +142,8 @@ public struct MemberProfile: Sendable {
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
+  public var memberKind: MemberKind = .unspecified
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -134,9 +175,13 @@ public struct EncryptedProfileImageRef: Sendable {
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
+extension MemberKind: SwiftProtobuf._ProtoNameProviding {
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0MEMBER_KIND_UNSPECIFIED\0\u{1}MEMBER_KIND_AGENT\0")
+}
+
 extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ProfileUpdate"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}encrypted_image\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -146,6 +191,7 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       switch fieldNumber {
       case 1: try { try decoder.decodeSingularStringField(value: &self._name) }()
       case 2: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
+      case 3: try { try decoder.decodeSingularEnumField(value: &self.memberKind) }()
       default: break
       }
     }
@@ -162,12 +208,16 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     try { if let v = self._encryptedImage {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 2)
     } }()
+    if self.memberKind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.memberKind, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: ProfileUpdate, rhs: ProfileUpdate) -> Bool {
     if lhs._name != rhs._name {return false}
     if lhs._encryptedImage != rhs._encryptedImage {return false}
+    if lhs.memberKind != rhs.memberKind {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -205,7 +255,7 @@ extension ProfileSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
 
 extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "MemberProfile"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}inbox_id\0\u{1}name\0\u{3}encrypted_image\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}inbox_id\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -216,6 +266,7 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       case 1: try { try decoder.decodeSingularBytesField(value: &self.inboxID) }()
       case 2: try { try decoder.decodeSingularStringField(value: &self._name) }()
       case 3: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
+      case 4: try { try decoder.decodeSingularEnumField(value: &self.memberKind) }()
       default: break
       }
     }
@@ -235,6 +286,9 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     try { if let v = self._encryptedImage {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 3)
     } }()
+    if self.memberKind != .unspecified {
+      try visitor.visitSingularEnumField(value: self.memberKind, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -242,6 +296,7 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if lhs.inboxID != rhs.inboxID {return false}
     if lhs._name != rhs._name {return false}
     if lhs._encryptedImage != rhs._encryptedImage {return false}
+    if lhs.memberKind != rhs.memberKind {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
