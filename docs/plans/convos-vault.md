@@ -59,18 +59,21 @@ On non-Apple platforms (Android, web), the Vault key must be presented to the us
 
 The main device (Device A) initiates pairing from Vault settings:
 
-1. Device A shows a QR code containing its Vault info (inbox address or rendezvous identifier)
+1. Device A taps "Pair Device" — this generates a standard Convos invite for the Vault (short-lived, 30-second expiry, single-use) and displays the QR code
 2. Device B (new device) scans the QR code
 3. Device B generates a random 6-digit confirmation code and displays it on screen
-4. Device A prompts: "Enter the code shown on your new device"
-5. The owner reads the code off Device B's screen and types it into Device A
-6. Device A verifies the code
-7. Device A adds Device B's inbox to the Vault conversation
-8. The Vault is re-locked
+4. Device B sends a join request via DM (the standard invite join flow) — the join request includes Device B's inbox ID and the 6-digit code
+5. Device A receives the join request and prompts: "Enter the code shown on your new device"
+6. The owner reads the code off Device B's screen and types it into Device A
+7. Device A matches the entered code against the code in the join request — this confirms the correct inbox ID to add
+8. Device A adds Device B to the Vault conversation
+9. The invite tag is invalidated and the Vault is re-locked
 
-The 6-digit code proves the Device A owner has physical access to Device B's screen. Even if someone else scans the QR, Device A's owner won't enter their code — they know which device they're pairing with. This is the same pattern as Bluetooth pairing.
+**Reuses the existing invite system:** The QR code is a standard Convos invite slug. The join request travels via DM, the same as any conversation invite. The only addition is the 6-digit confirmation code embedded in the join request, which Device A must verify before accepting.
 
-The QR code is not a standard conversation invite — it establishes a temporary connection between the two devices. Device B never joins the Vault directly by scanning. Instead, Device A adds Device B after the code is confirmed. This means no one enters the Vault without Device A's explicit approval.
+**Why the code is in the join request:** Multiple join requests could arrive if others also scanned the QR. The 6-digit code ties the confirmation to a specific request, ensuring Device A adds the correct inbox ID.
+
+**Security model:** The 6-digit code proves Device A's owner has physical access to Device B's screen. Even if someone else scans the QR, Device A's owner won't enter their code. Device B is never added to the Vault without Device A explicitly confirming the code match.
 
 ### 3. Key exchange after pairing
 
@@ -201,4 +204,4 @@ Keys accumulate as messages in the Vault. When the device comes back online, it 
 1. **Key rotation**: Should conversation keys in the Vault be rotatable? If a device is compromised and removed, can existing conversation keys be rotated?
 2. **Maximum devices**: Should there be a limit on linked devices?
 3. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
-4. **Temporary channel for pairing**: What mechanism establishes the connection between devices before Device B is added to the Vault? Options include a temporary DM, a relay via XMTP inbox addresses, or a lightweight signaling channel.
+
