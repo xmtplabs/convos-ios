@@ -57,7 +57,7 @@ steps:
     actions:
       - wait_for_element: { id: "compose-button", timeout: 45 }
     verify:
-      - element_not_exists: { label_contains: "$conversation_name" }
+      - element_not_exists: { id: "conversation-list-item-$conversation_id" }
     criteria: auto_cleanup
     note: >
       The app automatically navigates back to the conversations list

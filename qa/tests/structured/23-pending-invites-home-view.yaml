@@ -63,7 +63,7 @@ steps:
   - id: pending_filter
     name: "Pending invites filter shows pending conversations"
     actions:
-      - tap: { id: "close-new-conversation" }
+      - navigate_back: {}
       - wait_for_element: { id: "filter-button", timeout: 5 }
       - tap: { id: "filter-button" }
       - wait_for_element: { label: "Pending invites", timeout: 5 }

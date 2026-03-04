@@ -21,6 +21,9 @@ state:
 
 setup:
   - action: resolve_two_simulators
+    save:
+      device_a_udid: "from resolver"
+      device_b_udid: "from resolver"
     note: "Both simulators must be erased and freshly booted with app installed"
 
 steps:
@@ -54,7 +57,7 @@ steps:
       - wait_for_element: { id: "message-text-field", timeout: 60 }
     verify:
       - element_exists: { id: "message-text-field" }
-      - element_label_contains: { label_contains: "2 members" }
+      - element_exists: { label_contains: "2 members" }
     criteria: device_b_joins
     note: >
       Device A auto-processes the join request. Device B may briefly
@@ -125,7 +128,7 @@ steps:
       - wait_for_element: { id: "message-text-field", timeout: 60 }
     verify:
       - element_exists: { id: "message-text-field" }
-      - element_label_contains: { label_contains: "2 members" }
+      - element_exists: { label_contains: "2 members" }
     criteria: offline_join_resolves
 
   - id: exchange_messages_offline
