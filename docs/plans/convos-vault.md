@@ -201,9 +201,12 @@ A web app is just another device in the Vault. It creates an XMTP inbox, joins t
 
 Keys accumulate as messages in the Vault. When the device comes back online, it syncs the conversation and imports all missed keys. XMTP message persistence handles this naturally.
 
+## Resolved Design Decisions
+
+**Key rotation after device compromise:** Not needed. Revoking the compromised device's XMTP installations (via `revokeInstallations()`) for each conversation is sufficient. The compromised device is removed from the MLS group for every conversation, and MLS forward secrecy ensures it cannot decrypt any future messages. The private keys alone are useless without an active installation.
+
 ## Open Questions
 
-1. **Key rotation**: Should conversation keys in the Vault be rotatable? If a device is compromised and removed, can existing conversation keys be rotated?
-2. **Maximum devices**: Should there be a limit on linked devices?
-3. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
+1. **Maximum devices**: Should there be a limit on linked devices?
+2. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
 
