@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>show-pending-invites-home-view.md</title>
+<title>profile-messages.md</title>
 <style>* {
     margin: 0;
     padding: 0;
@@ -185,7 +185,200 @@ del {
     del { color: #636366; }
 }</style>
 </head>
-<body></body>
+<body><h1>Profile Messages: Moving Profiles Out of appData</h1>
+<h2>Problem</h2>
+<p>Member profiles (name, encrypted avatar) are currently stored in the XMTP group’s <code>appData</code> field as part of the <code>ConversationCustomMetadata</code> protobuf. This causes several problems:</p>
+<ol start="1">
+<li><p><strong>Size limit</strong> — <code>appData</code> is capped at 8KB. Every member’s profile competes for space with the invite tag, encryption keys, expiration, and the group image. Large groups will hit this ceiling.</p></li>
+<li><p><strong>Write contention</strong> — Every profile update requires a read-modify-write of the entire <code>appData</code> blob. Concurrent updates (profile change + tag rotation, two members updating profiles simultaneously) can clobber each other. We patched this with <code>atomicUpdateMetadata</code> retries, but the fundamental problem remains.</p></li>
+<li><p><strong>Bandwidth</strong> — Every profile change rebroadcasts the entire metadata blob (all profiles, tag, keys) to all members as a group commit.</p></li>
+<li><p><strong>Coupling</strong> — Unrelated concerns (profiles, invite tags, encryption keys, expiration) share one mutable blob. A bug in any write path can corrupt all of them.</p></li>
+</ol>
+<h2>Solution</h2>
+<p>Replace appData profile storage with two new XMTP custom content types sent as group messages:</p>
+<h3>Content Types</h3>
+<p><strong><code>ProfileUpdate</code></strong> — Sent by a member when they change their own profile.</p>
+<pre><code>authority: convos.org
+typeId: profile_update
+</code></pre>
+<p>Contains a single profile: the sender’s updated name and/or encrypted avatar reference. Only the sender can author their own profile update — the sender inbox ID is implicit from the XMTP message.</p>
+<p><strong><code>ProfileSnapshot</code></strong> — Sent by the member who adds a new member to the group.</p>
+<pre><code>authority: convos.org
+typeId: profile_snapshot
+</code></pre>
+<p>Contains a map of all current member profiles. Sent immediately after adding a member so the new joiner has everyone’s profiles without needing to scan message history.</p>
+<h3>Why Two Content Types</h3>
+<p><code>ProfileUpdate</code> handles the steady-state: members changing their own names/avatars. It’s lightweight (single profile) and conflict-free (each member owns their own).</p>
+<p><code>ProfileSnapshot</code> solves the forward secrecy problem. XMTP uses MLS — older messages become undecryptable after key rotations. A member who joined recently can’t read a <code>ProfileUpdate</code> sent months ago. The snapshot provides a durable checkpoint authored by the adder, who is online and has current key material.</p>
+<h3>Profile Resolution Order</h3>
+<p>When building the current profile for a member:</p>
+<ol start="1">
+<li><p><strong>Latest <code>ProfileUpdate</code> from that member</strong> — highest priority, most recent self-authored update</p></li>
+<li><p><strong>Most recent <code>ProfileSnapshot</code> containing that member</strong> — fallback when no <code>ProfileUpdate</code> exists (e.g., new joiner who hasn’t updated their profile yet, or <code>ProfileUpdate</code> lost to forward secrecy)</p></li>
+<li><p><strong>No profile</strong> — member has no name/avatar set</p></li>
+</ol>
+<p>This means snapshot preparation must follow the same precedence: the adder scans for the latest <code>ProfileUpdate</code> per member first, falls back to the most recent <code>ProfileSnapshot</code> for any members without a <code>ProfileUpdate</code>, then bundles everything into the new snapshot.</p>
+<h2>Detailed Design</h2>
+<h3>ProfileUpdate Content Type</h3>
+<pre><code class="language-swift">struct ProfileUpdateContent: Codable, Sendable {
+    let name: String?
+    let encryptedImage: EncryptedImageRefContent?
+}
+
+struct EncryptedImageRefContent: Codable, Sendable {
+    let url: String
+    let salt: Data  // 32-byte HKDF salt
+    let nonce: Data // 12-byte AES-GCM nonce
+}
+</code></pre>
+<p>The sender’s inbox ID comes from the XMTP message itself — no need to include it in the payload. This prevents spoofing: you can only update your own profile.</p>
+<p>Sending a <code>ProfileUpdate</code> with <code>name: nil</code> and <code>encryptedImage: nil</code> clears the profile.</p>
+<h3>ProfileSnapshot Content Type</h3>
+<pre><code class="language-swift">struct ProfileSnapshotContent: Codable, Sendable {
+    let profiles: [MemberProfileEntry]
+}
+
+struct MemberProfileEntry: Codable, Sendable {
+    let inboxId: String
+    let name: String?
+    let encryptedImage: EncryptedImageRefContent?
+}
+</code></pre>
+<p>The snapshot explicitly includes inbox IDs since it contains other members’ profiles.</p>
+<h3>When Snapshots Are Sent</h3>
+<p>A <code>ProfileSnapshot</code> is sent immediately after adding members in these flows:</p>
+<ol start="1">
+<li><p><strong><code>ConversationMetadataWriter.addMembers</code></strong> — manual member addition</p></li>
+<li><p><strong><code>InviteCoordinator.processJoinRequest</code></strong> — invite-based join (after <code>group.addMembers</code>)</p></li>
+<li><p><strong>Group creation</strong> — creator sends a snapshot with their own profile</p></li>
+</ol>
+<h3>Snapshot Preparation</h3>
+<p>The adder builds the snapshot by:</p>
+<ol start="1">
+<li><p>Syncing the group to ensure latest message state</p></li>
+<li><p>Scanning recent group messages for <code>ProfileUpdate</code> messages — collecting the latest per inbox ID</p></li>
+<li><p>For any member without a <code>ProfileUpdate</code>, checking the most recent <code>ProfileSnapshot</code> message for that member’s entry</p></li>
+<li><p>Bundling all resolved profiles into the new <code>ProfileSnapshot</code></p></li>
+</ol>
+<p>This scan is bounded — we only need to find one <code>ProfileUpdate</code> per member and one fallback <code>ProfileSnapshot</code>. In practice, pagination with a reasonable limit (e.g., last 500 messages) should suffice. Members whose profiles can’t be resolved simply have empty entries.</p>
+<h3>Processing ProfileUpdate Messages</h3>
+<p>When <code>StreamProcessor.processMessage</code> receives a <code>ProfileUpdate</code>:</p>
+<ol start="1">
+<li><p>Extract the sender’s inbox ID from the message</p></li>
+<li><p>Decode the <code>ProfileUpdateContent</code></p></li>
+<li><p>Write to <code>DBMemberProfile</code> in GRDB (upsert by conversationId + inboxId)</p></li>
+<li><p>The message is not displayed in chat (filtered like <code>ExplodeSettings</code>)</p></li>
+</ol>
+<h3>Processing ProfileSnapshot Messages</h3>
+<p>When <code>StreamProcessor.processMessage</code> receives a <code>ProfileSnapshot</code>:</p>
+<ol start="1">
+<li><p>Decode the <code>ProfileSnapshotContent</code></p></li>
+<li><p>For each profile entry, check if we already have a newer <code>ProfileUpdate</code> from that member in GRDB (compare message timestamps or just check if a <code>ProfileUpdate</code> has been processed)</p></li>
+<li><p>Write any missing/older profiles to <code>DBMemberProfile</code></p></li>
+<li><p>Not displayed in chat</p></li>
+</ol>
+<h3>Writing Profile Updates (MyProfileWriter)</h3>
+<p>Current flow:</p>
+<ol start="1">
+<li><p>Update <code>DBMemberProfile</code> in GRDB</p></li>
+<li><p>Call <code>group.updateProfile()</code> which does read-modify-write on appData</p></li>
+</ol>
+<p>New flow:</p>
+<ol start="1">
+<li><p>Update <code>DBMemberProfile</code> in GRDB</p></li>
+<li><p>Send a <code>ProfileUpdate</code> message to the group</p></li>
+<li><p>(Migration period) Also write to appData for backward compatibility</p></li>
+</ol>
+<h3>Reading Profiles (ConversationWriter)</h3>
+<p>Current flow:</p>
+<ol start="1">
+<li><p><code>ConversationWriter._store()</code> calls <code>conversation.memberProfiles</code> which reads from appData</p></li>
+<li><p>Saves all profiles to GRDB, overwriting existing data</p></li>
+</ol>
+<p>New flow:</p>
+<ol start="1">
+<li><p><code>ConversationWriter._store()</code> no longer reads profiles from appData</p></li>
+<li><p>Profiles come exclusively from processing <code>ProfileUpdate</code> and <code>ProfileSnapshot</code> messages</p></li>
+<li><p>On initial sync / conversation discovery, the snapshot sent when we were added provides our baseline</p></li>
+</ol>
+<h3>appData After Migration</h3>
+<p>With profiles removed, <code>ConversationCustomMetadata</code> becomes:</p>
+<pre><code class="language-protobuf">message ConversationCustomMetadata {
+    string tag = 1;
+    // field 2 (profiles) removed
+    optional sfixed64 expiresAtUnix = 3;
+    optional bytes imageEncryptionKey = 4;
+    optional EncryptedImageRef encryptedGroupImage = 5;
+}
+</code></pre>
+<p>This is a small, rarely-written blob — only changing on tag rotation, expiration changes, key generation, or group image updates. The contention and size problems disappear.</p>
+<h2>Migration Strategy</h2>
+<h3>Phase 1: Dual-Write (This PR)</h3>
+<ul>
+<li><p>Add <code>ProfileUpdate</code> and <code>ProfileSnapshot</code> codecs</p></li>
+<li><p><code>MyProfileWriter</code> sends <code>ProfileUpdate</code> messages AND writes to appData</p></li>
+<li><p><code>StreamProcessor</code> processes incoming <code>ProfileUpdate</code> and <code>ProfileSnapshot</code> messages</p></li>
+<li><p><code>ConversationWriter._store()</code> still reads profiles from appData as fallback</p></li>
+<li><p>Member addition flows send <code>ProfileSnapshot</code> after adding</p></li>
+<li><p>All clients can read both sources; new profiles propagate via messages</p></li>
+</ul>
+<h3>Phase 2: Message-Primary (Future)</h3>
+<ul>
+<li><p><code>ConversationWriter._store()</code> stops reading profiles from appData</p></li>
+<li><p>Profiles come exclusively from messages</p></li>
+<li><p>appData profile writes continue for backward compatibility with older clients</p></li>
+</ul>
+<h3>Phase 3: Remove appData Profiles (Future)</h3>
+<ul>
+<li><p>Stop writing profiles to appData</p></li>
+<li><p>Remove <code>profiles</code> field handling from <code>ConversationCustomMetadata</code></p></li>
+<li><p>Clean migration complete</p></li>
+</ul>
+<h2>Package Structure</h2>
+<p>The profile content types, codecs, and snapshot logic live in the <strong><code>ConvosProfiles</code></strong> package — not in <code>ConvosCore</code>. This makes the profile system reusable by anyone building on XMTP, not just Convos.</p>
+<p><code>ConvosProfiles</code> already depends on <code>ConvosAppData</code> (shared protobuf types) and <code>XMTPiOS</code>. It currently contains image encryption utilities (<code>ImageEncryption</code>, <code>EncryptedImageLoader</code>). The new profile message types are a natural extension.</p>
+<h3>What goes in ConvosProfiles</h3>
+<ul>
+<li><p><code>ProfileUpdateCodec</code> — content codec for <code>ProfileUpdate</code></p></li>
+<li><p><code>ProfileSnapshotCodec</code> — content codec for <code>ProfileSnapshot</code></p></li>
+<li><p><code>ProfileSnapshotBuilder</code> — scans group messages, resolves profiles per the precedence rules, builds snapshots</p></li>
+<li><p>Profile content models (<code>ProfileUpdateContent</code>, <code>ProfileSnapshotContent</code>, <code>MemberProfileEntry</code>)</p></li>
+<li><p>Protobuf definitions for the message payloads</p></li>
+</ul>
+<h3>What stays in ConvosCore</h3>
+<ul>
+<li><p><code>MyProfileWriter</code> — orchestrates profile updates (writes to GRDB, calls into <code>ConvosProfiles</code> to send the message)</p></li>
+<li><p><code>StreamProcessor</code> — routes incoming <code>ProfileUpdate</code>/<code>ProfileSnapshot</code> messages to GRDB writes</p></li>
+<li><p><code>ConversationWriter</code> — stops reading profiles from appData (Phase 2)</p></li>
+<li><p><code>ConversationMetadataWriter</code> — calls <code>ProfileSnapshotBuilder</code> after <code>addMembers</code></p></li>
+</ul>
+<h3>What stays in ConvosCore (bridge to ConvosProfiles)</h3>
+<ul>
+<li><p><code>InviteJoinRequestsManager</code> — after accepting a join request, uses <code>ProfileSnapshotBuilder</code> to send a snapshot</p></li>
+</ul>
+<h2>Impact on Existing Code</h2>
+<h3>Files Modified</h3>
+<table><thead><tr><th>File</th><th>Package</th><th>Change</th></tr></thead><tbody><tr><td><code>MyProfileWriter.swift</code></td><td>ConvosCore</td><td>Send <code>ProfileUpdate</code> message instead of (or in addition to) appData write</td></tr><tr><td><code>StreamProcessor.swift</code></td><td>ConvosCore</td><td>Handle <code>ProfileUpdate</code> and <code>ProfileSnapshot</code> message types</td></tr><tr><td><code>ConversationWriter.swift</code></td><td>ConvosCore</td><td>Stop reading profiles from appData (Phase 2)</td></tr><tr><td><code>ConversationMetadataWriter.swift</code></td><td>ConvosCore</td><td>Send <code>ProfileSnapshot</code> after <code>addMembers</code></td></tr><tr><td><code>InviteCoordinator.swift</code> / <code>InviteJoinRequestsManager.swift</code></td><td>ConvosCore/ConvosInvites</td><td>Send <code>ProfileSnapshot</code> after accepting join request</td></tr><tr><td><code>XMTPGroup+CustomMetadata.swift</code></td><td>ConvosCore</td><td>Remove <code>updateProfile</code> and <code>memberProfiles</code> (Phase 3)</td></tr><tr><td><code>ConvosProfiles.swift</code></td><td>ConvosProfiles</td><td>Update module docs to reflect new message-based approach</td></tr></tbody></table>
+<h3>New Files</h3>
+<table><thead><tr><th>File</th><th>Package</th><th>Purpose</th></tr></thead><tbody><tr><td><code>ProfileUpdateCodec.swift</code></td><td>ConvosProfiles</td><td>Content codec for <code>ProfileUpdate</code></td></tr><tr><td><code>ProfileSnapshotCodec.swift</code></td><td>ConvosProfiles</td><td>Content codec for <code>ProfileSnapshot</code></td></tr><tr><td><code>ProfileSnapshotBuilder.swift</code></td><td>ConvosProfiles</td><td>Scan messages, resolve profiles, build snapshots</td></tr><tr><td><code>ProfileModels.swift</code></td><td>ConvosProfiles</td><td>Content models for profile messages</td></tr></tbody></table>
+<h3>No Changes Needed</h3>
+<ul>
+<li><p><code>DBMemberProfile</code> — schema stays the same, just the write source changes</p></li>
+<li><p>UI layer — reads from GRDB, unaffected by where the data comes from</p></li>
+<li><p><code>EncryptedImagePrefetcher</code> — still works on <code>DBMemberProfile</code> data</p></li>
+<li><p>Image encryption — <code>imageEncryptionKey</code> stays in appData</p></li>
+</ul>
+<h2>Message Size</h2>
+<p>XMTP’s gRPC payload limit is <strong>25MB</strong> (<code>GRPC_PAYLOAD_LIMIT</code> in libxmtp). The max group size in XMTP is 250 members; Convos caps at 150.</p>
+<p>Per-member profile in protobuf is approximately <strong>~308 bytes</strong> (64-byte inbox ID hex string, ~50-byte name, ~120-byte encrypted image URL, 32-byte salt, 12-byte nonce, ~30 bytes protobuf overhead).</p>
+<table><thead><tr><th>Members</th><th>Snapshot Size</th><th>Headroom vs 25MB</th></tr></thead><tbody><tr><td>150</td><td>~45 KB</td><td>567x</td></tr><tr><td>250</td><td>~75 KB</td><td>340x</td></tr></tbody></table>
+<p>Snapshot size is not a concern — even at max group size, a <code>ProfileSnapshot</code> is well under 100KB. Using protobuf encoding keeps it compact. No need for splitting, pagination, or remote attachment patterns.</p>
+<h2>Open Questions</h2>
+<ol start="1">
+<li><p><strong>Race between add and snapshot</strong> — If the adder’s snapshot send fails after successfully adding the member, the new joiner has no profiles. Mitigation: joiner can request a snapshot, or any member could respond to a “missing profiles” signal.</p></li>
+<li><p><strong>Profile update rate limiting</strong> — Should we debounce rapid profile updates (e.g., user typing in name field) to avoid message spam?</p></li>
+<li><p><strong>Codec registration</strong> — Both codecs need to be registered on the XMTP client. Need to add them to the client initialization in <code>TestHelpers</code>, <code>MessagingService</code>, and <code>NotificationService</code>.</p></li>
+</ol></body>
 <script>function htmlToMd(node) {
     if (node.nodeType === 3) return node.textContent;
     if (node.nodeType !== 1) return '';
