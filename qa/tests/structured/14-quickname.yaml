@@ -1,8 +1,11 @@
 id: "14"
 name: "Quickname Flow"
 description: >
-  Verify that quickname auto-applies to new conversations, can be edited
-  per-conversation via quick edit, and can be overridden from My Info.
+  Verify that quickname can be set via My Info, applied to conversations
+  via the setup banner or quick edit, and that name changes appear on messages.
+  Quickname from My Info is not auto-applied to new conversations — the user
+  must tap the "Add your name for this convo" banner (id=setup-quickname-button)
+  which opens the quick-edit inline UI.
 tags: [profile, quickname, core]
 depends_on: ["01"]
 estimated_duration_s: 240
@@ -11,21 +14,21 @@ prerequisites:
   app_running: true
   cli_initialized: true
   screen: conversations_list
-  quickname_set: true
 
 state:
   conversation_id: null
   quickname: null
 
 setup:
-  - action: verify_quickname_set
+  - action: set_quickname_if_needed
     note: >
-      The app must have a quickname set from onboarding or a previous session.
-      If not, create a conversation and complete the quickname flow first.
+      Go to Settings > My Info and set quickname in the
+      quickname-display-name-field if not already set.
+      Field id: quickname-display-name-field. Press Return to save.
 
 steps:
-  - id: quickname_auto_applied
-    name: "Quickname pill appears and auto-applies"
+  - id: join_conversation
+    name: "Join a CLI-created conversation"
     actions:
       - cli_create_conversation:
           name: "Quickname Test"
@@ -33,19 +36,46 @@ steps:
       - cli_generate_invite:
           conversation: "$conversation_id"
       - sim_open_url: { url: "$invite_url" }
-      - wait_for_element: { id: "message-text-field", timeout: 15 }
       - cli_process_joins_background:
           conversation: "$conversation_id"
-      - tap: { label_contains: "Tap to chat", retries: 30 }
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
     verify:
-      - element_exists: { label_contains: "Chat as" }
-    criteria: quickname_pill_appears
+      - element_exists: { id: "message-text-field" }
+    criteria: conversation_joined
     save:
       conversation_id: "from CLI create response"
+
+  - id: quickname_banner
+    name: "Quickname setup banner appears"
+    actions:
+      - wait_for_element: { id: "setup-quickname-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "setup-quickname-button" }
+    criteria: quickname_banner_appears
     note: >
-      The quickname pill appears as soon as the conversation becomes ready
-      and auto-dismisses after ~8 seconds. Start process-join-requests in
-      background and immediately start tapping the pill.
+      Banner shows id="setup-quickname-button", label="Add your name for
+      this convo" with a red lanyard icon. The quickname from My Info is
+      not auto-applied — the field starts empty with placeholder
+      "Add your name".
+
+  - id: apply_quickname
+    name: "Apply quickname via setup banner"
+    actions:
+      - tap: { id: "setup-quickname-button" }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 5 }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "$quickname" }
+      - tap: { id: "quick-edit-done-button" }
+      - wait_for_element: { label_contains: "Chat as $quickname", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Chat as $quickname" }
+    criteria: quickname_applied
+    note: >
+      Quick edit inline UI has 3 elements:
+      - quick-edit-image-picker (label="Choose photo")
+      - quick-edit-display-name-field (text field)
+      - quick-edit-done-button (label="Done editing", checkmark icon)
+      After tapping done, "Chat as <name>" appears in text field placeholder
+      and system message updates to "You joined as <name>".
 
   - id: quickname_on_messages
     name: "Messages show quickname display name"
@@ -54,7 +84,7 @@ steps:
       - tap: { id: "send-message-button" }
       - wait_for_element: { label_contains: "Hello with quickname", timeout: 10 }
     verify:
-      - element_exists: { label_contains: "Hello with quickname" }
+      - element_exists: { label_contains: "$quickname" }
     criteria: quickname_on_messages
 
   - id: quick_edit_opens
@@ -66,6 +96,9 @@ steps:
       - element_exists: { id: "quick-edit-display-name-field" }
       - element_exists: { id: "quick-edit-done-button" }
     criteria: quick_edit_opens
+    note: >
+      Avatar button id="profile-avatar-button", label="Edit your profile".
+      The quick-edit field is pre-populated with the current display name.
 
   - id: edit_name_quick_edit
     name: "Display name changed via quick edit"
@@ -76,6 +109,9 @@ steps:
     verify:
       - element_exists: { label_contains: "Chat as Custom Name" }
     criteria: name_changed_quick_edit
+    note: >
+      Name changes are retroactive — system message "You joined as" and
+      all previous messages update to show the new name.
 
   - id: custom_name_on_messages
     name: "Changed name appears on sent messages"
@@ -84,24 +120,8 @@ steps:
       - tap: { id: "send-message-button" }
       - wait_for_element: { label_contains: "Custom Name", timeout: 10 }
     verify:
-      - element_exists: { label_contains: "Custom Name" }
+      - element_exists: { label_contains: "Custom Name: Message with custom name" }
     criteria: custom_name_visible
-
-  - id: my_info_override
-    name: "Quickname can be re-applied from My Info"
-    actions:
-      - tap: { id: "profile-avatar-button" }
-      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
-      - tap: { id: "quick-edit-lanyard-button" }
-      - wait_for_element: { label_contains: "Use", timeout: 10 }
-      - tap: { label: "Use" }
-      - wait_for_element: { label_contains: "Chat as", timeout: 10 }
-    verify:
-      - element_exists: { label_contains: "Chat as" }
-    criteria: quickname_override_works
-    note: >
-      The lanyard button opens My Info view. Find the "Use" button
-      next to the quickname section and tap it to re-apply.
 
 teardown:
   - action: explode_conversation
@@ -109,8 +129,12 @@ teardown:
     optional: true
 
 criteria:
-  quickname_pill_appears:
-    description: "Quickname pill appears above the composer when entering a new conversation"
+  conversation_joined:
+    description: "Successfully joined a CLI-created conversation"
+  quickname_banner_appears:
+    description: "Quickname setup banner appears above the composer"
+  quickname_applied:
+    description: "Quickname applied via the setup banner and reflected in UI"
   quickname_on_messages:
     description: "Messages sent with quickname show the correct display name"
   quick_edit_opens:
@@ -119,5 +143,3 @@ criteria:
     description: "Display name can be changed via the quick edit view"
   custom_name_visible:
     description: "Changed display name appears on sent messages"
-  quickname_override_works:
-    description: "'Use' button in My Info re-applies the quickname to the conversation"

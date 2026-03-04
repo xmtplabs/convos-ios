@@ -185,7 +185,9 @@ had their YAMLs corrected to match actual UI behavior.
 | 22 | ✅ | Rejoin via deep link navigates to existing conversation |
 | 23b | ✅ | Scheduled explode: red countdown in title, auto-cleanup |
 
-Tests not yet validated against live app: 03, 04, 07, 08, 13, 14, 15,
+| 14 | ✅ | Quickname not auto-applied; needs banner tap; name changes retroactive |
+
+Tests not yet validated against live app: 03, 04, 07, 08, 13, 15,
 19, 20, 23, 24. Multi-device tests (03, 04) need two simulators.
 Special tests (13, 15) need dedicated setups.
 
