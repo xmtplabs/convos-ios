@@ -153,7 +153,7 @@ Accessible from Settings → Convos Vault:
 
 ### Lost one device (other devices remain)
 
-User removes the lost device from the Vault on another device. The removed device's inbox is kicked from the group, preventing it from receiving future keys. For conversation keys the lost device already had, those installations should be revoked via `revokeInstallations()`.
+User removes the lost device from the Vault on another device. The removed device's inbox is kicked from the group, preventing it from receiving future keys. In a future phase, the installation IDs tracked in the Vault will be used to selectively revoke the compromised device's installations across all conversations via `revokeInstallations()`.
 
 ### Lost all devices (same Apple ID)
 
@@ -204,6 +204,8 @@ Keys accumulate as messages in the Vault. When the device comes back online, it 
 ## Resolved Design Decisions
 
 **Key rotation after device compromise:** Not needed. Revoking the compromised device's XMTP installations (via `revokeInstallations()`) for each conversation is sufficient. The compromised device is removed from the MLS group for every conversation, and MLS forward secrecy ensures it cannot decrypt any future messages. The private keys alone are useless without an active installation.
+
+**Installation ID tracking:** When a device shares a conversation key (via `DeviceKeyBundle` or `DeviceKeyShare`), it also includes the installation ID it created for that conversation. This builds a mapping of device → installation IDs per conversation, which is needed to selectively revoke a specific device's installations without affecting other devices. Selective revocation based on this mapping is a future phase — for now, removing a device from the Vault prevents it from receiving future keys.
 
 ## Open Questions
 
