@@ -1,7 +1,6 @@
 import Combine
 import Foundation
 import GRDB
-import Observation
 
 // MARK: - Observer Protocol
 
@@ -12,17 +11,13 @@ public protocol ConversationStateObserver: AnyObject {
 // MARK: - StateManager Protocol
 
 public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWriterProtocol {
-    // State Management
     var currentState: ConversationStateMachine.State { get }
 
-    // Observer Management
     @MainActor func removeObserver(_ observer: ConversationStateObserver)
     @MainActor func observeState(_ handler: @escaping (ConversationStateMachine.State) -> Void) -> ConversationStateObserverHandle
 
-    // Error Recovery
     func resetFromError() async
 
-    // Dependencies
     var myProfileWriter: any MyProfileWriterProtocol { get }
     var draftConversationRepository: any DraftConversationRepositoryProtocol { get }
     var conversationConsentWriter: any ConversationConsentWriterProtocol { get }
@@ -32,17 +27,13 @@ public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWr
 
 // MARK: - State Manager Implementation
 
+/// Wraps ConversationStateMachine and provides a dependency container for writers/repositories.
+///
 /// @unchecked Sendable: State changes are coordinated through ConversationStateMachine actor.
-/// Combine subjects are thread-safe for send/subscribe patterns. Properties updated via
-/// MainActor observation pattern. All async methods delegate to the internal actor.
-@Observable
+/// Combine subjects are thread-safe for send/subscribe patterns. All async methods delegate
+/// to the internal actor.
 public final class ConversationStateManager: ConversationStateManagerProtocol, @unchecked Sendable {
-    // MARK: - State Properties
-
     public private(set) var currentState: ConversationStateMachine.State = .uninitialized
-    public private(set) var isReady: Bool = false
-    public private(set) var hasError: Bool = false
-    public private(set) var errorMessage: String?
 
     // MARK: - DraftConversationWriterProtocol Properties
 
@@ -189,24 +180,8 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         case .ready(let result),
                 .joining(invite: _, placeholder: let result):
             conversationIdSubject.send(result.conversationId)
-            isReady = true
-            hasError = false
-            errorMessage = nil
-
-        case .joinFailed(_, let error):
-            isReady = false
-            hasError = true
-            errorMessage = error.userFacingMessage
-
-        case .error(let error):
-            isReady = false
-            hasError = true
-            errorMessage = error.localizedDescription
-
         default:
-            isReady = false
-            hasError = false
-            errorMessage = nil
+            break
         }
 
         notifyObservers(state)
@@ -300,7 +275,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     }
 
     public func delete() async throws {
-        try await inboxStateManager.delete()
+        try await inboxStateManager.deleteInbox()
         await stateMachine.delete()
     }
 
