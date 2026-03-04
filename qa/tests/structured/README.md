@@ -190,10 +190,17 @@ had their YAMLs corrected to match actual UI behavior.
 | 08 | ✅ | Lock/unlock at XMTP level; lock icon in toolbar; no info page indicator |
 | 20 | ❌ | BUG: sender sees "Failed to load" for own sent photo; receive/reveal works |
 | 23 | ✅ | Pending shows "verifying" with draft-UUID id; restricted actions; filter works |
+| 19 | ✅ | Profile photo via quick-edit; group photo via Edit info; both display in list |
+| 24 | ✅ | Navigate away safe; discovery sync detects recovery within 10s; fully functional |
 
-Tests not yet validated against live app: 03, 04, 13, 15, 19, 24.
+Tests not yet validated against live app: 03, 04, 13, 15.
 Multi-device tests (03, 04) need two simulators.
 Special tests (13, 15) need dedicated setups.
+
+### Bugs Found
+| Test | Severity | Description |
+|------|----------|-------------|
+| 20 | Medium | Sender sees "Failed to load" for own sent photo (transient — resolves on re-entry) |
 
 ## File Naming
 

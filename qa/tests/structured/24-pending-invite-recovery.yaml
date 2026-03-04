@@ -3,7 +3,9 @@ name: "Pending Invite Recovery After Navigation"
 description: >
   Verify that when a joiner navigates away from a pending invite
   conversation, the invite is still detected and the conversation
-  transitions to active after the inviter approves.
+  transitions to active after the inviter approves. The app continues
+  polling via discovery sync (~15s interval) even while the user is
+  on the conversations list.
 tags: [invites, pending, recovery, edge-case]
 depends_on: ["23"]
 estimated_duration_s: 120
@@ -24,53 +26,80 @@ setup:
   - action: cli_generate_invite
     args: { conversation: "$conversation_id" }
     save: invite_url
+    note: >
+      Save the full invite URL carefully. Truncated URLs cause
+      invalidInviteCodeFormat errors. Write URL to a temp file
+      to avoid shell truncation.
 
 steps:
   - id: join_and_navigate_away
     name: "Accept invite then navigate away"
     actions:
       - sim_open_url: { url: "$invite_url" }
-      - wait_for_element: { label_contains: "Verifying", timeout: 30 }
-      - navigate_back: {}
+      - wait_for_element: { id: "invite-accepted-view", timeout: 30 }
+      - tap: { id: "close-new-conversation" }
       - wait_for_element: { id: "compose-button", timeout: 5 }
     verify:
       - element_exists: { id: "compose-button" }
+      - element_exists: { label_contains: "verifying" }
     criteria: navigate_away_safe
+    note: >
+      After opening invite, app creates per-conversation identity,
+      sends join request DM (EVENT: invite.join_request_sent), and
+      enters Verifying state. The invite-accepted-view has label
+      "Verifying. See and send messages after your access is verified."
+      Navigating away (close-new-conversation / X button) returns to
+      conversations list. The conversation appears with draft-UUID id
+      and "verifying" in its label. Only "Delete conversation" action
+      available for pending conversations.
 
   - id: approve_while_away
-    name: "Approve invite while joiner is away"
+    name: "Approve invite while joiner is on conversations list"
     actions:
       - cli_process_join_requests:
           conversation: "$conversation_id"
+          watch: true
           timeout: 30
     verify:
-      - cli_output_contains: "success"
+      - cli_output_contains: "Processed 1"
     criteria: approval_succeeds
+    note: >
+      Use --watch flag to catch the DM in real-time. Without --watch,
+      process-join-requests scans existing DMs and exits — the DM
+      might arrive after the scan. The --watch flag streams DMs and
+      processes them as they arrive.
 
   - id: verify_recovery
     name: "Conversation transitions from pending to active"
     actions:
-      - wait_for_element: { pattern: "conversation-list-item-$conversation_id", timeout: 30 }
+      - wait_for_element: { id: "conversation-list-item-$conversation_id", timeout: 30 }
     verify:
-      - element_exists: { pattern: "conversation-list-item" }
-      - element_not_label_contains: { pattern: "conversation-list-item", text: "Verifying" }
+      - element_exists: { id: "conversation-list-item-$conversation_id" }
+      - element_not_exists: { label_contains: "verifying" }
     criteria: transitions_to_active
     note: >
-      The conversation should transition in the list without
-      requiring the user to re-scan. If still showing "Verifying",
-      try backgrounding and foregrounding the app.
+      The app detects membership via discovery sync (~15s polling interval).
+      The conversation ID changes from draft-UUID to the real conversation ID.
+      The "verifying" label disappears. Actions expand to include
+      Mark as unread and Mute. Discovery sync typically detects within
+      10 seconds of the member being added.
 
   - id: conversation_functional
     name: "Conversation is fully functional after recovery"
     actions:
-      - tap: { pattern: "conversation-list-item-$conversation_id" }
+      - tap: { id: "conversation-list-item-$conversation_id" }
       - wait_for_element: { id: "message-text-field", timeout: 10 }
       - type_in_field: { id: "message-text-field", text: "Recovery works!" }
       - tap: { id: "send-message-button" }
       - wait_for_element: { label_contains: "Recovery works!", timeout: 10 }
     verify:
       - element_exists: { label_contains: "Recovery works!" }
+      - element_exists: { label_contains: "You joined as" }
     criteria: conversation_functional
+    note: >
+      After recovery, conversation shows: "You joined as Somebody"
+      system message, "Earlier messages are hidden for privacy",
+      2 members in toolbar, message input enabled.
 
 teardown:
   - action: cli_explode
@@ -81,8 +110,8 @@ criteria:
   navigate_away_safe:
     description: "Navigating away from pending conversation does not cause errors"
   approval_succeeds:
-    description: "CLI can approve the join request"
+    description: "CLI can approve the join request via process-join-requests --watch"
   transitions_to_active:
-    description: "Conversation transitions from pending to active without re-scanning"
+    description: "Conversation transitions from pending to active via discovery sync"
   conversation_functional:
     description: "Conversation is fully functional after recovery"

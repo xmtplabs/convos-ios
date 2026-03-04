@@ -1,83 +1,116 @@
 id: "19"
 name: "Profile and Group Photos"
 description: >
-  Verify that profile photos and group photos can be set, display
-  correctly, and sync to other participants.
-tags: [profile, photos]
+  Verify that profile photos and group photos can be set from the app,
+  display correctly in conversation view and conversations list, and
+  sync metadata to other participants.
+tags: [profile, photos, core]
 depends_on: ["02"]
-estimated_duration_s: 180
+estimated_duration_s: 240
 
 prerequisites:
   app_running: true
   cli_initialized: true
   shared_conversation: true
   screen: conversation_detail
+  simulator_has_photos: true
 
 state:
   conversation_id: null
 
 setup:
-  - action: add_photo_to_simulator
-    note: >
-      curl -sL "https://picsum.photos/850/650" -o /tmp/test-photo.jpg
-      xcrun simctl addmedia $UDID /tmp/test-photo.jpg
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
 
 steps:
   - id: set_profile_photo
-    name: "Profile photo can be set from the app"
+    name: "Set profile photo via quick-edit"
     actions:
-      - tap: { id: "conversation-toolbar-button" }
-      - wait_for_element: { id: "profile-avatar-button", timeout: 10 }
       - tap: { id: "profile-avatar-button" }
-      - wait_for_element: { id: "photo-picker-button", timeout: 10 }
-      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { id: "quick-edit-image-picker", timeout: 10 }
+      - tap: { id: "quick-edit-image-picker" }
       - wait_for_element: { label: "Photos", timeout: 10 }
+      - tap_photo_thumbnail: { index: 1 }
+      - wait_for_element: { id: "quick-edit-done-button", timeout: 10 }
+      - tap: { id: "quick-edit-done-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
     verify:
-      - element_exists: { label: "Photos" }
+      - element_exists: { id: "message-text-field" }
     criteria: profile_photo_set
     note: >
-      The photo picker flow varies — may be a system picker or custom UI.
-      Tap a photo thumbnail to select, then save.
+      Quick-edit bar elements:
+      - quick-edit-image-picker (label="Choose photo")
+      - quick-edit-display-name-field (editable text)
+      - quick-edit-settings-button (label="Profile settings", trash icon)
+      - quick-edit-done-button (label="Done editing")
+      After selecting a photo, the quick-edit image picker shows a round
+      thumbnail of the selected photo. Profile photo appears on sent
+      message avatars and the composer bar avatar.
 
-  - id: verify_profile_photo_cli
-    name: "Profile photo syncs to CLI"
+  - id: profile_photo_syncs
+    name: "Profile photo syncs to other participants"
     actions:
-      - cli_check_profiles: { conversation: "$conversation_id" }
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "group_updated"
     verify:
-      - cli_output_contains: "imageUrl"
+      - cli_output_contains: "group_updated"
     criteria: profile_photo_syncs
+    note: >
+      Profile photo changes send group_updated content type messages.
+      The CLI profiles command shows hasProfile=true but image field
+      may be null (encrypted image ref stored via EncryptedImageRef,
+      not a plain URL in profile metadata).
 
   - id: set_group_photo
-    name: "Group photo can be set"
+    name: "Set group photo from Edit info"
     actions:
       - tap: { id: "conversation-toolbar-button" }
-      - wait_for_element: { id: "group-avatar-button", timeout: 10 }
-      - tap: { id: "group-avatar-button" }
-      - wait_for_element: { id: "photo-picker-button", timeout: 10 }
-      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { id: "edit-info-button", timeout: 10 }
+      - tap: { id: "edit-info-button" }
+      - wait_for_element: { id: "image-picker-button", timeout: 10 }
+      - tap: { id: "image-picker-button" }
       - wait_for_element: { label: "Photos", timeout: 10 }
+      - tap_photo_thumbnail: { index: 0 }
+      - wait_for_element: { label: "Done", timeout: 10 }
+      - tap: { label: "Done" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
     verify:
-      - element_exists: { label: "Photos" }
+      - element_exists: { label_contains: "changed the convo photo" }
     criteria: group_photo_set
+    note: >
+      Edit info page elements:
+      - image-picker-button (label="Choose photo" initially, "Change photo" after set)
+      - conversation-name-field (editable, label="Conversation name")
+      - conversation-description-field (editable, label="Conversation description")
+      - include-info-toggle (label="Include info with invites", default off)
+      - Cancel button (X, top-left)
+      - Done button (checkmark, top-right — label="Done")
+      After saving, system message: "You changed the convo photo" with
+      photo emoji. Group avatar updates from initials to the selected photo.
 
-  - id: verify_group_photo_list
+  - id: group_photo_in_list
     name: "Group photo displays in conversations list"
     actions:
-      - navigate_back: {}
       - navigate_back: {}
       - wait_for_element: { id: "compose-button", timeout: 5 }
     verify:
       - element_exists: { id: "conversation-list-item-$conversation_id" }
     criteria: group_photo_in_list
+    note: >
+      The conversations list avatar for the conversation changes from
+      initials (e.g., "CB") to the selected group photo.
 
 teardown: []
 
 criteria:
   profile_photo_set:
-    description: "Profile photo can be set from the app"
+    description: "Profile photo can be set via quick-edit image picker"
   profile_photo_syncs:
-    description: "Profile photo syncs to other participants (visible via CLI)"
+    description: "Profile photo changes sync to other participants via group_updated"
   group_photo_set:
-    description: "Group photo can be set from conversation info"
+    description: "Group photo can be set from Edit info page"
   group_photo_in_list:
     description: "Group photo displays in the conversations list"
