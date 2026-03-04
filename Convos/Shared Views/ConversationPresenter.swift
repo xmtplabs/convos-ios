@@ -28,7 +28,7 @@ struct ConversationPresenter<Content: View>: View {
                         focusCoordinator: focusCoordinator
                     )
                     .hoverEffect(.lift)
-                    .padding(.top, insetsTopSafeArea ? safeAreaInsets.top : DesignConstants.Spacing.step3x)
+                    .padding(.top, insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x)
                     .padding(.leading, horizontalSizeClass != .compact ? sidebarColumnWidth : 0.0)
                     .transition(.asymmetric(
                         insertion: .move(edge: .top).combined(with: .opacity),
@@ -51,7 +51,7 @@ struct ConversationPresenter<Content: View>: View {
                         get: { viewModel.presentingShareView },
                         set: { viewModel.presentingShareView = $0 }
                     ),
-                    topSafeAreaInset: insetsTopSafeArea ? safeAreaInsets.top : DesignConstants.Spacing.step3x
+                    topSafeAreaInset: insetsTopSafeArea && horizontalSizeClass == .compact ? safeAreaInsets.top : DesignConstants.Spacing.step3x
                 )
                 .ignoresSafeArea()
                 .zIndex(2000)
