@@ -46,8 +46,14 @@ steps:
       - element_exists: { label_contains: "CLI replying to your message" }
     criteria: cli_reply_visible
     note: >
-      The reply should display with a visual reference to the original
-      message. Look for reply indicator near the reply text.
+      The reply displays with a reference bubble above the reply text:
+      "Reply to <name>: <original text>" (tappable Button). The reply
+      content type is "reply" on XMTP but renders as type=text in the
+      notification service. Known issue: if the app is in the foreground
+      conversation view, the reply may not appear via streaming — the
+      NotificationService processes it but the conversation view may need
+      to be re-entered (navigate back, then re-open) or app restart.
+      The message DOES get stored in the database.
 
   - id: reply_from_app
     name: "App can reply to a message"
