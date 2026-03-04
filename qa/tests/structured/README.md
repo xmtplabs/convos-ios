@@ -33,6 +33,43 @@ and a new session picks up, it reads state from CXDB and knows:
 - Conversation IDs, message IDs, invite URLs still in play
 - Where to resume
 
+## Prerequisites
+
+The `prerequisites` block declares what must be true before a test starts.
+Boolean flags (`app_running`, `cli_initialized`, `shared_conversation`) are
+checked or established by the agent. The `screen` key is special — it tells
+the agent which app screen must be visible before step 1 begins.
+
+### `screen` prerequisite
+
+If the app is on the wrong screen (e.g., stuck in a conversation from a prior
+test), the agent must navigate to the required screen before proceeding. This
+prevents flaky test starts caused by leftover navigation state.
+
+| Screen ID | How the agent verifies it | How the agent navigates to it |
+|-----------|--------------------------|-------------------------------|
+| `conversations_list` | `compose-button` is visible | Tap `BackButton` or `close-new-conversation` repeatedly until `compose-button` appears |
+| `conversation_detail` | `message-text-field` is visible and `BackButton` exists | Navigate from `conversations_list`, then tap the target conversation |
+| `settings` | `settings-view` is visible | Tap settings tab or gear icon from `conversations_list` |
+| `profile_editor` | `profile-display-name-field` is visible | Open from settings or conversation toolbar |
+
+If `screen` is omitted, the agent checks current state and navigates as
+needed based on the first step's actions (legacy behavior).
+
+**Example:**
+```yaml
+prerequisites:
+  app_running: true
+  screen: conversations_list
+```
+
+The agent would do something like:
+```
+1. sim_find_elements(pattern: "compose-button")
+2. If not found → tap BackButton / close-new-conversation until it appears
+3. If still not found after 3 attempts → fail prerequisite
+```
+
 ## Action Vocabulary
 
 Actions map to simulator tools and CLI commands. The agent interprets these
@@ -53,9 +90,24 @@ and makes the appropriate tool calls.
 | `screenshot: {}` | `sim_screenshot()` | Visual verification only |
 | `swipe: { ... }` | `sim_ui_swipe(...)` | Swipe gesture |
 | `key: { code: N }` | `sim_ui_key(keycode: N)` | Key press (41=Esc, 40=Return) |
-| `wait: N` | `sleep N` | Pause N seconds |
+| `long_press: { label_contains: "X", duration: N }` | `sim_ui_tap(x, y, duration: N)` | Long press on element (find center first) |
+| `tap_reaction_picker: { emoji: "X" }` | Find picker emoji center, `sim_ui_tap(x, y)` | Tap an emoji in the reaction picker bar |
+| `tap_outside_drawer: { y: N }` | `sim_ui_tap(200, N)` | Tap outside a drawer/sheet to dismiss |
 | `launch_app` | `sim_launch_app(bundle_id: ...)` | Launch app |
 | `read_clipboard` | `xcrun simctl pbpaste $UDID` | Read clipboard |
+| `clear_clipboard` | `echo -n "" \| xcrun simctl pbcopy $UDID` | Clear clipboard before copy |
+
+### No sleep — wait for elements
+
+Never use `wait: N` or `sleep` in YAML steps. Instead, use `wait_for_element`
+targeting the element you expect to appear next. This is both faster (returns
+as soon as the element appears) and more reliable (fails with a clear timeout
+instead of silently proceeding too early or waiting too long).
+
+After CLI actions (send-text, send-reaction), immediately poll for the
+expected result in the app using `wait_for_element` with a timeout. After
+navigation actions (tap, dismiss), wait for the destination screen's key
+element. See `qa/RULES.md` "No Sleep Calls" for the full rationale.
 
 ### CLI actions
 

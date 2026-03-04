@@ -11,11 +11,13 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 DB="$SCRIPT_DIR/qa.sqlite"
 SCHEMA="$SCRIPT_DIR/schema.sql"
 
-# Initialize DB if it doesn't exist
+# Initialize DB if it doesn't exist or has no tables
 init_db() {
-    if [ ! -f "$DB" ]; then
-        sqlite3 "$DB" < "$SCHEMA"
-        echo "Created $DB"
+    local table_count
+    table_count=$(sqlite3 "$DB" "SELECT count(*) FROM sqlite_master WHERE type='table';" 2>/dev/null || echo "0")
+    if [ "$table_count" -eq 0 ]; then
+        sqlite3 "$DB" < "$SCHEMA" >/dev/null
+        echo "Created $DB" >&2
     fi
 }
 
