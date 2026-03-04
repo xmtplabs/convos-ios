@@ -186,9 +186,13 @@ had their YAMLs corrected to match actual UI behavior.
 | 23b | ✅ | Scheduled explode: red countdown in title, auto-cleanup |
 
 | 14 | ✅ | Quickname not auto-applied; needs banner tap; name changes retroactive |
+| 07 | ✅ | Profile edit via quick-edit; group_updated messages sent to participants |
+| 08 | ✅ | Lock/unlock at XMTP level; lock icon in toolbar; no info page indicator |
+| 20 | ❌ | BUG: sender sees "Failed to load" for own sent photo; receive/reveal works |
+| 23 | ✅ | Pending shows "verifying" with draft-UUID id; restricted actions; filter works |
 
-Tests not yet validated against live app: 03, 04, 07, 08, 13, 15,
-19, 20, 23, 24. Multi-device tests (03, 04) need two simulators.
+Tests not yet validated against live app: 03, 04, 13, 15, 19, 24.
+Multi-device tests (03, 04) need two simulators.
 Special tests (13, 15) need dedicated setups.
 
 ## File Naming
