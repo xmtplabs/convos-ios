@@ -358,21 +358,33 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             try localState.insert(db, onConflict: .ignore)
 
             // Remove conversation_members rows for members no longer in the group
-            let currentInboxIds = dbMembers.map(\.inboxId)
-            if !currentInboxIds.isEmpty {
+            let currentMemberInboxIds = Set(dbMembers.map(\.inboxId))
+            if !currentMemberInboxIds.isEmpty {
                 try DBConversationMember
                     .filter(DBConversationMember.Columns.conversationId == dbConversation.id)
-                    .filter(!currentInboxIds.contains(DBConversationMember.Columns.inboxId))
+                    .filter(!currentMemberInboxIds.contains(DBConversationMember.Columns.inboxId))
                     .deleteAll(db)
             }
 
             // Save members (upserts conversation_members + stub memberProfile rows)
             try self.saveMembers(dbMembers, in: db)
 
-            // Upsert profiles for current members with latest data from XMTP metadata.
-            // Historical memberProfile rows for removed members are intentionally preserved
-            // so their past messages still display sender names and avatars.
+            // Clean up profiles for members no longer in the group
+            try DBMemberProfile
+                .filter(DBMemberProfile.Columns.conversationId == dbConversation.id)
+                .filter(!currentMemberInboxIds.contains(DBMemberProfile.Columns.inboxId))
+                .deleteAll(db)
+
+            // Fill gaps: only write appData profiles for members without message-sourced data
             try memberProfiles.forEach { profile in
+                let existing = try DBMemberProfile.fetchOne(
+                    db,
+                    conversationId: dbConversation.id,
+                    inboxId: profile.inboxId
+                )
+                if existing?.name != nil || existing?.avatar != nil {
+                    return
+                }
                 let member = DBMember(inboxId: profile.inboxId)
                 try member.save(db)
                 try profile.save(db)

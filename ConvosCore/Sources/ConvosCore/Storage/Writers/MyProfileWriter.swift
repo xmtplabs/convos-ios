@@ -52,7 +52,11 @@ class MyProfileWriter: MyProfileWriterProtocol {
             return profile
         }
 
-        try await group.updateProfile(profile)
+        do {
+            try await group.updateProfile(profile)
+        } catch {
+            Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+        }
         await sendProfileUpdate(profile: profile, group: group)
     }
 
@@ -87,7 +91,11 @@ class MyProfileWriter: MyProfileWriterProtocol {
             try await databaseWriter.write { db in
                 try updatedProfile.save(db)
             }
-            try await group.updateProfile(updatedProfile)
+            do {
+                try await group.updateProfile(updatedProfile)
+            } catch {
+                Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+            }
             await sendProfileUpdate(profile: updatedProfile, group: group)
             return
         }
@@ -120,7 +128,11 @@ class MyProfileWriter: MyProfileWriterProtocol {
             key: groupKey
         )
 
-        try await group.updateProfile(updatedProfile)
+        do {
+            try await group.updateProfile(updatedProfile)
+        } catch {
+            Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+        }
 
         if let image = ImageType(data: compressedImageData) {
             ImageCacheContainer.shared.cacheAfterUpload(image, for: hydratedProfile, url: uploadedAssetUrl)

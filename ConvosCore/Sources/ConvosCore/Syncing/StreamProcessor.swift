@@ -297,11 +297,16 @@ actor StreamProcessor: StreamProcessorProtocol {
                 profile = profile.with(name: update.hasName ? update.name : nil)
 
                 if update.hasEncryptedImage, update.encryptedImage.isValid {
+                    let encryptionKey: Data? = if let existingKey = profile.avatarKey {
+                        existingKey
+                    } else {
+                        try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
+                    }
                     profile = profile.with(
                         avatar: update.encryptedImage.url,
                         salt: update.encryptedImage.salt,
                         nonce: update.encryptedImage.nonce,
-                        key: profile.avatarKey
+                        key: encryptionKey
                     )
                 } else {
                     profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
@@ -325,6 +330,8 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         do {
             try await databaseWriter.write { db in
+                let encryptionKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
+
                 for memberProfile in snapshot.profiles {
                     let inboxId = memberProfile.inboxIdString
                     guard !inboxId.isEmpty else { continue }
@@ -356,7 +363,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                             avatar: memberProfile.encryptedImage.url,
                             salt: memberProfile.encryptedImage.salt,
                             nonce: memberProfile.encryptedImage.nonce,
-                            key: profile.avatarKey
+                            key: existingProfile?.avatarKey ?? encryptionKey
                         )
                     }
 
