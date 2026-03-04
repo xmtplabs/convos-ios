@@ -1,0 +1,88 @@
+id: "24"
+name: "Pending Invite Recovery After Navigation"
+description: >
+  Verify that when a joiner navigates away from a pending invite
+  conversation, the invite is still detected and the conversation
+  transitions to active after the inviter approves.
+tags: [invites, pending, recovery, edge-case]
+depends_on: ["23"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  invite_url: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "Recovery Test" }
+    save: conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save: invite_url
+
+steps:
+  - id: join_and_navigate_away
+    name: "Accept invite then navigate away"
+    actions:
+      - sim_open_url: { url: "$invite_url" }
+      - wait_for_element: { label_contains: "Verifying", timeout: 30 }
+      - navigate_back: {}
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "compose-button" }
+    criteria: navigate_away_safe
+
+  - id: approve_while_away
+    name: "Approve invite while joiner is away"
+    actions:
+      - cli_process_join_requests:
+          conversation: "$conversation_id"
+          timeout: 30
+    verify:
+      - cli_output_contains: "success"
+    criteria: approval_succeeds
+
+  - id: verify_recovery
+    name: "Conversation transitions from pending to active"
+    actions:
+      - wait_for_element: { pattern: "conversation-list-item-$conversation_id", timeout: 30 }
+    verify:
+      - element_exists: { pattern: "conversation-list-item" }
+      - element_not_label_contains: { pattern: "conversation-list-item", text: "Verifying" }
+    criteria: transitions_to_active
+    note: >
+      The conversation should transition in the list without
+      requiring the user to re-scan. If still showing "Verifying",
+      try backgrounding and foregrounding the app.
+
+  - id: conversation_functional
+    name: "Conversation is fully functional after recovery"
+    actions:
+      - tap: { pattern: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - type_in_field: { id: "message-text-field", text: "Recovery works!" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Recovery works!", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Recovery works!" }
+    criteria: conversation_functional
+
+teardown:
+  - action: cli_explode
+    args: { conversation: "$conversation_id" }
+    optional: true
+
+criteria:
+  navigate_away_safe:
+    description: "Navigating away from pending conversation does not cause errors"
+  approval_succeeds:
+    description: "CLI can approve the join request"
+  transitions_to_active:
+    description: "Conversation transitions from pending to active without re-scanning"
+  conversation_functional:
+    description: "Conversation is fully functional after recovery"

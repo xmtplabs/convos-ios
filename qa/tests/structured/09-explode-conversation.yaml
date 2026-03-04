@@ -1,0 +1,79 @@
+id: "09"
+name: "Explode Conversation"
+description: >
+  Verify that exploding a conversation removes it for all participants
+  and destroys the conversation data.
+tags: [conversations, explode, destructive]
+depends_on: ["12"]
+estimated_duration_s: 90
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  cli_identity_id: null
+
+setup:
+  - action: create_conversation_from_app
+    note: >
+      Create a new conversation from the app (so app is super admin).
+      Have CLI join via invite. Exchange a few messages.
+    save:
+      conversation_id: "from CLI join response"
+      cli_identity_id: "from CLI join response"
+
+steps:
+  - id: open_conversation_info
+    name: "Open conversation info"
+    actions:
+      - tap: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - tap: { id: "conversation-toolbar-button" }
+      - wait_for_element: { label_contains: "Explode", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Explode" }
+    criteria: explode_option_visible
+
+  - id: trigger_explode
+    name: "Explode with confirmation"
+    actions:
+      - tap: { label_contains: "Explode" }
+      - wait_for_element: { label_contains: "Explode", timeout: 5 }
+      - tap: { label_contains: "Explode" }
+      - wait_for_element: { id: "compose-button", timeout: 15 }
+    verify:
+      - element_not_exists: { id: "conversation-list-item-$conversation_id" }
+    criteria: conversation_removed
+    expect_events:
+      - "conversation.exploded"
+    note: >
+      First tap opens the explode option, second tap confirms in the
+      confirmation dialog. After explosion, app navigates back to
+      conversations list.
+
+  - id: verify_cli
+    name: "Conversation no longer accessible via CLI"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Should fail"
+          expect_failure: true
+    verify:
+      - cli_output_contains_error: true
+    criteria: cli_cannot_access
+    note: >
+      Sending a message to an exploded conversation should fail.
+      The CLI may report the conversation as not found or destroyed.
+
+teardown: []
+
+criteria:
+  explode_option_visible:
+    description: "'Explode now' option is visible in conversation info for super admins"
+  conversation_removed:
+    description: "Conversation is removed from the app's conversations list after exploding"
+  cli_cannot_access:
+    description: "Conversation is no longer accessible via CLI"

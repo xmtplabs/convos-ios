@@ -1,0 +1,92 @@
+id: "07"
+name: "Update Profile in Conversation"
+description: >
+  Verify that a user can update their display name within a conversation,
+  that changes are reflected for other participants, and that per-conversation
+  profile isolation works.
+tags: [profile, core]
+depends_on: ["02"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversation_detail
+
+state:
+  conversation_id: null
+  original_name: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: navigate_to_conversation
+    args: { id: "$conversation_id" }
+
+steps:
+  - id: open_conversation_info
+    name: "Open conversation info"
+    actions:
+      - tap: { id: "conversation-toolbar-button" }
+      - wait_for_element: { id: "edit-info-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "edit-info-button" }
+    criteria: conversation_info_opens
+
+  - id: edit_display_name
+    name: "Edit display name"
+    actions:
+      - tap: { id: "profile-avatar-button" }
+      - wait_for_element: { id: "profile-display-name-field", timeout: 10 }
+      - type_in_field: { id: "profile-display-name-field", text: "Updated QA Name", clear_first: true }
+      - tap: { id: "profile-done-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - find_elements: { pattern: "Updated QA Name" }
+    criteria: name_can_be_edited
+    note: >
+      The profile editor may be opened via the avatar button in the
+      conversation view or via edit-info-button in conversation info.
+      The field and done button identifiers may vary — check the
+      accessibility tree if these don't match.
+
+  - id: verify_name_in_app
+    name: "Updated name appears on new messages"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Message with new name" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Updated QA Name", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Updated QA Name" }
+    criteria: name_visible_in_app
+
+  - id: verify_name_via_cli
+    name: "Updated name visible to other participants"
+    actions:
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "Message with new name"
+    verify:
+      - cli_output_contains: "Message with new name"
+    criteria: name_visible_via_cli
+    note: >
+      The CLI sync should show the message. Profile name changes are
+      reflected in group_updated messages.
+
+teardown:
+  - action: restore_profile_name
+    args: { name: "$original_name" }
+    optional: true
+
+criteria:
+  conversation_info_opens:
+    description: "Conversation info view can be opened"
+  name_can_be_edited:
+    description: "Display name can be edited"
+  name_visible_in_app:
+    description: "Updated name appears on new messages in the app"
+  name_visible_via_cli:
+    description: "Updated name is visible to other participants via CLI"

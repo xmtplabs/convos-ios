@@ -1,0 +1,172 @@
+id: "21"
+name: "Message Gestures and Interactions"
+description: >
+  Verify all gesture-based interactions in the messages list: double tap,
+  long press, swipe to reply, link tapping, avatar tapping, and reaction
+  indicator tapping across message content types.
+tags: [messaging, gestures, interactions, core]
+depends_on: ["02", "05", "06"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversation_detail
+  simulator_has_photos: true
+
+state:
+  conversation_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: cli_send_messages
+    args:
+      conversation: "$conversation_id"
+      messages:
+        - "Hello from the CLI"
+        - "Check out https://example.com for details"
+        - "🎉"
+  - action: app_send_text
+    args: { text: "Hello from the app" }
+  - action: cli_send_attachment
+    args: { conversation: "$conversation_id", file: "/tmp/cli-photo.jpg" }
+
+steps:
+  - id: double_tap_reaction_toggle
+    name: "Double-tap toggles ❤️ reaction"
+    actions:
+      - double_tap: { label_contains: "Hello from the CLI" }
+      - wait_for_element: { label_contains: "1 reaction", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "❤️" }
+    criteria: double_tap_adds_reaction
+
+  - id: double_tap_removes_reaction
+    name: "Double-tap again removes ❤️ reaction"
+    actions:
+      - double_tap: { label_contains: "Hello from the CLI" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { label_contains: "1 reaction: ❤️" }
+    criteria: double_tap_removes_reaction
+
+  - id: swipe_to_reply
+    name: "Swipe right opens reply composer"
+    actions:
+      - swipe_right: { label_contains: "Hello from the CLI" }
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+    verify:
+      - element_exists: { id: "reply-composer-bar" }
+    criteria: swipe_to_reply
+
+  - id: cancel_reply
+    name: "Cancel button dismisses reply composer"
+    actions:
+      - tap: { id: "cancel-reply-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { id: "reply-composer-bar" }
+    criteria: cancel_reply
+
+  - id: long_press_context_menu
+    name: "Long press opens context menu with Reply and Copy"
+    actions:
+      - long_press: { label_contains: "Hello from the CLI", duration: 1.5 }
+      - wait_for_element: { label: "Reply", timeout: 5 }
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Copy" }
+    criteria: long_press_context_menu
+
+  - id: copy_action
+    name: "Copy puts message text on pasteboard"
+    actions:
+      - tap: { label: "Copy" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+      - read_pasteboard: {}
+    verify:
+      - pasteboard_contains: "Hello from the CLI"
+    criteria: copy_action
+
+  - id: long_press_emoji
+    name: "Long press on emoji opens context menu"
+    actions:
+      - long_press: { label_contains: "🎉", duration: 1.5 }
+      - wait_for_element: { label: "Copy", timeout: 5 }
+      - tap: { label: "Copy" }
+      - read_pasteboard: {}
+    verify:
+      - pasteboard_contains: "🎉"
+    criteria: emoji_copy
+
+  - id: link_tap
+    name: "Tapping a link opens it"
+    actions:
+      - tap: { label_contains: "example.com" }
+      - wait_for_element: { label_contains: "example", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "example" }
+    criteria: link_opens
+    note: >
+      Safari may open or an in-app browser. Navigate back afterward.
+
+  - id: blurred_photo_tap
+    name: "Single tap on blurred photo reveals it"
+    actions:
+      - tap: { label_contains: "Tap pic to reveal" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { label_contains: "Tap pic to reveal" }
+    criteria: photo_reveal
+
+  - id: avatar_tap
+    name: "Tapping sender avatar opens profile"
+    actions:
+      - tap: { label_contains: "profile" }
+      - wait_for_element: { label_contains: "profile", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "profile" }
+    criteria: avatar_opens_profile
+    note: >
+      The avatar label may be "View <Name>'s profile". The profile
+      sheet/view should appear showing sender info.
+
+  - id: reaction_indicator_tap
+    name: "Tapping reaction indicator opens drawer"
+    actions:
+      - double_tap: { label_contains: "Hello from the CLI" }
+      - wait_for_element: { label_contains: "reaction", timeout: 10 }
+      - tap: { label_contains: "reaction" }
+      - wait_for_element: { label: "Reactions", timeout: 5 }
+    verify:
+      - element_exists: { label: "Reactions" }
+    criteria: reaction_drawer_opens
+
+teardown: []
+
+criteria:
+  double_tap_adds_reaction:
+    description: "Double-tap on incoming text adds ❤️ reaction"
+  double_tap_removes_reaction:
+    description: "Double-tap again removes the ❤️ reaction"
+  swipe_to_reply:
+    description: "Swipe right opens the reply composer bar"
+  cancel_reply:
+    description: "Cancel button dismisses reply composer"
+  long_press_context_menu:
+    description: "Long press on text opens context menu with Reply and Copy"
+  copy_action:
+    description: "Copy action puts message text on the pasteboard"
+  emoji_copy:
+    description: "Copy on emoji message puts emoji on pasteboard"
+  link_opens:
+    description: "Tapping a link in a message opens the URL"
+  photo_reveal:
+    description: "Single tap on blurred incoming photo reveals it"
+  avatar_opens_profile:
+    description: "Tapping sender avatar opens profile view"
+  reaction_drawer_opens:
+    description: "Tapping reaction indicator opens reactions drawer"

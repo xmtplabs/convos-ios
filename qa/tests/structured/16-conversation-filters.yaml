@@ -1,0 +1,88 @@
+id: "16"
+name: "Conversation Filters"
+description: >
+  Verify the unread filter in the conversations list — filtering, clearing,
+  empty state, and behavior when new messages arrive while filtered.
+tags: [conversations, filters]
+depends_on: ["02"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conv_read_id: null
+  conv_unread_a_id: null
+  conv_unread_b_id: null
+
+setup:
+  - action: ensure_three_conversations
+    note: >
+      Need 3 conversations: one read, two unread. Send CLI messages to
+      the unread ones but don't open them in the app.
+
+steps:
+  - id: apply_unread_filter
+    name: "Unread filter shows only unread conversations"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label: "Unread", timeout: 5 }
+      - tap: { label: "Unread" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "conversation-list-item-$conv_unread_a_id" }
+      - element_exists: { id: "conversation-list-item-$conv_unread_b_id" }
+      - element_not_exists: { id: "conversation-list-item-$conv_read_id" }
+    criteria: filter_shows_unread_only
+
+  - id: read_while_filtered
+    name: "Reading a conversation removes it from filtered list"
+    actions:
+      - tap: { id: "conversation-list-item-$conv_unread_a_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - tap: { id: "BackButton" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_not_exists: { id: "conversation-list-item-$conv_unread_a_id" }
+      - element_exists: { id: "conversation-list-item-$conv_unread_b_id" }
+    criteria: read_removes_from_filter
+
+  - id: new_message_while_filtered
+    name: "New unread message appears in filtered list"
+    actions:
+      - cli_send_text:
+          conversation: "$conv_read_id"
+          text: "New message while filtered"
+      - wait_for_element: { id: "conversation-list-item-$conv_read_id", timeout: 15 }
+    verify:
+      - element_exists: { id: "conversation-list-item-$conv_read_id" }
+    criteria: new_unread_appears
+
+  - id: clear_filter
+    name: "Clearing filter restores all conversations"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label: "All", timeout: 5 }
+      - tap: { label: "All" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "conversation-list-item-$conv_read_id" }
+      - element_exists: { id: "conversation-list-item-$conv_unread_a_id" }
+      - element_exists: { id: "conversation-list-item-$conv_unread_b_id" }
+    criteria: clear_filter_restores_all
+
+teardown:
+  - action: clear_filter
+    optional: true
+
+criteria:
+  filter_shows_unread_only:
+    description: "Selecting 'Unread' shows only conversations with unread messages"
+  read_removes_from_filter:
+    description: "Reading a conversation while filtered removes it from the filtered list"
+  new_unread_appears:
+    description: "New unread message causes a conversation to appear in the filtered list"
+  clear_filter_restores_all:
+    description: "Clearing the filter restores all conversations"

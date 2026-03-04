@@ -1,0 +1,86 @@
+id: "18"
+name: "Delete All Data"
+description: >
+  Verify that the "Delete All Data" flow in App Settings permanently deletes
+  all conversations and returns the app to the onboarding state.
+  This test is destructive — run it last.
+tags: [settings, destructive, data]
+depends_on: ["01"]
+estimated_duration_s: 90
+
+prerequisites:
+  app_running: true
+  conversations_exist: true
+  screen: conversations_list
+
+state: {}
+
+setup:
+  - action: verify_conversations_exist
+    note: "Ensure at least 2 conversations exist before deletion"
+
+steps:
+  - id: navigate_to_delete
+    name: "Navigate to Delete All Data"
+    actions:
+      - tap: { id: "app-settings-button" }
+      - wait_for_element: { id: "delete-all-data-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "delete-all-data-button" }
+    criteria: delete_button_accessible
+
+  - id: cancel_deletion
+    name: "Cancel dismisses confirmation without deleting"
+    actions:
+      - tap: { id: "delete-all-data-button" }
+      - wait_for_element: { id: "hold-to-delete-button", timeout: 5 }
+      - tap: { label: "Cancel" }
+      - wait_for_element: { id: "delete-all-data-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "delete-all-data-button" }
+    criteria: cancel_preserves_data
+
+  - id: perform_deletion
+    name: "Hold to delete triggers deletion"
+    actions:
+      - tap: { id: "delete-all-data-button" }
+      - wait_for_element: { id: "hold-to-delete-button", timeout: 5 }
+      - long_press: { id: "hold-to-delete-button", duration: 3.5 }
+      - wait_for_element: { id: "start-convo-button", timeout: 30 }
+    verify:
+      - element_exists: { id: "start-convo-button" }
+    criteria: deletion_completes
+    expect_events:
+      - "data.deleted"
+
+  - id: verify_empty_state
+    name: "App returns to empty onboarding state"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    verify:
+      - element_not_exists: { pattern: "conversation-list-item" }
+      - element_exists: { id: "start-convo-button" }
+    criteria: empty_state_after_delete
+
+  - id: verify_interactive
+    name: "App is fully interactive after deletion"
+    actions:
+      - tap: { id: "start-convo-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: app_interactive_after_delete
+
+teardown: []
+
+criteria:
+  delete_button_accessible:
+    description: "'Delete All Data' button is accessible in App Settings"
+  cancel_preserves_data:
+    description: "Cancel dismisses confirmation without deleting anything"
+  deletion_completes:
+    description: "Holding the delete button completes deletion"
+  empty_state_after_delete:
+    description: "No conversations remain after deletion"
+  app_interactive_after_delete:
+    description: "App is fully interactive after deletion — no stuck state"

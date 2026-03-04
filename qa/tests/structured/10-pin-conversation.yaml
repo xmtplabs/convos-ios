@@ -1,0 +1,120 @@
+id: "10"
+name: "Pin and Unpin Conversations"
+description: >
+  Verify pinning, unpinning, pin persistence, multiple pins, muted icon
+  on pinned tiles, empty pinned section behavior, and title truncation.
+tags: [conversations, pins, core]
+depends_on: ["01"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conv_a_id: null
+  conv_b_id: null
+  conv_c_id: null
+
+setup:
+  - action: ensure_three_conversations
+    note: >
+      Need at least 3 conversations in the list. Create via CLI if needed:
+      create conversation, generate invite, app joins via deep link, CLI
+      processes join request. Name them "Pin A", "Pin B", "Pin C".
+      At least one should have a long name for truncation testing.
+
+steps:
+  - id: pin_conversation
+    name: "Pin a conversation from context menu"
+    actions:
+      - long_press: { id: "conversation-list-item-$conv_a_id", duration: 1.0 }
+      - wait_for_element: { label: "Pin", timeout: 5 }
+      - tap: { label: "Pin" }
+      - wait_for_element: { pattern: "pinned-conversation", timeout: 5 }
+    verify:
+      - element_exists: { pattern: "pinned-conversation" }
+    criteria: pin_from_context_menu
+    expect_events:
+      - "conversation.pinned"
+
+  - id: pinned_section_visible
+    name: "Pinned section appears with compact tile"
+    actions:
+      - find_elements: { pattern: "pinned-conversation" }
+    verify:
+      - element_exists: { pattern: "pinned-conversation" }
+    criteria: pinned_section_distinct
+
+  - id: pin_multiple
+    name: "Pin multiple conversations"
+    actions:
+      - long_press: { id: "conversation-list-item-$conv_b_id", duration: 1.0 }
+      - wait_for_element: { label: "Pin", timeout: 5 }
+      - tap: { label: "Pin" }
+      - wait_for_element: { pattern: "pinned-conversation", timeout: 5 }
+      - long_press: { id: "conversation-list-item-$conv_c_id", duration: 1.0 }
+      - wait_for_element: { label: "Pin", timeout: 5 }
+      - tap: { label: "Pin" }
+      - wait_for_element: { pattern: "pinned-conversation", timeout: 5 }
+    verify:
+      - element_count_gte: { pattern: "pinned-conversation", min: 3 }
+    criteria: multiple_pins
+
+  - id: pin_persistence
+    name: "Pins persist across app restart"
+    actions:
+      - terminate_app: {}
+      - launch_app: {}
+      - wait_for_element: { id: "compose-button", timeout: 15 }
+      - find_elements: { pattern: "pinned-conversation" }
+    verify:
+      - element_count_gte: { pattern: "pinned-conversation", min: 3 }
+    criteria: pin_persistence
+
+  - id: unpin_conversation
+    name: "Unpin a conversation from context menu"
+    actions:
+      - long_press: { pattern: "pinned-conversation-$conv_a_id", duration: 1.0 }
+      - wait_for_element: { label: "Unpin", timeout: 5 }
+      - tap: { label: "Unpin" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "conversation-list-item-$conv_a_id" }
+    criteria: unpin_from_context_menu
+    expect_events:
+      - "conversation.unpinned"
+
+  - id: unpin_all
+    name: "Pinned section disappears when all unpinned"
+    actions:
+      - long_press: { pattern: "pinned-conversation-$conv_b_id", duration: 1.0 }
+      - wait_for_element: { label: "Unpin", timeout: 5 }
+      - tap: { label: "Unpin" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+      - long_press: { pattern: "pinned-conversation-$conv_c_id", duration: 1.0 }
+      - wait_for_element: { label: "Unpin", timeout: 5 }
+      - tap: { label: "Unpin" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_not_exists: { pattern: "pinned-conversation" }
+    criteria: empty_pinned_section
+
+teardown:
+  - action: unpin_all_conversations
+    optional: true
+
+criteria:
+  pin_from_context_menu:
+    description: "Conversation can be pinned from the context menu"
+  pinned_section_distinct:
+    description: "Pinned section appears with compact tiles"
+  multiple_pins:
+    description: "Multiple conversations can be pinned simultaneously"
+  pin_persistence:
+    description: "Pins persist across app kill and relaunch"
+  unpin_from_context_menu:
+    description: "Conversation can be unpinned from the context menu"
+  empty_pinned_section:
+    description: "Pinned section disappears when all conversations are unpinned"

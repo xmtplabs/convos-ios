@@ -1,0 +1,69 @@
+id: "23b"
+name: "Scheduled Explode (In-App Expiration)"
+description: >
+  Verify that a conversation with a scheduled explosion is automatically
+  cleaned up when the timer expires while the app is in the foreground.
+tags: [conversations, explode, scheduled, timer]
+depends_on: ["09"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+
+setup:
+  - action: cli_create_and_app_join
+    note: >
+      CLI creates "Boom Test" (CLI is super admin). App joins via invite.
+      Exchange a few messages so the conversation has content.
+    save:
+      conversation_id: "from CLI"
+
+steps:
+  - id: verify_active
+    name: "Conversation is active with messages"
+    actions:
+      - tap: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: conversation_active
+
+  - id: schedule_explosion
+    name: "Schedule explosion from CLI"
+    actions:
+      - cli_schedule_explode:
+          conversation: "$conversation_id"
+          seconds_from_now: 15
+      - wait_for_element: { label_contains: "Scheduled to explode", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Scheduled to explode" }
+    criteria: countdown_shown
+    note: >
+      The explode button should change to show a countdown timer.
+
+  - id: wait_for_expiration
+    name: "Conversation auto-cleans up when timer expires"
+    actions:
+      - wait_for_element: { id: "compose-button", timeout: 30 }
+    verify:
+      - element_exists: { id: "compose-button" }
+      - element_not_exists: { label_contains: "Boom Test" }
+    criteria: auto_cleanup
+    note: >
+      Keep the app foregrounded. After ~15 seconds the conversation
+      should be destroyed and the app navigates to conversations list.
+
+teardown: []
+
+criteria:
+  conversation_active:
+    description: "Conversation is active and showing messages before scheduling"
+  countdown_shown:
+    description: "App shows countdown in the explode button after scheduling"
+  auto_cleanup:
+    description: "Conversation auto-cleaned up when timer expires while foregrounded"

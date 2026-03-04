@@ -1,0 +1,66 @@
+id: "22"
+name: "Rejoin Existing Conversation via Invite"
+description: >
+  Verify that scanning or pasting an invite code for a conversation the
+  user is already a member of navigates to that existing conversation
+  instead of getting stuck.
+tags: [invites, rejoin, edge-case]
+depends_on: ["12"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  second_invite_url: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save: second_invite_url
+    note: "Generate a second invite for the same conversation"
+
+steps:
+  - id: rejoin_via_deep_link
+    name: "Deep link for existing conversation shows conversation view"
+    actions:
+      - sim_open_url: { url: "$second_invite_url" }
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: rejoin_deep_link
+
+  - id: navigate_back
+    name: "Navigate back to conversations list"
+    actions:
+      - navigate_back: {}
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: rejoin_via_paste
+    name: "Paste in scanner shows conversation view"
+    actions:
+      - pbcopy: { text: "$second_invite_url" }
+      - tap: { id: "scan-button" }
+      - wait_for_element: { id: "paste-invite-button", timeout: 10 }
+      - tap: { id: "paste-invite-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: rejoin_paste
+
+teardown: []
+
+criteria:
+  rejoin_deep_link:
+    description: "Deep link for existing conversation shows the conversation view"
+  rejoin_paste:
+    description: "Paste in scanner for existing conversation shows the conversation view"

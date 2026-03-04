@@ -1,0 +1,71 @@
+id: "04"
+name: "Join Conversation via Paste in Scan View"
+description: >
+  Verify that a conversation created on one device can be joined from a
+  second device by pasting the invite URL in the scan view.
+  Requires TWO simulators — Device A (inviter) and Device B (joiner).
+tags: [invites, paste, multi-device]
+depends_on: ["01"]
+estimated_duration_s: 180
+
+prerequisites:
+  two_simulators: true
+  app_installed_on_both: true
+
+state:
+  device_a_udid: null
+  device_b_udid: null
+  invite_url: null
+
+steps:
+  - id: create_conversation_device_a
+    name: "Device A creates a conversation"
+    device: A
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+      - sim_log_events: { event_filter: "invite.url_displayed" }
+    save:
+      invite_url: "from invite.url_displayed event"
+    criteria: conversation_created
+
+  - id: paste_invite_device_b
+    name: "Device B pastes invite in scan view"
+    device: B
+    actions:
+      - pbcopy: { text: "$invite_url", udid: "$device_b_udid" }
+      - tap: { id: "scan-button" }
+      - wait_for_element: { id: "paste-invite-button", timeout: 10 }
+      - tap: { id: "paste-invite-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 60 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+      - element_label_contains: { label_contains: "2 members" }
+    criteria: paste_join_succeeds
+    note: >
+      Copy the invite URL to Device B's pasteboard using simctl pbcopy,
+      then open the scan view and tap the paste button.
+
+  - id: exchange_messages
+    name: "Two-way messaging works"
+    actions:
+      - device_b_send: { text: "Hello via paste!" }
+      - device_a_wait: { label_contains: "Hello via paste!", timeout: 15 }
+      - device_a_send: { text: "Paste reply!" }
+      - device_b_wait: { label_contains: "Paste reply!", timeout: 15 }
+    verify:
+      - device_a_has: { label_contains: "Hello via paste!" }
+      - device_b_has: { label_contains: "Paste reply!" }
+    criteria: two_way_messaging
+
+teardown:
+  - action: navigate_home
+    optional: true
+
+criteria:
+  conversation_created:
+    description: "Device A creates a conversation and invite URL is extractable"
+  paste_join_succeeds:
+    description: "Pasting invite URL in scan view triggers successful join flow"
+  two_way_messaging:
+    description: "Two-way messaging works between Device A and Device B"

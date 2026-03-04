@@ -1,0 +1,91 @@
+id: "17"
+name: "Swipe Actions (Mark Read/Unread)"
+description: >
+  Verify that conversations can be marked as read or unread via swipe
+  actions and context menus on the conversations list.
+tags: [conversations, swipe, read-state]
+depends_on: ["02"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: cli_send_text
+    args: { conversation: "$conversation_id", text: "Unread swipe test" }
+    note: "Send a message so the conversation has an unread indicator"
+  - action: wait_for_element
+    args: { label_contains: "unread", timeout: 15 }
+
+steps:
+  - id: mark_read_swipe
+    name: "Mark as read via swipe"
+    actions:
+      - swipe_left: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { label: "Mark as read", timeout: 5 }
+      - tap: { label: "Mark as read" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_not_label_contains: { id: "conversation-list-item-$conversation_id", text: "unread" }
+    criteria: mark_read_swipe
+    expect_events:
+      - "conversation.marked_read"
+
+  - id: mark_unread_swipe
+    name: "Mark as unread via swipe"
+    actions:
+      - swipe_left: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { label: "Mark as unread", timeout: 5 }
+      - tap: { label: "Mark as unread" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_label_contains: { id: "conversation-list-item-$conversation_id", text: "unread" }
+    criteria: mark_unread_swipe
+    expect_events:
+      - "conversation.marked_unread"
+
+  - id: mark_read_context_menu
+    name: "Mark as read via context menu"
+    actions:
+      - long_press: { id: "conversation-list-item-$conversation_id", duration: 1.0 }
+      - wait_for_element: { label: "Mark as read", timeout: 5 }
+      - tap: { label: "Mark as read" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_not_label_contains: { id: "conversation-list-item-$conversation_id", text: "unread" }
+    criteria: mark_read_context_menu
+
+  - id: mark_unread_context_menu
+    name: "Mark as unread via context menu"
+    actions:
+      - long_press: { id: "conversation-list-item-$conversation_id", duration: 1.0 }
+      - wait_for_element: { label: "Mark as unread", timeout: 5 }
+      - tap: { label: "Mark as unread" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_label_contains: { id: "conversation-list-item-$conversation_id", text: "unread" }
+    criteria: mark_unread_context_menu
+
+teardown:
+  - action: mark_as_read
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  mark_read_swipe:
+    description: "Swiping left reveals and activates 'Mark as read'"
+  mark_unread_swipe:
+    description: "Swiping left reveals and activates 'Mark as unread'"
+  mark_read_context_menu:
+    description: "Mark as read is available via context menu"
+  mark_unread_context_menu:
+    description: "Mark as unread is available via context menu"

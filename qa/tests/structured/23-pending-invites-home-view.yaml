@@ -1,0 +1,154 @@
+id: "23"
+name: "Pending Invites in Home View"
+description: >
+  Verify that pending invite conversations (accepted but not yet approved)
+  appear in the home view, show "Verifying" status, have restricted
+  actions, and transition to active after approval.
+tags: [invites, pending, home-view, core]
+depends_on: ["01"]
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+  existing_conversation: true
+
+state:
+  conversation_id: null
+  invite_url: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "Pending Test Group" }
+    save: conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save: invite_url
+    note: "Do not process join requests — keep invite pending"
+
+steps:
+  - id: accept_invite
+    name: "Accept invite shows Verifying state"
+    actions:
+      - sim_open_url: { url: "$invite_url" }
+      - wait_for_element: { label_contains: "Verifying", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "Verifying" }
+    criteria: verifying_state_shown
+
+  - id: dismiss_no_dialog
+    name: "Close button dismisses without confirmation dialog"
+    actions:
+      - tap: { label: "Close" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "compose-button" }
+      - element_not_exists: { label_contains: "will appear" }
+    criteria: close_no_dialog
+
+  - id: pending_in_list
+    name: "Pending conversation appears in home view"
+    actions:
+      - find_elements: { pattern: "conversation-list-item-draft" }
+    verify:
+      - element_exists: { pattern: "conversation-list-item-draft" }
+      - element_label_contains: { pattern: "conversation-list-item-draft", text: "Verifying" }
+    criteria: pending_in_list
+
+  - id: tap_pending
+    name: "Tapping pending shows InviteAcceptedView"
+    actions:
+      - tap: { pattern: "conversation-list-item-draft" }
+      - wait_for_element: { label_contains: "Verifying", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Verifying" }
+    criteria: pending_tap_shows_verifying
+
+  - id: navigate_back_from_pending
+    name: "Navigate back to list"
+    actions:
+      - navigate_back: {}
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+
+  - id: restricted_context_menu
+    name: "Context menu is restricted for pending conversations"
+    actions:
+      - long_press: { pattern: "conversation-list-item-draft", duration: 1.0 }
+      - wait_for_element: { label: "Delete", timeout: 5 }
+    verify:
+      - element_exists: { label: "Delete" }
+      - element_not_exists: { label: "Pin" }
+      - element_not_exists: { label: "Mute" }
+    criteria: restricted_context_menu
+
+  - id: dismiss_context_menu
+    name: "Dismiss context menu"
+    actions:
+      - tap_outside_drawer: {}
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+
+  - id: pending_filter
+    name: "Pending invites filter shows only pending"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label_contains: "Pending", timeout: 5 }
+      - tap: { label_contains: "Pending" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { pattern: "conversation-list-item-draft" }
+    criteria: pending_filter_works
+
+  - id: clear_filter
+    name: "Clear filter restores all conversations"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label: "All", timeout: 5 }
+      - tap: { label: "All" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+
+  - id: approve_and_verify
+    name: "After approval, conversation transitions to active"
+    actions:
+      - cli_process_joins_background:
+          conversation: "$conversation_id"
+      - tap: { label_contains: "Tap to chat", retries: 30 }
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+      - element_not_exists: { label_contains: "Verifying" }
+    criteria: transitions_to_active
+
+  - id: messages_after_approval
+    name: "Messages work after approval"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "You're approved!"
+      - wait_for_element: { label_contains: "You're approved!", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "You're approved!" }
+    criteria: messages_work_after_approval
+
+teardown:
+  - action: cli_explode
+    args: { conversation: "$conversation_id" }
+    optional: true
+
+criteria:
+  verifying_state_shown:
+    description: "Opening an invite URL shows the 'Verifying' state"
+  close_no_dialog:
+    description: "Close button dismisses directly without confirmation dialog"
+  pending_in_list:
+    description: "Pending conversation appears in home view with 'Verifying' subtitle"
+  pending_tap_shows_verifying:
+    description: "Tapping pending conversation shows InviteAcceptedView"
+  restricted_context_menu:
+    description: "Context menu shows only Delete for pending invites"
+  pending_filter_works:
+    description: "'Pending invites' filter shows only pending conversations"
+  transitions_to_active:
+    description: "After approval, conversation transitions from pending to active"
+  messages_work_after_approval:
+    description: "Messages can be exchanged after the invite is approved"

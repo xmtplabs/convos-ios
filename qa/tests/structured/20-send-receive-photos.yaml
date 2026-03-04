@@ -1,0 +1,116 @@
+id: "20"
+name: "Send and Receive Photos"
+description: >
+  Verify end-to-end photo messaging: sending from app, receiving from CLI,
+  blur/reveal privacy flow, photo context menu, and the first-time
+  "Pics are personal" education sheet.
+tags: [messaging, photos, privacy, core]
+depends_on: ["02"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversation_detail
+  simulator_has_photos: true
+
+state:
+  conversation_id: null
+
+setup:
+  - action: add_photo_to_simulator
+    note: >
+      curl -sL "https://picsum.photos/850/650" -o /tmp/test-photo.jpg
+      xcrun simctl addmedia $UDID /tmp/test-photo.jpg
+
+steps:
+  - id: send_photo_from_app
+    name: "Photo sends and renders as full-width image"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { label: "Photos", timeout: 10 }
+      - tap: { label_contains: "Photo" }
+      - wait_for_element: { id: "attachment-preview-image", timeout: 10 }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "sent", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "sent" }
+    criteria: photo_sends
+    expect_events:
+      - "message.sent"
+    note: >
+      If "Pics are personal" education sheet appears after selecting,
+      tap "Got it" to dismiss. This only appears once per install.
+
+  - id: remove_attachment
+    name: "Remove button clears attachment preview"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { label: "Photos", timeout: 10 }
+      - tap: { label_contains: "Photo" }
+      - wait_for_element: { id: "attachment-preview-image", timeout: 10 }
+      - tap: { id: "remove-attachment-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { id: "attachment-preview-image" }
+    criteria: remove_clears_preview
+
+  - id: receive_photo_from_cli
+    name: "Incoming photo from CLI renders correctly"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          file: "/tmp/cli-photo.jpg"
+      - wait_for_element: { label_contains: "Tap pic to reveal", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Tap pic to reveal" }
+    criteria: incoming_photo_renders
+
+  - id: blur_reveal_flow
+    name: "Incoming photo blur/reveal works"
+    actions:
+      - tap: { label_contains: "Tap pic to reveal" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { label_contains: "Tap pic to reveal" }
+    criteria: blur_reveal_works
+    note: >
+      If "Reveal" education sheet appears, tap "Got it" first.
+      Then tap the blurred photo to reveal it.
+
+  - id: photo_context_menu
+    name: "Photo context menu has Reply, Save, Blur"
+    actions:
+      - long_press: { label_contains: "Photo", duration: 1.5 }
+      - wait_for_element: { label: "Reply", timeout: 5 }
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Save" }
+      - element_exists: { label: "Blur" }
+    criteria: photo_context_menu
+
+  - id: blur_from_context_menu
+    name: "Blur action re-blurs the photo"
+    actions:
+      - tap: { label: "Blur" }
+      - wait_for_element: { label_contains: "Tap pic to reveal", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "Tap pic to reveal" }
+    criteria: blur_reblurs
+
+teardown: []
+
+criteria:
+  photo_sends:
+    description: "Photo sends successfully and renders as a full-width image"
+  remove_clears_preview:
+    description: "Remove button clears the attachment preview"
+  incoming_photo_renders:
+    description: "Incoming photo from CLI renders (blurred by default)"
+  blur_reveal_works:
+    description: "Tapping a blurred photo reveals it"
+  photo_context_menu:
+    description: "Photo context menu shows Reply, Save, and Blur"
+  blur_reblurs:
+    description: "Blur action in context menu re-blurs the photo"

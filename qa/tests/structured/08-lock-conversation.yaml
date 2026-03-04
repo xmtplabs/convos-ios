@@ -1,0 +1,107 @@
+id: "08"
+name: "Lock and Unlock Conversation"
+description: >
+  Verify that locking a conversation prevents new members from joining,
+  invites are invalidated, and unlocking restores invite generation while
+  old invites remain invalid.
+tags: [conversations, lock, security, core]
+depends_on: ["12"]
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  pre_lock_invite_url: null
+
+setup:
+  - action: cli_create_and_app_join
+    note: >
+      CLI creates conversation "Lock Test" (CLI is super admin).
+      App joins via invite. Generate a pre-lock invite URL after joining.
+    save:
+      conversation_id: "from CLI"
+      pre_lock_invite_url: "from CLI generate-invite"
+
+steps:
+  - id: verify_pre_lock
+    name: "Pre-lock state: no lock icon, toggle off"
+    actions:
+      - tap: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - tap: { id: "conversation-toolbar-button" }
+      - wait_for_element: { label_contains: "Lock", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Lock" }
+    criteria: pre_lock_state
+
+  - id: lock_via_cli
+    name: "Lock syncs to the app"
+    actions:
+      - navigate_back: {}
+      - navigate_back: {}
+      - cli_lock_conversation: { conversation: "$conversation_id" }
+      - tap: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - wait_for_element: { label_contains: "locked", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "locked" }
+    criteria: lock_syncs_to_app
+    note: >
+      After CLI locks, re-enter the conversation and verify the lock
+      icon or locked indicator appears.
+
+  - id: pre_lock_invite_fails
+    name: "Pre-lock invite no longer works"
+    actions:
+      - cli_reset_identity: {}
+      - cli_init: {}
+      - cli_join:
+          url: "$pre_lock_invite_url"
+          expect_failure: true
+    verify:
+      - cli_output_contains_error: true
+    criteria: pre_lock_invite_invalid
+
+  - id: unlock_via_cli
+    name: "Unlock syncs to the app"
+    actions:
+      - cli_restore_creator_identity: {}
+      - cli_unlock_conversation: { conversation: "$conversation_id" }
+      - navigate_back: {}
+      - tap: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_not_exists: { label_contains: "locked" }
+    criteria: unlock_syncs_to_app
+
+  - id: new_invite_works
+    name: "New invite works after unlock"
+    actions:
+      - cli_generate_invite: { conversation: "$conversation_id" }
+      - cli_reset_identity: {}
+      - cli_init: {}
+      - cli_join: { url: "$new_invite_url" }
+    verify:
+      - cli_output_contains: "success"
+    criteria: new_invite_after_unlock
+
+teardown:
+  - action: cli_explode
+    args: { conversation: "$conversation_id" }
+    optional: true
+
+criteria:
+  pre_lock_state:
+    description: "Pre-lock state: lock option visible, toggle off"
+  lock_syncs_to_app:
+    description: "Lock state syncs to the app (lock indicator appears)"
+  pre_lock_invite_invalid:
+    description: "Pre-lock invite does not work after locking"
+  unlock_syncs_to_app:
+    description: "Unlock state syncs to the app (lock indicator disappears)"
+  new_invite_after_unlock:
+    description: "New invite works after unlock"
