@@ -69,7 +69,7 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                   backgroundUploadManager: any BackgroundUploadManagerProtocol) {
         self.identityStore = identityStore
         self.authorizationOperation = authorizationOperation
-        self.inboxStateManager = InboxStateManager(stateMachine: authorizationOperation.stateMachine)
+        self.inboxStateManager = authorizationOperation.stateMachine
         self.databaseReader = databaseReader
         self.databaseWriter = databaseWriter
         self.environment = environment

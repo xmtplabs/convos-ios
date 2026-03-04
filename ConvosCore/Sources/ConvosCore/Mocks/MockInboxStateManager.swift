@@ -33,7 +33,7 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
         InboxReadyResult(client: mockClient, apiClient: mockAPIClient)
     }
 
-    public func delete() async throws {
+    public func deleteInbox() async throws {
         currentState = .idle(clientId: currentState.clientId)
         notifyObservers()
     }
@@ -43,7 +43,7 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
         notifyObservers()
     }
 
-    public func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async throws {
+    public func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
     }
 
     public func requestDiscovery() async {

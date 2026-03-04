@@ -564,7 +564,7 @@ public actor ConversationStateMachine {
         if let existingConversation, existingIdentity != nil {
             Log.debug("Found existing convo by invite tag...")
             let prevInboxReady = try await inboxStateManager.waitForInboxReadyResult()
-            try await inboxStateManager.delete()
+            try await inboxStateManager.deleteInbox()
             let inboxReady = try await inboxStateManager.reauthorize(
                 inboxId: existingConversation.inboxId,
                 clientId: existingConversation.clientId
@@ -637,7 +637,7 @@ public actor ConversationStateMachine {
         emitStateChange(.joining(invite: invite, placeholder: placeholder))
 
         // Register ourselves as the error handler for invite join errors when app is active
-        try await inboxStateManager.setInviteJoinErrorHandler(self)
+        await inboxStateManager.setInviteJoinErrorHandler(self)
 
         Log.info("Requesting to join conversation...")
 
@@ -802,7 +802,7 @@ extension ConversationStateMachine {
                 apiClient: inboxReady.apiClient,
             )
 
-            try await inboxStateManager.delete()
+            try await inboxStateManager.deleteInbox()
         }
 
         emitStateChange(.uninitialized)
@@ -905,11 +905,7 @@ extension ConversationStateMachine {
     }
 
     private func clearInviteJoinErrorHandler() async {
-        do {
-            try await inboxStateManager.setInviteJoinErrorHandler(nil)
-        } catch {
-            Log.debug("Failed to clear invite join error handler: \(error)")
-        }
+        await inboxStateManager.setInviteJoinErrorHandler(nil)
     }
 }
 

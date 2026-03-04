@@ -1,6 +1,7 @@
 import ConvosInvites
 import Foundation
 import GRDB
+import os
 @preconcurrency import XMTPiOS
 
 extension InboxStateMachine.State {
@@ -61,9 +62,12 @@ typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
 /// - Registering for push notifications
 /// - Cleaning up all resources on deletion
 ///
+/// Also serves as the InboxStateManagerProtocol implementation, providing synchronous
+/// state access via a lock-protected cache and observer-based state notifications.
+///
 /// The state machine ensures proper sequencing of operations through an action queue
 /// and maintains state through idle → authorizing/registering → authenticating → ready → deleting → stopping.
-public actor InboxStateMachine {
+public actor InboxStateMachine: InboxStateManagerProtocol {
     /// @unchecked Sendable: Most cases contain only Sendable values (String). Cases with
     /// XMTPClientProvider (clientAuthorized, clientRegistered) and InboxReadyResult (authorized)
     /// contain protocol references that wrap thread-safe XMTP types designed for async/await use.
@@ -109,7 +113,61 @@ public actor InboxStateMachine {
     private var networkMonitorTask: Task<Void, Never>?
     private var appLifecycleTask: Task<Void, Never>?
 
-    // MARK: - State Observation
+    // MARK: - Nonisolated State Cache (InboxStateManagerProtocol)
+
+    private nonisolated let _stateCache: OSAllocatedUnfairLock<State>
+
+    public nonisolated var currentState: State {
+        _stateCache.withLock { $0 }
+    }
+
+    private func updateStateCache(_ newState: State) {
+        _stateCache.withLock { $0 = newState }
+    }
+
+    // MARK: - Observer Pattern (InboxStateManagerProtocol)
+
+    private struct WeakObserver: Sendable {
+        weak var observer: InboxStateObserver?
+    }
+
+    private nonisolated let _observers: OSAllocatedUnfairLock<[WeakObserver]> = .init(initialState: [])
+
+    public nonisolated func addObserver(_ observer: InboxStateObserver) {
+        _observers.withLock { observers in
+            observers.removeAll { $0.observer == nil }
+            observers.append(WeakObserver(observer: observer))
+        }
+        observer.inboxStateDidChange(currentState)
+    }
+
+    public nonisolated func removeObserver(_ observer: InboxStateObserver) {
+        _observers.withLock { observers in
+            observers.removeAll { $0.observer === observer || $0.observer == nil }
+        }
+    }
+
+    private nonisolated func notifyObservers(_ state: State) {
+        let snapshot = _observers.withLock { observers in
+            observers.compactMap { $0.observer }
+        }
+        for observer in snapshot {
+            observer.inboxStateDidChange(state)
+        }
+        _observers.withLock { observers in
+            observers.removeAll { $0.observer == nil }
+        }
+    }
+
+    public nonisolated func observeState(
+        _ handler: @escaping (InboxStateMachine.State) -> Void
+    ) -> StateObserverHandle {
+        let observer = ClosureStateObserver(handler: handler)
+        addObserver(observer)
+        return StateObserverHandle(observer: observer, manager: self)
+    }
+
+    // MARK: - State Observation (AsyncStream)
 
     private struct IdentifiedContinuation {
         let id: UUID
@@ -126,7 +184,7 @@ public actor InboxStateMachine {
         }
     }
 
-    var isSyncReady: Bool {
+    public var isSyncReady: Bool {
         get async {
             guard let syncingManager else { return false }
             return await syncingManager.isSyncReady
@@ -174,6 +232,8 @@ public actor InboxStateMachine {
 
     private func emitStateChange(_ newState: State) {
         _state = newState
+        updateStateCache(newState)
+        notifyObservers(newState)
 
         // Emit to all continuations, removing any that fail
         stateContinuations = stateContinuations.filter { identified in
@@ -214,8 +274,10 @@ public actor InboxStateMachine {
         appLifecycle: any AppLifecycleProviding,
         apiClient: (any ConvosAPIClientProtocol)? = nil
     ) {
+        let initialState: State = .idle(clientId: clientId)
         self.initialClientId = clientId
-        self._state = .idle(clientId: clientId)
+        self._state = initialState
+        self._stateCache = OSAllocatedUnfairLock(initialState: initialState)
         self.identityStore = identityStore
         self.invitesRepository = invitesRepository
         self.databaseWriter = databaseWriter
@@ -310,9 +372,70 @@ public actor InboxStateMachine {
         await syncingManager.setInviteJoinErrorHandler(handler)
     }
 
-    func requestDiscovery() async {
+    public func requestDiscovery() async {
         guard let syncingManager else { return }
         await syncingManager.requestDiscovery()
+    }
+
+    // MARK: - InboxStateManagerProtocol
+
+    public func waitForInboxReadyResult() async throws -> InboxReadyResult {
+        for await state in stateSequence {
+            switch state {
+            case .ready(_, let result):
+                return result
+            case .error(_, let error):
+                throw error
+            default:
+                continue
+            }
+        }
+        throw InboxStateError.inboxNotReady
+    }
+
+    public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {
+        if case .ready(let currentClientId, let result) = _state,
+           result.client.inboxId == inboxId && currentClientId == clientId {
+            Log.info("Already authorized with inbox \(inboxId) and clientId \(clientId), skipping reauthorization")
+            return result
+        }
+
+        Log.info("Reauthorizing with inbox \(inboxId)...")
+
+        if case .ready = _state {
+            stop()
+            for await state in stateSequence {
+                if case .idle = state {
+                    break
+                }
+            }
+        }
+
+        authorize(inboxId: inboxId, clientId: clientId)
+
+        for await state in stateSequence {
+            switch state {
+            case .ready(_, let result):
+                if result.client.inboxId == inboxId {
+                    Log.info("Successfully reauthorized to inbox \(inboxId)")
+                    return result
+                } else {
+                    Log.info("Waiting for correct inbox... current: \(result.client.inboxId), expected: \(inboxId)")
+                    continue
+                }
+            case .error(_, let error):
+                throw error
+            default:
+                continue
+            }
+        }
+
+        throw InboxStateError.inboxNotReady
+    }
+
+    public func deleteInbox() async throws {
+        stopAndDelete()
+        await waitForDeletionComplete()
     }
 
     // MARK: - Private
