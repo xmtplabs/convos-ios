@@ -53,8 +53,24 @@ steps:
     expect_events:
       - "conversation.marked_unread"
 
+  - id: mark_read_context_menu
+    name: "Mark as read via context menu (conversation is currently unread)"
+    actions:
+      - long_press: { id: "conversation-list-item-$conversation_id", duration: 1.5 }
+      - wait_for_element: { label: "Read", timeout: 5 }
+      - tap: { label: "Read" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_not_label_contains: { id: "conversation-list-item-$conversation_id", text: "unread" }
+    criteria: mark_read_context_menu
+    note: >
+      After mark_unread_swipe, the conversation is unread, so the context
+      menu shows "Read" (to mark it read). Context menu labels are shorter
+      than swipe labels. Use describe_all for exact coordinates since
+      sim_tap_id may not find detached menu items.
+
   - id: mark_unread_context_menu
-    name: "Mark as unread via context menu"
+    name: "Mark as unread via context menu (conversation is currently read)"
     actions:
       - long_press: { id: "conversation-list-item-$conversation_id", duration: 1.5 }
       - wait_for_element: { label: "Unread", timeout: 5 }
@@ -63,14 +79,9 @@ steps:
     verify:
       - element_label_contains: { id: "conversation-list-item-$conversation_id", text: "unread" }
     criteria: mark_unread_context_menu
-    note: >
-      Context menu labels are shorter than swipe labels. "Unread"
-      in context menu corresponds to "Mark as unread" in swipe actions.
-      Use describe_all to find exact button coordinates since
-      sim_tap_id may not find detached menu items.
 
-  - id: mark_read_context_menu
-    name: "Mark as read via context menu"
+  - id: mark_read_context_menu_2
+    name: "Mark as read via context menu (restore state)"
     actions:
       - long_press: { id: "conversation-list-item-$conversation_id", duration: 1.5 }
       - wait_for_element: { label: "Read", timeout: 5 }

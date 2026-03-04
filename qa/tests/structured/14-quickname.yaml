@@ -17,10 +17,14 @@ prerequisites:
 
 state:
   conversation_id: null
-  quickname: null
+  invite_url: null
+  quickname: "QA Tester"
 
 setup:
   - action: set_quickname_if_needed
+    args: { name: "QA Tester" }
+    save:
+      quickname: "QA Tester"
     note: >
       Go to Settings > My Info and set quickname in the
       quickname-display-name-field if not already set.
@@ -33,8 +37,12 @@ steps:
       - cli_create_conversation:
           name: "Quickname Test"
           profile_name: "CLI Bot"
+        save:
+          conversation_id: "from cli output"
       - cli_generate_invite:
           conversation: "$conversation_id"
+        save:
+          invite_url: "from cli output"
       - sim_open_url: { url: "$invite_url" }
       - cli_process_joins_background:
           conversation: "$conversation_id"

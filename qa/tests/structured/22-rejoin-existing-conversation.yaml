@@ -52,6 +52,7 @@ steps:
       - tap: { id: "scan-button" }
       - wait_for_element: { id: "paste-invite-button", timeout: 10 }
       - tap: { id: "paste-invite-button" }
+      - dismiss_system_dialog: { button: "Allow Paste" }
       - wait_for_element: { id: "message-text-field", timeout: 30 }
     verify:
       - element_exists: { id: "message-text-field" }

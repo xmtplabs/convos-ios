@@ -78,8 +78,10 @@ steps:
     name: "Join conversation via invite timing"
     actions:
       - cli_create_conversation: { name: "Perf Join Test" }
-      - cli_generate_invite: {}
-      - cli_process_joins_background: {}
+        save: { conversation_id: "from cli output" }
+      - cli_generate_invite: { conversation: "$conversation_id" }
+        save: { invite_url: "from cli output" }
+      - cli_process_joins_background: { conversation: "$conversation_id" }
       - log_marker: {}
       - sim_open_url: { url: "$invite_url" }
       - wait_for_element: { id: "message-text-field", timeout: 60 }

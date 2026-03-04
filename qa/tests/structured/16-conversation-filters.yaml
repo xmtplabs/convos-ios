@@ -20,6 +20,9 @@ state:
 
 setup:
   - action: ensure_two_conversations
+    save:
+      conv_read_id: "from existing read conversation"
+      conv_unread_id: "from existing unread conversation"
     note: >
       Need 2+ conversations: one read (user has viewed it), one unread
       (CLI sent a message user hasn't opened).

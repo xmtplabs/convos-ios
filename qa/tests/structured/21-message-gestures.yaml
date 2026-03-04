@@ -51,9 +51,9 @@ steps:
     actions:
       - tap: { label: "Copy" }
       - wait_for_element: { id: "message-text-field", timeout: 5 }
-      - read_pasteboard: {}
+      - read_clipboard: {}
     verify:
-      - pasteboard_contains: "Gesture test message"
+      - clipboard_contains: "Gesture test message"
     criteria: copy_action
     note: >
       Use `xcrun simctl pbpaste <UDID>` to read the pasteboard contents.

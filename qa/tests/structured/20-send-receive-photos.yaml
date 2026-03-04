@@ -23,10 +23,11 @@ setup:
   - action: ensure_shared_conversation
     save:
       conversation_id: run_state.shared_conversation_id
-  - action: add_test_photo_to_simulator
+  - action: add_test_photos_to_simulator
     note: >
-      Use `curl -sL "https://picsum.photos/400/300" -o /tmp/test-photo.jpg`
-      then `xcrun simctl addmedia $UDID /tmp/test-photo.jpg`
+      curl -sL "https://picsum.photos/400/300" -o /tmp/test-photo.jpg
+      curl -sL "https://picsum.photos/200/200" -o /tmp/cli-test-photo.jpg
+      xcrun simctl addmedia $UDID /tmp/test-photo.jpg
 
 steps:
   - id: send_photo
@@ -57,7 +58,7 @@ steps:
     actions:
       - cli_send_attachment:
           conversation: "$conversation_id"
-          file: "/tmp/cli-test-photo.jpg"
+          path: "/tmp/cli-test-photo.jpg"
       - wait_for_element: { label_contains: "Tap pic to reveal", timeout: 15 }
     verify:
       - element_exists: { label_contains: "Tap pic to reveal" }

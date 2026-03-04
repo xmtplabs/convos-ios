@@ -16,6 +16,7 @@ prerequisites:
 
 state:
   pending_conv_id: null
+  invite_url: null
 
 setup:
   - action: cli_create_conversation_no_process
@@ -25,6 +26,7 @@ setup:
       conversation in "Verifying" state.
     save:
       pending_conv_id: "from CLI"
+      invite_url: "from cli_generate_invite"
 
 steps:
   - id: pending_in_list

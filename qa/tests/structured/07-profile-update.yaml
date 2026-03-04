@@ -17,7 +17,6 @@ prerequisites:
 
 state:
   conversation_id: null
-  original_name: null
 
 setup:
   - action: ensure_shared_conversation
@@ -86,10 +85,7 @@ steps:
       Name changes send a group_updated content type message visible to
       all participants: "<old name> changed their name to <new name>".
 
-teardown:
-  - action: restore_profile_name
-    args: { name: "$original_name" }
-    optional: true
+teardown: []
 
 criteria:
   conversation_info_opens:
