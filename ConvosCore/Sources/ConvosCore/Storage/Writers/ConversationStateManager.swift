@@ -1,20 +1,11 @@
 import Combine
 import Foundation
 import GRDB
-
-// MARK: - Observer Protocol
-
-public protocol ConversationStateObserver: AnyObject {
-    func conversationStateDidChange(_ state: ConversationStateMachine.State)
-}
-
-// MARK: - StateManager Protocol
+import os
 
 public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWriterProtocol {
     var currentState: ConversationStateMachine.State { get }
-
-    @MainActor func removeObserver(_ observer: ConversationStateObserver)
-    @MainActor func observeState(_ handler: @escaping (ConversationStateMachine.State) -> Void) -> ConversationStateObserverHandle
+    var stateSequence: AsyncStream<ConversationStateMachine.State> { get }
 
     func resetFromError() async
 
@@ -25,15 +16,32 @@ public protocol ConversationStateManagerProtocol: AnyObject, DraftConversationWr
     var conversationMetadataWriter: any ConversationMetadataWriterProtocol { get }
 }
 
-// MARK: - State Manager Implementation
-
 /// Wraps ConversationStateMachine and provides a dependency container for writers/repositories.
 ///
 /// @unchecked Sendable: State changes are coordinated through ConversationStateMachine actor.
 /// Combine subjects are thread-safe for send/subscribe patterns. All async methods delegate
 /// to the internal actor.
 public final class ConversationStateManager: ConversationStateManagerProtocol, @unchecked Sendable {
-    public private(set) var currentState: ConversationStateMachine.State = .uninitialized
+    private let stateLock: OSAllocatedUnfairLock<ConversationStateMachine.State> = .init(initialState: .uninitialized)
+
+    public var currentState: ConversationStateMachine.State {
+        stateLock.withLock { $0 }
+    }
+
+    public var stateSequence: AsyncStream<ConversationStateMachine.State> {
+        AsyncStream { [stateMachine] continuation in
+            let task = Task {
+                for await state in await stateMachine.stateSequence {
+                    continuation.yield(state)
+                    if Task.isCancelled { break }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
 
     // MARK: - DraftConversationWriterProtocol Properties
 
@@ -63,19 +71,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     // MARK: - Private Properties
 
     private let inboxStateManager: any InboxStateManagerProtocol
-    private let identityStore: any KeychainIdentityStoreProtocol
-    private let databaseReader: any DatabaseReader
-    private let databaseWriter: any DatabaseWriter
     private let stateMachine: ConversationStateMachine
 
     private var stateObservationTask: Task<Void, Never>?
     private var initializationTask: Task<Void, Never>?
-    private var observers: [WeakObserver] = []
-    private var cancellables: Set<AnyCancellable> = .init()
-
-    private struct WeakObserver {
-        weak var observer: ConversationStateObserver?
-    }
 
     // MARK: - Initialization
 
@@ -89,15 +88,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         backgroundUploadManager: any BackgroundUploadManagerProtocol = UnavailableBackgroundUploadManager()
     ) {
         self.inboxStateManager = inboxStateManager
-        self.identityStore = identityStore
-        self.databaseReader = databaseReader
-        self.databaseWriter = databaseWriter
 
-        // Use provided conversationId or generate a new draft ID
         let initialConversationId = conversationId ?? DBConversation.generateDraftConversationId()
         self.conversationIdSubject = .init(initialConversationId)
 
-        // Initialize writers
         let inviteWriter = InviteWriter(identityStore: identityStore, databaseWriter: databaseWriter)
         self.conversationMetadataWriter = ConversationMetadataWriter(
             inboxStateManager: inboxStateManager,
@@ -126,7 +120,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
             inboxStateManager: inboxStateManager
         )
 
-        // Initialize state machine with the same clientConversationId
         self.stateMachine = ConversationStateMachine(
             inboxStateManager: inboxStateManager,
             identityStore: identityStore,
@@ -139,7 +132,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
         setupStateObservation()
 
-        // If using an existing conversation, transition state machine to ready
         if let conversationId {
             initializationTask = Task { [stateMachine] in
                 await stateMachine.useExisting(conversationId: conversationId)
@@ -150,11 +142,7 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
     deinit {
         stateObservationTask?.cancel()
         initializationTask?.cancel()
-        cancellables.removeAll()
-        observers.removeAll()
     }
-
-    // MARK: - State Observation Setup
 
     private func setupStateObservation() {
         stateObservationTask = Task { [weak self] in
@@ -162,19 +150,15 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
             for await state in stateSequence {
                 guard let self else { break }
-
                 await self.handleStateChange(state)
-
-                if Task.isCancelled {
-                    break
-                }
+                if Task.isCancelled { break }
             }
         }
     }
 
     @MainActor
     private func handleStateChange(_ state: ConversationStateMachine.State) {
-        currentState = state
+        stateLock.withLock { $0 = state }
 
         switch state {
         case .ready(let result),
@@ -183,42 +167,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         default:
             break
         }
-
-        notifyObservers(state)
-    }
-
-    // MARK: - Observer Management
-
-    @MainActor
-    private func addObserver(_ observer: ConversationStateObserver) {
-        observers.removeAll { $0.observer == nil }
-        observers.append(WeakObserver(observer: observer))
-        observer.conversationStateDidChange(currentState)
-    }
-
-    @MainActor
-    public func removeObserver(_ observer: ConversationStateObserver) {
-        observers.removeAll { $0.observer === observer }
-    }
-
-    private func notifyObservers(_ state: ConversationStateMachine.State) {
-        // Take a snapshot of observers to iterate, so modifications during
-        // callbacks don't interfere with iteration or get overwritten
-        let snapshot = observers
-
-        // Notify each observer in the snapshot
-        for weakObserver in snapshot {
-            weakObserver.observer?.conversationStateDidChange(state)
-        }
-
-        // Clean up nil observers, preserving any removals made during callbacks
-        observers.removeAll { $0.observer == nil }
-    }
-
-    public func observeState(_ handler: @escaping (ConversationStateMachine.State) -> Void) -> ConversationStateObserverHandle {
-        let observer = ClosureConversationStateObserver(handler: handler)
-        addObserver(observer)
-        return ConversationStateObserverHandle(observer: observer, manager: self)
     }
 
     // MARK: - DraftConversationWriterProtocol Methods
@@ -229,7 +177,6 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     public func joinConversation(inviteCode: String) async throws {
         await stateMachine.join(inviteCode: inviteCode)
-        // @jarodl This should wait for validation, but not readiness
     }
 
     public func send(text: String) async throws {
@@ -281,41 +228,5 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
 
     public func resetFromError() async {
         await stateMachine.reset()
-    }
-}
-
-// MARK: - Observer Helpers
-
-/// @unchecked Sendable: Immutable handler invoked from @MainActor context.
-public final class ClosureConversationStateObserver: ConversationStateObserver, @unchecked Sendable {
-    private let handler: (ConversationStateMachine.State) -> Void
-
-    init(handler: @escaping (ConversationStateMachine.State) -> Void) {
-        self.handler = handler
-    }
-
-    public func conversationStateDidChange(_ state: ConversationStateMachine.State) {
-        handler(state)
-    }
-}
-
-/// @unchecked Sendable: Mutation limited to idempotent cancel(); MainActor dispatch for removal.
-public final class ConversationStateObserverHandle: @unchecked Sendable {
-    private var observer: ClosureConversationStateObserver?
-    private weak var manager: (any ConversationStateManagerProtocol)?
-
-    init(observer: ClosureConversationStateObserver, manager: any ConversationStateManagerProtocol) {
-        self.observer = observer
-        self.manager = manager
-    }
-
-    public func cancel() {
-        if let observer = observer {
-            DispatchQueue.main.async { [weak self] in
-                self?.manager?.removeObserver(observer)
-            }
-        }
-        observer = nil
-        manager = nil
     }
 }

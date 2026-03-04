@@ -1,16 +1,32 @@
 import Combine
 import Foundation
 import GRDB
+import os
 
-/// Mock implementation of ConversationStateManagerProtocol for testing
 public final class MockConversationStateManager: ConversationStateManagerProtocol, @unchecked Sendable {
-    // MARK: - State Properties
+    private let stateLock: OSAllocatedUnfairLock<ConversationStateMachine.State> = .init(initialState: .uninitialized)
 
-    public private(set) var currentState: ConversationStateMachine.State = .uninitialized
-    private var observers: [WeakObserver] = []
+    public var currentState: ConversationStateMachine.State {
+        stateLock.withLock { $0 }
+    }
 
-    private struct WeakObserver {
-        weak var observer: ConversationStateObserver?
+    private let continuationsLock: OSAllocatedUnfairLock<
+        [(id: UUID, continuation: AsyncStream<ConversationStateMachine.State>.Continuation)]
+    > = .init(initialState: [])
+
+    public var stateSequence: AsyncStream<ConversationStateMachine.State> {
+        AsyncStream { [weak self] continuation in
+            guard let self else {
+                continuation.finish()
+                return
+            }
+            let id = UUID()
+            continuationsLock.withLock { $0.append((id: id, continuation: continuation)) }
+            continuation.onTermination = { [weak self] _ in
+                self?.continuationsLock.withLock { $0.removeAll { $0.id == id } }
+            }
+            continuation.yield(currentState)
+        }
     }
 
     // MARK: - DraftConversationWriterProtocol Properties
@@ -61,117 +77,51 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
         ConversationReadyResult(conversationId: conversationId, origin: .created)
     }
 
-    // MARK: - Observer Management
-
-    @MainActor
-    public func addObserver(_ observer: ConversationStateObserver) {
-        observers.removeAll { $0.observer == nil }
-        observers.append(WeakObserver(observer: observer))
-        observer.conversationStateDidChange(currentState)
-    }
-
-    @MainActor
-    public func removeObserver(_ observer: ConversationStateObserver) {
-        observers.removeAll { $0.observer === observer || $0.observer == nil }
-    }
-
-    @MainActor
-    public func observeState(_ handler: @escaping (ConversationStateMachine.State) -> Void) -> ConversationStateObserverHandle {
-        let observer = ClosureConversationStateObserver(handler: handler)
-        addObserver(observer)
-        return ConversationStateObserverHandle(observer: observer, manager: self)
-    }
-
     // MARK: - DraftConversationWriterProtocol Methods
 
     public func createConversation() async throws {
-        currentState = .creating
-        notifyObservers(currentState)
-
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-
-        let result = ConversationReadyResult(conversationId: conversationId, origin: .created)
-        currentState = .ready(result)
-        notifyObservers(currentState)
+        setState(.creating)
+        try await Task.sleep(nanoseconds: 100_000_000)
+        setState(.ready(ConversationReadyResult(conversationId: conversationId, origin: .created)))
     }
 
     public func joinConversation(inviteCode: String) async throws {
-        currentState = .validating(inviteCode: inviteCode)
-        notifyObservers(currentState)
-
-        try await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-
-        let result = ConversationReadyResult(conversationId: conversationId, origin: .joined)
-        currentState = .ready(result)
-        notifyObservers(currentState)
+        setState(.validating(inviteCode: inviteCode))
+        try await Task.sleep(nanoseconds: 100_000_000)
+        setState(.ready(ConversationReadyResult(conversationId: conversationId, origin: .joined)))
     }
 
-    public func send(text: String) async throws {
-        // Mock implementation - no-op
-    }
-
-    public func send(text: String, afterPhoto trackingKey: String?) async throws {
-        // Mock implementation - no-op
-    }
-
-    public func send(image: ImageType) async throws {
-        // Mock implementation - no-op
-    }
+    public func send(text: String) async throws {}
+    public func send(text: String, afterPhoto trackingKey: String?) async throws {}
+    public func send(image: ImageType) async throws {}
 
     public func startEagerUpload(image: ImageType) async throws -> String {
         UUID().uuidString
     }
 
-    public func sendEagerPhoto(trackingKey: String) async throws {
-        // Mock implementation - no-op
-    }
-
-    public func cancelEagerUpload(trackingKey: String) async {
-        // Mock implementation - no-op
-    }
-
-    public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
-        // Mock implementation - no-op
-    }
-
-    public func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {
-        // Mock implementation - no-op
-    }
-
-    public func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
-        // Mock implementation - no-op
-    }
+    public func sendEagerPhoto(trackingKey: String) async throws {}
+    public func cancelEagerUpload(trackingKey: String) async {}
+    public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {}
+    public func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {}
+    public func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {}
 
     public func delete() async {
-        currentState = .deleting
-        notifyObservers(currentState)
-
-        try? await Task.sleep(nanoseconds: 100_000_000) // 0.1 second
-
-        currentState = .uninitialized
-        notifyObservers(currentState)
+        setState(.deleting)
+        try? await Task.sleep(nanoseconds: 100_000_000)
+        setState(.uninitialized)
     }
 
     public func resetFromError() async {
-        currentState = .uninitialized
-        notifyObservers(currentState)
+        setState(.uninitialized)
     }
 
     // MARK: - Test Helpers
 
-    /// Manually update the state and notify observers
     public func setState(_ state: ConversationStateMachine.State) {
-        currentState = state
-        notifyObservers(currentState)
-    }
-
-    // MARK: - Private Helpers
-
-    private func notifyObservers(_ state: ConversationStateMachine.State) {
-        observers = observers.compactMap { weakObserver in
-            guard let observer = weakObserver.observer else { return nil }
-            observer.conversationStateDidChange(state)
-            return weakObserver
+        stateLock.withLock { $0 = state }
+        let entries = continuationsLock.withLock { Array($0) }
+        for entry in entries {
+            entry.continuation.yield(state)
         }
     }
 }
