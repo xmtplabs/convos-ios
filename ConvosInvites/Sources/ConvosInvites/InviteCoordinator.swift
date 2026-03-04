@@ -277,6 +277,8 @@ public final class InviteCoordinator: @unchecked Sendable {
             return nil
         }
 
+        try? await group.sync()
+
         do {
             let currentTag = try tagStorage.getInviteTag(for: group)
             guard signedInvite.invitePayload.tag == currentTag else {

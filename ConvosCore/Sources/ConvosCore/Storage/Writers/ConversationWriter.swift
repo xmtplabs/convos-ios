@@ -229,7 +229,6 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             oldImageURL: oldImageURL != metadata.imageURLString ? oldImageURL : nil
         )
 
-        // Create invite
         _ = try await inviteWriter.generate(
             for: dbConversation,
             expiresAt: nil,

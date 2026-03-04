@@ -206,17 +206,14 @@ struct LockConversationTests {
             mockAPIClient: mockAPIClient
         )
 
-        // Create mock invite writer to track regeneration
         let mockInviteWriter = MockInviteWriter()
 
-        // Create the metadata writer
         let metadataWriter = ConversationMetadataWriter(
             inboxStateManager: mockInboxStateManager,
             inviteWriter: mockInviteWriter,
             databaseWriter: fixtures.databaseManager.dbWriter
         )
 
-        // Lock the conversation
         try await metadataWriter.lockConversation(for: conversationId)
 
         // Verify database was updated
@@ -228,8 +225,9 @@ struct LockConversationTests {
         #expect(updatedConversation?.isLocked == true, "Conversation should be marked as locked")
         #expect(updatedConversation?.inviteTag != originalInviteTag, "Invite tag should have changed")
 
-        // Verify invite was regenerated
-        #expect(mockInviteWriter.regeneratedConversationIds.contains(conversationId), "Invite should be regenerated")
+        // Verify invite was re-generated with the new tag
+        let generatedForConversation = mockInviteWriter.generatedInvites.contains { $0.conversation.id == conversationId }
+        #expect(generatedForConversation, "Invite should be regenerated after lock")
 
         try? await fixtures.cleanup()
     }
@@ -529,8 +527,9 @@ struct LockConversationTests {
         let afterSecondLockIsSuperAdmin = try group.isSuperAdmin(inboxId: clientA.inboxId)
         #expect(afterSecondLockIsSuperAdmin, "Creator should still be superAdmin after second lock")
 
-        // Verify invite was regenerated for both lock operations and the unlock
-        #expect(mockInviteWriter.regeneratedConversationIds.count == 3, "Invite should be regenerated for lock, unlock, and second lock")
+        // Verify invite was re-generated for both lock operations and the unlock
+        let generatedCount = mockInviteWriter.generatedInvites.filter { $0.conversation.id == conversationId }.count
+        #expect(generatedCount == 3, "Invite should be regenerated for lock, unlock, and second lock")
 
         try? await fixtures.cleanup()
     }
@@ -913,7 +912,6 @@ struct LockConversationTests {
 final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable {
     var generatedInvites: [(conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool)] = []
     var updatedInvites: [(conversationId: String, name: String?, description: String?, imageURL: String?)] = []
-    var regeneratedConversationIds: [String] = []
     var deletedConversationIds: [String] = []
 
     func generate(for conversation: DBConversation, expiresAt: Date?, expiresAfterUse: Bool) async throws -> Invite {
@@ -931,16 +929,6 @@ final class MockInviteWriter: InviteWriterProtocol, @unchecked Sendable {
         return Invite(
             conversationId: conversationId,
             urlSlug: "mock-updated-slug",
-            expiresAt: nil,
-            expiresAfterUse: false
-        )
-    }
-
-    func regenerate(for conversationId: String) async throws -> Invite {
-        regeneratedConversationIds.append(conversationId)
-        return Invite(
-            conversationId: conversationId,
-            urlSlug: "mock-regenerated-slug",
             expiresAt: nil,
             expiresAfterUse: false
         )

@@ -570,18 +570,19 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
         try await group.updateAddMemberPermission(newPermissionOption: .deny)
         try await group.rotateInviteTag()
 
-        try await databaseWriter.write { db in
+        let updatedConversation: DBConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
             }
-            let updatedConversation = localConversation
+            let updated = localConversation
                 .with(isLocked: true)
                 .with(inviteTag: try group.inviteTag)
-            try updatedConversation.save(db)
+            try updated.save(db)
             Log.debug("Locked conversation \(conversationId) in local database")
+            return updated
         }
 
-        _ = try await inviteWriter.regenerate(for: conversationId)
+        _ = try await inviteWriter.generate(for: updatedConversation, expiresAt: nil, expiresAfterUse: false)
 
         Log.info("Locked conversation \(conversationId)")
         QAEvent.emit(.conversation, "locked", ["id": conversationId])
@@ -601,18 +602,19 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         try await group.updateAddMemberPermission(newPermissionOption: .allow)
 
-        try await databaseWriter.write { db in
+        let updatedConversation: DBConversation = try await databaseWriter.write { db in
             guard let localConversation = try DBConversation.fetchOne(db, key: conversationId) else {
                 throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
             }
-            let updatedConversation = localConversation
+            let updated = localConversation
                 .with(isLocked: false)
                 .with(inviteTag: try group.inviteTag)
-            try updatedConversation.save(db)
+            try updated.save(db)
             Log.debug("Unlocked conversation \(conversationId) in local database")
+            return updated
         }
 
-        _ = try await inviteWriter.regenerate(for: conversationId)
+        _ = try await inviteWriter.generate(for: updatedConversation, expiresAt: nil, expiresAfterUse: false)
 
         Log.info("Unlocked conversation \(conversationId)")
         QAEvent.emit(.conversation, "unlocked", ["id": conversationId])
