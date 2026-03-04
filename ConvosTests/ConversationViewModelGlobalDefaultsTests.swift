@@ -58,11 +58,10 @@ final class ConversationViewModelGlobalDefaultsTests: XCTestCase {
         let viewModel = NewConversationViewModel(
             session: session,
             messagingService: messagingService,
-            autoCreateConversation: false
+            autoCreateConversation: true
         )
 
-        try await stateManager.createConversation()
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(150))
 
         XCTAssertEqual(photoPreferencesWriter.autoRevealValues["draft-seed-test"], true)
         withExtendedLifetime(viewModel) {}

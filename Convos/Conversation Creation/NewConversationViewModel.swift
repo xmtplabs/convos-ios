@@ -83,8 +83,6 @@ class NewConversationViewModel: Identifiable {
     @ObservationIgnored
     private var stateObservationTask: Task<Void, Never>?
     @ObservationIgnored
-    private var seededAutoRevealPreferenceConversationIds: Set<String> = []
-    @ObservationIgnored
     private var dismissAction: DismissAction?
     private var pendingInviteCode: String?
     private let perfStartTime: CFAbsoluteTime = CFAbsoluteTimeGetCurrent()
@@ -225,6 +223,7 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 do {
                     try await stateManager.createConversation()
+                    await self?.applyGlobalAutoRevealPreferenceIfNeeded(conversationId: stateManager.conversationId)
                 } catch {
                     Log.error("Error auto-creating conversation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -256,6 +255,7 @@ class NewConversationViewModel: Identifiable {
             guard !Task.isCancelled else { return }
             do {
                 try await conversationStateManager.joinConversation(inviteCode: inviteCode)
+                await self?.applyGlobalAutoRevealPreferenceIfNeeded(conversationId: conversationStateManager.conversationId)
                 guard !Task.isCancelled else { return }
 
                 await MainActor.run { [weak self] in
@@ -312,6 +312,7 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 do {
                     try await conversationStateManager.createConversation()
+                    await self?.applyGlobalAutoRevealPreferenceIfNeeded(conversationId: conversationStateManager.conversationId)
                 } catch {
                     Log.error("Error retrying conversation creation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -442,7 +443,6 @@ class NewConversationViewModel: Identifiable {
 
             let readyElapsed = (CFAbsoluteTimeGetCurrent() - perfStartTime) * 1000
             Log.info("[PERF] NewConversation.ready: \(String(format: "%.0f", readyElapsed))ms (origin: \(result.origin))")
-            seedGlobalAutoRevealPreferenceIfNeeded(for: result)
             Log.info("Conversation ready!")
 
         case .deleting:
@@ -458,20 +458,13 @@ class NewConversationViewModel: Identifiable {
         }
     }
 
-    private func seedGlobalAutoRevealPreferenceIfNeeded(for result: ConversationReadyResult) {
-        guard result.origin != .existing else { return }
-        guard seededAutoRevealPreferenceConversationIds.insert(result.conversationId).inserted else { return }
+    private func applyGlobalAutoRevealPreferenceIfNeeded(conversationId: String) async {
+        guard !conversationId.isEmpty else { return }
 
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                let repository = session.photoPreferencesRepository(for: result.conversationId)
-                let existing = try await repository.preferences(for: result.conversationId)
-                guard existing == nil else { return }
-                try await session.photoPreferencesWriter().setAutoReveal(GlobalConvoDefaults.shared.autoRevealPhotos, for: result.conversationId)
-            } catch {
-                Log.error("Error seeding global auto reveal preference: \(error)")
-            }
+        do {
+            try await session.photoPreferencesWriter().setAutoReveal(GlobalConvoDefaults.shared.autoRevealPhotos, for: conversationId)
+        } catch {
+            Log.error("Error applying global auto reveal preference: \(error)")
         }
     }
 
