@@ -59,7 +59,7 @@ On non-Apple platforms (Android, web), the Vault key must be presented to the us
 
 The main device (Device A) initiates pairing from Vault settings:
 
-1. Device A taps "Pair Device" — this generates a standard Convos invite for the Vault (short-lived, 30-second expiry, single-use) and displays the QR code
+1. Device A taps "Pair Device" — this generates a standard Convos invite for the Vault (60-second expiry, single-use) and displays the QR code
 2. Device B (new device) scans the QR code
 3. Device B generates a random 6-digit confirmation code and displays it on screen
 4. Device B sends a join request via DM (the standard invite join flow) — the join request includes Device B's inbox ID and the 6-digit code
@@ -74,6 +74,8 @@ The main device (Device A) initiates pairing from Vault settings:
 **Why the code is in the join request:** Multiple join requests could arrive if others also scanned the QR. The 6-digit code ties the confirmation to a specific request, ensuring Device A adds the correct inbox ID.
 
 **Security model:** The 6-digit code proves Device A's owner has physical access to Device B's screen. Even if someone else scans the QR, Device A's owner won't enter their code. Device B is never added to the Vault without Device A explicitly confirming the code match.
+
+**Timing:** The entire pairing flow — scanning the QR, generating and displaying the code, entering the code on Device A, and verification — must complete within the 60-second invite expiry. If the invite expires before the code is confirmed, pairing fails and Device A must generate a new invite.
 
 ### 3. Key exchange after pairing
 
