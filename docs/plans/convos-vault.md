@@ -57,32 +57,48 @@ On non-Apple platforms (Android, web), the Vault key must be presented to the us
 
 ### 2. Pairing a second device
 
-The user opens Vault settings on the first device and taps "Pair Device":
+The main device (Device A) initiates pairing from Vault settings:
 
-1. The Vault is unlocked temporarily
-2. A fresh invite tag is generated with a 30-second expiry (not stored in conversation metadata permanently)
-3. A QR code is displayed containing the invite slug
-4. A random 6-digit confirmation code is displayed on screen
+1. Device A shows a QR code containing its Vault info (inbox address or rendezvous identifier)
+2. Device B (new device) scans the QR code
+3. Device B generates a random 6-digit confirmation code and displays it on screen
+4. Device A prompts: "Enter the code shown on your new device"
+5. The owner reads the code off Device B's screen and types it into Device A
+6. Device A verifies the code
+7. Device A adds Device B's inbox to the Vault conversation
+8. The Vault is re-locked
 
-The invite can only be redeemed once. After the device joins (or the invite expires), the invite tag is invalidated and the Vault is re-locked.
+The 6-digit code proves the Device A owner has physical access to Device B's screen. Even if someone else scans the QR, Device A's owner won't enter their code — they know which device they're pairing with. This is the same pattern as Bluetooth pairing.
 
-### 3. Second device joins
+The QR code is not a standard conversation invite — it establishes a temporary connection between the two devices. Device B never joins the Vault directly by scanning. Instead, Device A adds Device B after the code is confirmed. This means no one enters the Vault without Device A's explicit approval.
 
-The new device installs Convos and selects "Pair with existing device":
+### 3. Key exchange after pairing
 
-1. Creates its own XMTP inbox (fresh key pair) — this is the device's Vault identity
-2. Scans the QR code using the device camera
-3. Joins the Vault conversation via the invite
-4. Is prompted to enter the 6-digit code displayed on the first device
-5. Sends the code as a message to the Vault for verification
+Once Device B is added to the Vault:
 
-### 4. First device confirms
+1. Device A sends a `DeviceKeyBundle` message containing all existing conversation private keys
+2. If Device B had its own conversations, Device B also sends a `DeviceKeyBundle` with its keys (see Vault Merging below)
+3. Both devices import each other's keys and call `Client.create()` for each new conversation inbox
+4. Both devices are now installations on all conversations
 
-The first device sees the join request with the confirmation code. It either auto-verifies or prompts the user to confirm the code matches. Once confirmed:
+### 4. Vault merging
 
-1. A `DeviceKeyBundle` message is sent containing all existing conversation private keys
-2. The new device receives this, imports all keys, and calls `Client.create()` for each conversation inbox
-3. The new device is now a second installation on every existing conversation
+When Device B already has its own Vault (from prior independent use), pairing requires merging:
+
+**Prerequisite:** Device B must be the sole member of its own Vault before pairing. If Device B's Vault has other devices (C, D), those must be removed first. This prevents devices silently migrating into a new Vault without individual pairing ceremonies.
+
+The app should check this and show an error: "Remove all other devices from your Vault before pairing with another device."
+
+**Merge flow:**
+
+1. Pairing completes — Device B is added to Device A's Vault
+2. Device B sends its `DeviceKeyBundle` (its conversation keys) to Device A's Vault
+3. Device A imports Device B's keys
+4. Device B's old Vault is abandoned (deleted locally, the conversation remains on XMTP but is no longer tracked)
+5. Device B updates its iCloud Keychain (or manual backup) to store Device A's Vault key, replacing its old Vault key
+6. Device A's Vault is now the single Vault for both devices
+
+After merging, if the owner wants to re-add devices C and D, they pair each one individually with Device A using the standard pairing flow.
 
 ### 5. Ongoing sync
 
@@ -182,7 +198,7 @@ Keys accumulate as messages in the Vault. When the device comes back online, it 
 
 ## Open Questions
 
-1. **Bidirectional verification**: Should pairing require both devices to confirm codes from each other's screens (like Bluetooth pairing), or is the one-way 6-digit code sufficient?
-2. **Key rotation**: Should conversation keys in the Vault be rotatable? If a device is compromised and removed, can existing conversation keys be rotated?
-3. **Maximum devices**: Should there be a limit on linked devices?
-4. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
+1. **Key rotation**: Should conversation keys in the Vault be rotatable? If a device is compromised and removed, can existing conversation keys be rotated?
+2. **Maximum devices**: Should there be a limit on linked devices?
+3. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
+4. **Temporary channel for pairing**: What mechanism establishes the connection between devices before Device B is added to the Vault? Options include a temporary DM, a relay via XMTP inbox addresses, or a lightweight signaling channel.
