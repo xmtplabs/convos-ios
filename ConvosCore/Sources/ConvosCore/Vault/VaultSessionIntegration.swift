@@ -19,19 +19,6 @@ extension VaultManager: VaultServiceProtocol {
     }
 
     public func shareNewKey(_ keyInfo: InboxKeyInfo) async {
-        guard isConnected, hasMultipleDevices else { return }
-
-        let entry = VaultIdentityEntry(
-            inboxId: keyInfo.inboxId,
-            clientId: keyInfo.clientId,
-            privateKeyData: keyInfo.privateKeyData,
-            databaseKey: keyInfo.databaseKey
-        )
-
-        do {
-            try await shareKey(entry)
-        } catch {
-            delegate?.vaultManager(self, didEncounterError: error)
-        }
+        await shareKeyFromNotification(keyInfo)
     }
 }
