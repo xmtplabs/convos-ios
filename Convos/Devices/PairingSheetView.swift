@@ -280,7 +280,8 @@ private struct PinEntryField: View {
 
 private struct HoldToRevealButton: View {
     @Binding var isHolding: Bool
-    @GestureState private var pressing: Bool = false
+    @State private var buttonSize: CGSize = .zero
+    @State private var isDragging: Bool = false
 
     var body: some View {
         Text("Hold to reveal")
@@ -289,20 +290,33 @@ private struct HoldToRevealButton: View {
             .frame(maxWidth: .infinity)
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .background(
+                GeometryReader { geo in
+                    Color.clear
+                        .onAppear { buttonSize = geo.size }
+                        .onChange(of: geo.size) { _, newSize in buttonSize = newSize }
+                }
+            )
             .background(.colorFillPrimary)
             .clipShape(Capsule())
             .foregroundColor(.colorTextPrimaryInverted)
-            .opacity(pressing ? 0.8 : 1.0)
+            .opacity(isHolding ? 0.8 : 1.0)
             .gesture(
                 DragGesture(minimumDistance: 0)
-                    .updating($pressing) { _, gestureState, _ in
-                        gestureState = true
+                    .onChanged { value in
+                        let inside = value.location.x >= 0
+                            && value.location.x <= buttonSize.width
+                            && value.location.y >= 0
+                            && value.location.y <= buttonSize.height
+                        if inside != isHolding {
+                            isHolding = inside
+                        }
+                    }
+                    .onEnded { _ in
+                        isHolding = false
                     }
             )
-            .onChange(of: pressing) { _, newValue in
-                isHolding = newValue
-            }
-            .sensoryFeedback(.impact(weight: .light), trigger: pressing) { _, newValue in
+            .sensoryFeedback(.impact(weight: .light), trigger: isHolding) { _, newValue in
                 newValue
             }
             .accessibilityLabel("Hold to reveal")
