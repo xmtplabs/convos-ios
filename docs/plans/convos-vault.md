@@ -175,26 +175,21 @@ Accessible from Settings → Convos Vault:
 
 User removes the lost device from the Vault on another device. The removed device's inbox is kicked from the group, preventing it from receiving future keys. Full compromise mitigation (revoking installations, key rotation) is out of scope for now — see Resolved Design Decisions.
 
-### Lost all devices (same Apple ID)
+### Lost all devices
 
-Since the Vault key is stored in iCloud Keychain, installing Convos on a new device signed into the same Apple ID will automatically recover the Vault key:
+**Important limitation:** XMTP history sync only works between active installations. It replicates messages from one live installation to another — it is not an archive that can be pulled from after the fact. If the user's only device is lost and no other installations are active, the Vault message history (and therefore all conversation keys) is unrecoverable, even if the user still has the Vault key.
 
-1. User installs Convos on a new device
-2. The Vault key is retrieved from iCloud Keychain
-3. The app creates a new installation on the Vault inbox using the recovered key (with `deviceSyncEnabled: true`)
-4. XMTP history sync replicates all Vault messages to the new installation — including all `DeviceKeyBundle` and `DeviceKeyShare` messages ever sent
-5. The app replays the synced messages to reconstruct the full set of conversation keys
-6. Creates installations for each conversation
+This means:
 
-### Lost all devices (different Apple ID / no iCloud Keychain)
+- **Multi-device users are protected.** As long as at least one device remains active, a new device can pair via the Vault and receive all keys.
+- **Single-device users lose everything if they lose that device.** The Vault key from iCloud Keychain lets them re-create an installation on the Vault inbox, but the message history containing the conversation keys will be empty.
 
-If the user backed up their Vault key (manual backup on non-Apple platforms, or exported from settings):
+Recovery with the Vault key (from iCloud Keychain or manual backup) only restores access to the Vault conversation itself — not the keys that were stored in it, since those were in messages that no active installation can provide.
 
-1. User installs Convos on a new device
-2. Enters their Vault key manually
-3. Same recovery flow as above — create installation, history sync, replay messages, restore keys
-
-If no backup exists, this is unrecoverable in a trustless model. No server holds the keys.
+Future mitigation options:
+- Encourage users to pair a second device (even an old phone or tablet) as an always-on backup
+- Explore XMTP archival/persistence features if they become available
+- Consider an optional encrypted cloud backup of the key bundle (opt-in, user-controlled encryption key)
 
 ## Future Extensions
 
@@ -207,7 +202,7 @@ The Vault can serve as a trustless purchase ledger:
 - Current balance is derived by replaying purchase and spend history
 - Deduplication by Apple transaction ID prevents double-counting
 - Apple's signature on each transaction prevents fabricated purchases
-- Balance survives reinstall (same recovery flow as key sync)
+- Balance survives reinstall as long as at least one device remains active (same limitation as key sync)
 - Balance syncs across devices automatically
 
 ### Preferences Sync
