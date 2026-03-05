@@ -235,10 +235,7 @@ struct PairingSheetView: View {
     @ViewBuilder
     private var secondaryButton: some View {
         switch viewModel.flowState {
-        case .completed:
-            EmptyView()
-
-        case .syncing:
+        case .completed, .syncing, .failed, .expired:
             EmptyView()
 
         default:
