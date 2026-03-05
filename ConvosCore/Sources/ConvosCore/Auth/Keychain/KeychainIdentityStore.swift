@@ -216,7 +216,6 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     private let keychainService: String
     private let keychainAccessGroup: String
-    private let accessibility: CFString
 
     public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
 
@@ -224,12 +223,10 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     public init(
         accessGroup: String,
-        service: String = KeychainIdentityStore.defaultService,
-        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        service: String = KeychainIdentityStore.defaultService
     ) {
         self.keychainAccessGroup = accessGroup
         self.keychainService = service
-        self.accessibility = accessibility
     }
 
     // MARK: - Public Interface
@@ -394,7 +391,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
         guard let accessControl = SecAccessControlCreateWithFlags(
             nil,
-            accessibility,
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             [],
             nil
         ) else {
@@ -405,7 +402,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             account: identity.inboxId,
             service: keychainService,
             accessGroup: keychainAccessGroup,
-            accessible: accessibility,
+            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
             accessControl: accessControl,
             clientId: identity.clientId
         )
