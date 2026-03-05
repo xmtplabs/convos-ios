@@ -265,7 +265,12 @@ final class ConversationsViewModel {
     }
 
     private func startJoinerPairing(pairingId: String, expiresAt: Date?) {
-        let vm = JoinerPairingSheetViewModel(pairingId: pairingId, expiresAt: expiresAt)
+        let vaultManager = (session.vaultService as? VaultManager) ?? .preview
+        let vm = JoinerPairingSheetViewModel(
+            pairingId: pairingId,
+            expiresAt: expiresAt,
+            vaultManager: vaultManager
+        )
         joinerPairingViewModel = vm
         showJoinerPairingSheet = true
     }

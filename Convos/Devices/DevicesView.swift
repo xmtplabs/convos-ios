@@ -12,6 +12,7 @@ struct DevicesView: View {
                 await viewModel.loadDevices()
             }
             .selfSizingSheet(isPresented: $viewModel.showPairingSheet, onDismiss: {
+                viewModel.stopPairing()
                 viewModel.pairingViewModel = nil
             }, content: {
                 if let pairingVM = viewModel.pairingViewModel {

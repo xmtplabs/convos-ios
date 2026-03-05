@@ -25,6 +25,7 @@ struct JoinerPairingSheetView: View {
         .interactiveDismissDisabled(!viewModel.canDismiss)
         .task {
             viewModel.startCountdown()
+            await viewModel.sendJoinRequest()
         }
     }
 
