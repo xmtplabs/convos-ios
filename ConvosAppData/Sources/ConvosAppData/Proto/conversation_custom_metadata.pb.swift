@@ -42,41 +42,41 @@ public struct ConversationCustomMetadata: Sendable {
   public var profiles: [ConversationProfile] = []
 
   public var expiresAtUnix: Int64 {
-    get {return _expiresAtUnix ?? 0}
+    get {_expiresAtUnix ?? 0}
     set {_expiresAtUnix = newValue}
   }
   /// Returns true if `expiresAtUnix` has been explicitly set.
-  public var hasExpiresAtUnix: Bool {return self._expiresAtUnix != nil}
+  public var hasExpiresAtUnix: Bool {self._expiresAtUnix != nil}
   /// Clears the value of `expiresAtUnix`. Subsequent reads from it will return its default value.
   public mutating func clearExpiresAtUnix() {self._expiresAtUnix = nil}
 
   /// 32-byte AES-256 key for encrypting all images
   public var imageEncryptionKey: Data {
-    get {return _imageEncryptionKey ?? Data()}
+    get {_imageEncryptionKey ?? Data()}
     set {_imageEncryptionKey = newValue}
   }
   /// Returns true if `imageEncryptionKey` has been explicitly set.
-  public var hasImageEncryptionKey: Bool {return self._imageEncryptionKey != nil}
+  public var hasImageEncryptionKey: Bool {self._imageEncryptionKey != nil}
   /// Clears the value of `imageEncryptionKey`. Subsequent reads from it will return its default value.
   public mutating func clearImageEncryptionKey() {self._imageEncryptionKey = nil}
 
   /// Encrypted group avatar
   public var encryptedGroupImage: EncryptedImageRef {
-    get {return _encryptedGroupImage ?? EncryptedImageRef()}
+    get {_encryptedGroupImage ?? EncryptedImageRef()}
     set {_encryptedGroupImage = newValue}
   }
   /// Returns true if `encryptedGroupImage` has been explicitly set.
-  public var hasEncryptedGroupImage: Bool {return self._encryptedGroupImage != nil}
+  public var hasEncryptedGroupImage: Bool {self._encryptedGroupImage != nil}
   /// Clears the value of `encryptedGroupImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedGroupImage() {self._encryptedGroupImage = nil}
 
   /// e.g. "vault" for multi-device key sync
   public var conversationType: String {
-    get {return _conversationType ?? String()}
+    get {_conversationType ?? String()}
     set {_conversationType = newValue}
   }
   /// Returns true if `conversationType` has been explicitly set.
-  public var hasConversationType: Bool {return self._conversationType != nil}
+  public var hasConversationType: Bool {self._conversationType != nil}
   /// Clears the value of `conversationType`. Subsequent reads from it will return its default value.
   public mutating func clearConversationType() {self._conversationType = nil}
 
@@ -121,31 +121,31 @@ public struct ConversationProfile: Sendable {
   public var inboxID: Data = Data()
 
   public var name: String {
-    get {return _name ?? String()}
+    get {_name ?? String()}
     set {_name = newValue}
   }
   /// Returns true if `name` has been explicitly set.
-  public var hasName: Bool {return self._name != nil}
+  public var hasName: Bool {self._name != nil}
   /// Clears the value of `name`. Subsequent reads from it will return its default value.
   public mutating func clearName() {self._name = nil}
 
   /// Legacy: plain URL (backward compatibility)
   public var image: String {
-    get {return _image ?? String()}
+    get {_image ?? String()}
     set {_image = newValue}
   }
   /// Returns true if `image` has been explicitly set.
-  public var hasImage: Bool {return self._image != nil}
+  public var hasImage: Bool {self._image != nil}
   /// Clears the value of `image`. Subsequent reads from it will return its default value.
   public mutating func clearImage() {self._image = nil}
 
   /// New: encrypted image reference
   public var encryptedImage: EncryptedImageRef {
-    get {return _encryptedImage ?? EncryptedImageRef()}
+    get {_encryptedImage ?? EncryptedImageRef()}
     set {_encryptedImage = newValue}
   }
   /// Returns true if `encryptedImage` has been explicitly set.
-  public var hasEncryptedImage: Bool {return self._encryptedImage != nil}
+  public var hasEncryptedImage: Bool {self._encryptedImage != nil}
   /// Clears the value of `encryptedImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
