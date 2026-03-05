@@ -242,27 +242,6 @@ public final class VaultManager: @unchecked Sendable {
     }
 }
 
-extension VaultManager: VaultKeyShareNotifier {
-    public func conversationKeyCreated(_ keyInfo: ConversationKeyInfo) {
-        guard isConnected, hasMultipleDevices else { return }
-
-        Task {
-            do {
-                let entry = VaultIdentityEntry(
-                    conversationId: keyInfo.conversationId,
-                    inboxId: keyInfo.inboxId,
-                    clientId: keyInfo.clientId,
-                    privateKeyData: keyInfo.privateKeyData,
-                    databaseKey: keyInfo.databaseKey
-                )
-                try await shareKey(entry)
-            } catch {
-                delegate?.vaultManager(self, didEncounterError: error)
-            }
-        }
-    }
-}
-
 extension VaultManager: VaultClientDelegate {
     public func vaultClient(_ client: VaultClient, didReceiveKeyBundle bundle: DeviceKeyBundleContent, from senderInboxId: String) {
         Task { await importKeyBundle(bundle) }
