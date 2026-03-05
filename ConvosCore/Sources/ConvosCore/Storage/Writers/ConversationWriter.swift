@@ -4,6 +4,13 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
+extension DecodedMessage {
+    var isProfileMessage: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType == ContentTypeProfileUpdate || contentType == ContentTypeProfileSnapshot
+    }
+}
+
 enum ConversationWriterError: Error {
     case inboxNotFound(String)
     case expectedGroup
@@ -240,9 +247,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             try await fetchAndStoreLatestMessages(for: conversation, dbConversation: dbConversation)
         }
 
-        // Store last message
+        // Store last message (skip profile messages which aren't stored as DB messages)
         let lastMessage = try await conversation.lastMessage()
-        if let lastMessage {
+        if let lastMessage, !lastMessage.isProfileMessage {
             let result = try await messageWriter.store(
                 message: lastMessage,
                 for: dbConversation
@@ -510,6 +517,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Store messages and track if conversation should be marked unread
         var marksConversationAsUnread = false
         for message in messages {
+            guard !message.isProfileMessage else { continue }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread {

@@ -258,7 +258,9 @@ actor StreamProcessor: StreamProcessorProtocol {
     // MARK: - Profile Messages
 
     private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
-        guard let contentType = try? message.encodedContent.type else { return false }
+        guard let contentType = try? message.encodedContent.type else {
+            return false
+        }
 
         if contentType == ContentTypeProfileUpdate {
             await processProfileUpdate(message, conversationId: conversationId)
