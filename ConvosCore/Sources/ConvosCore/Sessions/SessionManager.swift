@@ -44,7 +44,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let lifecycleManager: any InboxLifecycleManagerProtocol
     private let sleepingInboxChecker: SleepingInboxMessageChecker
     private let apiClient: any ConvosAPIClientProtocol
-    private let vaultService: (any VaultServiceProtocol)?
+    public let vaultService: (any VaultServiceProtocol)?
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
