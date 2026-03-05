@@ -11,6 +11,7 @@ final class DevicesViewModel {
     var pairingViewModel: PairingSheetViewModel?
 
     private let session: any SessionManagerProtocol
+    private var delegateBridge: VaultManagerDelegateBridge?
 
     init(session: any SessionManagerProtocol) {
         self.session = session
@@ -57,5 +58,35 @@ final class DevicesViewModel {
         let vm = PairingSheetViewModel(vaultManager: vaultManager)
         pairingViewModel = vm
         showPairingSheet = true
+
+        let bridge = VaultManagerDelegateBridge { [weak vm] request in
+            Task { @MainActor in
+                await vm?.onJoinRequestReceived(
+                    pin: request.pin,
+                    deviceName: request.deviceName,
+                    joinerInboxId: request.joinerInboxId
+                )
+            }
+        }
+        delegateBridge = bridge
+        Task { await vaultManager.setDelegate(bridge) }
+    }
+
+    func stopPairing() {
+        guard let vaultManager = session.vaultService as? VaultManager else { return }
+        Task { await vaultManager.stopPairingListener() }
+        delegateBridge = nil
+    }
+}
+
+private final class VaultManagerDelegateBridge: VaultManagerDelegate, Sendable {
+    private let onJoinRequest: @Sendable (PairingJoinRequest) -> Void
+
+    init(onJoinRequest: @escaping @Sendable (PairingJoinRequest) -> Void) {
+        self.onJoinRequest = onJoinRequest
+    }
+
+    func vaultManager(_ manager: VaultManager, didReceivePairingJoinRequest request: PairingJoinRequest) {
+        onJoinRequest(request)
     }
 }

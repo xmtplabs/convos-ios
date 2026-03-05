@@ -22,11 +22,18 @@ final class JoinerPairingSheetViewModel {
     private let pin: String
     private let expiresAt: Date
     private let timeoutInterval: TimeInterval
+    private let vaultManager: VaultManager?
     private var countdownTask: Task<Void, Never>?
 
-    init(pairingId: String, expiresAt: Date? = nil, timeoutInterval: TimeInterval = 60) {
+    init(
+        pairingId: String,
+        expiresAt: Date? = nil,
+        timeoutInterval: TimeInterval = 60,
+        vaultManager: VaultManager? = nil
+    ) {
         self.pairingId = pairingId
         self.timeoutInterval = timeoutInterval
+        self.vaultManager = vaultManager
         self.pin = PairingCoordinator.generatePin()
         self.expiresAt = expiresAt ?? Date().addingTimeInterval(timeoutInterval)
         self.secondsRemaining = max(0, Int(self.expiresAt.timeIntervalSinceNow))
@@ -39,6 +46,20 @@ final class JoinerPairingSheetViewModel {
 
     var initiatorDeviceName: String {
         "the other device"
+    }
+
+    func sendJoinRequest() async {
+        guard let vaultManager else { return }
+
+        do {
+            try await vaultManager.sendPairingJoinRequest(
+                slug: pairingId,
+                pin: pin,
+                deviceName: DeviceInfo.deviceName
+            )
+        } catch {
+            flowState = .failed(error.localizedDescription)
+        }
     }
 
     func startCountdown() {
