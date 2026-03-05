@@ -18,6 +18,7 @@ message ConversationCustomMetadata {
     optional sfixed64 expiresAtUnix = 3;
     optional bytes imageEncryptionKey = 4;  // 32-byte AES-256 key for encrypting all images
     optional EncryptedImageRef encryptedGroupImage = 5;  // Encrypted group avatar
+    optional string conversationType = 6;  // e.g. "vault" for multi-device key sync
 }
 
 // EncryptedImageRef stores encrypted image metadata
