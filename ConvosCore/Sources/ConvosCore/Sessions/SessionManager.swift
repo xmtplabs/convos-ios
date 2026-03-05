@@ -45,6 +45,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let lifecycleManager: any InboxLifecycleManagerProtocol
     private let sleepingInboxChecker: SleepingInboxMessageChecker
     private let apiClient: any ConvosAPIClientProtocol
+    private let vaultService: (any VaultServiceProtocol)?
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
@@ -52,11 +53,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
          identityStore: any KeychainIdentityStoreProtocol,
          lifecycleManager: (any InboxLifecycleManagerProtocol)? = nil,
          sleepingInboxChecker: SleepingInboxMessageChecker? = nil,
+         vaultService: (any VaultServiceProtocol)? = nil,
          platformProviders: PlatformProviders) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
         self.identityStore = identityStore
+        self.vaultService = vaultService
         self.platformProviders = platformProviders
         self.deviceRegistrationManager = DeviceRegistrationManager(
             environment: environment,
@@ -212,6 +215,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     defer { DeviceRegistrationManager.clearRegistrationState(deviceInfo: self.platformProviders.deviceInfo) }
 
                     continuation.yield(.clearingDeviceRegistration)
+
+                    if let vaultService = self.vaultService {
+                        do {
+                            try await vaultService.unpairSelf()
+                            Log.info("Unpaired from Vault before deleting data")
+                        } catch {
+                            Log.error("Failed to unpair from Vault: \(error)")
+                        }
+                    }
 
                     // Get all inboxes from database
                     let inboxesRepository = InboxesRepository(databaseReader: self.databaseReader)
