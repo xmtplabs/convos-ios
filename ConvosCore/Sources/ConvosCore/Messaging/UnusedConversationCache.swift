@@ -452,6 +452,19 @@ extension UnusedConversationCache {
 
             clearUnusedFromKeychain()
             Log.debug("Consumed unused conversation: \(conversationId)")
+
+            let keyInfo = InboxKeyInfo(
+                inboxId: inboxId,
+                clientId: identity.clientId,
+                conversationId: conversationId,
+                privateKeyData: Data(identity.keys.privateKey.secp256K1.bytes),
+                databaseKey: identity.keys.databaseKey
+            )
+            NotificationCenter.default.post(
+                name: .inboxIdentityRegistered,
+                object: nil,
+                userInfo: [InboxIdentityNotification.keyInfoKey: keyInfo]
+            )
         } catch {
             Log.error("Failed to finalize consumed conversation, keeping keychain state for retry: \(error)")
         }

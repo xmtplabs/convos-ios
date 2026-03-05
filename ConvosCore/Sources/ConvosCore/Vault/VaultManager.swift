@@ -161,6 +161,26 @@ public actor VaultManager {
         try await vaultClient.send(bundle, codec: DeviceKeyBundleCodec())
     }
 
+    func shareKeyFromNotification(_ keyInfo: InboxKeyInfo) async {
+        guard isConnected, hasMultipleDevices else { return }
+        guard let installationId = vaultClient.installationId else { return }
+
+        let share = DeviceKeyShareContent(
+            conversationId: keyInfo.conversationId,
+            inboxId: keyInfo.inboxId,
+            clientId: keyInfo.clientId,
+            privateKeyData: keyInfo.privateKeyData,
+            databaseKey: keyInfo.databaseKey,
+            senderInstallationId: installationId
+        )
+
+        do {
+            try await vaultClient.send(share, codec: DeviceKeyShareCodec())
+        } catch {
+            delegate?.vaultManager(self, didEncounterError: error)
+        }
+    }
+
     private struct InboxConversationRow {
         let inboxId: String
         let clientId: String
