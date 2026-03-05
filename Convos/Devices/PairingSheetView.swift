@@ -5,6 +5,7 @@ struct PairingSheetView: View {
     @Bindable var viewModel: PairingSheetViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
     @FocusState private var pinFieldFocused: Bool
+    @State private var isHoldingReveal: Bool = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
@@ -32,8 +33,8 @@ struct PairingSheetView: View {
     @ViewBuilder
     private var centerContent: some View {
         switch viewModel.flowState {
-        case let .qrCode(url, revealed):
-            qrCodeContent(url: url, revealed: revealed)
+        case let .qrCode(url):
+            qrCodeContent(url: url)
                 .transition(.blurReplace)
 
         case let .pinEntry(deviceName):
@@ -59,12 +60,12 @@ struct PairingSheetView: View {
     }
 
     @ViewBuilder
-    private func qrCodeContent(url: String, revealed: Bool) -> some View {
+    private func qrCodeContent(url: String) -> some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             if let qrURL = URL(string: url), !url.isEmpty {
                 QRCodeView(url: qrURL)
-                    .blur(radius: revealed ? 0 : 20)
-                    .animation(.easeInOut(duration: 0.3), value: revealed)
+                    .blur(radius: isHoldingReveal ? 0 : 20)
+                    .animation(.easeInOut(duration: 0.2), value: isHoldingReveal)
                     .accessibilityIdentifier("pairing-qr-code")
             } else {
                 ProgressView()
@@ -160,23 +161,9 @@ struct PairingSheetView: View {
     @ViewBuilder
     private var primaryButton: some View {
         switch viewModel.flowState {
-        case let .qrCode(_, revealed):
-            if !revealed {
-                let revealAction = { viewModel.revealQRCode() }
-                Button(action: revealAction) {
-                    Text("Hold to reveal")
-                        .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(HoldToConfirmPrimitiveStyle(duration: 1.0))
+        case .qrCode:
+            HoldToRevealButton(isHolding: $isHoldingReveal)
                 .accessibilityIdentifier("hold-to-reveal-button")
-            } else {
-                let action = {}
-                Button(action: action) {
-                    Text("Waiting for device...")
-                }
-                .convosButtonStyle(.rounded(fullWidth: true))
-                .disabled(true)
-            }
 
         case .pinEntry:
             let approveAction = { viewModel.triggerApprove() }
@@ -286,6 +273,39 @@ private struct PinEntryField: View {
     private func digitAt(_ index: Int) -> String {
         guard index < pin.count else { return "" }
         return String(pin[pin.index(pin.startIndex, offsetBy: index)])
+    }
+}
+
+// MARK: - Hold To Reveal Button
+
+private struct HoldToRevealButton: View {
+    @Binding var isHolding: Bool
+    @GestureState private var pressing: Bool = false
+
+    var body: some View {
+        Text("Hold to reveal")
+            .font(.subheadline)
+            .lineLimit(1)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .background(.colorFillPrimary)
+            .clipShape(Capsule())
+            .foregroundColor(.colorTextPrimaryInverted)
+            .opacity(pressing ? 0.8 : 1.0)
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .updating($pressing) { _, gestureState, _ in
+                        gestureState = true
+                    }
+            )
+            .onChange(of: pressing) { _, newValue in
+                isHolding = newValue
+            }
+            .sensoryFeedback(.impact(weight: .light), trigger: pressing) { _, newValue in
+                newValue
+            }
+            .accessibilityLabel("Hold to reveal")
     }
 }
 
