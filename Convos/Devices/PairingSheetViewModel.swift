@@ -3,7 +3,7 @@ import Observation
 import SwiftUI
 
 enum PairingFlowState: Equatable {
-    case qrCode(url: String, revealed: Bool)
+    case qrCode(url: String)
     case pinEntry(deviceName: String)
     case syncing
     case completed(deviceName: String)
@@ -14,7 +14,7 @@ enum PairingFlowState: Equatable {
 @Observable
 @MainActor
 final class PairingSheetViewModel {
-    var flowState: PairingFlowState = .qrCode(url: "", revealed: false)
+    var flowState: PairingFlowState = .qrCode(url: "")
     var enteredPin: String = ""
     var canDismiss: Bool = true
     var title: String = "Pair new device"
@@ -42,15 +42,9 @@ final class PairingSheetViewModel {
 
         do {
             try await coordinator.startPairing(inviteURL: inviteURL)
-            flowState = .qrCode(url: inviteURL, revealed: false)
+            flowState = .qrCode(url: inviteURL)
         } catch {
             flowState = .failed(error.localizedDescription)
-        }
-    }
-
-    func revealQRCode() {
-        if case let .qrCode(url, _) = flowState {
-            flowState = .qrCode(url: url, revealed: true)
         }
     }
 
