@@ -253,13 +253,13 @@ final class ConversationsViewModel {
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
-        case .pairDevice(pairingId: let pairingId):
-            startJoinerPairing(pairingId: pairingId)
+        case let .pairDevice(pairingId, expiresAt):
+            startJoinerPairing(pairingId: pairingId, expiresAt: expiresAt)
         }
     }
 
-    private func startJoinerPairing(pairingId: String) {
-        let vm = JoinerPairingSheetViewModel(pairingId: pairingId)
+    private func startJoinerPairing(pairingId: String, expiresAt: Date?) {
+        let vm = JoinerPairingSheetViewModel(pairingId: pairingId, expiresAt: expiresAt)
         joinerPairingViewModel = vm
         showJoinerPairingSheet = true
     }
