@@ -237,11 +237,16 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     /// re-adds each item with plain `kSecAttrAccessible` to enable future in-place updates.
     ///
     /// This is `nonisolated` and `static` so it can be called synchronously at app launch.
+    private nonisolated static let migrationLock: NSLock = .init()
+
     public nonisolated static func migrateToPlainAccessibilityIfNeeded(
         accessGroup: String,
         service: String = defaultService,
         accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     ) {
+        migrationLock.lock()
+        defer { migrationLock.unlock() }
+
         guard !UserDefaults.standard.bool(forKey: localFormatMigrationKey) else { return }
 
         let loadQuery: [String: Any] = [
@@ -276,24 +281,11 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
                 continue
             }
 
-            let deleteQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: account
-            ]
-
-            let deleteStatus = SecItemDelete(deleteQuery as CFDictionary)
-            guard deleteStatus == errSecSuccess else {
-                Log.error("Keychain format migration: failed to delete item \(account), status: \(deleteStatus)")
-                continue
-            }
-
             var addQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
                 kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: account,
+                kSecAttrAccount as String: "\(account).migrated",
                 kSecAttrAccessible as String: accessibility,
                 kSecValueData as String: data
             ]
@@ -303,10 +295,38 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             }
 
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            if addStatus == errSecSuccess {
+            guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+                Log.error("Keychain format migration: failed to add new item \(account), status: \(addStatus)")
+                continue
+            }
+
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrAccount as String: account
+            ]
+            SecItemDelete(deleteQuery as CFDictionary)
+
+            if addStatus == errSecDuplicateItem {
+                migratedCount += 1
+                continue
+            }
+
+            let renameQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrAccount as String: "\(account).migrated"
+            ]
+            let renameAttrs: [String: Any] = [
+                kSecAttrAccount as String: account
+            ]
+            let renameStatus = SecItemUpdate(renameQuery as CFDictionary, renameAttrs as CFDictionary)
+            if renameStatus == errSecSuccess {
                 migratedCount += 1
             } else {
-                Log.error("Keychain format migration: failed to re-add item \(account), status: \(addStatus)")
+                Log.error("Keychain format migration: failed to rename item \(account), status: \(renameStatus)")
             }
         }
 

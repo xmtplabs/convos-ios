@@ -70,27 +70,42 @@ public actor ICloudIdentityStore: KeychainIdentityStoreProtocol {
 
     public func loadAll() async throws -> [KeychainIdentity] {
         let localIdentities = try await localStore.loadAll()
-        if !localIdentities.isEmpty {
-            return localIdentities
-        }
+        let icloudIdentities = (try? await icloudStore.loadAll()) ?? []
 
-        return try await icloudStore.loadAll()
+        guard !icloudIdentities.isEmpty else { return localIdentities }
+
+        let localInboxIds = Set(localIdentities.map(\.inboxId))
+        let icloudOnly = icloudIdentities.filter { !localInboxIds.contains($0.inboxId) }
+
+        return localIdentities + icloudOnly
     }
 
     public func delete(inboxId: String) async throws {
         try await localStore.delete(inboxId: inboxId)
-        try? await icloudStore.delete(inboxId: inboxId)
+        do {
+            try await icloudStore.delete(inboxId: inboxId)
+        } catch {
+            Log.warning("Failed to delete identity from iCloud Keychain: \(inboxId): \(error)")
+        }
     }
 
     public func delete(clientId: String) async throws -> KeychainIdentity {
         let identity = try await localStore.delete(clientId: clientId)
-        _ = try? await icloudStore.delete(clientId: clientId)
+        do {
+            _ = try await icloudStore.delete(clientId: clientId)
+        } catch {
+            Log.warning("Failed to delete identity from iCloud Keychain by clientId: \(clientId): \(error)")
+        }
         return identity
     }
 
     public func deleteAll() async throws {
         try await localStore.deleteAll()
-        try? await icloudStore.deleteAll()
+        do {
+            try await icloudStore.deleteAll()
+        } catch {
+            Log.warning("Failed to delete all identities from iCloud Keychain: \(error)")
+        }
     }
 
     // MARK: - iCloud sync

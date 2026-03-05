@@ -516,6 +516,52 @@ import Testing
         try await cleanupICloudStores()
     }
 
+    @Test func testLoadAllMergesBothStores() async throws {
+        try await cleanupICloudStores()
+
+        // Given - 2 local keys, 1 iCloud-only key (partial restore scenario)
+        let localStore = makeRawLocalStore()
+        let icloudRawStore = makeRawICloudStore()
+        let store = makeICloudStore()
+
+        let keys1 = try await localStore.generateKeys()
+        let keys2 = try await localStore.generateKeys()
+        let keys3 = try await icloudRawStore.generateKeys()
+
+        _ = try await localStore.save(inboxId: "local-1", clientId: "client-1", keys: keys1)
+        _ = try await localStore.save(inboxId: "local-2", clientId: "client-2", keys: keys2)
+        _ = try await icloudRawStore.save(inboxId: "icloud-only", clientId: "client-3", keys: keys3)
+
+        // When
+        let all = try await store.loadAll()
+
+        // Then - should include all 3 (2 local + 1 iCloud-only)
+        #expect(all.count == 3)
+        #expect(all.contains { $0.inboxId == "local-1" })
+        #expect(all.contains { $0.inboxId == "local-2" })
+        #expect(all.contains { $0.inboxId == "icloud-only" })
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testLoadAllDeduplicatesSharedKeys() async throws {
+        try await cleanupICloudStores()
+
+        // Given - same key in both stores
+        let store = makeICloudStore()
+        let keys = try await store.generateKeys()
+        _ = try await store.save(inboxId: "shared-inbox", clientId: "shared-client", keys: keys)
+
+        // When
+        let all = try await store.loadAll()
+
+        // Then - should not duplicate
+        #expect(all.count == 1)
+        #expect(all[0].inboxId == "shared-inbox")
+
+        try await cleanupICloudStores()
+    }
+
     @Test func testICloudStoreThrowsWhenBothEmpty() async throws {
         try await cleanupICloudStores()
 
