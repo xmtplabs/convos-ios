@@ -71,6 +71,7 @@ struct PairingSheetView: View {
                 )
                 .blur(radius: isHoldingReveal ? 0 : 20)
                 .opacity(isHoldingReveal ? 1.0 : 0.75)
+                .scaleEffect(isHoldingReveal ? 1.0 : 0.75)
                 .animation(.easeInOut(duration: 0.2), value: isHoldingReveal)
                 .padding(DesignConstants.Spacing.step6x)
                 .background(.white)
