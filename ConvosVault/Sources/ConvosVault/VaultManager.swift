@@ -106,6 +106,15 @@ public final class VaultManager: @unchecked Sendable {
         vaultClient.disconnect()
     }
 
+    public func pause() {
+        vaultClient.pause()
+    }
+
+    public func resume() async {
+        await vaultClient.resume()
+        await refreshMemberCount()
+    }
+
     public func shareKey(_ entry: VaultIdentityEntry) async throws {
         guard let installationId = vaultClient.installationId else {
             throw VaultClientError.notConnected
