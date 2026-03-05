@@ -38,7 +38,8 @@ final class PairingSheetViewModel {
         let coordinator = PairingCoordinator(vaultManager: vaultManager)
         self.coordinator = coordinator
 
-        let inviteURL = "https://convos.org/pair/\(UUID().uuidString.prefix(8).lowercased())"
+        let domain = ConfigManager.shared.associatedDomain
+        let inviteURL = "https://\(domain)/pair/\(UUID().uuidString.prefix(8).lowercased())"
 
         do {
             try await coordinator.startPairing(inviteURL: inviteURL)

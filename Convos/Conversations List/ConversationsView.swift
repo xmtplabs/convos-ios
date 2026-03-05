@@ -300,6 +300,14 @@ struct ConversationsView: View {
         .onOpenURL { url in
             viewModel.handleURL(url)
         }
+        .selfSizingSheet(isPresented: $viewModel.showJoinerPairingSheet, onDismiss: {
+            viewModel.joinerPairingViewModel = nil
+        }, content: {
+            if let joinerVM = viewModel.joinerPairingViewModel {
+                JoinerPairingSheetView(viewModel: joinerVM)
+                    .padding(.top, DesignConstants.Spacing.step5x)
+            }
+        })
     }
 }
 
