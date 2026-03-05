@@ -17,8 +17,8 @@ public struct InboxKeyInfo: Sendable {
 
 public protocol VaultServiceProtocol: Sendable {
     func startVault(signingKey: SigningKey, options: ClientOptions) async throws
-    func stopVault()
-    func pauseVault()
+    func stopVault() async
+    func pauseVault() async
     func resumeVault() async
     func unpairSelf() async throws
     func shareNewKey(_ keyInfo: InboxKeyInfo) async
