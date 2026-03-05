@@ -1,147 +1,118 @@
 @testable import ConvosCore
 import Foundation
+import GRDB
 import Testing
 import XMTPiOS
 
-actor MockVaultIdentityStore: VaultIdentityStoreProtocol {
-    private var entries: [String: VaultIdentityEntry] = [:]
-
-    func generateKeys() throws -> VaultIdentityKeys {
-        VaultIdentityKeys(
-            privateKeyData: Data(repeating: 0xAA, count: 32),
-            databaseKey: Data(repeating: 0xBB, count: 32)
-        )
-    }
-
-    func allIdentities() throws -> [VaultIdentityEntry] {
-        Array(entries.values)
-    }
-
-    func save(entry: VaultIdentityEntry) throws {
-        entries[entry.inboxId] = entry
-    }
-
-    func hasIdentity(for inboxId: String) -> Bool {
-        entries[inboxId] != nil
-    }
-
-    func reset() {
-        entries.removeAll()
-    }
-}
-
 @Suite("VaultManager Tests")
 struct VaultManagerTests {
+    private func makeManager() throws -> (VaultManager, MockKeychainIdentityStore, DatabaseQueue) {
+        let store = MockKeychainIdentityStore()
+        let dbQueue = try DatabaseQueue()
+        let manager = VaultManager(identityStore: store, databaseReader: dbQueue, deviceName: "Test iPhone")
+        return (manager, store, dbQueue)
+    }
+
     @Test("Import key share saves to identity store")
     func importKeyShare() async throws {
-        let store = MockVaultIdentityStore()
-        let manager = VaultManager(identityStore: store, deviceName: "Test iPhone")
+        let (manager, store, _) = try makeManager()
 
+        let generatedKeys = try KeychainIdentityKeys.generate()
         let share = DeviceKeyShareContent(
-            conversationId: "conv-1",
+            conversationId: "",
             inboxId: "inbox-1",
             clientId: "client-1",
-            privateKeyData: Data([1, 2, 3]),
-            databaseKey: Data([4, 5, 6]),
+            privateKeyData: Data(generatedKeys.privateKey.secp256K1.bytes),
+            databaseKey: generatedKeys.databaseKey,
             senderInstallationId: "install-1"
         )
 
-        manager.vaultClient(VaultClient(), didReceiveKeyShare: share, from: "other-inbox")
+        await manager.vaultClient(VaultClient(), didReceiveKeyShare: share, from: "other-inbox")
 
         try await Task.sleep(for: .milliseconds(50))
 
-        let identities = try await store.allIdentities()
+        let identities = try await store.loadAll()
         #expect(identities.count == 1)
-        #expect(identities[0].conversationId == "conv-1")
         #expect(identities[0].inboxId == "inbox-1")
-        #expect(identities[0].privateKeyData == Data([1, 2, 3]))
+        #expect(identities[0].clientId == "client-1")
     }
 
     @Test("Import key share skips duplicates")
     func importKeyShareSkipsDuplicates() async throws {
-        let store = MockVaultIdentityStore()
-        let manager = VaultManager(identityStore: store, deviceName: "Test iPhone")
+        let (manager, store, _) = try makeManager()
 
-        let entry = VaultIdentityEntry(
-            conversationId: "conv-1",
-            inboxId: "inbox-1",
-            clientId: "client-1",
-            privateKeyData: Data([1, 2, 3]),
-            databaseKey: Data([4, 5, 6])
-        )
-        try await store.save(entry: entry)
+        let existingKeys = try KeychainIdentityKeys.generate()
+        _ = try await store.save(inboxId: "inbox-1", clientId: "client-1", keys: existingKeys)
 
+        let otherKeys = try KeychainIdentityKeys.generate()
         let share = DeviceKeyShareContent(
-            conversationId: "conv-1",
+            conversationId: "",
             inboxId: "inbox-1",
             clientId: "client-1",
-            privateKeyData: Data([7, 8, 9]),
-            databaseKey: Data([10, 11, 12]),
+            privateKeyData: Data(otherKeys.privateKey.secp256K1.bytes),
+            databaseKey: otherKeys.databaseKey,
             senderInstallationId: "install-1"
         )
 
-        manager.vaultClient(VaultClient(), didReceiveKeyShare: share, from: "other-inbox")
+        await manager.vaultClient(VaultClient(), didReceiveKeyShare: share, from: "other-inbox")
 
         try await Task.sleep(for: .milliseconds(50))
 
-        let identities = try await store.allIdentities()
+        let identities = try await store.loadAll()
         #expect(identities.count == 1)
-        #expect(identities[0].privateKeyData == Data([1, 2, 3]))
+        #expect(identities[0].keys.databaseKey == existingKeys.databaseKey)
     }
 
     @Test("Import key bundle saves multiple keys")
     func importKeyBundle() async throws {
-        let store = MockVaultIdentityStore()
-        let manager = VaultManager(identityStore: store, deviceName: "Test iPhone")
+        let (manager, store, _) = try makeManager()
+
+        let keys1 = try KeychainIdentityKeys.generate()
+        let keys2 = try KeychainIdentityKeys.generate()
+        let keys3 = try KeychainIdentityKeys.generate()
 
         let bundle = DeviceKeyBundleContent(
             keys: [
-                DeviceKeyEntry(conversationId: "conv-1", inboxId: "inbox-1", clientId: "client-1", privateKeyData: Data([1]), databaseKey: Data([2])),
-                DeviceKeyEntry(conversationId: "conv-2", inboxId: "inbox-2", clientId: "client-2", privateKeyData: Data([3]), databaseKey: Data([4])),
-                DeviceKeyEntry(conversationId: "conv-3", inboxId: "inbox-3", clientId: "client-3", privateKeyData: Data([5]), databaseKey: Data([6])),
+                DeviceKeyEntry(conversationId: "", inboxId: "inbox-1", clientId: "client-1", privateKeyData: Data(keys1.privateKey.secp256K1.bytes), databaseKey: keys1.databaseKey),
+                DeviceKeyEntry(conversationId: "", inboxId: "inbox-2", clientId: "client-2", privateKeyData: Data(keys2.privateKey.secp256K1.bytes), databaseKey: keys2.databaseKey),
+                DeviceKeyEntry(conversationId: "", inboxId: "inbox-3", clientId: "client-3", privateKeyData: Data(keys3.privateKey.secp256K1.bytes), databaseKey: keys3.databaseKey),
             ],
             senderInstallationId: "install-1"
         )
 
-        manager.vaultClient(VaultClient(), didReceiveKeyBundle: bundle, from: "other-inbox")
+        await manager.vaultClient(VaultClient(), didReceiveKeyBundle: bundle, from: "other-inbox")
 
         try await Task.sleep(for: .milliseconds(100))
 
-        let identities = try await store.allIdentities()
+        let identities = try await store.loadAll()
         #expect(identities.count == 3)
     }
 
     @Test("Import key bundle skips existing keys")
     func importKeyBundleSkipsExisting() async throws {
-        let store = MockVaultIdentityStore()
-        let manager = VaultManager(identityStore: store, deviceName: "Test iPhone")
+        let (manager, store, _) = try makeManager()
 
-        let existing = VaultIdentityEntry(
-            conversationId: "conv-1",
-            inboxId: "inbox-1",
-            clientId: "client-1",
-            privateKeyData: Data([99]),
-            databaseKey: Data([99])
-        )
-        try await store.save(entry: existing)
+        let existingKeys = try KeychainIdentityKeys.generate()
+        _ = try await store.save(inboxId: "inbox-1", clientId: "client-1", keys: existingKeys)
 
+        let newKeys = try KeychainIdentityKeys.generate()
         let bundle = DeviceKeyBundleContent(
             keys: [
-                DeviceKeyEntry(conversationId: "conv-1", inboxId: "inbox-1", clientId: "client-1", privateKeyData: Data([1]), databaseKey: Data([2])),
-                DeviceKeyEntry(conversationId: "conv-2", inboxId: "inbox-2", clientId: "client-2", privateKeyData: Data([3]), databaseKey: Data([4])),
+                DeviceKeyEntry(conversationId: "", inboxId: "inbox-1", clientId: "client-1", privateKeyData: Data(newKeys.privateKey.secp256K1.bytes), databaseKey: newKeys.databaseKey),
+                DeviceKeyEntry(conversationId: "", inboxId: "inbox-2", clientId: "client-2", privateKeyData: Data(newKeys.privateKey.secp256K1.bytes), databaseKey: newKeys.databaseKey),
             ],
             senderInstallationId: "install-1"
         )
 
-        manager.vaultClient(VaultClient(), didReceiveKeyBundle: bundle, from: "other-inbox")
+        await manager.vaultClient(VaultClient(), didReceiveKeyBundle: bundle, from: "other-inbox")
 
         try await Task.sleep(for: .milliseconds(100))
 
-        let identities = try await store.allIdentities()
+        let identities = try await store.loadAll()
         #expect(identities.count == 2)
 
         let inbox1 = identities.first { $0.inboxId == "inbox-1" }
-        #expect(inbox1?.privateKeyData == Data([99]))
+        #expect(inbox1?.keys.databaseKey == existingKeys.databaseKey)
     }
 
     @Test("VaultDevice model")
@@ -155,24 +126,20 @@ struct VaultManagerTests {
     @Test("VaultIdentityEntry model")
     func vaultIdentityEntryModel() {
         let entry = VaultIdentityEntry(
-            conversationId: "conv-1",
             inboxId: "inbox-1",
             clientId: "client-1",
             privateKeyData: Data([1, 2, 3]),
             databaseKey: Data([4, 5, 6])
         )
-        #expect(entry.conversationId == "conv-1")
         #expect(entry.inboxId == "inbox-1")
         #expect(entry.clientId == "client-1")
     }
 
     @Test("Not connected throws on share")
-    func notConnectedThrows() async {
-        let store = MockVaultIdentityStore()
-        let manager = VaultManager(identityStore: store, deviceName: "Test iPhone")
+    func notConnectedThrows() async throws {
+        let (manager, _, _) = try makeManager()
 
         let entry = VaultIdentityEntry(
-            conversationId: "conv-1",
             inboxId: "inbox-1",
             clientId: "client-1",
             privateKeyData: Data([1]),
@@ -185,9 +152,8 @@ struct VaultManagerTests {
     }
 
     @Test("Not connected throws on shareAllKeys")
-    func notConnectedThrowsShareAll() async {
-        let store = MockVaultIdentityStore()
-        let manager = VaultManager(identityStore: store, deviceName: "Test iPhone")
+    func notConnectedThrowsShareAll() async throws {
+        let (manager, _, _) = try makeManager()
 
         await #expect(throws: VaultClientError.self) {
             try await manager.shareAllKeys()
