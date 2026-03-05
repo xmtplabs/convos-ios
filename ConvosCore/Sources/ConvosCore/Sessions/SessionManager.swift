@@ -28,6 +28,7 @@ enum SessionManagerError: Error {
 /// use weak self and main queue dispatch.
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var leftConversationObserver: Any?
+    private var identityRegisteredTask: Task<Void, Never>?
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
 
@@ -131,6 +132,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         unusedInboxPrepTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
+        identityRegisteredTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -147,6 +149,19 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for await _ in foregroundNotifications {
                 guard let self else { return }
                 self.notificationChangeReporter.notifyChangesInDatabase()
+            }
+        }
+
+        identityRegisteredTask = Task { [weak self] in
+            let notifications = NotificationCenter.default.notifications(
+                named: .inboxIdentityRegistered
+            )
+            for await notification in notifications {
+                guard let self, let vaultService = self.vaultService else { continue }
+                guard let keyInfo = notification.userInfo?[InboxIdentityNotification.keyInfoKey] as? InboxKeyInfo else {
+                    continue
+                }
+                await vaultService.shareNewKey(keyInfo)
             }
         }
 
