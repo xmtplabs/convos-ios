@@ -11,6 +11,7 @@ prerequisites:
   app_running: true
   cli_initialized: true
   shared_conversation: true
+  screen: conversation_detail
 
 state:
   conversation_id: null
@@ -60,8 +61,7 @@ steps:
     actions:
       - type_in_field: { id: "message-text-field", text: "Hello from the app" }
       - tap: { id: "send-message-button" }
-      - wait: 3
-      - find_elements: { label_contains: "Hello from the app" }
+      - wait_for_element: { label_contains: "Hello from the app", timeout: 10 }
     verify:
       - element_exists: { label_contains: "Hello from the app" }
     criteria: app_text_visible
@@ -84,12 +84,14 @@ steps:
       - cli_send_attachment:
           conversation: "$conversation_id"
           path: "/tmp/test-photo.jpg"
-      - wait: 10
-      - find_elements: { label_contains: "Attachment" }
+      - wait_for_element: { label_contains: "Tap pic to reveal", timeout: 30 }
     verify:
-      - element_exists: { label_contains: "Attachment" }
+      - element_exists: { label_contains: "Tap pic to reveal" }
     criteria: cli_attachment_visible
-    known_issue: "DecodedMessageDBRepresentationError — app may not decode CLI-sent attachments"
+    note: >
+      Attachments render as blurred images with "Tap pic to reveal" label.
+      The previously documented DecodedMessageDBRepresentationError does not
+      occur in current builds.
 
 teardown:
   - action: explode_conversation

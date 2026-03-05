@@ -1,0 +1,170 @@
+id: "03"
+name: "Join Conversation via Deep Link (Two Simulators)"
+description: >
+  Verify that a conversation created on one device can be joined from a
+  second device via invite deep link, including when the inviter is offline.
+  Requires TWO simulators — Device A (inviter) and Device B (joiner).
+tags: [invites, deep-link, multi-device, core]
+depends_on: ["01"]
+estimated_duration_s: 300
+
+prerequisites:
+  two_simulators: true
+  both_erased: true
+  app_installed_on_both: true
+
+state:
+  device_a_udid: null
+  device_b_udid: null
+  invite_url: null
+  conversation_name: "Deep Link Test"
+
+setup:
+  - action: resolve_two_simulators
+    save:
+      device_a_udid: "from resolver"
+      device_b_udid: "from resolver"
+    note: "Both simulators must be erased and freshly booted with app installed"
+
+steps:
+  # Part 1: Online invite flow
+  - id: create_conversation_device_a
+    name: "Device A creates a conversation"
+    device: A
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+    verify:
+      - element_exists: { id: "invite-qr-code" }
+    criteria: device_a_creates_conversation
+
+  - id: extract_invite_url
+    name: "Extract invite URL from Device A logs"
+    device: A
+    actions:
+      - sim_log_events: { event_filter: "invite.url_displayed" }
+    verify:
+      - event_exists: { name: "invite.url_displayed" }
+    criteria: invite_url_extractable
+    save:
+      invite_url: "from invite.url_displayed event"
+
+  - id: join_via_deep_link
+    name: "Device B opens invite deep link"
+    device: B
+    actions:
+      - sim_open_url: { url: "$invite_url" }
+      - wait_for_element: { id: "message-text-field", timeout: 60 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+      - element_exists: { label_contains: "2 members" }
+    criteria: device_b_joins
+    note: >
+      Device A auto-processes the join request. Device B may briefly
+      show "Verifying" before transitioning to the conversation.
+
+  - id: exchange_messages
+    name: "Two-way messaging between devices"
+    actions:
+      - device_b_send: { text: "Hello from Device B!" }
+      - device_a_wait: { label_contains: "Hello from Device B!", timeout: 15 }
+      - device_a_send: { text: "Reply from Device A!" }
+      - device_b_wait: { label_contains: "Reply from Device A!", timeout: 15 }
+    verify:
+      - device_a_has: { label_contains: "Hello from Device B!" }
+      - device_b_has: { label_contains: "Reply from Device A!" }
+    criteria: two_way_messaging_online
+
+  # Part 2: Offline invite flow
+  - id: erase_for_part_2
+    name: "Erase both simulators for Part 2"
+    actions:
+      - erase_simulators: { udids: ["$device_a_udid", "$device_b_udid"] }
+      - install_and_launch: { device: A }
+    note: >
+      Both simulators must be erased to clear XMTP state from Part 1.
+      Otherwise Device B may resolve the invite as '.existing'.
+
+  - id: create_offline_conversation
+    name: "Device A creates conversation for offline test"
+    device: A
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+      - sim_log_events: { event_filter: "invite.url_displayed" }
+    save:
+      invite_url: "from invite.url_displayed event"
+    criteria: offline_conversation_created
+
+  - id: shutdown_device_a
+    name: "Shut down Device A completely"
+    actions:
+      - terminate_app: { device: A }
+      - shutdown_simulator: { udid: "$device_a_udid" }
+    criteria: device_a_offline
+
+  - id: join_while_offline
+    name: "Device B joins while Device A is offline"
+    device: B
+    actions:
+      - install_and_launch: { device: B }
+      - sim_open_url: { url: "$invite_url" }
+      - wait_for_element: { label_contains: "Verifying", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "Verifying" }
+    criteria: verifying_state_shown
+
+  - id: bring_device_a_online
+    name: "Bring Device A back online"
+    actions:
+      - boot_simulator: { udid: "$device_a_udid" }
+      - launch_app: { device: A }
+    criteria: device_a_back_online
+
+  - id: verify_admission
+    name: "Device B gets admitted after Device A comes online"
+    device: B
+    actions:
+      - wait_for_element: { id: "message-text-field", timeout: 60 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+      - element_exists: { label_contains: "2 members" }
+    criteria: offline_join_resolves
+
+  - id: exchange_messages_offline
+    name: "Two-way messaging works after offline invite"
+    actions:
+      - device_b_send: { text: "Hello after offline!" }
+      - device_a_wait: { label_contains: "Hello after offline!", timeout: 15 }
+      - device_a_send: { text: "Reply after offline!" }
+      - device_b_wait: { label_contains: "Reply after offline!", timeout: 15 }
+    verify:
+      - device_a_has: { label_contains: "Hello after offline!" }
+      - device_b_has: { label_contains: "Reply after offline!" }
+    criteria: two_way_messaging_offline
+
+teardown:
+  - action: leave_conversations
+    optional: true
+
+criteria:
+  device_a_creates_conversation:
+    description: "Device A creates a conversation and shows QR code"
+  invite_url_extractable:
+    description: "Invite URL is extractable from Device A's QA event logs"
+  device_b_joins:
+    description: "Deep link opens Device B and completes the join flow"
+  two_way_messaging_online:
+    description: "Two-way messaging works between Device A and Device B"
+  offline_conversation_created:
+    description: "Device A creates conversation for offline test"
+  device_a_offline:
+    description: "Device A is fully shut down"
+  verifying_state_shown:
+    description: "Device B shows 'Verifying' state when inviter is offline"
+  device_a_back_online:
+    description: "Device A comes back online"
+  offline_join_resolves:
+    description: "Device B is admitted after Device A comes back online"
+  two_way_messaging_offline:
+    description: "Two-way messaging works after offline invite resolution"

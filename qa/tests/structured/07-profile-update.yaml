@@ -1,0 +1,98 @@
+id: "07"
+name: "Update Profile in Conversation"
+description: >
+  Verify that a user can update their display name within a conversation
+  via the quick-edit inline UI, that changes are reflected for other
+  participants (via group_updated messages), and that conversation info
+  is accessible from the toolbar.
+tags: [profile, core]
+depends_on: ["02"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversation_detail
+
+state:
+  conversation_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: navigate_to_conversation
+    args: { id: "$conversation_id" }
+
+steps:
+  - id: open_conversation_info
+    name: "Open conversation info"
+    actions:
+      - tap: { id: "conversation-toolbar-button" }
+      - wait_for_element: { id: "edit-info-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "edit-info-button" }
+    criteria: conversation_info_opens
+    note: >
+      Conversation info page shows: large avatar, conversation name,
+      "Edit info" button (id="edit-info-button", label="Edit conversation info"),
+      "2 members" row with disclosure arrow, "Convo code" with share button,
+      Personal preferences section (Notifications toggle, Reveal mode toggle,
+      Peek-a-boo "Soon").
+
+  - id: edit_display_name
+    name: "Edit display name via quick-edit"
+    actions:
+      - tap: { id: "close-info-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+      - tap: { id: "profile-avatar-button" }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "Updated QA Name", clear_first: true }
+      - tap: { id: "quick-edit-done-button" }
+      - wait_for_element: { label_contains: "Chat as Updated QA Name", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Chat as Updated QA Name" }
+    criteria: name_can_be_edited
+    note: >
+      Profile editing is via the quick-edit inline UI, not the conversation
+      info page. Tap profile-avatar-button (label="Edit your profile") to
+      open quick-edit with quick-edit-display-name-field and
+      quick-edit-done-button. Name changes are retroactive on all messages
+      and the system "You joined as" message.
+
+  - id: verify_name_in_app
+    name: "Updated name appears on new messages"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Message with new name" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Updated QA Name", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Updated QA Name" }
+    criteria: name_visible_in_app
+
+  - id: verify_name_via_cli
+    name: "Updated name visible to other participants"
+    actions:
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "changed their name"
+    verify:
+      - cli_output_contains: "changed their name"
+    criteria: name_visible_via_cli
+    note: >
+      Name changes send a group_updated content type message visible to
+      all participants: "<old name> changed their name to <new name>".
+
+teardown: []
+
+criteria:
+  conversation_info_opens:
+    description: "Conversation info view can be opened from toolbar"
+  name_can_be_edited:
+    description: "Display name can be edited via quick-edit"
+  name_visible_in_app:
+    description: "Updated name appears on new messages in the app"
+  name_visible_via_cli:
+    description: "Name change visible to other participants via group_updated message"

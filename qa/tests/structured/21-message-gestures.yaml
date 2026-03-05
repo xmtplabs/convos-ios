@@ -1,0 +1,123 @@
+id: "21"
+name: "Message Gestures and Interactions"
+description: >
+  Verify gesture-based interactions in the messages list: long press context menu,
+  swipe to reply, copy to pasteboard, reaction picker, and reaction drawer.
+  Context menu: reaction picker row (6 quick emojis + Add), Reply button, Copy button.
+  Quick reaction emojis: ❤️, 👍, 👎, 😂, 😮, 🤔 (plus + button for full picker).
+tags: [messaging, gestures, interactions, core]
+depends_on: ["02", "05", "06"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversation_detail
+
+state:
+  conversation_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: cli_send_text
+    args: { conversation: "$conversation_id", text: "Gesture test message" }
+  - action: wait_for_element
+    args: { label_contains: "Gesture test message", timeout: 15 }
+
+steps:
+  - id: long_press_context_menu
+    name: "Long press opens context menu with Reply and Copy"
+    actions:
+      - long_press: { label_contains: "Gesture test message", duration: 1.5 }
+      - wait_for_element: { label: "Reply", timeout: 5 }
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Copy" }
+      - element_exists: { label: "❤️" }
+      - element_exists: { label: "👍" }
+      - element_exists: { label: "Dismiss menu" }
+    criteria: long_press_context_menu
+    note: >
+      Context menu has two sections: (1) reaction picker row with 6 quick emoji
+      buttons (❤️, 👍, 👎, 😂, 😮, 🤔) plus an Add button (id="plus",
+      label="Add"); (2) action buttons Reply and Copy. A "Dismiss menu"
+      button covers the full screen background.
+
+  - id: copy_action
+    name: "Copy puts message text on pasteboard"
+    actions:
+      - tap: { label: "Copy" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+      - read_clipboard: {}
+    verify:
+      - clipboard_contains: "Gesture test message"
+    criteria: copy_action
+    note: >
+      Use `xcrun simctl pbpaste <UDID>` to read the pasteboard contents.
+
+  - id: swipe_to_reply
+    name: "Swipe right on message opens reply composer"
+    actions:
+      - swipe_right: { label_contains: "Gesture test message", distance: 200 }
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+    verify:
+      - element_exists: { id: "reply-composer-bar" }
+    criteria: swipe_to_reply
+    note: >
+      Swipe from left to right on the message bubble. reply-composer-bar
+      appears with label="Replying to <sender>: <text>" and custom action
+      "Cancel reply". Dismiss by tapping X on right edge (~x=370).
+
+  - id: cancel_swipe_reply
+    name: "X button dismisses reply composer"
+    actions:
+      - tap: { x_offset: "right", id: "reply-composer-bar" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { id: "reply-composer-bar" }
+    criteria: cancel_reply
+
+  - id: reaction_via_picker
+    name: "Reaction added via long-press picker"
+    actions:
+      - long_press: { label_contains: "Gesture test message", duration: 1.5 }
+      - wait_for_element: { label: "❤️", timeout: 5 }
+      - tap: { label: "❤️" }
+      - wait_for_element: { label_contains: "1 reaction", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "1 reaction: ❤️" }
+    criteria: reaction_added
+
+  - id: reaction_drawer
+    name: "Tapping reaction indicator opens reactions drawer"
+    actions:
+      - tap: { label_contains: "1 reaction" }
+      - wait_for_element: { label: "Reactions", timeout: 5 }
+    verify:
+      - element_exists: { label: "Reactions" }
+      - element_exists: { label_contains: "You" }
+    criteria: reaction_drawer_opens
+    note: >
+      The reactions drawer is a popover showing "Reactions" header,
+      then each reactor with their name, "Tap to remove" subtitle
+      (for own reactions), and the emoji. Dismiss with
+      PopoverDismissRegion (id="PopoverDismissRegion", label="dismiss popup").
+
+teardown: []
+
+criteria:
+  long_press_context_menu:
+    description: "Long press opens context menu with reaction picker, Reply, and Copy"
+  copy_action:
+    description: "Copy action puts message text on the pasteboard"
+  swipe_to_reply:
+    description: "Swipe right opens the reply composer bar"
+  cancel_reply:
+    description: "X button dismisses reply composer"
+  reaction_added:
+    description: "Reaction added via the quick reaction picker"
+  reaction_drawer_opens:
+    description: "Tapping reaction indicator opens reactions drawer"

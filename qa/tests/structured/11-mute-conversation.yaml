@@ -1,0 +1,83 @@
+id: "11"
+name: "Mute and Unmute Conversation"
+description: >
+  Verify that conversations can be muted and unmuted via swipe actions,
+  and that the mute state is reflected in the UI while messages still arrive.
+tags: [conversations, mute, core]
+depends_on: ["02"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+
+steps:
+  - id: mute_via_swipe
+    name: "Mute conversation via swipe action"
+    actions:
+      - swipe_left: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "bell.slash.fill", timeout: 5 }
+      - tap: { id: "bell.slash.fill" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "conversation-list-item-$conversation_id" }
+    criteria: mute_via_swipe
+    expect_events:
+      - "conversation.muted"
+
+  - id: muted_indicator
+    name: "Muted indicator appears in list"
+    actions:
+      - find_elements: { id: "conversation-list-item-$conversation_id" }
+    verify:
+      - element_label_contains: { id: "conversation-list-item-$conversation_id", text: "muted" }
+    criteria: muted_indicator_visible
+    note: >
+      The conversation list item label may include "muted" when the
+      conversation is muted. Check the label text.
+
+  - id: messages_while_muted
+    name: "Messages still arrive in muted conversation"
+    actions:
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Message while muted"
+      - wait_for_element: { label_contains: "Message while muted", timeout: 15 }
+    verify:
+      - element_label_contains: { id: "conversation-list-item-$conversation_id", text: "Message while muted" }
+    criteria: messages_arrive_muted
+
+  - id: unmute_via_swipe
+    name: "Unmute conversation via swipe action"
+    actions:
+      - swipe_left: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "bell.fill", timeout: 5 }
+      - tap: { id: "bell.fill" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_not_label_contains: { id: "conversation-list-item-$conversation_id", text: "muted" }
+    criteria: unmute_via_swipe
+    expect_events:
+      - "conversation.unmuted"
+
+teardown: []
+
+criteria:
+  mute_via_swipe:
+    description: "Conversation can be muted via swipe action"
+  muted_indicator_visible:
+    description: "Muted indicator appears in the conversations list"
+  messages_arrive_muted:
+    description: "Messages still arrive in a muted conversation"
+  unmute_via_swipe:
+    description: "Conversation can be unmuted via swipe action"

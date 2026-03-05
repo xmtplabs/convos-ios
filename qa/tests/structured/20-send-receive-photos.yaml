@@ -1,0 +1,94 @@
+id: "20"
+name: "Send and Receive Photos"
+description: >
+  Verify end-to-end photo messaging: sending from app, receiving from CLI,
+  blur/reveal privacy flow, and first-time education sheets. Two education
+  sheets appear on first use: "Pics are personal" (first send) and "Reveal"
+  (first reveal tap).
+tags: [messaging, photos, privacy, core]
+depends_on: ["02"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversation_detail
+  simulator_has_photos: true
+
+state:
+  conversation_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: add_test_photos_to_simulator
+    note: >
+      curl -sL "https://picsum.photos/400/300" -o /tmp/test-photo.jpg
+      curl -sL "https://picsum.photos/200/200" -o /tmp/cli-test-photo.jpg
+      xcrun simctl addmedia $UDID /tmp/test-photo.jpg
+
+steps:
+  - id: send_photo
+    name: "Send photo from app"
+    actions:
+      - tap: { id: "photo-picker-button" }
+      - wait_for_element: { label: "Photos", timeout: 10 }
+      - tap_first_photo: {}
+      - dismiss_education_sheet: { button: "Got it" }
+      - wait_for_element: { id: "send-message-button", timeout: 5 }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label: "Sent", timeout: 15 }
+    verify:
+      - element_exists: { label: "Sent" }
+    criteria: photo_sent
+    note: >
+      Photo picker button: id="photo-picker-button", label="Photo library".
+      First-time send triggers "Pics are personal" education sheet:
+      "Real life is off the record. Pics are encrypted on send and deleted
+      from temp storage after delivery. Convos never sees or saves to your
+      Camera Roll. Image metadata is never shared." Dismiss with "Got it".
+      Photo thumbnail appears in composer with X cancel button.
+      Known BUG: Sender sees "Failed to load" for their own sent photo
+      instead of the actual image.
+
+  - id: receive_photo_blurred
+    name: "Receive photo from CLI (blurred)"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/cli-test-photo.jpg"
+      - wait_for_element: { label_contains: "Tap pic to reveal", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Tap pic to reveal" }
+    criteria: photo_received_blurred
+    note: >
+      Incoming photos arrive blurred with "Tap pic to reveal" label
+      and an eye icon. The sender name (e.g., "CLI Bot") is overlaid
+      on the top-left of the blurred image.
+
+  - id: reveal_photo
+    name: "Tap to reveal photo"
+    actions:
+      - tap: { label_contains: "Tap pic to reveal" }
+      - dismiss_education_sheet: { button: "Got it" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { label_contains: "Tap pic to reveal" }
+    criteria: photo_revealed
+    note: >
+      First-time reveal triggers "Reveal" education sheet: "View things
+      when you choose to. Blur or reveal any pic, anytime. Revealing is
+      a personal preference, and no one else in the convo will know your
+      choice." Dismiss with "Got it". Photo becomes fully visible.
+
+teardown: []
+
+criteria:
+  photo_sent:
+    description: "Photo can be selected and sent from the app"
+  photo_received_blurred:
+    description: "Incoming photo arrives blurred with reveal prompt"
+  photo_revealed:
+    description: "Tapping an incoming photo reveals it"

@@ -1,0 +1,108 @@
+id: "13"
+name: "Database Migration from Main"
+description: >
+  Verify that upgrading from the production version (main branch) to the
+  current branch preserves user data and the app functions correctly after
+  upgrade. In DEBUG builds, eraseDatabaseOnSchemaChange may wipe data if
+  the schema changed — this is expected and should be reported.
+tags: [migration, database, special]
+depends_on: ["01"]
+estimated_duration_s: 600
+
+prerequisites:
+  app_running: false
+  cli_initialized: true
+  requires_separate_simulator: true
+
+state:
+  migration_udid: null
+  worktree_path: "/tmp/convos-migration-main"
+
+setup:
+  - action: create_migration_simulator
+    note: >
+      Clone a base iPhone simulator named "<current-sim>-migration".
+      Boot it and record the UDID. Build and install the main branch
+      version from a temporary git worktree.
+
+steps:
+  - id: build_main
+    name: "Main branch builds and installs successfully"
+    actions:
+      - create_worktree: { path: "/tmp/convos-migration-main", branch: "main" }
+      - xcodebuild:
+          project: "/tmp/convos-migration-main/Convos.xcodeproj"
+          scheme: "Convos (Dev)"
+          destination: "$migration_udid"
+      - install_app: { udid: "$migration_udid" }
+      - launch_app: { udid: "$migration_udid" }
+    criteria: main_builds
+
+  - id: populate_data
+    name: "Create conversations and messages on main branch"
+    actions:
+      - cli_create_and_join_conversations:
+          simulator: "$migration_udid"
+          conversations:
+            - { name: "Migration Alpha", messages: 3 }
+            - { name: "Migration Beta", messages: 3 }
+            - { name: "Migration Gamma", messages: 2 }
+      - screenshot: { udid: "$migration_udid" }
+      - terminate_app: { udid: "$migration_udid" }
+    criteria: data_populated
+
+  - id: install_current
+    name: "Current branch installs on top of main"
+    actions:
+      - xcodebuild:
+          project: "Convos.xcodeproj"
+          scheme: "Convos (Dev)"
+          destination: "$migration_udid"
+      - install_app: { udid: "$migration_udid" }
+      - launch_app: { udid: "$migration_udid" }
+      - wait_for_element: { id: "compose-button", timeout: 30, udid: "$migration_udid" }
+    criteria: current_installs
+
+  - id: check_migration
+    name: "Data migration outcome"
+    actions:
+      - find_elements: { pattern: "conversation-list-item", udid: "$migration_udid" }
+    verify:
+      - report_migration_status: true
+    criteria: migration_outcome
+    note: >
+      If conversations exist: schema compatible, data migrated.
+      If list is empty: schema changed, eraseDatabaseOnSchemaChange wiped data.
+      Both outcomes are valid — report which occurred.
+
+  - id: post_upgrade_functional
+    name: "Core functionality works on new version"
+    actions:
+      - cli_create_and_join:
+          name: "Post-Migration Test"
+          simulator: "$migration_udid"
+      - cli_send_text:
+          conversation: "$conversation_id"
+          text: "Post upgrade message"
+      - wait_for_element: { label_contains: "Post upgrade message", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Post upgrade message" }
+    criteria: post_upgrade_functional
+
+teardown:
+  - action: delete_simulator
+    args: { udid: "$migration_udid" }
+  - action: remove_worktree
+    args: { path: "/tmp/convos-migration-main" }
+
+criteria:
+  main_builds:
+    description: "Main branch app builds and installs on the migration simulator"
+  data_populated:
+    description: "Conversations can be created and populated on the main version"
+  current_installs:
+    description: "Current branch installs and launches on top of main"
+  migration_outcome:
+    description: "Data migration outcome reported (preserved or wiped)"
+  post_upgrade_functional:
+    description: "Core functionality works on the new version"
