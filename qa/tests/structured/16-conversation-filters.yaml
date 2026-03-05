@@ -1,0 +1,109 @@
+id: "16"
+name: "Conversation Filters"
+description: >
+  Verify conversation filters in the conversations list — four filter options
+  (All, Unread, Exploding, Pending invites), correct filtering, empty states,
+  and the Show all button. Filter button id="filter-button", label changes to
+  "Filter active" when non-All filter selected.
+tags: [conversations, filters]
+depends_on: ["02"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conv_read_id: null
+  conv_unread_id: null
+
+setup:
+  - action: ensure_two_conversations
+    save:
+      conv_read_id: "from existing read conversation"
+      conv_unread_id: "from existing unread conversation"
+    note: >
+      Need 2+ conversations: one read (user has viewed it), one unread
+      (CLI sent a message user hasn't opened).
+
+steps:
+  - id: open_filter_dropdown
+    name: "Filter dropdown shows four options"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label: "All", timeout: 5 }
+    verify:
+      - element_exists: { label: "All" }
+      - element_exists: { label: "Unread" }
+      - element_exists: { label: "Exploding" }
+      - element_exists: { label: "Pending invites" }
+    criteria: filter_dropdown_options
+    note: >
+      Filter button is a PopUpButton with id="filter-button". When "All" is
+      selected, its label is "Filter conversations". When a non-All filter is
+      active, label changes to "Filter active" and icon fills in. The dropdown
+      shows a checkmark next to the current selection.
+
+  - id: apply_unread_filter
+    name: "Unread filter shows only unread conversations"
+    actions:
+      - tap: { label: "Unread" }
+      - wait_for_element: { id: "filter-button", timeout: 5 }
+    verify:
+      - element_exists: { id: "conversation-list-item-$conv_unread_id" }
+      - element_not_exists: { id: "conversation-list-item-$conv_read_id" }
+    criteria: filter_shows_unread_only
+
+  - id: apply_exploding_filter
+    name: "Exploding filter shows empty state"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label: "Exploding", timeout: 5 }
+      - tap: { label: "Exploding" }
+      - wait_for_element: { label_contains: "No exploding", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "No exploding convos" }
+      - element_exists: { id: "show-all-button" }
+    criteria: filter_exploding_empty
+    note: >
+      Empty state shows "No exploding convos" with a "Show all" button
+      (id="show-all-button", label="Show all conversations").
+
+  - id: apply_pending_invites_filter
+    name: "Pending invites filter shows empty state"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label: "Pending invites", timeout: 5 }
+      - tap: { label: "Pending invites" }
+      - wait_for_element: { label_contains: "No pending", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "No pending invites" }
+      - element_exists: { id: "show-all-button" }
+    criteria: filter_pending_empty
+
+  - id: show_all_reset
+    name: "Show all button resets filter to All"
+    actions:
+      - tap: { id: "show-all-button" }
+      - wait_for_element: { id: "conversation-list-item-$conv_read_id", timeout: 5 }
+    verify:
+      - element_exists: { id: "conversation-list-item-$conv_read_id" }
+      - element_exists: { id: "conversation-list-item-$conv_unread_id" }
+    criteria: show_all_resets_filter
+
+teardown:
+  - action: reset_filter_to_all
+    optional: true
+
+criteria:
+  filter_dropdown_options:
+    description: "Filter button shows All, Unread, Exploding, Pending invites"
+  filter_shows_unread_only:
+    description: "Unread filter shows only conversations with unread messages"
+  filter_exploding_empty:
+    description: "Exploding filter shows empty state with Show all button"
+  filter_pending_empty:
+    description: "Pending invites filter shows empty state with Show all button"
+  show_all_resets_filter:
+    description: "Show all button resets filter to All, showing all conversations"

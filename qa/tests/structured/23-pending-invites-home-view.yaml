@@ -1,0 +1,106 @@
+id: "23"
+name: "Pending Invites in Home View"
+description: >
+  Verify that pending invite conversations (accepted but not yet approved)
+  appear in the home view, show "Verifying" status, have restricted actions,
+  appear in the Pending invites filter, and transition to active after
+  approval. Pending conversations use a draft-UUID id prefix until verified.
+tags: [conversations, invites, pending, core]
+depends_on: ["01"]
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  pending_conv_id: null
+  invite_url: null
+
+setup:
+  - action: cli_create_conversation_no_process
+    note: >
+      CLI creates a conversation and generates an invite. The app opens
+      the invite URL but the join request is NOT processed — leaving the
+      conversation in "Verifying" state.
+    save:
+      pending_conv_id: "from CLI"
+      invite_url: "from cli_generate_invite"
+
+steps:
+  - id: pending_in_list
+    name: "Pending conversation shows in list with Verifying status"
+    actions:
+      - sim_open_url: { url: "$invite_url" }
+      - wait_for_element: { label_contains: "Verifying", timeout: 15 }
+      - tap: { id: "close-new-conversation" }
+      - wait_for_element: { id: "compose-button", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "verifying" }
+    criteria: pending_in_list
+    note: >
+      Pending conversations in the list show:
+      - id="conversation-list-item-draft-<UUID>" (draft prefix, not real conv ID)
+      - label="<Name>, verifying"
+      - subtitle: "<time> · Verifying"
+      - Only "Delete conversation" action (no mark read, mute, explode)
+
+  - id: pending_detail_view
+    name: "Pending conversation detail shows disabled input"
+    actions:
+      - tap: { label_contains: "verifying" }
+      - wait_for_element: { label_contains: "Verifying", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Verifying" }
+      - element_exists: { label_contains: "See and send messages after your access is verified" }
+    criteria: pending_detail_view
+    note: >
+      Detail view shows: "Verifying — See and send messages after your
+      access is verified" banner. Message input is greyed out and disabled.
+      Member count shows "1 member" (only the creator, not the pending user).
+
+  - id: pending_filter
+    name: "Pending invites filter shows pending conversations"
+    actions:
+      - navigate_back: {}
+      - wait_for_element: { id: "filter-button", timeout: 5 }
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label: "Pending invites", timeout: 5 }
+      - tap: { label: "Pending invites" }
+      - wait_for_element: { label_contains: "verifying", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "verifying" }
+    criteria: pending_filter
+
+  - id: transition_to_active
+    name: "Conversation transitions to active after join processed"
+    actions:
+      - tap: { id: "filter-button" }
+      - wait_for_element: { label: "All", timeout: 5 }
+      - tap: { label: "All" }
+      - cli_process_joins: { conversation: "$pending_conv_id" }
+      - wait_for_element: { id: "conversation-list-item-$pending_conv_id", timeout: 30 }
+    verify:
+      - element_exists: { id: "conversation-list-item-$pending_conv_id" }
+      - element_not_exists: { label_contains: "verifying" }
+    criteria: transition_to_active
+    note: >
+      After join is processed: conversation id changes from
+      draft-UUID to real conversation ID, "verifying" label disappears,
+      actions expand to include Mark as unread and Mute.
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$pending_conv_id" }
+    optional: true
+
+criteria:
+  pending_in_list:
+    description: "Pending conversation appears in list with Verifying status and restricted actions"
+  pending_detail_view:
+    description: "Pending conversation detail shows Verifying banner and disabled input"
+  pending_filter:
+    description: "Pending invites filter correctly shows only pending conversations"
+  transition_to_active:
+    description: "Conversation transitions from pending to active after join approval"

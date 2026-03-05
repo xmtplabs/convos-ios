@@ -1,0 +1,113 @@
+id: "06"
+name: "Reply to Messages"
+description: >
+  Verify that replies work correctly — both sending replies from the app
+  and receiving replies from the CLI, with the reply reference displayed.
+tags: [messaging, replies, core]
+depends_on: ["02"]
+estimated_duration_s: 150
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversation_detail
+
+state:
+  conversation_id: null
+  cli_msg_id: null
+  app_msg_id: null
+
+setup:
+  - action: ensure_shared_conversation
+    save:
+      conversation_id: run_state.shared_conversation_id
+  - action: navigate_to_conversation
+    args: { id: "$conversation_id" }
+  - action: cli_send_text
+    args: { conversation: "$conversation_id", text: "Original message from CLI" }
+    save: cli_msg_id
+  - action: app_send_text
+    args: { text: "Original message from app" }
+    save: app_msg_id
+  - action: wait_for_element
+    args: { label_contains: "Original message from app", timeout: 15 }
+
+steps:
+  - id: reply_from_cli
+    name: "CLI reply appears in app with reference"
+    actions:
+      - cli_send_reply:
+          conversation: "$conversation_id"
+          reference_message: "$app_msg_id"
+          text: "CLI replying to your message"
+      - wait_for_element: { label_contains: "CLI replying to your message", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "CLI replying to your message" }
+    criteria: cli_reply_visible
+    note: >
+      The reply displays with a reference bubble above the reply text:
+      "Reply to <name>: <original text>" (tappable Button). The reply
+      content type is "reply" on XMTP but renders as type=text in the
+      notification service. Known issue: if the app is in the foreground
+      conversation view, the reply may not appear via streaming — the
+      NotificationService processes it but the conversation view may need
+      to be re-entered (navigate back, then re-open) or app restart.
+      The message DOES get stored in the database.
+
+  - id: reply_from_app
+    name: "App can reply to a message"
+    actions:
+      - long_press: { label_contains: "Original message from CLI", duration: 1.5 }
+      - wait_for_element: { label: "Reply", timeout: 5 }
+      - tap: { label: "Reply" }
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+      - type_in_field: { id: "message-text-field", text: "App replying to your message" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "App replying to your message", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "App replying to your message" }
+    criteria: app_reply_sent
+    expect_events:
+      - "message.sent"
+
+  - id: verify_reply_via_cli
+    name: "App reply visible via CLI with reference"
+    actions:
+      - cli_read_messages:
+          conversation: "$conversation_id"
+          sync: true
+          grep: "App replying to your message"
+    verify:
+      - cli_output_contains: "App replying to your message"
+    criteria: app_reply_in_cli
+
+  - id: cancel_reply
+    name: "Reply can be cancelled"
+    actions:
+      - long_press: { label_contains: "Original message from CLI", duration: 1.5 }
+      - wait_for_element: { label: "Reply", timeout: 5 }
+      - tap: { label: "Reply" }
+      - wait_for_element: { id: "reply-composer-bar", timeout: 5 }
+      - tap: { x_offset: "right", id: "reply-composer-bar" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_not_exists: { id: "reply-composer-bar" }
+    criteria: reply_cancellable
+    note: >
+      The reply-composer-bar has a custom action "Cancel reply" and
+      an X button on the right side. Tap the X button (right edge of
+      the bar, approximately x=370) to dismiss. The bar has
+      id="reply-composer-bar" and label="Replying to <name>: <text>".
+
+teardown: []
+
+criteria:
+  cli_reply_visible:
+    description: "CLI reply appears in the app with a visible reference to the original message"
+  app_reply_sent:
+    description: "App can send a reply with correct reply reference"
+  app_reply_in_cli:
+    description: "App reply is visible via CLI with the original message reference"
+  reply_cancellable:
+    description: "Reply can be cancelled before sending"

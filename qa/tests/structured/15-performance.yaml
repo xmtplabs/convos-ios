@@ -1,0 +1,119 @@
+id: "15"
+name: "Performance Baselines"
+description: >
+  Measure and record performance metrics for critical user-facing operations.
+  This test establishes baseline timings and detects regressions. Results
+  are reported as a table — no hard pass/fail thresholds on first run.
+tags: [performance, baselines, special]
+depends_on: ["02"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: true
+  screen: conversations_list
+
+state:
+  few_msgs_conversation_id: null
+  many_msgs_conversation_id: null
+
+setup:
+  - action: ensure_conversations_with_messages
+    note: >
+      Need two conversations: one with ~20 messages (few), one with
+      100+ messages (many). All messages must be sent AFTER the app
+      joins (pre-join messages are hidden for privacy).
+
+steps:
+  - id: open_few_messages
+    name: "Open conversation with < 50 messages (3 runs)"
+    actions:
+      - log_marker: {}
+      - tap: { id: "conversation-list-item-$few_msgs_conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - extract_perf: { pattern: "ConversationViewModel.init" }
+      - navigate_back: {}
+      - repeat: 2
+    verify:
+      - perf_metric_recorded: "open_few_msgs"
+    criteria: open_few_msgs
+    note: >
+      Record ConversationViewModel.init time (ms) and message count.
+      Target: < 50ms. Repeat 3 times and report median.
+
+  - id: open_many_messages
+    name: "Open conversation with 100+ messages (3 runs)"
+    actions:
+      - log_marker: {}
+      - tap: { id: "conversation-list-item-$many_msgs_conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - extract_perf: { pattern: "ConversationViewModel.init" }
+      - navigate_back: {}
+      - repeat: 2
+    verify:
+      - perf_metric_recorded: "open_many_msgs"
+    criteria: open_many_msgs
+    note: >
+      Page size is 50, so init loads 50 even though DB has 100+.
+      Target: < 100ms. Repeat 3 times and report median.
+
+  - id: create_new_conversation
+    name: "Create new conversation timing (3 runs)"
+    actions:
+      - log_marker: {}
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "invite-qr-code", timeout: 15 }
+      - extract_perf: { pattern: "NewConversation" }
+      - navigate_back: {}
+      - repeat: 2
+    verify:
+      - perf_metric_recorded: "new_convo_ready"
+    criteria: new_convo_timing
+    note: >
+      Extract inboxAcquired, creating, and ready timings.
+      Target: inboxAcquired < 500ms, ready < 1000ms.
+
+  - id: join_conversation
+    name: "Join conversation via invite timing"
+    actions:
+      - cli_create_conversation: { name: "Perf Join Test" }
+        save: { conversation_id: "from cli output" }
+      - cli_generate_invite: { conversation: "$conversation_id" }
+        save: { invite_url: "from cli output" }
+      - cli_process_joins_background: { conversation: "$conversation_id" }
+      - log_marker: {}
+      - sim_open_url: { url: "$invite_url" }
+      - wait_for_element: { id: "message-text-field", timeout: 60 }
+      - extract_perf: { pattern: "NewConversation" }
+    verify:
+      - perf_metric_recorded: "join_convo_ready"
+    criteria: join_convo_timing
+    note: >
+      Extract ready (origin: joined) and compute
+      join_approval_to_ready from joinRequestSent to ready.
+      Target: join_approval_to_ready < 5000ms.
+
+  - id: report_results
+    name: "Report performance results"
+    actions:
+      - compile_perf_report: {}
+    verify:
+      - perf_report_generated: true
+    criteria: results_reported
+
+teardown:
+  - action: cli_explode_test_conversations
+    optional: true
+
+criteria:
+  open_few_msgs:
+    description: "ConversationViewModel.init with < 50 messages measured"
+  open_many_msgs:
+    description: "ConversationViewModel.init with 100+ messages measured"
+  new_convo_timing:
+    description: "New conversation creation timing measured"
+  join_convo_timing:
+    description: "Join conversation via invite timing measured"
+  results_reported:
+    description: "Performance results compiled and reported"
