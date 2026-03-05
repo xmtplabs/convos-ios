@@ -82,10 +82,6 @@ public final class VaultManager: @unchecked Sendable {
         vaultClient.inboxId
     }
 
-    public var vaultInstallationId: String? {
-        vaultClient.installationId
-    }
-
     public init(
         identityStore: any VaultIdentityStoreProtocol,
         deviceName: String
