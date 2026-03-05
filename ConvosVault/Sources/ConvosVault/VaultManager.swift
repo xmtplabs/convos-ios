@@ -70,12 +70,17 @@ public final class VaultManager: @unchecked Sendable {
     private let vaultClient: VaultClient
     private let identityStore: any VaultIdentityStoreProtocol
     private let deviceName: String
+    private let memberCountLock: OSAllocatedUnfairLock<Int> = .init(initialState: 1)
 
     public weak var delegate: (any VaultManagerDelegate)?
 
     public var isConnected: Bool {
         if case .connected = vaultClient.state { return true }
         return false
+    }
+
+    public var hasMultipleDevices: Bool {
+        memberCountLock.withLock { $0 > 1 }
     }
 
     public var vaultInboxId: String? {
@@ -94,6 +99,7 @@ public final class VaultManager: @unchecked Sendable {
 
     public func connect(signingKey: SigningKey, options: ClientOptions) async throws {
         try await vaultClient.connect(signingKey: signingKey, options: options)
+        await refreshMemberCount()
     }
 
     public func disconnect() {
@@ -162,6 +168,12 @@ public final class VaultManager: @unchecked Sendable {
 
         try await vaultClient.send(removal, codec: DeviceRemovedCodec())
         try await vaultClient.removeMember(inboxId: inboxId)
+        await refreshMemberCount()
+    }
+
+    private func refreshMemberCount() async {
+        let count = (try? await vaultClient.members().count) ?? 1
+        memberCountLock.withLock { $0 = count }
     }
 
     private func importKeyShare(_ share: DeviceKeyShareContent) async {
@@ -209,7 +221,7 @@ public final class VaultManager: @unchecked Sendable {
 
 extension VaultManager: VaultKeyShareNotifier {
     public func conversationKeyCreated(_ keyInfo: ConversationKeyInfo) {
-        guard isConnected else { return }
+        guard isConnected, hasMultipleDevices else { return }
 
         Task {
             do {
