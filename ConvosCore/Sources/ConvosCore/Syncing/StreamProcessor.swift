@@ -71,6 +71,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let notificationCenter: any UserNotificationCenterProtocol
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
+    private let vaultMessageProcessor: (any VaultMessageProcessorProtocol)?
 
     // MARK: - Initialization
 
@@ -79,12 +80,14 @@ actor StreamProcessor: StreamProcessorProtocol {
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+        vaultMessageProcessor: (any VaultMessageProcessorProtocol)? = nil,
         notificationCenter: any UserNotificationCenterProtocol
     ) {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.deviceRegistrationManager = deviceRegistrationManager
+        self.vaultMessageProcessor = vaultMessageProcessor
         self.notificationCenter = notificationCenter
         self.inviteJoinErrorHandler = nil
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
@@ -123,6 +126,11 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         clientConversationId: String? = nil
     ) async throws {
+        if let vaultProcessor = vaultMessageProcessor,
+           await vaultProcessor.isVaultConversation(conversation.id) {
+            return
+        }
+
         guard try await shouldProcessConversation(conversation, params: params) else { return }
 
         let creatorInboxId = try await conversation.creatorInboxId()
@@ -163,6 +171,12 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         activeConversationId: String?
     ) async {
+        if let vaultProcessor = vaultMessageProcessor,
+           await vaultProcessor.isVaultConversation(message.conversationId) {
+            await vaultProcessor.processVaultMessage(message)
+            return
+        }
+
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
             guard let conversation = try await params.client.conversationsProvider.findConversation(
