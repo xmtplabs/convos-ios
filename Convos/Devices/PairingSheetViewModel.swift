@@ -18,13 +18,19 @@ final class PairingSheetViewModel {
     var enteredPin: String = ""
     var canDismiss: Bool = true
     var title: String = "Pair new device"
+    var secondsRemaining: Int = 60
 
     private let vaultManager: VaultManager
+    private let timeoutInterval: TimeInterval
     private var coordinator: PairingCoordinator?
     private var joinerDeviceName: String = "New Device"
+    private var expiresAt: Date = .distantFuture
+    private var countdownTask: Task<Void, Never>?
 
-    init(vaultManager: VaultManager) {
+    init(vaultManager: VaultManager, timeoutInterval: TimeInterval = 60) {
         self.vaultManager = vaultManager
+        self.timeoutInterval = timeoutInterval
+        self.secondsRemaining = Int(timeoutInterval)
     }
 
     var isApproveEnabled: Bool {
@@ -43,9 +49,31 @@ final class PairingSheetViewModel {
 
         do {
             try await coordinator.startPairing(inviteURL: inviteURL)
+            expiresAt = Date().addingTimeInterval(timeoutInterval)
+            secondsRemaining = Int(timeoutInterval)
             flowState = .qrCode(url: inviteURL)
+            startCountdown()
         } catch {
             flowState = .failed(error.localizedDescription)
+        }
+    }
+
+    private func startCountdown() {
+        countdownTask?.cancel()
+        countdownTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { break }
+                guard let self else { break }
+
+                let remaining = Int(self.expiresAt.timeIntervalSinceNow)
+                if remaining <= 0 {
+                    self.secondsRemaining = 0
+                    self.flowState = .expired
+                    break
+                }
+                self.secondsRemaining = remaining
+            }
         }
     }
 
@@ -64,6 +92,7 @@ final class PairingSheetViewModel {
     func approve() async {
         guard coordinator != nil else { return }
 
+        countdownTask?.cancel()
         let deviceName = joinerDeviceName
         canDismiss = false
         flowState = .syncing
@@ -86,6 +115,7 @@ final class PairingSheetViewModel {
     }
 
     func cancel() async {
+        countdownTask?.cancel()
         await coordinator?.cancel()
         coordinator = nil
     }
