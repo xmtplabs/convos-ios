@@ -228,8 +228,9 @@ Keys accumulate as messages in the Vault. When the device comes back online, it 
 
 **Installation ID tracking:** When a device shares a conversation key (via `DeviceKeyBundle` or `DeviceKeyShare`), it also includes the installation ID it created for that conversation. This builds a mapping of device → installation IDs per conversation, which is needed to selectively revoke a specific device's installations without affecting other devices. Selective revocation based on this mapping is a future phase — for now, removing a device from the Vault prevents it from receiving future keys.
 
+**Maximum devices:** 10, matching XMTP's maximum installation count per inbox. The Vault UI should enforce this limit and show an error when attempting to pair an 11th device.
+
 ## Open Questions
 
-1. **Maximum devices**: Should there be a limit on linked devices?
-2. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
+1. **Vault conversation expiry**: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.
 
