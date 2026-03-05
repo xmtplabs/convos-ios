@@ -278,7 +278,8 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             throw InboxLifecycleError.wakeCapacityExceeded
         }
 
-        let service = createMessagingService(inboxId: inboxId, clientId: clientId)
+        let isVault = clientId == _vaultClientId
+        let service = createMessagingService(inboxId: inboxId, clientId: clientId, isVault: isVault)
         awakeInboxes[clientId] = service
         _sleepingClientIds.remove(clientId)
         _sleepTimes.removeValue(forKey: clientId)
@@ -760,7 +761,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         }
     }
 
-    private func createMessagingService(inboxId: String, clientId: String) -> any MessagingServiceProtocol {
+    private func createMessagingService(inboxId: String, clientId: String, isVault: Bool = false) -> any MessagingServiceProtocol {
         MessagingService.authorizedMessagingService(
             for: inboxId,
             clientId: clientId,
@@ -768,7 +769,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             databaseReader: databaseReader,
             environment: environment,
             identityStore: identityStore,
-            startsStreamingServices: true,
+            startsStreamingServices: !isVault,
             platformProviders: platformProviders,
             deviceRegistrationManager: deviceRegistrationManager,
             apiClient: apiClient
