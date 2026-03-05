@@ -37,6 +37,41 @@ struct UnusedConversationConsumptionTests {
         throw TestError.timeout("Timed out waiting for unused conversation to be created")
     }
 
+    @Test("Pre-created unused conversation has a non-empty invite tag")
+    func testUnusedConversationHasInviteTag() async throws {
+        let fixtures = TestFixtures()
+        let cache = UnusedConversationCache(
+            keychainService: MockKeychainService(),
+            identityStore: fixtures.identityStore,
+            platformProviders: .mock
+        )
+
+        await cache.clearUnusedFromKeychain()
+
+        await cache.prepareUnusedConversationIfNeeded(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+        try await waitForUnusedConversation(cache: cache)
+
+        let unusedConversation = try await fixtures.databaseManager.dbReader.read { db in
+            try DBConversation
+                .filter(DBConversation.Columns.isUnused == true)
+                .fetchOne(db)
+        }
+
+        #expect(unusedConversation != nil, "Unused conversation should exist in database")
+        #expect(
+            unusedConversation?.inviteTag.isEmpty == false,
+            "Unused conversation invite tag should not be empty (was: '\(unusedConversation?.inviteTag ?? "nil")')"
+        )
+
+        // Clean up
+        await cache.clearUnusedFromKeychain()
+        try? await fixtures.cleanup()
+    }
+
     @Test("Consuming unused conversation returns the correct conversation ID in state manager")
     func testConsumedConversationIdMatchesStateManager() async throws {
         let fixtures = TestFixtures()

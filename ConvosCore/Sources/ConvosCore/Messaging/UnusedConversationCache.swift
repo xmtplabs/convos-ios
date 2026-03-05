@@ -838,6 +838,14 @@ extension UnusedConversationCache {
             guard let group = optimisticConversation as? XMTPiOS.Group else {
                 throw UnusedConversationCacheError.invalidConversationType
             }
+
+            try await group.ensureInviteTag()
+            do {
+                try await group.ensureImageEncryptionKey()
+            } catch {
+                Log.warning("Failed to generate image encryption key for unused conversation: \(error). Will retry on first image upload.")
+            }
+
             try await saveUnusedConversationToDatabase(
                 conversation: group,
                 inboxId: inboxId,
