@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>profile-messages.md</title>
+<title>convos-vault.md</title>
 <style>* {
     margin: 0;
     padding: 0;
@@ -185,199 +185,166 @@ del {
     del { color: #636366; }
 }</style>
 </head>
-<body><h1>Profile Messages: Moving Profiles Out of appData</h1>
-<h2>Problem</h2>
-<p>Member profiles (name, encrypted avatar) are currently stored in the XMTP group’s <code>appData</code> field as part of the <code>ConversationCustomMetadata</code> protobuf. This causes several problems:</p>
-<ol start="1">
-<li><p><strong>Size limit</strong> — <code>appData</code> is capped at 8KB. Every member’s profile competes for space with the invite tag, encryption keys, expiration, and the group image. Large groups will hit this ceiling.</p></li>
-<li><p><strong>Write contention</strong> — Every profile update requires a read-modify-write of the entire <code>appData</code> blob. Concurrent updates (profile change + tag rotation, two members updating profiles simultaneously) can clobber each other. We patched this with <code>atomicUpdateMetadata</code> retries, but the fundamental problem remains.</p></li>
-<li><p><strong>Bandwidth</strong> — Every profile change rebroadcasts the entire metadata blob (all profiles, tag, keys) to all members as a group commit.</p></li>
-<li><p><strong>Coupling</strong> — Unrelated concerns (profiles, invite tags, encryption keys, expiration) share one mutable blob. A bug in any write path can corrupt all of them.</p></li>
-</ol>
-<h2>Solution</h2>
-<p>Replace appData profile storage with two new XMTP custom content types sent as group messages:</p>
-<h3>Content Types</h3>
-<p><strong><code>ProfileUpdate</code></strong> — Sent by a member when they change their own profile.</p>
-<pre><code>authority: convos.org
-typeId: profile_update
-</code></pre>
-<p>Contains a single profile: the sender’s updated name and/or encrypted avatar reference. Only the sender can author their own profile update — the sender inbox ID is implicit from the XMTP message.</p>
-<p><strong><code>ProfileSnapshot</code></strong> — Sent by the member who adds a new member to the group.</p>
-<pre><code>authority: convos.org
-typeId: profile_snapshot
-</code></pre>
-<p>Contains a map of all current member profiles. Sent immediately after adding a member so the new joiner has everyone’s profiles without needing to scan message history.</p>
-<h3>Why Two Content Types</h3>
-<p><code>ProfileUpdate</code> handles the steady-state: members changing their own names/avatars. It’s lightweight (single profile) and conflict-free (each member owns their own).</p>
-<p><code>ProfileSnapshot</code> solves the forward secrecy problem. XMTP uses MLS — older messages become undecryptable after key rotations. A member who joined recently can’t read a <code>ProfileUpdate</code> sent months ago. The snapshot provides a durable checkpoint authored by the adder, who is online and has current key material.</p>
-<h3>Profile Resolution Order</h3>
-<p>When building the current profile for a member:</p>
-<ol start="1">
-<li><p><strong>Latest <code>ProfileUpdate</code> from that member</strong> — highest priority, most recent self-authored update</p></li>
-<li><p><strong>Most recent <code>ProfileSnapshot</code> containing that member</strong> — fallback when no <code>ProfileUpdate</code> exists (e.g., new joiner who hasn’t updated their profile yet, or <code>ProfileUpdate</code> lost to forward secrecy)</p></li>
-<li><p><strong>No profile</strong> — member has no name/avatar set</p></li>
-</ol>
-<p>This means snapshot preparation must follow the same precedence: the adder scans for the latest <code>ProfileUpdate</code> per member first, falls back to the most recent <code>ProfileSnapshot</code> for any members without a <code>ProfileUpdate</code>, then bundles everything into the new snapshot.</p>
-<h2>Detailed Design</h2>
-<h3>ProfileUpdate Content Type</h3>
-<pre><code class="language-swift">struct ProfileUpdateContent: Codable, Sendable {
-    let name: String?
-    let encryptedImage: EncryptedImageRefContent?
-}
-
-struct EncryptedImageRefContent: Codable, Sendable {
-    let url: String
-    let salt: Data  // 32-byte HKDF salt
-    let nonce: Data // 12-byte AES-GCM nonce
-}
-</code></pre>
-<p>The sender’s inbox ID comes from the XMTP message itself — no need to include it in the payload. This prevents spoofing: you can only update your own profile.</p>
-<p>Sending a <code>ProfileUpdate</code> with <code>name: nil</code> and <code>encryptedImage: nil</code> clears the profile.</p>
-<h3>ProfileSnapshot Content Type</h3>
-<pre><code class="language-swift">struct ProfileSnapshotContent: Codable, Sendable {
-    let profiles: [MemberProfileEntry]
-}
-
-struct MemberProfileEntry: Codable, Sendable {
-    let inboxId: String
-    let name: String?
-    let encryptedImage: EncryptedImageRefContent?
-}
-</code></pre>
-<p>The snapshot explicitly includes inbox IDs since it contains other members’ profiles.</p>
-<h3>When Snapshots Are Sent</h3>
-<p>A <code>ProfileSnapshot</code> is sent immediately after adding members in these flows:</p>
-<ol start="1">
-<li><p><strong><code>ConversationMetadataWriter.addMembers</code></strong> — manual member addition</p></li>
-<li><p><strong><code>InviteCoordinator.processJoinRequest</code></strong> — invite-based join (after <code>group.addMembers</code>)</p></li>
-<li><p><strong>Group creation</strong> — creator sends a snapshot with their own profile</p></li>
-</ol>
-<h3>Snapshot Preparation</h3>
-<p>The adder builds the snapshot by:</p>
-<ol start="1">
-<li><p>Syncing the group to ensure latest message state</p></li>
-<li><p>Scanning recent group messages for <code>ProfileUpdate</code> messages — collecting the latest per inbox ID</p></li>
-<li><p>For any member without a <code>ProfileUpdate</code>, checking the most recent <code>ProfileSnapshot</code> message for that member’s entry</p></li>
-<li><p>Bundling all resolved profiles into the new <code>ProfileSnapshot</code></p></li>
-</ol>
-<p>This scan is bounded — we only need to find one <code>ProfileUpdate</code> per member and one fallback <code>ProfileSnapshot</code>. In practice, pagination with a reasonable limit (e.g., last 500 messages) should suffice. Members whose profiles can’t be resolved simply have empty entries.</p>
-<h3>Processing ProfileUpdate Messages</h3>
-<p>When <code>StreamProcessor.processMessage</code> receives a <code>ProfileUpdate</code>:</p>
-<ol start="1">
-<li><p>Extract the sender’s inbox ID from the message</p></li>
-<li><p>Decode the <code>ProfileUpdateContent</code></p></li>
-<li><p>Write to <code>DBMemberProfile</code> in GRDB (upsert by conversationId + inboxId)</p></li>
-<li><p>The message is not displayed in chat (filtered like <code>ExplodeSettings</code>)</p></li>
-</ol>
-<h3>Processing ProfileSnapshot Messages</h3>
-<p>When <code>StreamProcessor.processMessage</code> receives a <code>ProfileSnapshot</code>:</p>
-<ol start="1">
-<li><p>Decode the <code>ProfileSnapshotContent</code></p></li>
-<li><p>For each profile entry, check if we already have a newer <code>ProfileUpdate</code> from that member in GRDB (compare message timestamps or just check if a <code>ProfileUpdate</code> has been processed)</p></li>
-<li><p>Write any missing/older profiles to <code>DBMemberProfile</code></p></li>
-<li><p>Not displayed in chat</p></li>
-</ol>
-<h3>Writing Profile Updates (MyProfileWriter)</h3>
-<p>Current flow:</p>
-<ol start="1">
-<li><p>Update <code>DBMemberProfile</code> in GRDB</p></li>
-<li><p>Call <code>group.updateProfile()</code> which does read-modify-write on appData</p></li>
-</ol>
-<p>New flow:</p>
-<ol start="1">
-<li><p>Update <code>DBMemberProfile</code> in GRDB</p></li>
-<li><p>Send a <code>ProfileUpdate</code> message to the group</p></li>
-<li><p>(Migration period) Also write to appData for backward compatibility</p></li>
-</ol>
-<h3>Reading Profiles (ConversationWriter)</h3>
-<p>Current flow:</p>
-<ol start="1">
-<li><p><code>ConversationWriter._store()</code> calls <code>conversation.memberProfiles</code> which reads from appData</p></li>
-<li><p>Saves all profiles to GRDB, overwriting existing data</p></li>
-</ol>
-<p>New flow:</p>
-<ol start="1">
-<li><p><code>ConversationWriter._store()</code> no longer reads profiles from appData</p></li>
-<li><p>Profiles come exclusively from processing <code>ProfileUpdate</code> and <code>ProfileSnapshot</code> messages</p></li>
-<li><p>On initial sync / conversation discovery, the snapshot sent when we were added provides our baseline</p></li>
-</ol>
-<h3>appData After Migration</h3>
-<p>With profiles removed, <code>ConversationCustomMetadata</code> becomes:</p>
+<body><h1>Convos Vault — Multi-Device Key Sync &amp; Recovery</h1>
+<h2>Overview</h2>
+<p>Convos Vault is a hidden XMTP group conversation that acts as a secure, trustless channel for syncing private keys across a user’s devices. It uses existing conversation primitives — messages, invites, locking, profiles, members — with dedicated content types and UI.</p>
+<p>Convos uses a per-conversation identity model: each conversation has its own secp256k1 private key and XMTP inbox. A user with 20 conversations has 20 separate private keys stored in their device keychain. Convos Vault solves the problem of making those keys available on multiple devices without any server ever having access to the key material.</p>
+<h2>Why not server-side sync?</h2>
+<p>Convos is trustless by design. The Convos backend never has access to user private keys. Key material only travels through XMTP’s end-to-end encrypted MLS protocol — the same trust model used for regular messages.</p>
+<h2>Why not XMTP multi-installation (addAccount)?</h2>
+<p>XMTP supports associating multiple wallet identities with a single inbox via <code>addAccount</code>. However, Convos creates a separate XMTP inbox per conversation (for privacy), meaning there are N private keys to manage, not one. The <code>addAccount</code> flow doesn’t scale to this model — each new conversation would require a new cross-device association ceremony. Instead, we sync the actual private keys through an encrypted channel that the user controls.</p>
+<h2>Architecture</h2>
+<p>The Vault is a standard XMTP group conversation with:</p>
+<ul>
+<li><p>A <code>conversationType</code> field in <code>ConversationCustomMetadata</code> (protobuf field 6) set to <code>&quot;vault&quot;</code> — this is how any device identifies the Vault after syncing its conversation list</p></li>
+<li><p>Custom XMTP content types for key exchange</p></li>
+<li><p>Locked by default (no new members can join without explicit user action)</p></li>
+<li><p>Members represent devices, with profile display names as device names</p></li>
+</ul>
+<h3>Conversation type in custom metadata</h3>
+<p>The Vault must be identifiable by any device that syncs the conversation, without prior local state. When a new device joins and pulls its conversation list, it reads <code>ConversationCustomMetadata.conversationType</code> to distinguish the Vault from regular conversations.</p>
 <pre><code class="language-protobuf">message ConversationCustomMetadata {
     string tag = 1;
-    // field 2 (profiles) removed
+    repeated ConversationProfile profiles = 2;
     optional sfixed64 expiresAtUnix = 3;
     optional bytes imageEncryptionKey = 4;
     optional EncryptedImageRef encryptedGroupImage = 5;
+    optional string conversationType = 6;  // &quot;vault&quot; for Convos Vault
 }
 </code></pre>
-<p>This is a small, rarely-written blob — only changing on tag rotation, expiration changes, key generation, or group image updates. The contention and size problems disappear.</p>
-<h2>Migration Strategy</h2>
-<h3>Phase 1: Dual-Write (This PR)</h3>
+<p>The conversations list filters out any conversation where <code>conversationType == &quot;vault&quot;</code>. The Vault is only accessible through Settings → Convos Vault.</p>
+<h2>Lifecycle</h2>
+<h3>1. First device install</h3>
+<p>When a user installs Convos for the first time:</p>
 <ul>
-<li><p>Add <code>ProfileUpdate</code> and <code>ProfileSnapshot</code> codecs</p></li>
-<li><p><code>MyProfileWriter</code> sends <code>ProfileUpdate</code> messages AND writes to appData</p></li>
-<li><p><code>StreamProcessor</code> processes incoming <code>ProfileUpdate</code> and <code>ProfileSnapshot</code> messages</p></li>
-<li><p><code>ConversationWriter._store()</code> still reads profiles from appData as fallback</p></li>
-<li><p>Member addition flows send <code>ProfileSnapshot</code> after adding</p></li>
-<li><p>All clients can read both sources; new profiles propagate via messages</p></li>
+<li><p>A Vault conversation is created automatically</p></li>
+<li><p>The device is the sole member</p></li>
+<li><p>The device’s profile display name is set to the device name (e.g., “Jarod’s iPhone”)</p></li>
+<li><p>The Vault is locked immediately</p></li>
 </ul>
-<h3>Phase 2: Message-Primary (Future)</h3>
+<p>The Vault’s private key is stored in iCloud Keychain by default on Apple devices, syncing automatically across the user’s Apple devices.</p>
+<p>On non-Apple platforms (Android, web), the Vault key must be presented to the user for manual backup during setup. This could be a mnemonic phrase or a copyable key string. The app should block progression until the user confirms they’ve saved it, since there is no platform-level key sync equivalent to iCloud Keychain.</p>
+<h3>2. Pairing a second device</h3>
+<p>The main device (Device A) initiates pairing from Vault settings:</p>
+<ol start="1">
+<li><p>Device A taps “Pair Device” — this generates a standard Convos invite for the Vault (60-second expiry, single-use) and displays the QR code</p></li>
+<li><p>Device B (new device) scans the QR code</p></li>
+<li><p>Device B generates a random 6-digit confirmation code and displays it on screen</p></li>
+<li><p>Device B sends a join request via DM (the standard invite join flow) — the join request includes Device B’s inbox ID, the 6-digit code, and the device name (e.g., “Jarod’s iPad”)</p></li>
+<li><p>Device A receives the join request and prompts: “Enter the code shown on your new device”</p></li>
+<li><p>The owner reads the code off Device B’s screen and types it into Device A</p></li>
+<li><p>Device A matches the entered code against the code in the join request — this confirms the correct inbox ID to add</p></li>
+<li><p>Device A adds Device B to the Vault conversation — Device B’s profile display name in the Vault is set to the device name from the join request</p></li>
+<li><p>The invite tag is invalidated and the Vault is re-locked</p></li>
+</ol>
+<p><strong>Reuses the existing invite system:</strong> The QR code is a standard Convos invite slug. The join request travels via DM, the same as any conversation invite. The only addition is the 6-digit confirmation code embedded in the join request, which Device A must verify before accepting.</p>
+<p><strong>Why the code is in the join request:</strong> Multiple join requests could arrive if others also scanned the QR. The 6-digit code ties the confirmation to a specific request, ensuring Device A adds the correct inbox ID.</p>
+<p><strong>Security model:</strong> The 6-digit code proves Device A’s owner has physical access to Device B’s screen. Even if someone else scans the QR, Device A’s owner won’t enter their code. Device B is never added to the Vault without Device A explicitly confirming the code match.</p>
+<p><strong>Timing:</strong> The entire pairing flow — scanning the QR, generating and displaying the code, entering the code on Device A, and verification — must complete within the 60-second invite expiry. If the invite expires before the code is confirmed, pairing fails and Device A must generate a new invite.</p>
+<h3>3. Key exchange after pairing</h3>
+<p>Once Device B is added to the Vault:</p>
+<ol start="1">
+<li><p>Device A sends a <code>DeviceKeyBundle</code> message containing all existing conversation private keys</p></li>
+<li><p>If Device B had its own conversations, Device B also sends a <code>DeviceKeyBundle</code> with its keys (see Vault Merging below)</p></li>
+<li><p>Both devices import each other’s keys and call <code>Client.create()</code> for each new conversation inbox</p></li>
+<li><p>Both devices are now installations on all conversations</p></li>
+</ol>
+<h3>4. Vault merging</h3>
+<p>When Device B already has its own Vault (from prior independent use), pairing requires merging:</p>
+<p><strong>Prerequisite:</strong> Device B must be the sole member of its own Vault before pairing. If Device B’s Vault has other devices (C, D), those must be removed first. This prevents devices silently migrating into a new Vault without individual pairing ceremonies.</p>
+<p>The app should check this and show an error: “Remove all other devices from your Vault before pairing with another device.”</p>
+<p><strong>Merge flow:</strong></p>
+<ol start="1">
+<li><p>Pairing completes — Device B is added to Device A’s Vault</p></li>
+<li><p>Device B sends its <code>DeviceKeyBundle</code> (its conversation keys) to Device A’s Vault</p></li>
+<li><p>Device A imports Device B’s keys</p></li>
+<li><p>Device B’s old Vault is abandoned (deleted locally, the conversation remains on XMTP but is no longer tracked)</p></li>
+<li><p>Device B updates its iCloud Keychain (or manual backup) to store Device A’s Vault key, replacing its old Vault key</p></li>
+<li><p>Device A’s Vault is now the single Vault for both devices</p></li>
+</ol>
+<p>After merging, if the owner wants to re-add devices C and D, they pair each one individually with Device A using the standard pairing flow.</p>
+<h3>5. Ongoing sync</h3>
+<p>Whenever any linked device creates or joins a conversation:</p>
+<ol start="1">
+<li><p>The new conversation’s private key is sent to the Vault as a <code>DeviceKeyShare</code> message</p></li>
+<li><p>Other devices pick it up via normal XMTP message sync</p></li>
+<li><p>Each device imports the key and adds itself as an installation for that conversation</p></li>
+</ol>
+<h2>Custom Content Types</h2>
+<h3>JoinRequest (phase 1 — prerequisite)</h3>
+<p>A new custom content type that replaces the current plain-text invite slug sent via DM. The current join request is just the invite slug as a text message. A structured <code>JoinRequest</code> content type is more flexible and supports both regular conversation joins and Vault pairing.</p>
+<table><thead><tr><th>Field</th><th>Type</th><th>Required</th><th>Description</th></tr></thead><tbody><tr><td><code>inviteSlug</code></td><td>string</td><td>yes</td><td>The URL-safe encoded signed invite (same as current text message)</td></tr><tr><td><code>profile</code></td><td>object</td><td>no</td><td>The joiner’s profile (name, image) for display in join request UI</td></tr><tr><td><code>metadata</code></td><td>map</td><td>no</td><td>Extensible key-value pairs for context-specific data</td></tr></tbody></table>
+<p>For regular conversation joins, only <code>inviteSlug</code> is required (with optional <code>profile</code>). For Vault pairing, the metadata map carries Vault-specific fields:</p>
+<table><thead><tr><th>Metadata Key</th><th>Value</th><th>Description</th></tr></thead><tbody><tr><td><code>deviceName</code></td><td>string</td><td>Device name (e.g., “Jarod’s iPad”)</td></tr><tr><td><code>confirmationCode</code></td><td>string</td><td>6-digit code for pairing verification</td></tr></tbody></table>
+<p>This is backward-compatible — existing join request processing checks for the invite slug and ignores unknown fields.</p>
+<h3>Vault Content Types</h3>
+<table><thead><tr><th>Content Type</th><th>Purpose</th></tr></thead><tbody><tr><td><code>DeviceKeyBundle</code></td><td>Full export of all conversation private keys + installation IDs (sent during initial pairing)</td></tr><tr><td><code>DeviceKeyShare</code></td><td>Single conversation key + installation ID (sent when a new conversation is created or joined)</td></tr></tbody></table>
+<p>All content types are XMTP custom content types, encrypted end-to-end by MLS. The key material is only readable by Vault members (the user’s devices).</p>
+<h2>Locking</h2>
+<p>The Vault stays locked by default:</p>
 <ul>
-<li><p><code>ConversationWriter._store()</code> stops reading profiles from appData</p></li>
-<li><p>Profiles come exclusively from messages</p></li>
-<li><p>appData profile writes continue for backward compatibility with older clients</p></li>
+<li><p>No new members can join</p></li>
+<li><p>The invite mechanism is disabled</p></li>
+<li><p>Key sync messages flow freely between existing members</p></li>
 </ul>
-<h3>Phase 3: Remove appData Profiles (Future)</h3>
+<p>When the user wants to add a device:</p>
 <ul>
-<li><p>Stop writing profiles to appData</p></li>
-<li><p>Remove <code>profiles</code> field handling from <code>ConversationCustomMetadata</code></p></li>
-<li><p>Clean migration complete</p></li>
+<li><p>They explicitly unlock the Vault</p></li>
+<li><p>A short-lived invite tag is generated</p></li>
+<li><p>After the new device joins (or the invite expires), the Vault auto-locks</p></li>
 </ul>
-<h2>Package Structure</h2>
-<p>The profile content types, codecs, and snapshot logic live in the <strong><code>ConvosProfiles</code></strong> package — not in <code>ConvosCore</code>. This makes the profile system reusable by anyone building on XMTP, not just Convos.</p>
-<p><code>ConvosProfiles</code> already depends on <code>ConvosAppData</code> (shared protobuf types) and <code>XMTPiOS</code>. It currently contains image encryption utilities (<code>ImageEncryption</code>, <code>EncryptedImageLoader</code>). The new profile message types are a natural extension.</p>
-<h3>What goes in ConvosProfiles</h3>
+<p>This reuses the existing lock/unlock infrastructure.</p>
+<h2>Managing Devices</h2>
+<p>Accessible from Settings → Convos Vault:</p>
 <ul>
-<li><p><code>ProfileUpdateCodec</code> — content codec for <code>ProfileUpdate</code></p></li>
-<li><p><code>ProfileSnapshotCodec</code> — content codec for <code>ProfileSnapshot</code></p></li>
-<li><p><code>ProfileSnapshotBuilder</code> — scans group messages, resolves profiles per the precedence rules, builds snapshots</p></li>
-<li><p>Profile content models (<code>ProfileUpdateContent</code>, <code>ProfileSnapshotContent</code>, <code>MemberProfileEntry</code>)</p></li>
-<li><p>Protobuf definitions for the message payloads</p></li>
+<li><p>List of linked devices (members with profile display names as device names)</p></li>
+<li><p>Last active timestamp per device</p></li>
+<li><p>“Pair Device” button (unlocks Vault, generates invite)</p></li>
+<li><p>Swipe to remove a device (removes from group, revokes XMTP installations for that inbox)</p></li>
+<li><p>Device names are editable (profile display name updates)</p></li>
 </ul>
-<h3>What stays in ConvosCore</h3>
+<h2>Recovery</h2>
+<h3>Lost one device (other devices remain)</h3>
+<p>User removes the lost device from the Vault on another device. The removed device’s inbox is kicked from the group, preventing it from receiving future keys. Full compromise mitigation (revoking installations, key rotation) is out of scope for now — see Resolved Design Decisions.</p>
+<h3>Lost all devices</h3>
+<p><strong>Important limitation:</strong> XMTP history sync only works between active installations. It replicates messages from one live installation to another — it is not an archive that can be pulled from after the fact. If the user’s only device is lost and no other installations are active, the Vault message history (and therefore all conversation keys) is unrecoverable, even if the user still has the Vault key.</p>
+<p>This means:</p>
 <ul>
-<li><p><code>MyProfileWriter</code> — orchestrates profile updates (writes to GRDB, calls into <code>ConvosProfiles</code> to send the message)</p></li>
-<li><p><code>StreamProcessor</code> — routes incoming <code>ProfileUpdate</code>/<code>ProfileSnapshot</code> messages to GRDB writes</p></li>
-<li><p><code>ConversationWriter</code> — stops reading profiles from appData (Phase 2)</p></li>
-<li><p><code>ConversationMetadataWriter</code> — calls <code>ProfileSnapshotBuilder</code> after <code>addMembers</code></p></li>
+<li><p><strong>Multi-device users are protected.</strong> As long as at least one device remains active, a new device can pair via the Vault and receive all keys.</p></li>
+<li><p><strong>Single-device users lose everything if they lose that device.</strong> The Vault key from iCloud Keychain lets them re-create an installation on the Vault inbox, but the message history containing the conversation keys will be empty.</p></li>
 </ul>
-<h3>What stays in ConvosCore (bridge to ConvosProfiles)</h3>
+<p>Recovery with the Vault key (from iCloud Keychain or manual backup) only restores access to the Vault conversation itself — not the keys that were stored in it, since those were in messages that no active installation can provide.</p>
+<p>Future mitigation options:</p>
 <ul>
-<li><p><code>InviteJoinRequestsManager</code> — after accepting a join request, uses <code>ProfileSnapshotBuilder</code> to send a snapshot</p></li>
+<li><p>Encourage users to pair a second device (even an old phone or tablet) as an always-on backup</p></li>
+<li><p>Explore XMTP archival/persistence features if they become available</p></li>
+<li><p>Consider an optional encrypted cloud backup of the key bundle (opt-in, user-controlled encryption key)</p></li>
 </ul>
-<h2>Impact on Existing Code</h2>
-<h3>Files Modified</h3>
-<table><thead><tr><th>File</th><th>Package</th><th>Change</th></tr></thead><tbody><tr><td><code>MyProfileWriter.swift</code></td><td>ConvosCore</td><td>Send <code>ProfileUpdate</code> message instead of (or in addition to) appData write</td></tr><tr><td><code>StreamProcessor.swift</code></td><td>ConvosCore</td><td>Handle <code>ProfileUpdate</code> and <code>ProfileSnapshot</code> message types</td></tr><tr><td><code>ConversationWriter.swift</code></td><td>ConvosCore</td><td>Stop reading profiles from appData (Phase 2)</td></tr><tr><td><code>ConversationMetadataWriter.swift</code></td><td>ConvosCore</td><td>Send <code>ProfileSnapshot</code> after <code>addMembers</code></td></tr><tr><td><code>InviteCoordinator.swift</code> / <code>InviteJoinRequestsManager.swift</code></td><td>ConvosCore/ConvosInvites</td><td>Send <code>ProfileSnapshot</code> after accepting join request</td></tr><tr><td><code>XMTPGroup+CustomMetadata.swift</code></td><td>ConvosCore</td><td>Remove <code>updateProfile</code> and <code>memberProfiles</code> (Phase 3)</td></tr><tr><td><code>ConvosProfiles.swift</code></td><td>ConvosProfiles</td><td>Update module docs to reflect new message-based approach</td></tr></tbody></table>
-<h3>New Files</h3>
-<table><thead><tr><th>File</th><th>Package</th><th>Purpose</th></tr></thead><tbody><tr><td><code>ProfileUpdateCodec.swift</code></td><td>ConvosProfiles</td><td>Content codec for <code>ProfileUpdate</code></td></tr><tr><td><code>ProfileSnapshotCodec.swift</code></td><td>ConvosProfiles</td><td>Content codec for <code>ProfileSnapshot</code></td></tr><tr><td><code>ProfileSnapshotBuilder.swift</code></td><td>ConvosProfiles</td><td>Scan messages, resolve profiles, build snapshots</td></tr><tr><td><code>ProfileModels.swift</code></td><td>ConvosProfiles</td><td>Content models for profile messages</td></tr></tbody></table>
-<h3>No Changes Needed</h3>
+<h2>Future Extensions</h2>
+<h3>Convos Credits (IAP)</h3>
+<p>The Vault can serve as a trustless purchase ledger:</p>
 <ul>
-<li><p><code>DBMemberProfile</code> — schema stays the same, just the write source changes</p></li>
-<li><p>UI layer — reads from GRDB, unaffected by where the data comes from</p></li>
-<li><p><code>EncryptedImagePrefetcher</code> — still works on <code>DBMemberProfile</code> data</p></li>
-<li><p>Image encryption — <code>imageEncryptionKey</code> stays in appData</p></li>
+<li><p>Credit purchases are recorded as messages in the Vault (including Apple’s JWS-signed transaction data for verification)</p></li>
+<li><p>Credit spends are recorded as messages</p></li>
+<li><p>Current balance is derived by replaying purchase and spend history</p></li>
+<li><p>Deduplication by Apple transaction ID prevents double-counting</p></li>
+<li><p>Apple’s signature on each transaction prevents fabricated purchases</p></li>
+<li><p>Balance survives reinstall as long as at least one device remains active (same limitation as key sync)</p></li>
+<li><p>Balance syncs across devices automatically</p></li>
 </ul>
-<h2>Message Size</h2>
-<p>XMTP’s gRPC payload limit is <strong>25MB</strong> (<code>GRPC_PAYLOAD_LIMIT</code> in libxmtp). The max group size in XMTP is 250 members; Convos caps at 150.</p>
-<p>Per-member profile in protobuf is approximately <strong>~308 bytes</strong> (64-byte inbox ID hex string, ~50-byte name, ~120-byte encrypted image URL, 32-byte salt, 12-byte nonce, ~30 bytes protobuf overhead).</p>
-<table><thead><tr><th>Members</th><th>Snapshot Size</th><th>Headroom vs 25MB</th></tr></thead><tbody><tr><td>150</td><td>~45 KB</td><td>567x</td></tr><tr><td>250</td><td>~75 KB</td><td>340x</td></tr></tbody></table>
-<p>Snapshot size is not a concern — even at max group size, a <code>ProfileSnapshot</code> is well under 100KB. Using protobuf encoding keeps it compact. No need for splitting, pagination, or remote attachment patterns.</p>
+<h3>Preferences Sync</h3>
+<p>Global preferences (like the reveal mode and include-info defaults) could be synced through the Vault rather than stored in local <code>UserDefaults</code>, giving cross-device consistency.</p>
+<h2>Web App Support</h2>
+<p>A web app is just another device in the Vault. It creates an XMTP inbox, joins the Vault via QR pairing, receives keys, and stores them in Web Crypto API / IndexedDB. Its storage is less durable than iOS Keychain, so the web should be treated as a session device that can re-request keys from the Vault if storage is cleared.</p>
+<h2>Device Offline for Extended Period</h2>
+<p>Keys accumulate as messages in the Vault. When the device comes back online, it syncs the conversation and imports all missed keys. XMTP message persistence handles this naturally.</p>
+<h2>Resolved Design Decisions</h2>
+<p><strong>Device compromise is out of scope for now.</strong> Revoking installations alone is not sufficient — an attacker with the private keys can call <code>Client.create()</code> to make new installations. Truly locking out a compromised device would require rotating conversation keys (generating new keys, migrating all members to new conversations, abandoning old inboxes). This is a significant feature that we’ll address in a future phase if needed.</p>
+<p><strong>Installation ID tracking:</strong> When a device shares a conversation key (via <code>DeviceKeyBundle</code> or <code>DeviceKeyShare</code>), it also includes the installation ID it created for that conversation. This builds a mapping of device → installation IDs per conversation, which is needed to selectively revoke a specific device’s installations without affecting other devices. Selective revocation based on this mapping is a future phase — for now, removing a device from the Vault prevents it from receiving future keys.</p>
+<p><strong>Maximum devices:</strong> 10, matching XMTP’s maximum installation count per inbox. The Vault UI should enforce this limit and show an error when attempting to pair an 11th device.</p>
 <h2>Open Questions</h2>
 <ol start="1">
-<li><p><strong>Race between add and snapshot</strong> — If the adder’s snapshot send fails after successfully adding the member, the new joiner has no profiles. Mitigation: joiner can request a snapshot, or any member could respond to a “missing profiles” signal.</p></li>
-<li><p><strong>Profile update rate limiting</strong> — Should we debounce rapid profile updates (e.g., user typing in name field) to avoid message spam?</p></li>
-<li><p><strong>Codec registration</strong> — Both codecs need to be registered on the XMTP client. Need to add them to the client initialization in <code>TestHelpers</code>, <code>MessagingService</code>, and <code>NotificationService</code>.</p></li>
+<li><p><strong>Vault conversation expiry</strong>: The Vault conversation should probably not have an expiry timer. Need to ensure the explode/expiry system exempts it.</p></li>
 </ol></body>
 <script>function htmlToMd(node) {
     if (node.nodeType === 3) return node.textContent;
