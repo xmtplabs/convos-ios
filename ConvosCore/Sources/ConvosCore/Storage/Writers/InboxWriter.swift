@@ -3,6 +3,7 @@ import GRDB
 
 enum InboxWriterError: Error, LocalizedError {
     case clientIdMismatch(inboxId: String, existingClientId: String, newClientId: String)
+    case duplicateVault(existingInboxId: String)
 
     var errorDescription: String? {
         switch self {
@@ -16,6 +17,8 @@ enum InboxWriterError: Error, LocalizedError {
             This indicates data corruption or a bug in the inbox management flow.
             For a given inboxId, the clientId should never change.
             """
+        case let .duplicateVault(existingInboxId):
+            return "A Vault inbox already exists with inboxId: \(existingInboxId)"
         }
     }
 }
@@ -31,6 +34,15 @@ struct InboxWriter {
     @discardableResult
     func save(inboxId: String, clientId: String, isVault: Bool = false) async throws -> DBInbox {
         try await dbWriter.write { db in
+            if isVault {
+                let existingVault = try DBInbox
+                    .filter(DBInbox.Columns.isVault == true)
+                    .fetchOne(db)
+                if let existingVault, existingVault.inboxId != inboxId {
+                    throw InboxWriterError.duplicateVault(existingInboxId: existingVault.inboxId)
+                }
+            }
+
             // Check if inbox already exists
             if let existingInbox = try DBInbox.fetchOne(db, id: inboxId) {
                 // INVARIANT: For a given inboxId, the clientId must never change
