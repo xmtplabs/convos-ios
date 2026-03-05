@@ -60,6 +60,7 @@ struct QRCodeView: View {
                             centerImage
                                 .resizable()
                                 .aspectRatio(contentMode: .fill)
+                                .foregroundStyle(backgroundColor)
                         }
                         .frame(width: 50.0, height: 50.0)
                         .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
