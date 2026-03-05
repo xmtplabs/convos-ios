@@ -181,6 +181,14 @@ public actor VaultManager {
         }
     }
 
+    public static var preview: VaultManager {
+        VaultManager(
+            identityStore: MockKeychainIdentityStore(),
+            databaseReader: try! DatabaseQueue(), // swiftlint:disable:this force_try
+            deviceName: "Preview Device"
+        )
+    }
+
     private struct InboxConversationRow {
         let inboxId: String
         let clientId: String

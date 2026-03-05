@@ -69,6 +69,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func inboxId(for conversationId: String) async -> String?
 
+    // MARK: Vault
+
+    var vaultService: (any VaultServiceProtocol)? { get }
+
     // MARK: Debug
 
     func pendingInviteDetails() throws -> [PendingInviteDetail]
