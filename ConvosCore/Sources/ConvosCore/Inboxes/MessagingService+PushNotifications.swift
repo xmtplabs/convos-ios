@@ -1,4 +1,5 @@
 import Combine
+import ConvosProfiles
 import Foundation
 import GRDB
 import UserNotifications
@@ -328,6 +329,8 @@ extension MessagingService {
         }
 
         if decodedMessage.isProfileMessage {
+            let dbConversation = try await storeConversation(group, inboxId: currentInboxId)
+            await processProfileMessageInNSE(decodedMessage, conversationId: dbConversation.id, group: group)
             return .droppedMessage
         }
 
@@ -547,6 +550,132 @@ extension MessagingService {
             return "less than a minute"
         }
     }
+
+    // MARK: - Profile Message Processing
+
+    private func processProfileMessageInNSE(
+        _ message: DecodedMessage,
+        conversationId: String,
+        group: XMTPiOS.Group
+    ) async {
+        guard let contentType = try? message.encodedContent.type else { return }
+
+        if contentType == ContentTypeProfileUpdate {
+            await processProfileUpdateInNSE(message, conversationId: conversationId, group: group)
+        } else if contentType == ContentTypeProfileSnapshot {
+            await processProfileSnapshotInNSE(message, conversationId: conversationId, group: group)
+        }
+    }
+
+    private func processProfileUpdateInNSE(
+        _ message: DecodedMessage,
+        conversationId: String,
+        group: XMTPiOS.Group
+    ) async {
+        guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { return }
+        let senderInboxId = message.senderInboxId
+        guard !senderInboxId.isEmpty else { return }
+
+        do {
+            try await databaseWriter.write { db in
+                let member = DBMember(inboxId: senderInboxId)
+                try member.save(db)
+
+                var profile = try DBMemberProfile.fetchOne(
+                    db,
+                    conversationId: conversationId,
+                    inboxId: senderInboxId
+                ) ?? DBMemberProfile(
+                    conversationId: conversationId,
+                    inboxId: senderInboxId,
+                    name: nil,
+                    avatar: nil
+                )
+
+                profile = profile.with(name: update.hasName ? update.name : nil)
+
+                if update.hasEncryptedImage, update.encryptedImage.isValid {
+                    let encryptionKey: Data? = if let existingKey = profile.avatarKey {
+                        existingKey
+                    } else {
+                        try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
+                    }
+                    profile = profile.with(
+                        avatar: update.encryptedImage.url,
+                        salt: update.encryptedImage.salt,
+                        nonce: update.encryptedImage.nonce,
+                        key: encryptionKey
+                    )
+                } else {
+                    profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
+                }
+
+                profile = profile.with(memberKind: update.memberKind.dbMemberKind)
+                try profile.save(db)
+            }
+            Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
+        } catch {
+            Log.warning("NSE: Failed to process ProfileUpdate: \(error.localizedDescription)")
+        }
+    }
+
+    private func processProfileSnapshotInNSE(
+        _ message: DecodedMessage,
+        conversationId: String,
+        group: XMTPiOS.Group
+    ) async {
+        guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else { return }
+
+        do {
+            try await databaseWriter.write { db in
+                let encryptionKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
+
+                for memberProfile in snapshot.profiles {
+                    let inboxId = memberProfile.inboxIdString
+                    guard !inboxId.isEmpty else { continue }
+
+                    let member = DBMember(inboxId: inboxId)
+                    try member.save(db)
+
+                    let existingProfile = try DBMemberProfile.fetchOne(
+                        db,
+                        conversationId: conversationId,
+                        inboxId: inboxId
+                    )
+
+                    if existingProfile?.name != nil || existingProfile?.avatar != nil {
+                        continue
+                    }
+
+                    var profile = existingProfile ?? DBMemberProfile(
+                        conversationId: conversationId,
+                        inboxId: inboxId,
+                        name: nil,
+                        avatar: nil
+                    )
+
+                    profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
+
+                    if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
+                        profile = profile.with(
+                            avatar: memberProfile.encryptedImage.url,
+                            salt: memberProfile.encryptedImage.salt,
+                            nonce: memberProfile.encryptedImage.nonce,
+                            key: existingProfile?.avatarKey ?? encryptionKey
+                        )
+                    }
+
+                    profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
+                    try profile.save(db)
+                }
+            }
+            Log.debug("NSE: Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
+        } catch {
+            Log.warning("NSE: Failed to process ProfileSnapshot: \(error.localizedDescription)")
+        }
+    }
+
+    // MARK: - Conversation Storage
 
     /// Stores a conversation in the database along with its latest messages
     /// This ensures XMTP has complete group state for decrypting subsequent messages
