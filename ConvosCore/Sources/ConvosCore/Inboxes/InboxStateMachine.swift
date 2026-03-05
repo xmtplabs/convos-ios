@@ -657,18 +657,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             throw error
         }
 
-        let keyInfo = InboxKeyInfo(
-            inboxId: client.inboxId,
-            clientId: clientId,
-            privateKeyData: Data(keys.privateKey.secp256K1.bytes),
-            databaseKey: keys.databaseKey
-        )
-        NotificationCenter.default.post(
-            name: .inboxIdentityRegistered,
-            object: nil,
-            userInfo: [InboxIdentityNotification.keyInfoKey: keyInfo]
-        )
-
         enqueueAction(.clientRegistered(clientId: clientId, client: client))
     }
 
