@@ -154,6 +154,28 @@ public final class VaultClient: @unchecked Sendable {
         try await group.removeMembers(inboxIds: [inboxId])
     }
 
+    public var vaultGroup: XMTPiOS.Group? {
+        stateLock.withLock { $0.group }
+    }
+
+    public var xmtpClient: Client? {
+        stateLock.withLock { $0.client }
+    }
+
+    public func findOrCreateDm(with inboxId: String) async throws -> XMTPiOS.Dm {
+        guard let client = stateLock.withLock({ $0.client }) else {
+            throw VaultClientError.notConnected
+        }
+        return try await client.conversations.findOrCreateDm(with: inboxId)
+    }
+
+    public func streamAllDmMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+        guard let client = stateLock.withLock({ $0.client }) else {
+            return AsyncThrowingStream { $0.finish(throwing: VaultClientError.notConnected) }
+        }
+        return client.conversations.streamAllMessages(type: .dms)
+    }
+
     private func findOrCreateVaultGroup(client: Client) async throws -> XMTPiOS.Group {
         let groups = try client.conversations.listGroups(
             createdAfterNs: nil,

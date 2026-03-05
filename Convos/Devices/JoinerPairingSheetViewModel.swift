@@ -24,13 +24,13 @@ final class JoinerPairingSheetViewModel {
     private let timeoutInterval: TimeInterval
     private var countdownTask: Task<Void, Never>?
 
-    init(pairingId: String, timeoutInterval: TimeInterval = 60) {
+    init(pairingId: String, expiresAt: Date? = nil, timeoutInterval: TimeInterval = 60) {
         self.pairingId = pairingId
         self.timeoutInterval = timeoutInterval
         self.pin = PairingCoordinator.generatePin()
-        self.expiresAt = Date().addingTimeInterval(timeoutInterval)
-        self.secondsRemaining = Int(timeoutInterval)
-        self.flowState = .showingPin(pin: pin, expiresAt: expiresAt)
+        self.expiresAt = expiresAt ?? Date().addingTimeInterval(timeoutInterval)
+        self.secondsRemaining = max(0, Int(self.expiresAt.timeIntervalSinceNow))
+        self.flowState = .showingPin(pin: pin, expiresAt: self.expiresAt)
     }
 
     var formattedPin: String {
