@@ -245,6 +245,9 @@ final class ConversationsViewModel {
         updateSelectionTask?.cancel()
     }
 
+    var joinerPairingViewModel: JoinerPairingSheetViewModel?
+    var showJoinerPairingSheet: Bool = false
+
     func handleURL(_ url: URL) {
         guard let destination = DeepLinkHandler.destination(for: url) else {
             return
@@ -253,7 +256,15 @@ final class ConversationsViewModel {
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
+        case .pairDevice(pairingId: let pairingId):
+            startJoinerPairing(pairingId: pairingId)
         }
+    }
+
+    private func startJoinerPairing(pairingId: String) {
+        let vm = JoinerPairingSheetViewModel(pairingId: pairingId)
+        joinerPairingViewModel = vm
+        showJoinerPairingSheet = true
     }
 
     func onStartConvo() {
