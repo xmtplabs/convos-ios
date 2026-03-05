@@ -105,6 +105,8 @@ struct PairingSheetView: View {
                 }
                 .accessibilityIdentifier("share-pairing-link")
             }
+
+            ExpiryLabel(secondsRemaining: viewModel.secondsRemaining)
         }
     }
 
@@ -124,6 +126,8 @@ struct PairingSheetView: View {
                 .onAppear {
                     pinFieldFocused = true
                 }
+
+            ExpiryLabel(secondsRemaining: viewModel.secondsRemaining)
         }
     }
 

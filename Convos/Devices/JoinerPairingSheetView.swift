@@ -63,13 +63,7 @@ struct JoinerPairingSheetView: View {
                     .foregroundStyle(.colorTextPrimary)
                     .accessibilityIdentifier("pairing-pin-display")
 
-                Text("Expires in \(viewModel.secondsRemaining)s")
-                    .font(.caption)
-                    .foregroundStyle(.colorTextTertiary)
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                    .animation(.linear(duration: 0.3), value: viewModel.secondsRemaining)
-                    .accessibilityIdentifier("pairing-countdown")
+                ExpiryLabel(secondsRemaining: viewModel.secondsRemaining)
             }
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
