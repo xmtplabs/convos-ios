@@ -9,13 +9,15 @@ public struct InboxActivity: Codable, Hashable, Identifiable {
     public let lastActivity: Date?
     public let conversationCount: Int
     public let createdAt: Date
+    public let isVault: Bool
 
-    public init(clientId: String, inboxId: String, lastActivity: Date?, conversationCount: Int, createdAt: Date = Date()) {
+    public init(clientId: String, inboxId: String, lastActivity: Date?, conversationCount: Int, createdAt: Date = Date(), isVault: Bool = false) {
         self.clientId = clientId
         self.inboxId = inboxId
         self.lastActivity = lastActivity
         self.conversationCount = conversationCount
         self.createdAt = createdAt
+        self.isVault = isVault
     }
 }
 
@@ -95,6 +97,7 @@ public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @uncheck
                 i.clientId,
                 i.inboxId,
                 i.createdAt,
+                i.isVault,
                 MAX(m.date) as lastActivity,
                 COUNT(DISTINCT c.id) as conversationCount
             FROM inbox i
@@ -111,7 +114,8 @@ public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @uncheck
                 inboxId: row["inboxId"],
                 lastActivity: row["lastActivity"],
                 conversationCount: row["conversationCount"],
-                createdAt: row["createdAt"]
+                createdAt: row["createdAt"],
+                isVault: row["isVault"]
             )
         }
     }
@@ -122,6 +126,7 @@ public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @uncheck
                 i.clientId,
                 i.inboxId,
                 i.createdAt,
+                i.isVault,
                 MAX(m.date) as lastActivity,
                 COUNT(DISTINCT c.id) as conversationCount
             FROM inbox i
@@ -138,7 +143,8 @@ public struct InboxActivityRepository: InboxActivityRepositoryProtocol, @uncheck
                 inboxId: row["inboxId"],
                 lastActivity: row["lastActivity"],
                 conversationCount: row["conversationCount"],
-                createdAt: row["createdAt"]
+                createdAt: row["createdAt"],
+                isVault: row["isVault"]
             )
         }
     }

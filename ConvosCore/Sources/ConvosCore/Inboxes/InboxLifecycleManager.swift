@@ -84,6 +84,12 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     private var _sleepingClientIds: Set<String> = []
     private var _sleepTimes: [String: Date] = [:]
     private var _activeClientId: String?
+    private var _vaultClientId: String?
+
+    private var nonVaultAwakeCount: Int {
+        guard let vaultId = _vaultClientId else { return awakeInboxes.count }
+        return awakeInboxes.keys.contains(vaultId) ? awakeInboxes.count - 1 : awakeInboxes.count
+    }
 
     private nonisolated let _awakeServiceCache: OSAllocatedUnfairLock<[String: any MessagingServiceProtocol]> = .init(initialState: [:])
 
@@ -167,7 +173,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
     public func createNewInbox() async -> (service: any MessagingServiceProtocol, conversationId: String?) {
         // If at capacity, free a slot first
-        if awakeInboxes.count >= maxAwakeInboxes {
+        if nonVaultAwakeCount >= maxAwakeInboxes {
             Log.debug("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for new inbox")
             let freed = await sleepLeastRecentlyUsed(excluding: [])
             if !freed {
@@ -197,7 +203,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     }
 
     public func createNewInboxOnly() async -> any MessagingServiceProtocol {
-        if awakeInboxes.count >= maxAwakeInboxes {
+        if nonVaultAwakeCount >= maxAwakeInboxes {
             Log.debug("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for new inbox-only")
             let freed = await sleepLeastRecentlyUsed(excluding: [])
             if !freed {
@@ -228,7 +234,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         }
 
         // If at capacity, free a slot first
-        if awakeInboxes.count >= maxAwakeInboxes {
+        if nonVaultAwakeCount >= maxAwakeInboxes {
             Log.debug("At capacity (\(awakeInboxes.count)/\(maxAwakeInboxes)), evicting LRU for \(clientId)")
             let freed = await sleepLeastRecentlyUsed(excluding: [clientId])
             if !freed {
@@ -287,6 +293,11 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
     }
 
     public func sleep(clientId: String) async {
+        if clientId == _vaultClientId {
+            Log.debug("Cannot sleep Vault inbox: \(clientId)")
+            return
+        }
+
         guard let service = awakeInboxes.removeValue(forKey: clientId) else {
             Log.debug("Inbox not awake, cannot sleep: \(clientId)")
             return
@@ -359,7 +370,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             Log.debug("Inbox already tracked, skipping external registration: \(clientId)")
             return false
         }
-        if awakeInboxes.count >= maxAwakeInboxes {
+        if nonVaultAwakeCount >= maxAwakeInboxes {
             let freed = await sleepLeastRecentlyUsed(excluding: [clientId])
             if !freed {
                 Log.warning("Could not free capacity for external service registration: \(clientId)")
@@ -457,6 +468,21 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
         do {
             let allActivities = try activityRepository.allInboxActivities()
+
+            if let vaultActivity = allActivities.first(where: { $0.isVault }) {
+                _vaultClientId = vaultActivity.clientId
+                do {
+                    _ = try await attemptWake(
+                        clientId: vaultActivity.clientId,
+                        inboxId: vaultActivity.inboxId,
+                        reason: .appLaunch
+                    )
+                    Log.debug("Vault inbox woke successfully: \(vaultActivity.clientId)")
+                } catch {
+                    Log.error("Failed to wake Vault inbox: \(error)")
+                }
+            }
+
             let allPendingInvites = try pendingInviteRepository.allPendingInvites()
             let activityClientIds = Set(allActivities.map { $0.clientId })
 
@@ -470,6 +496,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             var awakePendingInviteCount = 0
 
             for activity in allActivities {
+                guard !activity.isVault else { continue }
                 let hasPendingInvite = pendingInviteClientIds.contains(activity.clientId)
 
                 if hasPendingInvite {
@@ -489,7 +516,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                         _sleepTimes[activity.clientId] = Date()
                         Log.debug("Pending invite inbox over cap, marked sleeping: \(activity.clientId)")
                     }
-                } else if awakeInboxes.count < maxAwakeInboxes {
+                } else if nonVaultAwakeCount < maxAwakeInboxes {
                     do {
                         _ = try await attemptWake(
                             clientId: activity.clientId,
@@ -663,7 +690,8 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                 awakeInboxes[activity.clientId] != nil &&
                 !excludedClientIds.contains(activity.clientId) &&
                 !pendingInviteClientIds.contains(activity.clientId) &&
-                activity.clientId != _activeClientId
+                activity.clientId != _activeClientId &&
+                !activity.isVault
             }
 
             if let candidate = sleepCandidate {
