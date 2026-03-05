@@ -35,6 +35,7 @@ private struct VaultClientInternalState: Sendable {
 public final class VaultClient: @unchecked Sendable {
     private let stateLock: OSAllocatedUnfairLock<VaultClientInternalState> = .init(initialState: .init())
     private var streamTask: Task<Void, Never>?
+    private var lifecycleTask: Task<Void, Never>?
 
     public weak var delegate: (any VaultClientDelegate)?
 
@@ -83,9 +84,11 @@ public final class VaultClient: @unchecked Sendable {
 
         updateState(.connected)
         startStreaming(client: client, group: group)
+        startLifecycleObservation()
     }
 
     public func disconnect() {
+        stopLifecycleObservation()
         streamTask?.cancel()
         streamTask = nil
 
@@ -95,6 +98,25 @@ public final class VaultClient: @unchecked Sendable {
         }
 
         updateState(.disconnected)
+    }
+
+    public func pause() {
+        streamTask?.cancel()
+        streamTask = nil
+
+        let client = stateLock.withLock { $0.client }
+        try? client?.dropLocalDatabaseConnection()
+    }
+
+    public func resume() async {
+        let (client, group) = stateLock.withLock { ($0.client, $0.group) }
+        guard let client, let group else { return }
+
+        try? await client.reconnectLocalDatabase()
+        try? await client.conversations.sync()
+        try? await group.sync()
+
+        startStreaming(client: client, group: group)
     }
 
     public func send<T: Codable, C: ContentCodec>(
@@ -201,10 +223,48 @@ public final class VaultClient: @unchecked Sendable {
         }
     }
 
+    private func startLifecycleObservation() {
+        stopLifecycleObservation()
+
+        lifecycleTask = Task { [weak self] in
+            await withTaskGroup(of: Void.self) { group in
+                group.addTask { [weak self] in
+                    let stream = NotificationCenter.default.notifications(
+                        named: .vaultDidEnterBackground
+                    )
+                    for await _ in stream {
+                        self?.pause()
+                    }
+                }
+
+                group.addTask { [weak self] in
+                    let stream = NotificationCenter.default.notifications(
+                        named: .vaultWillEnterForeground
+                    )
+                    for await _ in stream {
+                        await self?.resume()
+                    }
+                }
+
+                await group.waitForAll()
+            }
+        }
+    }
+
+    private func stopLifecycleObservation() {
+        lifecycleTask?.cancel()
+        lifecycleTask = nil
+    }
+
     private func updateState(_ newState: VaultClientState) {
         stateLock.withLock { $0.state = newState }
         delegate?.vaultClient(self, didChangeState: newState)
     }
+}
+
+public extension Notification.Name {
+    static let vaultDidEnterBackground: Notification.Name = .init("ConvosVaultDidEnterBackground")
+    static let vaultWillEnterForeground: Notification.Name = .init("ConvosVaultWillEnterForeground")
 }
 
 public enum VaultClientError: Error, LocalizedError {
