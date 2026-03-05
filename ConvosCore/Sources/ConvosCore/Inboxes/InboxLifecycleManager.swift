@@ -400,11 +400,13 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             let allActivities = try activityRepository.allInboxActivities()
             let pendingInviteIds = pendingInviteClientIds
 
-            // Filter out unused inboxes - they're reserved for createNewInbox() and should not be
-            // woken by rebalance. This prevents dual-tracking where the same inbox exists in both
-            // awakeInboxes and unusedConversationCache.
+            // Filter out unused inboxes and Vault - they're not eligible for rebalancing.
+            // Unused inboxes are reserved for createNewInbox(). The Vault is always awake.
             var eligibleActivities: [InboxActivity] = []
             for activity in allActivities {
+                if activity.isVault {
+                    continue
+                }
                 let isUnused = await unusedConversationCache.isUnusedInbox(activity.inboxId)
                 if !isUnused {
                     eligibleActivities.append(activity)
