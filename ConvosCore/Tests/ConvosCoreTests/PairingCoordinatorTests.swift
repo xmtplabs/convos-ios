@@ -1,115 +1,148 @@
 @testable import ConvosCore
 import Foundation
+import GRDB
 import Testing
 
 @Suite("PairingCoordinator Tests")
 struct PairingCoordinatorTests {
-    @Test("Generate confirmation code is 6 digits")
-    func generateCode() {
-        let code = PairingCoordinator.generateConfirmationCode()
-        #expect(code.count == 6)
-        let allDigits = code.allSatisfy(\.isNumber)
+    @Test("Generate pin produces 6 digits")
+    func generatePin() {
+        let pin = PairingCoordinator.generatePin()
+        #expect(pin.count == 6)
+        let allDigits = pin.allSatisfy { $0.isNumber }
         #expect(allDigits)
     }
 
-    @Test("Generate confirmation code produces different codes")
-    func generateCodeUnique() {
-        let codes = Set((0 ..< 20).map { _ in PairingCoordinator.generateConfirmationCode() })
-        #expect(codes.count > 1)
+    @Test("Generate pin produces different values")
+    func generatePinUniqueness() {
+        let pins = (0 ..< 10).map { _ in PairingCoordinator.generatePin() }
+        let unique = Set(pins)
+        #expect(unique.count > 1)
     }
 
-    @Test("Validate correct code")
-    func validateCorrectCode() {
-        let coordinator = PairingCoordinator()
-        #expect(coordinator.validateConfirmationCode("482916", expected: "482916") == true)
+    @Test("Format pin adds space in middle")
+    func formatPin() {
+        #expect(PairingCoordinator.formatPin("123456") == "123 456")
+        #expect(PairingCoordinator.formatPin("000000") == "000 000")
     }
 
-    @Test("Validate wrong code")
-    func validateWrongCode() {
-        let coordinator = PairingCoordinator()
-        #expect(coordinator.validateConfirmationCode("000000", expected: "482916") == false)
+    @Test("Format pin handles short input")
+    func formatPinShort() {
+        #expect(PairingCoordinator.formatPin("123") == "123")
     }
 
-    @Test("Validate code with spaces stripped")
-    func validateCodeWithSpaces() {
-        let coordinator = PairingCoordinator()
-        #expect(coordinator.validateConfirmationCode("482 916", expected: "482916") == true)
-    }
+    @Test("Start pairing transitions to waitingForScan")
+    func startPairing() async throws {
+        let store = MockKeychainIdentityStore()
+        let dbQueue = try GRDB.DatabaseQueue()
+        let manager = VaultManager(identityStore: store, databaseReader: dbQueue, deviceName: "Test")
+        let coordinator = PairingCoordinator(vaultManager: manager)
 
-    @Test("Validate code with dashes stripped")
-    func validateCodeWithDashes() {
-        let coordinator = PairingCoordinator()
-        #expect(coordinator.validateConfirmationCode("482-916", expected: "482916") == true)
-    }
+        try await coordinator.startPairing(inviteURL: "https://convos.org/invite/abc")
 
-    @Test("Validate empty code")
-    func validateEmptyCode() {
-        let coordinator = PairingCoordinator()
-        #expect(coordinator.validateConfirmationCode("", expected: "482916") == false)
-    }
-
-    @Test("Validate partial code")
-    func validatePartialCode() {
-        let coordinator = PairingCoordinator()
-        #expect(coordinator.validateConfirmationCode("482", expected: "482916") == false)
-    }
-
-    @Test("Validate too long code")
-    func validateTooLongCode() {
-        let coordinator = PairingCoordinator()
-        #expect(coordinator.validateConfirmationCode("4829160", expected: "482916") == false)
-    }
-
-    @Test("PairingError descriptions")
-    func errorDescriptions() {
-        let errors: [PairingError] = [
-            .notConnected,
-            .invalidConfirmationCode,
-            .pairingTimeout,
-            .alreadyPairing,
-            .noVaultGroup,
-        ]
-        for error in errors {
-            let description = error.errorDescription
-            #expect(description != nil)
-            #expect(description?.isEmpty == false)
-        }
-    }
-
-    @Test("PairingState idle")
-    func stateIdle() {
-        let state: PairingState = .idle
-        if case .idle = state {
-            // correct
+        let state = await coordinator.currentState
+        if case let .waitingForScan(url, expiresAt) = state {
+            #expect(url == "https://convos.org/invite/abc")
+            #expect(expiresAt > Date())
         } else {
-            Issue.record("Expected idle state")
+            Issue.record("Expected waitingForScan, got \(state)")
         }
     }
 
-    @Test("PairingState waitingForScan")
-    func stateWaitingForScan() {
-        let state: PairingState = .waitingForScan(code: "123456", inviteURL: "https://convos.org/i/abc")
-        if case let .waitingForScan(code, url) = state {
-            #expect(code == "123456")
-            #expect(url == "https://convos.org/i/abc")
+    @Test("Start pairing twice throws alreadyPairing")
+    func startPairingTwice() async throws {
+        let store = MockKeychainIdentityStore()
+        let dbQueue = try GRDB.DatabaseQueue()
+        let manager = VaultManager(identityStore: store, databaseReader: dbQueue, deviceName: "Test")
+        let coordinator = PairingCoordinator(vaultManager: manager)
+
+        try await coordinator.startPairing(inviteURL: "https://convos.org/invite/abc")
+
+        await #expect(throws: PairingError.self) {
+            try await coordinator.startPairing(inviteURL: "https://convos.org/invite/def")
+        }
+    }
+
+    @Test("Received join request transitions to waitingForConfirmation")
+    func receivedJoinRequest() async throws {
+        let store = MockKeychainIdentityStore()
+        let dbQueue = try GRDB.DatabaseQueue()
+        let manager = VaultManager(identityStore: store, databaseReader: dbQueue, deviceName: "Test")
+        let coordinator = PairingCoordinator(vaultManager: manager)
+
+        try await coordinator.startPairing(inviteURL: "https://convos.org/invite/abc")
+        try await coordinator.receivedJoinRequest(pin: "482916", joinerInboxId: "joiner-inbox-1")
+
+        let state = await coordinator.currentState
+        if case let .waitingForConfirmation(pin, joinerInboxId) = state {
+            #expect(pin == "482916")
+            #expect(joinerInboxId == "joiner-inbox-1")
         } else {
-            Issue.record("Expected waitingForScan state")
+            Issue.record("Expected waitingForConfirmation, got \(state)")
         }
     }
 
-    @Test("PairingState completed")
-    func stateCompleted() {
-        let state: PairingState = .completed(deviceCount: 3)
-        if case let .completed(count) = state {
-            #expect(count == 3)
-        } else {
-            Issue.record("Expected completed state")
+    @Test("Confirm pin with wrong code throws invalidConfirmationCode")
+    func confirmWrongPin() async throws {
+        let store = MockKeychainIdentityStore()
+        let dbQueue = try GRDB.DatabaseQueue()
+        let manager = VaultManager(identityStore: store, databaseReader: dbQueue, deviceName: "Test")
+        let coordinator = PairingCoordinator(vaultManager: manager)
+
+        try await coordinator.startPairing(inviteURL: "https://convos.org/invite/abc")
+        try await coordinator.receivedJoinRequest(pin: "482916", joinerInboxId: "joiner-inbox-1")
+
+        await #expect(throws: PairingError.self) {
+            try await coordinator.confirmPin("000000")
         }
     }
 
-    @Test("Custom timeout configuration")
-    func customTimeout() {
-        let coordinator = PairingCoordinator(timeoutSeconds: 60)
-        _ = coordinator
+    @Test("Cancel resets to idle")
+    func cancel() async throws {
+        let store = MockKeychainIdentityStore()
+        let dbQueue = try GRDB.DatabaseQueue()
+        let manager = VaultManager(identityStore: store, databaseReader: dbQueue, deviceName: "Test")
+        let coordinator = PairingCoordinator(vaultManager: manager)
+
+        try await coordinator.startPairing(inviteURL: "https://convos.org/invite/abc")
+        await coordinator.cancel()
+
+        let state = await coordinator.currentState
+        #expect(state == .idle)
+    }
+
+    @Test("Expiration fires after timeout")
+    func expiration() async throws {
+        let store = MockKeychainIdentityStore()
+        let dbQueue = try GRDB.DatabaseQueue()
+        let manager = VaultManager(identityStore: store, databaseReader: dbQueue, deviceName: "Test")
+        let coordinator = PairingCoordinator(vaultManager: manager, timeoutInterval: 1)
+
+        try await coordinator.startPairing(inviteURL: "https://convos.org/invite/abc")
+
+        for _ in 0 ..< 30 {
+            try await Task.sleep(for: .milliseconds(200))
+            let state = await coordinator.currentState
+            if state == .expired { return }
+        }
+
+        let finalState = await coordinator.currentState
+        #expect(finalState == .expired)
+    }
+
+    @Test("PairingState equatable")
+    func pairingStateEquatable() {
+        #expect(PairingState.idle == PairingState.idle)
+        #expect(PairingState.expired == PairingState.expired)
+        #expect(PairingState.completed(deviceCount: 2) == PairingState.completed(deviceCount: 2))
+        #expect(PairingState.completed(deviceCount: 2) != PairingState.completed(deviceCount: 3))
+        #expect(PairingState.idle != PairingState.expired)
+    }
+
+    @Test("PairingError equatable")
+    func pairingErrorEquatable() {
+        #expect(PairingError.notConnected == PairingError.notConnected)
+        #expect(PairingError.invalidConfirmationCode == PairingError.invalidConfirmationCode)
+        #expect(PairingError.notConnected != PairingError.pairingTimeout)
     }
 }
