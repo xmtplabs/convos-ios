@@ -257,6 +257,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             Log.debug("Saved last message: \(result)")
         }
 
+        // Process profile messages from history to populate member profiles
+        await processProfileMessagesFromHistory(conversation: conversation)
+
         return dbConversation
     }
 
@@ -529,6 +532,108 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Update unread status if needed
         if marksConversationAsUnread {
             try await localStateWriter.setUnread(true, for: conversation.id)
+        }
+    }
+
+    private func processProfileMessagesFromHistory(conversation: XMTPiOS.Group) async {
+        do {
+            let messages = try await conversation.messages(limit: 500)
+            let conversationId = conversation.id
+            let encryptionKey = try? conversation.imageEncryptionKey
+
+            var latestUpdates: [String: ProfileUpdate] = [:]
+            var latestSnapshot: ProfileSnapshot?
+
+            for message in messages {
+                guard let contentType = try? message.encodedContent.type else { continue }
+
+                if contentType == ContentTypeProfileUpdate {
+                    guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else { continue }
+                    let inboxId = message.senderInboxId
+                    guard !inboxId.isEmpty, latestUpdates[inboxId] == nil else { continue }
+                    latestUpdates[inboxId] = update
+                } else if contentType == ContentTypeProfileSnapshot, latestSnapshot == nil {
+                    latestSnapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent)
+                }
+            }
+
+            let resolvedUpdates = latestUpdates
+            let resolvedSnapshot = latestSnapshot
+
+            try await databaseWriter.write { db in
+                for (inboxId, update) in resolvedUpdates {
+                    let member = DBMember(inboxId: inboxId)
+                    try member.save(db)
+
+                    var profile = try DBMemberProfile.fetchOne(
+                        db,
+                        conversationId: conversationId,
+                        inboxId: inboxId
+                    ) ?? DBMemberProfile(
+                        conversationId: conversationId,
+                        inboxId: inboxId,
+                        name: nil,
+                        avatar: nil
+                    )
+
+                    profile = profile.with(name: update.hasName ? update.name : nil)
+
+                    if update.hasEncryptedImage, update.encryptedImage.isValid {
+                        profile = profile.with(
+                            avatar: update.encryptedImage.url,
+                            salt: update.encryptedImage.salt,
+                            nonce: update.encryptedImage.nonce,
+                            key: profile.avatarKey ?? encryptionKey
+                        )
+                    }
+
+                    profile = profile.with(memberKind: update.memberKind.dbMemberKind)
+                    try profile.save(db)
+                }
+
+                if let snapshot = resolvedSnapshot {
+                    for memberProfile in snapshot.profiles {
+                        let inboxId = memberProfile.inboxIdString
+                        guard !inboxId.isEmpty, resolvedUpdates[inboxId] == nil else { continue }
+
+                        let existing = try DBMemberProfile.fetchOne(
+                            db,
+                            conversationId: conversationId,
+                            inboxId: inboxId
+                        )
+                        guard existing?.name == nil, existing?.avatar == nil else { continue }
+
+                        let member = DBMember(inboxId: inboxId)
+                        try member.save(db)
+
+                        var profile = existing ?? DBMemberProfile(
+                            conversationId: conversationId,
+                            inboxId: inboxId,
+                            name: nil,
+                            avatar: nil
+                        )
+
+                        profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
+                        if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
+                            profile = profile.with(
+                                avatar: memberProfile.encryptedImage.url,
+                                salt: memberProfile.encryptedImage.salt,
+                                nonce: memberProfile.encryptedImage.nonce,
+                                key: profile.avatarKey ?? encryptionKey
+                            )
+                        }
+                        profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
+                        try profile.save(db)
+                    }
+                }
+            }
+
+            let profileCount = latestUpdates.count + (latestSnapshot?.profiles.count ?? 0)
+            if profileCount > 0 {
+                Log.debug("Processed \(profileCount) profile messages from history for \(conversationId)")
+            }
+        } catch {
+            Log.warning("Failed to process profile messages from history: \(error.localizedDescription)")
         }
     }
 
