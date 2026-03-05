@@ -129,6 +129,10 @@ public final class MockInboxesService: SessionManagerProtocol {
         false
     }
 
+    // MARK: - Vault
+
+    public var vaultService: (any VaultServiceProtocol)? { nil }
+
     // MARK: - Debug
 
     public func pendingInviteDetails() throws -> [PendingInviteDetail] {

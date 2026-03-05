@@ -81,6 +81,12 @@ public enum DeviceInfo {
         shared.osString
     }
 
+    /// Returns the user-facing device name.
+    /// Convenience accessor for `DeviceInfo.shared.deviceName`
+    public static var deviceName: String {
+        shared.deviceName
+    }
+
     /// Resets the configuration state. Only for use in tests.
     /// - Important: This is not thread-safe and should only be called from test setup.
     public static func resetForTesting() {
