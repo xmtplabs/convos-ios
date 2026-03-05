@@ -368,26 +368,38 @@ struct InviteJoinRequestIntegrationTests {
         _ = try await clientA.conversations.syncAllConversations(consentStates: [.unknown])
 
         let messages = try await dm.messages(afterNs: nil)
-        let joinMessage = messages.first { $0.senderInboxId != clientA.inboxId }
+        let clientBMessages = messages.filter { $0.senderInboxId != clientA.inboxId }
+        #expect(clientBMessages.count >= 2, "Should have both JoinRequestContent and plain text messages")
 
-        guard let joinMessage else {
-            Issue.record("Should have a message from Client B")
+        let joinRequestMessage = clientBMessages.first { msg in
+            guard let contentType = try? msg.encodedContent.type else { return false }
+            return contentType == ContentTypeJoinRequest
+        }
+
+        guard let joinRequestMessage else {
+            Issue.record("Should have a JoinRequestContent message from Client B")
             try? await fixtures.cleanup()
             return
         }
 
-        let decoded: JoinRequestContent = try joinMessage.content()
+        let decoded: JoinRequestContent = try joinRequestMessage.content()
         #expect(decoded.inviteSlug == slug)
         #expect(decoded.profile?.name == "Coordinator User")
         #expect(decoded.profile?.imageURL == "https://example.com/pic.jpg")
         #expect(decoded.metadata?["deviceName"] == "iPhone")
+
+        let plainTextMessage = clientBMessages.first { msg in
+            guard let contentType = try? msg.encodedContent.type else { return false }
+            return contentType == ContentTypeText
+        }
+        #expect(plainTextMessage != nil, "Should also have a plain text fallback message")
 
         let joinRequestsManager = InviteJoinRequestsManager(
             identityStore: fixtures.identityStore
         )
 
         let result = await joinRequestsManager.processJoinRequest(
-            message: joinMessage,
+            message: joinRequestMessage,
             client: clientA
         )
 

@@ -124,6 +124,7 @@ public final class InviteCoordinator: @unchecked Sendable {
             content: joinRequest,
             options: .init(contentType: codec.contentType)
         )
+        _ = try await dm.send(content: slug)
 
         return dm
     }
