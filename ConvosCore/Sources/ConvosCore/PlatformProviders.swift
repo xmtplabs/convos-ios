@@ -94,17 +94,20 @@ public final class MockDeviceInfoProvider: DeviceInfoProviding, Sendable {
     public let fallbackIdentifier: String
     public let deviceIdentifier: String
     public let osString: String
+    public let deviceName: String
 
     public init(
         identifierForVendor: String? = "mock-vendor-id",
         fallbackIdentifier: String = "mock-fallback-id",
         deviceIdentifier: String = "mock-device-id",
-        osString: String = "mock"
+        osString: String = "mock",
+        deviceName: String = "Mock Device"
     ) {
         self.identifierForVendor = identifierForVendor
         self.fallbackIdentifier = fallbackIdentifier
         self.deviceIdentifier = deviceIdentifier
         self.osString = osString
+        self.deviceName = deviceName
     }
 }
 
