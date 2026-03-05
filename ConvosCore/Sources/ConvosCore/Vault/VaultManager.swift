@@ -200,6 +200,11 @@ public actor VaultManager {
         }
     }
 
+    public func addMember(inboxId: String) async throws {
+        try await vaultClient.addMember(inboxId: inboxId)
+        await refreshMemberCount()
+    }
+
     public func removeDevice(inboxId: String) async throws {
         let removal = DeviceRemovedContent(
             removedInboxId: inboxId,
