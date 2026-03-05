@@ -397,6 +397,14 @@ extension SharedDatabaseMigrator {
             try db.alter(table: "inbox") { t in
                 t.add(column: "isVault", .boolean).notNull().defaults(to: false)
             }
+
+            try db.create(
+                index: "inbox_unique_vault",
+                on: "inbox",
+                columns: ["isVault"],
+                unique: true,
+                condition: Column("isVault") == true
+            )
         }
 
         return migrator
