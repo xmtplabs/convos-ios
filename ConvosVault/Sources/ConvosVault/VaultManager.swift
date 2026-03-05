@@ -180,6 +180,20 @@ public final class VaultManager: @unchecked Sendable {
         await refreshMemberCount()
     }
 
+    public func unpairSelf() async throws {
+        guard let selfInboxId = vaultInboxId else {
+            throw VaultClientError.notConnected
+        }
+
+        let removal = DeviceRemovedContent(
+            removedInboxId: selfInboxId,
+            reason: .userRemoved
+        )
+
+        try await vaultClient.send(removal, codec: DeviceRemovedCodec())
+        vaultClient.disconnect()
+    }
+
     private func refreshMemberCount() async {
         let count = (try? await vaultClient.members().count) ?? 1
         memberCountLock.withLock { $0 = count }
