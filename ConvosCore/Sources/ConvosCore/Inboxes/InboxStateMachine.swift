@@ -1070,7 +1070,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 RemoteAttachmentCodec(),
                 GroupUpdatedCodec(),
                 ExplodeSettingsCodec(),
-                InviteJoinErrorCodec()
+                InviteJoinErrorCodec(),
+                JoinRequestCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,

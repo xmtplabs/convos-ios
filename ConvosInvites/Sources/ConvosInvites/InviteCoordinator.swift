@@ -102,7 +102,9 @@ public final class InviteCoordinator: @unchecked Sendable {
 
     public func sendJoinRequest(
         for signedInvite: SignedInvite,
-        client: any InviteClientProvider
+        client: any InviteClientProvider,
+        profile: JoinRequestProfile? = nil,
+        metadata: [String: String]? = nil
     ) async throws -> XMTPiOS.Dm {
         guard !signedInvite.hasExpired else { throw JoinRequestError.expired }
         guard !signedInvite.conversationHasExpired else { throw JoinRequestError.conversationExpired }
@@ -112,7 +114,16 @@ public final class InviteCoordinator: @unchecked Sendable {
 
         let dm = try await client.findOrCreateDm(with: creatorInboxId)
         let slug = try signedInvite.toURLSafeSlug()
-        _ = try await dm.send(content: slug)
+        let joinRequest = JoinRequestContent(
+            inviteSlug: slug,
+            profile: profile,
+            metadata: metadata
+        )
+        let codec = JoinRequestCodec()
+        _ = try await dm.send(
+            content: joinRequest,
+            options: .init(contentType: codec.contentType)
+        )
 
         return dm
     }
@@ -124,14 +135,30 @@ public final class InviteCoordinator: @unchecked Sendable {
         client: any InviteClientProvider
     ) async -> JoinResult? {
         guard message.senderInboxId != client.inviteInboxId else { return nil }
-        guard let text: String = try? message.content() else { return nil }
-        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(text) else { return nil }
+
+        let slug: String
+        var profile: JoinRequestProfile?
+        var metadata: [String: String]?
+
+        if let joinRequest: JoinRequestContent = try? message.content() {
+            slug = joinRequest.inviteSlug
+            profile = joinRequest.profile
+            metadata = joinRequest.metadata
+        } else if let text: String = try? message.content() {
+            slug = text
+        } else {
+            return nil
+        }
+
+        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else { return nil }
 
         let request = JoinRequest(
             joinerInboxId: message.senderInboxId,
             dmConversationId: message.conversationId,
             signedInvite: signedInvite,
-            messageId: message.id
+            messageId: message.id,
+            profile: profile,
+            metadata: metadata
         )
 
         return await processJoinRequest(request, client: client)
@@ -307,7 +334,9 @@ public final class InviteCoordinator: @unchecked Sendable {
         let result = JoinResult(
             conversationId: conversationId,
             joinerInboxId: request.joinerInboxId,
-            conversationName: try? group.name()
+            conversationName: try? group.name(),
+            profile: request.profile,
+            metadata: request.metadata
         )
         delegate?.coordinator(self, didAddMember: result)
         return result
@@ -323,7 +352,7 @@ public final class InviteCoordinator: @unchecked Sendable {
 
         let candidates = messages.filter { message in
             guard let contentType = try? message.encodedContent.type,
-                  contentType == ContentTypeText,
+                  contentType == ContentTypeText || contentType == ContentTypeJoinRequest,
                   message.senderInboxId != client.inviteInboxId else {
                 return false
             }
@@ -402,12 +431,21 @@ extension XMTPiOS.Dm {
     func lastMessageAsSignedInvite(sentBy clientInboxId: String) async -> SignedInvite? {
         guard let lastMessage = try? await self.lastMessage(),
               lastMessage.senderInboxId == clientInboxId,
-              let contentType = try? lastMessage.encodedContent.type,
-              contentType == ContentTypeText,
-              let text: String = try? lastMessage.content(),
-              let invite = try? SignedInvite.fromURLSafeSlug(text) else {
+              let contentType = try? lastMessage.encodedContent.type else {
             return nil
         }
-        return invite
+
+        let slug: String
+        if contentType == ContentTypeJoinRequest,
+           let joinRequest: JoinRequestContent = try? lastMessage.content() {
+            slug = joinRequest.inviteSlug
+        } else if contentType == ContentTypeText,
+                  let text: String = try? lastMessage.content() {
+            slug = text
+        } else {
+            return nil
+        }
+
+        return try? SignedInvite.fromURLSafeSlug(slug)
     }
 }

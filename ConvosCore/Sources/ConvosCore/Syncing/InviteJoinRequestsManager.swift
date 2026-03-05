@@ -6,6 +6,8 @@ public struct JoinRequestResult: Sendable {
     public let conversationId: String
     public let conversationName: String?
     public let joinerInboxId: String
+    public let profile: JoinRequestProfile?
+    public let metadata: [String: String]?
 }
 
 protocol InviteJoinRequestsManagerProtocol: Sendable {
@@ -49,7 +51,9 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         return JoinRequestResult(
             conversationId: result.conversationId,
             conversationName: result.conversationName,
-            joinerInboxId: result.joinerInboxId
+            joinerInboxId: result.joinerInboxId,
+            profile: result.profile,
+            metadata: result.metadata
         )
     }
 
@@ -62,7 +66,9 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             return JoinRequestResult(
                 conversationId: $0.conversationId,
                 conversationName: $0.conversationName,
-                joinerInboxId: $0.joinerInboxId
+                joinerInboxId: $0.joinerInboxId,
+                profile: $0.profile,
+                metadata: $0.metadata
             )
         }
     }
