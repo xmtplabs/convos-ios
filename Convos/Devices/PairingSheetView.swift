@@ -63,13 +63,18 @@ struct PairingSheetView: View {
     private func qrCodeContent(url: String) -> some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             if let qrURL = URL(string: url), !url.isEmpty {
-                QRCodeView(url: qrURL, backgroundColor: .white, foregroundColor: .black)
-                    .blur(radius: isHoldingReveal ? 0 : 20)
-                    .animation(.easeInOut(duration: 0.2), value: isHoldingReveal)
-                    .padding(DesignConstants.Spacing.step6x)
-                    .background(.white)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large))
-                    .accessibilityIdentifier("pairing-qr-code")
+                QRCodeView(
+                    url: qrURL,
+                    backgroundColor: .white,
+                    foregroundColor: .black,
+                    centerImage: Image("convosOrangeIcon")
+                )
+                .blur(radius: isHoldingReveal ? 0 : 20)
+                .animation(.easeInOut(duration: 0.2), value: isHoldingReveal)
+                .padding(DesignConstants.Spacing.step6x)
+                .background(.white)
+                .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large))
+                .accessibilityIdentifier("pairing-qr-code")
             } else {
                 ProgressView()
                     .frame(width: 220, height: 220)
@@ -79,25 +84,6 @@ struct PairingSheetView: View {
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
-
-            if let qrURL = URL(string: url), !url.isEmpty {
-                ShareLink(item: qrURL) {
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Image(systemName: "square.and.arrow.up")
-                            .font(.caption2)
-                        Text("Share")
-                            .font(.caption)
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-                    .padding(.vertical, DesignConstants.Spacing.stepX)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
-                    .background(
-                        Capsule()
-                            .stroke(.colorBorderSubtle, lineWidth: 1)
-                    )
-                }
-                .accessibilityIdentifier("share-pairing-link")
-            }
         }
     }
 
