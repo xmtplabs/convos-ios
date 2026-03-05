@@ -36,4 +36,22 @@ public struct InboxesRepository {
                 .toDomain()
         }
     }
+
+    public func vaultInbox() throws -> Inbox? {
+        try databaseReader.read { db in
+            try DBInbox
+                .filter(DBInbox.Columns.isVault == true)
+                .fetchOne(db)?
+                .toDomain()
+        }
+    }
+
+    public func nonVaultInboxes() throws -> [Inbox] {
+        try databaseReader.read { db in
+            try DBInbox
+                .filter(DBInbox.Columns.isVault == false)
+                .fetchAll(db)
+                .map { $0.toDomain() }
+        }
+    }
 }

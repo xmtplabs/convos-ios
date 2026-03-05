@@ -426,6 +426,11 @@ extension SharedDatabaseMigrator {
             try db.create(index: "voiceMemoTranscript_attachmentKey", on: "voiceMemoTranscript", columns: ["attachmentKey"])
         }
 
+        migrator.registerMigration("addIsVaultToInbox") { db in
+            try db.alter(table: "inbox") { t in
+                t.add(column: "isVault", .boolean).notNull().defaults(to: false)
+            }
+        }
         return migrator
     }
 }
