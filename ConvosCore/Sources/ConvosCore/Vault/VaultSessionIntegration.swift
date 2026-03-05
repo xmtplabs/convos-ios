@@ -22,7 +22,6 @@ extension VaultManager: VaultServiceProtocol {
         guard isConnected, hasMultipleDevices else { return }
 
         let entry = VaultIdentityEntry(
-            conversationId: "",
             inboxId: keyInfo.inboxId,
             clientId: keyInfo.clientId,
             privateKeyData: keyInfo.privateKeyData,

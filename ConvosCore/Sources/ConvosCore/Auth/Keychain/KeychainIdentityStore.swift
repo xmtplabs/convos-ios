@@ -35,6 +35,11 @@ public struct KeychainIdentityKeys: Codable, XMTPClientKeys, Sendable {
         self.databaseKey = databaseKey
     }
 
+    public init(privateKeyData: Data, databaseKey: Data) throws {
+        self.privateKey = try PrivateKey(privateKeyData)
+        self.databaseKey = databaseKey
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         databaseKey = try container.decode(Data.self, forKey: .databaseKey)
