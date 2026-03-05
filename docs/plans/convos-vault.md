@@ -173,7 +173,7 @@ Accessible from Settings → Convos Vault:
 
 ### Lost one device (other devices remain)
 
-User removes the lost device from the Vault on another device. The removed device's inbox is kicked from the group, preventing it from receiving future keys. In a future phase, the installation IDs tracked in the Vault will be used to selectively revoke the compromised device's installations across all conversations via `revokeInstallations()`.
+User removes the lost device from the Vault on another device. The removed device's inbox is kicked from the group, preventing it from receiving future keys. Full compromise mitigation (revoking installations, key rotation) is out of scope for now — see Resolved Design Decisions.
 
 ### Lost all devices (same Apple ID)
 
@@ -224,7 +224,7 @@ Keys accumulate as messages in the Vault. When the device comes back online, it 
 
 ## Resolved Design Decisions
 
-**Key rotation after device compromise:** Not needed. Revoking the compromised device's XMTP installations (via `revokeInstallations()`) for each conversation is sufficient. The compromised device is removed from the MLS group for every conversation, and MLS forward secrecy ensures it cannot decrypt any future messages. The private keys alone are useless without an active installation.
+**Device compromise is out of scope for now.** Revoking installations alone is not sufficient — an attacker with the private keys can call `Client.create()` to make new installations. Truly locking out a compromised device would require rotating conversation keys (generating new keys, migrating all members to new conversations, abandoning old inboxes). This is a significant feature that we'll address in a future phase if needed.
 
 **Installation ID tracking:** When a device shares a conversation key (via `DeviceKeyBundle` or `DeviceKeyShare`), it also includes the installation ID it created for that conversation. This builds a mapping of device → installation IDs per conversation, which is needed to selectively revoke a specific device's installations without affecting other devices. Selective revocation based on this mapping is a future phase — for now, removing a device from the Vault prevents it from receiving future keys.
 
