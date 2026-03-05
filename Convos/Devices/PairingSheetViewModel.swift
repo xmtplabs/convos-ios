@@ -120,6 +120,7 @@ final class PairingSheetViewModel {
 
     func cancel() async {
         countdownTask?.cancel()
+        await vaultManager.stopPairingListener()
         await coordinator?.cancel()
         coordinator = nil
     }
