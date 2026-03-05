@@ -366,6 +366,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addIsVaultToInbox") { db in
+            try db.alter(table: "inbox") { t in
+                t.add(column: "isVault", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }
