@@ -38,4 +38,9 @@ struct DeviceInfo {
         return "ios"
         #endif
     }
+
+    /// Returns the user-facing device name
+    static var deviceName: String {
+        UIDevice.current.name
+    }
 }

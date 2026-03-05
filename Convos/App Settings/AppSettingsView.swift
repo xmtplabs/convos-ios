@@ -104,6 +104,23 @@ struct AppSettingsView: View {
                 }
 
                 Section {
+                    NavigationLink {
+                        DevicesView(viewModel: DevicesViewModel(session: session))
+                    } label: {
+                        HStack {
+                            Image(systemName: "iphone.gen3.sizes")
+                                .foregroundStyle(.colorTextPrimary)
+
+                            Text("Devices")
+                                .foregroundStyle(.colorTextPrimary)
+                        }
+                    }
+                    .accessibilityIdentifier("devices-row")
+                } footer: {
+                    Text("Manage and pair other devices")
+                }
+
+                Section {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Text("Customize new convos")
                             .foregroundStyle(.colorTextTertiary)
