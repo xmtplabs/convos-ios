@@ -20,6 +20,9 @@ public protocol DeviceInfoProviding: Sendable {
 
     /// Returns the current OS string (e.g., "ios", "macos").
     var osString: String { get }
+
+    /// Returns the user-facing device name (e.g., "Jarod's iPhone").
+    var deviceName: String { get }
 }
 
 // MARK: - Shared Instance Access
