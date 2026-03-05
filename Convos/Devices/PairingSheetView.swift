@@ -84,6 +84,25 @@ struct PairingSheetView: View {
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
+
+            if let qrURL = URL(string: url), !url.isEmpty {
+                ShareLink(item: qrURL) {
+                    HStack(spacing: DesignConstants.Spacing.stepX) {
+                        Image(systemName: "square.and.arrow.up")
+                            .font(.caption2)
+                        Text("Share")
+                            .font(.caption)
+                    }
+                    .foregroundStyle(.colorTextPrimary)
+                    .padding(.vertical, DesignConstants.Spacing.stepX)
+                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .background(
+                        Capsule()
+                            .stroke(.colorBorderSubtle, lineWidth: 1)
+                    )
+                }
+                .accessibilityIdentifier("share-pairing-link")
+            }
         }
     }
 
