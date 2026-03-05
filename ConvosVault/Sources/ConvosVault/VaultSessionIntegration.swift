@@ -6,6 +6,7 @@ public protocol VaultSessionIntegration: Sendable {
     func stopVault()
     func pauseVault()
     func resumeVault() async
+    func unpairSelfFromVault() async throws
     func notifyConversationCreated(_ keyInfo: ConversationKeyInfo)
 }
 
@@ -16,6 +17,10 @@ extension VaultManager: VaultSessionIntegration {
 
     public func stopVault() {
         disconnect()
+    }
+
+    public func unpairSelfFromVault() async throws {
+        try await unpairSelf()
     }
 
     public func pauseVault() {
