@@ -1,30 +1,31 @@
 import Foundation
 
 public actor VaultKeyStore {
-    private let localStore: any KeychainKeyStoreProtocol
-    private let icloudStore: any KeychainKeyStoreProtocol
-    private let identifier: String = "vault"
+    private let localStore: any KeychainIdentityStoreProtocol
+    private let icloudStore: any KeychainIdentityStoreProtocol
+    private let vaultInboxId: String = "vault"
+    private let vaultClientId: String = "vault"
 
     public init(
-        localStore: any KeychainKeyStoreProtocol,
-        icloudStore: any KeychainKeyStoreProtocol
+        localStore: any KeychainIdentityStoreProtocol,
+        icloudStore: any KeychainIdentityStoreProtocol
     ) {
         self.localStore = localStore
         self.icloudStore = icloudStore
     }
 
     public func save(keys: KeychainIdentityKeys) async throws {
-        try await localStore.save(
-            keys: keys,
-            identifier: identifier,
-            accessibility: .afterFirstUnlockThisDeviceOnly
+        _ = try await localStore.save(
+            inboxId: vaultInboxId,
+            clientId: vaultClientId,
+            keys: keys
         )
 
         do {
-            try await icloudStore.save(
-                keys: keys,
-                identifier: identifier,
-                accessibility: .afterFirstUnlock
+            _ = try await icloudStore.save(
+                inboxId: vaultInboxId,
+                clientId: vaultClientId,
+                keys: keys
             )
         } catch {
             Log.warning("Failed to save Vault key to iCloud Keychain: \(error)")
@@ -32,33 +33,35 @@ public actor VaultKeyStore {
     }
 
     public func load() async throws -> KeychainIdentityKeys {
-        if let keys = try? await localStore.load(identifier: identifier) {
-            return keys
+        if let identity = try? await localStore.identity(for: vaultInboxId) {
+            return identity.keys
         }
 
-        let keys = try await icloudStore.load(identifier: identifier)
+        let identity = try await icloudStore.identity(for: vaultInboxId)
 
-        try await localStore.save(
-            keys: keys,
-            identifier: identifier,
-            accessibility: .afterFirstUnlockThisDeviceOnly
+        _ = try await localStore.save(
+            inboxId: vaultInboxId,
+            clientId: vaultClientId,
+            keys: identity.keys
         )
 
-        return keys
+        return identity.keys
     }
 
     public func exists() async -> Bool {
-        if let localExists = try? await localStore.exists(identifier: identifier), localExists {
+        if let identities = try? await localStore.loadAll(),
+           identities.contains(where: { $0.inboxId == vaultInboxId }) {
             return true
         }
-        if let icloudExists = try? await icloudStore.exists(identifier: identifier), icloudExists {
+        if let identities = try? await icloudStore.loadAll(),
+           identities.contains(where: { $0.inboxId == vaultInboxId }) {
             return true
         }
         return false
     }
 
     public func delete() async throws {
-        try await localStore.delete(identifier: identifier)
-        try await icloudStore.delete(identifier: identifier)
+        try await localStore.delete(inboxId: vaultInboxId)
+        try await icloudStore.delete(inboxId: vaultInboxId)
     }
 }
