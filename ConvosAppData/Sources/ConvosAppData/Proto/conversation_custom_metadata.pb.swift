@@ -70,6 +70,16 @@ public struct ConversationCustomMetadata: Sendable {
   /// Clears the value of `encryptedGroupImage`. Subsequent reads from it will return its default value.
   public mutating func clearEncryptedGroupImage() {self._encryptedGroupImage = nil}
 
+  /// e.g. "vault" for multi-device key sync
+  public var conversationType: String {
+    get {return _conversationType ?? String()}
+    set {_conversationType = newValue}
+  }
+  /// Returns true if `conversationType` has been explicitly set.
+  public var hasConversationType: Bool {return self._conversationType != nil}
+  /// Clears the value of `conversationType`. Subsequent reads from it will return its default value.
+  public mutating func clearConversationType() {self._conversationType = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -77,6 +87,7 @@ public struct ConversationCustomMetadata: Sendable {
   fileprivate var _expiresAtUnix: Int64? = nil
   fileprivate var _imageEncryptionKey: Data? = nil
   fileprivate var _encryptedGroupImage: EncryptedImageRef? = nil
+  fileprivate var _conversationType: String? = nil
 }
 
 /// EncryptedImageRef stores encrypted image metadata
@@ -151,7 +162,7 @@ public struct ConversationProfile: Sendable {
 
 extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConversationCustomMetadata"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}tag\0\u{1}profiles\0\u{1}expiresAtUnix\0\u{1}imageEncryptionKey\0\u{1}encryptedGroupImage\0\u{1}conversationType\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -164,6 +175,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
       case 3: try { try decoder.decodeSingularSFixed64Field(value: &self._expiresAtUnix) }()
       case 4: try { try decoder.decodeSingularBytesField(value: &self._imageEncryptionKey) }()
       case 5: try { try decoder.decodeSingularMessageField(value: &self._encryptedGroupImage) }()
+      case 6: try { try decoder.decodeSingularStringField(value: &self._conversationType) }()
       default: break
       }
     }
@@ -189,6 +201,9 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     try { if let v = self._encryptedGroupImage {
       try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
     } }()
+    try { if let v = self._conversationType {
+      try visitor.visitSingularStringField(value: v, fieldNumber: 6)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -198,6 +213,7 @@ extension ConversationCustomMetadata: SwiftProtobuf.Message, SwiftProtobuf._Mess
     if lhs._expiresAtUnix != rhs._expiresAtUnix {return false}
     if lhs._imageEncryptionKey != rhs._imageEncryptionKey {return false}
     if lhs._encryptedGroupImage != rhs._encryptedGroupImage {return false}
+    if lhs._conversationType != rhs._conversationType {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
