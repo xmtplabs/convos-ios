@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosVault
 import Foundation
 import GRDB
 import os
