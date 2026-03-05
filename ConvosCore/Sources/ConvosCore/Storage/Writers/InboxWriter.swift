@@ -29,7 +29,7 @@ struct InboxWriter {
     }
 
     @discardableResult
-    func save(inboxId: String, clientId: String) async throws -> DBInbox {
+    func save(inboxId: String, clientId: String, isVault: Bool = false) async throws -> DBInbox {
         try await dbWriter.write { db in
             // Check if inbox already exists
             if let existingInbox = try DBInbox.fetchOne(db, id: inboxId) {
@@ -54,7 +54,8 @@ struct InboxWriter {
             let inbox = DBInbox(
                 inboxId: inboxId,
                 clientId: clientId,
-                createdAt: Date()
+                createdAt: Date(),
+                isVault: isVault
             )
             try inbox.insert(db)
             return inbox
