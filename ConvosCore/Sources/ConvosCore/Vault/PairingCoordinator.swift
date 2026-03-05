@@ -39,6 +39,7 @@ public enum PairingError: Error, LocalizedError, Sendable, Equatable {
     case pairingTimeout
     case alreadyPairing
     case noVaultGroup
+    case invalidInviteSlug
     case addMemberFailed(String)
     case shareKeysFailed(String)
 
@@ -54,6 +55,8 @@ public enum PairingError: Error, LocalizedError, Sendable, Equatable {
             return "A pairing session is already in progress"
         case .noVaultGroup:
             return "No vault group found"
+        case .invalidInviteSlug:
+            return "Invalid pairing invite"
         case let .addMemberFailed(reason):
             return "Failed to add device: \(reason)"
         case let .shareKeysFailed(reason):

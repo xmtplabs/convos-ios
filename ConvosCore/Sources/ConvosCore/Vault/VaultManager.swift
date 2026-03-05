@@ -1,4 +1,5 @@
 import ConvosAppData
+import ConvosInvites
 import Foundation
 import GRDB
 import os
@@ -35,21 +36,30 @@ public struct VaultIdentityEntry: Codable, Sendable {
     }
 }
 
+public struct PairingJoinRequest: Sendable {
+    public let pin: String
+    public let deviceName: String
+    public let joinerInboxId: String
+}
+
 public protocol VaultManagerDelegate: AnyObject, Sendable {
     func vaultManager(_ manager: VaultManager, didImportKey entry: VaultIdentityEntry)
     func vaultManager(_ manager: VaultManager, didRemoveDevice inboxId: String)
+    func vaultManager(_ manager: VaultManager, didReceivePairingJoinRequest request: PairingJoinRequest)
     func vaultManager(_ manager: VaultManager, didEncounterError error: any Error)
 }
 
 public extension VaultManagerDelegate {
     func vaultManager(_ manager: VaultManager, didImportKey entry: VaultIdentityEntry) {}
     func vaultManager(_ manager: VaultManager, didRemoveDevice inboxId: String) {}
+    func vaultManager(_ manager: VaultManager, didReceivePairingJoinRequest request: PairingJoinRequest) {}
     func vaultManager(_ manager: VaultManager, didEncounterError error: any Error) {}
 }
 
 public actor VaultManager {
     private let vaultClient: VaultClient
     private let identityStore: any KeychainIdentityStoreProtocol
+    private let vaultKeyStore: VaultKeyStore?
     private let databaseReader: any DatabaseReader
     private let deviceName: String
     private var memberCount: Int = 1
@@ -71,11 +81,13 @@ public actor VaultManager {
 
     public init(
         identityStore: any KeychainIdentityStoreProtocol,
+        vaultKeyStore: VaultKeyStore? = nil,
         databaseReader: any DatabaseReader,
         deviceName: String
     ) {
         self.vaultClient = VaultClient()
         self.identityStore = identityStore
+        self.vaultKeyStore = vaultKeyStore
         self.databaseReader = databaseReader
         self.deviceName = deviceName
     }
@@ -179,6 +191,125 @@ public actor VaultManager {
         } catch {
             delegate?.vaultManager(self, didEncounterError: error)
         }
+    }
+
+    // MARK: - Pairing (Initiator - Device A)
+
+    private var dmStreamTask: Task<Void, Never>?
+    private var activePairingSlug: String?
+
+    public func createPairingInvite(expiresAt: Date) async throws -> String {
+        guard let group = vaultClient.vaultGroup else {
+            throw PairingError.noVaultGroup
+        }
+        guard let client = vaultClient.xmtpClient else {
+            throw VaultClientError.notConnected
+        }
+        guard let vaultInboxId, let vaultKeyStore else {
+            throw VaultClientError.notConnected
+        }
+
+        let identity = try await vaultKeyStore.load(inboxId: vaultInboxId)
+        let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
+
+        let coordinator = InviteCoordinator(
+            privateKeyProvider: { _ in privateKey },
+            tagStorage: ProtobufInviteTagStorage()
+        )
+
+        let adapter = VaultInviteClientAdapter(client: client)
+        let result = try await coordinator.createInvite(
+            for: group,
+            client: adapter,
+            options: InviteOptions(expiresAt: expiresAt, singleUse: true)
+        )
+
+        activePairingSlug = result.slug
+        startDmStream()
+        return result.slug
+    }
+
+    public func stopPairingListener() {
+        dmStreamTask?.cancel()
+        dmStreamTask = nil
+        activePairingSlug = nil
+    }
+
+    private func startDmStream() {
+        dmStreamTask?.cancel()
+        dmStreamTask = Task { [weak self] in
+            guard let self else { return }
+            do {
+                let stream = try await self.vaultClient.streamAllDmMessages()
+                for try await message in stream {
+                    guard !Task.isCancelled else { break }
+                    await self.handleDmMessage(message)
+                }
+            } catch {
+                if !Task.isCancelled {
+                    await self.delegate?.vaultManager(self, didEncounterError: error)
+                }
+            }
+        }
+    }
+
+    private func handleDmMessage(_ message: DecodedMessage) {
+        guard let activePairingSlug else { return }
+        guard let vaultInboxId, message.senderInboxId != vaultInboxId else { return }
+
+        if let joinRequest: JoinRequestContent = try? message.content(),
+           joinRequest.inviteSlug == activePairingSlug {
+            let pin = joinRequest.metadata?["pin"] ?? ""
+            let name = joinRequest.metadata?["deviceName"] ?? "Unknown device"
+            let request = PairingJoinRequest(
+                pin: pin,
+                deviceName: name,
+                joinerInboxId: message.senderInboxId
+            )
+            delegate?.vaultManager(self, didReceivePairingJoinRequest: request)
+            return
+        }
+
+        if let text: String = try? message.content(),
+           text == activePairingSlug {
+            let request = PairingJoinRequest(
+                pin: "",
+                deviceName: "Unknown device",
+                joinerInboxId: message.senderInboxId
+            )
+            delegate?.vaultManager(self, didReceivePairingJoinRequest: request)
+        }
+    }
+
+    // MARK: - Pairing (Joiner - Device B)
+
+    public func sendPairingJoinRequest(
+        slug: String,
+        pin: String,
+        deviceName: String
+    ) async throws {
+        guard let client = vaultClient.xmtpClient else {
+            throw VaultClientError.notConnected
+        }
+
+        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else {
+            throw PairingError.invalidInviteSlug
+        }
+
+        let adapter = VaultInviteClientAdapter(client: client)
+        let coordinator = InviteCoordinator(
+            privateKeyProvider: { _ in Data() },
+            tagStorage: ProtobufInviteTagStorage()
+        )
+
+        _ = try await coordinator.sendJoinRequest(
+            for: signedInvite,
+            client: adapter,
+            metadata: [
+                "pin": pin,
+                "deviceName": deviceName,
+            ]
+        )
     }
 
     public static var preview: VaultManager {

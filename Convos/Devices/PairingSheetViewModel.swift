@@ -44,12 +44,16 @@ final class PairingSheetViewModel {
         let coordinator = PairingCoordinator(vaultManager: vaultManager)
         self.coordinator = coordinator
 
-        let domain = ConfigManager.shared.associatedDomain
-        let inviteURL = "https://\(domain)/pair/\(UUID().uuidString.prefix(8).lowercased())"
+        expiresAt = Date().addingTimeInterval(timeoutInterval)
+        let expiresAtUnix = Int(expiresAt.timeIntervalSince1970)
 
         do {
+            let slug = try await vaultManager.createPairingInvite(expiresAt: expiresAt)
+
+            let domain = ConfigManager.shared.associatedDomain
+            let inviteURL = "https://\(domain)/pair/\(slug)?expires=\(expiresAtUnix)"
+
             try await coordinator.startPairing(inviteURL: inviteURL)
-            expiresAt = Date().addingTimeInterval(timeoutInterval)
             secondsRemaining = Int(timeoutInterval)
             flowState = .qrCode(url: inviteURL)
             startCountdown()

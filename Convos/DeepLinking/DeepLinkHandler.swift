@@ -4,7 +4,7 @@ import SwiftUI
 
 enum DeepLinkDestination {
     case joinConversation(inviteCode: String)
-    case pairDevice(pairingId: String)
+    case pairDevice(pairingId: String, expiresAt: Date?)
 }
 
 final class DeepLinkHandler {
@@ -19,7 +19,7 @@ final class DeepLinkHandler {
         }
 
         if let pairingId = url.convosPairingId {
-            return .pairDevice(pairingId: pairingId)
+            return .pairDevice(pairingId: pairingId, expiresAt: url.convosPairingExpiresAt)
         }
 
         guard let inviteCode = url.convosInviteCode else {
@@ -58,5 +58,13 @@ extension URL {
         }
 
         return nil
+    }
+
+    var convosPairingExpiresAt: Date? {
+        guard let components = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              let expiresString = components.queryItems?.first(where: { $0.name == "expires" })?.value,
+              let expiresUnix = TimeInterval(expiresString)
+        else { return nil }
+        return Date(timeIntervalSince1970: expiresUnix)
     }
 }
