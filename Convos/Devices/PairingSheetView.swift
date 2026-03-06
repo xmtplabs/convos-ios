@@ -62,6 +62,16 @@ struct PairingSheetView: View {
     @ViewBuilder
     private func qrCodeContent(url: String) -> some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
+            Text("Scan this code with your new device to pair")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
+                .multilineTextAlignment(.center)
+
+            Text("All devices that are paired sync all of their existing convos.")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+                .multilineTextAlignment(.center)
+
             if let qrURL = URL(string: url), !url.isEmpty {
                 QRCodeView(
                     url: qrURL,
@@ -81,11 +91,6 @@ struct PairingSheetView: View {
                 ProgressView()
                     .frame(width: 220, height: 220)
             }
-
-            Text("Scan this code with your new device to pair")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-                .multilineTextAlignment(.center)
 
             if let qrURL = URL(string: url), !url.isEmpty {
                 ShareLink(item: qrURL) {
