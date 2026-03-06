@@ -344,3 +344,70 @@ struct DeviceRemovedCodecTests {
         #expect(DeviceRemovedReason.userRemoved != .lostDevice)
     }
 }
+
+@Suite("ConversationDeleted Codec Tests")
+struct ConversationDeletedCodecTests {
+    let codec: ConversationDeletedCodec = ConversationDeletedCodec()
+
+    @Test("Content type matches expected value")
+    func contentType() {
+        let expectedType = ContentTypeID(
+            authorityID: "convos.org",
+            typeID: "conversation_deleted",
+            versionMajor: 1,
+            versionMinor: 0
+        )
+        #expect(codec.contentType == expectedType)
+        #expect(codec.contentType == ContentTypeConversationDeleted)
+    }
+
+    @Test("Should not push")
+    func shouldNotPush() throws {
+        let content = ConversationDeletedContent(
+            inboxId: "test-inbox",
+            clientId: "test-client"
+        )
+        #expect(try codec.shouldPush(content: content) == false)
+    }
+
+    @Test("Encode and decode roundtrip")
+    func encodeDecodeRoundtrip() throws {
+        let content = ConversationDeletedContent(
+            inboxId: "inbox-123",
+            clientId: "client-456",
+            timestamp: Date(timeIntervalSince1970: 1_700_000_000)
+        )
+        let encoded = try codec.encode(content: content)
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded == content)
+    }
+
+    @Test("Fallback returns expected string")
+    func fallback() throws {
+        let content = ConversationDeletedContent(
+            inboxId: "inbox-123",
+            clientId: "client-456"
+        )
+        #expect(try codec.fallback(content: content) == "Conversation deleted")
+    }
+
+    @Test("Decode empty content throws")
+    func decodeEmptyContent() throws {
+        var encoded = EncodedContent()
+        encoded.type = ContentTypeConversationDeleted
+        encoded.content = Data()
+        #expect(throws: ConversationDeletedCodecError.emptyContent) {
+            try codec.decode(content: encoded)
+        }
+    }
+
+    @Test("Equatable")
+    func equatable() {
+        let timestamp = Date(timeIntervalSince1970: 1_700_000_000)
+        let a = ConversationDeletedContent(inboxId: "a", clientId: "c1", timestamp: timestamp)
+        let b = ConversationDeletedContent(inboxId: "a", clientId: "c1", timestamp: timestamp)
+        let c = ConversationDeletedContent(inboxId: "b", clientId: "c2", timestamp: timestamp)
+        #expect(a == b)
+        #expect(a != c)
+    }
+}

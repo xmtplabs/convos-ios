@@ -120,7 +120,9 @@ public actor PairingCoordinator {
         do {
             try await vaultManager.addMember(inboxId: joinerInboxId)
         } catch {
-            updateState(.failed(.addMemberFailed(error.localizedDescription)))
+            let pairingError = PairingError.addMemberFailed(error.localizedDescription)
+            await vaultManager.sendPairingError(to: joinerInboxId, message: pairingError.errorDescription ?? "Failed to add device")
+            updateState(.failed(pairingError))
             return
         }
 
@@ -128,7 +130,9 @@ public actor PairingCoordinator {
         do {
             try await vaultManager.shareAllKeys()
         } catch {
-            updateState(.failed(.shareKeysFailed(error.localizedDescription)))
+            let pairingError = PairingError.shareKeysFailed(error.localizedDescription)
+            await vaultManager.sendPairingError(to: joinerInboxId, message: pairingError.errorDescription ?? "Failed to share keys")
+            updateState(.failed(pairingError))
             return
         }
 

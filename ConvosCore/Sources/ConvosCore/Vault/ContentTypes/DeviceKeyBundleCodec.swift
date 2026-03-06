@@ -33,15 +33,21 @@ public struct DeviceKeyEntry: Codable, Sendable, Equatable {
 public struct DeviceKeyBundleContent: Codable, Sendable, Equatable {
     public let keys: [DeviceKeyEntry]
     public let senderInstallationId: String
+    public let senderDeviceName: String?
+    public let peerDeviceNames: [String: String]?
     public let timestamp: Date
 
     public init(
         keys: [DeviceKeyEntry],
         senderInstallationId: String,
+        senderDeviceName: String? = nil,
+        peerDeviceNames: [String: String]? = nil,
         timestamp: Date = Date()
     ) {
         self.keys = keys
         self.senderInstallationId = senderInstallationId
+        self.senderDeviceName = senderDeviceName
+        self.peerDeviceNames = peerDeviceNames
         self.timestamp = timestamp
     }
 }

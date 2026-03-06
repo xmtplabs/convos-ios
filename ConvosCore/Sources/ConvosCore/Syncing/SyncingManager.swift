@@ -12,6 +12,7 @@ public protocol SyncingManagerProtocol: Actor {
     func pause() async
     func resume() async
     func requestDiscovery() async
+    func scheduleDelayedDiscovery(delays: [TimeInterval]) async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
 }
 
@@ -105,6 +106,7 @@ actor SyncingManager: SyncingManagerProtocol {
     private var messageStreamTask: Task<Void, Never>?
     private var conversationStreamTask: Task<Void, Never>?
     private var syncTask: Task<Void, Never>?
+    private var delayedDiscoveryTask: Task<Void, Never>?
 
     private var activeConversationId: String?
 
@@ -634,6 +636,18 @@ actor SyncingManager: SyncingManagerProtocol {
         }
     }
 
+    func scheduleDelayedDiscovery(delays: [TimeInterval]) async {
+        delayedDiscoveryTask?.cancel()
+        delayedDiscoveryTask = Task { [weak self] in
+            for delay in delays {
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                guard let self else { return }
+                await self.requestDiscovery()
+            }
+        }
+    }
+
     private func handleStop() async throws {
         Log.info("Stopping sync...")
         emitStateChange(.stopping)
@@ -654,6 +668,7 @@ actor SyncingManager: SyncingManagerProtocol {
         syncTask?.cancel()
         messageStreamTask?.cancel()
         conversationStreamTask?.cancel()
+        delayedDiscoveryTask?.cancel()
 
         if let task = syncTask {
             _ = await task.value

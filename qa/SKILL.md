@@ -43,6 +43,9 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 23 | `qa/tests/23-pending-invites-home-view.md` | Pending invites appear in home view, filter, swipe/context restrictions, approval transition |
 | 25 | `qa/tests/25-conversations-list-baseline.md` | Conversations list baseline for UICollectionView migration - captures all UI states and interactions |
 | 26 | `qa/tests/26-failed-message-send.md` | Failed message send: "Not Delivered" state, retry, and delete |
+| 26 | `qa/tests/26-pair-device.md` | Pair two devices via Vault, verify conversations sync across both devices |
+| 27 | `qa/tests/27-multi-device-create-conversation.md` | Create conversations on paired devices and verify they appear on both |
+| 28 | `qa/tests/28-multi-device-delete-conversation.md` | Delete and explode conversations on paired devices, verify sync behavior |
 
 ## Running Tests
 
