@@ -22,7 +22,7 @@ struct ConversationMembersListView: View {
         .toolbar {
             ToolbarItem(placement: .principal) {
                 VStack(spacing: 0) {
-                    Text(viewModel.conversation.membersCountString)
+                    Text(viewModel.conversation.membersCountStringCapitalized)
                         .font(.headline)
                     if let assistantString = viewModel.conversation.assistantCountString {
                         Text(assistantString)

@@ -96,6 +96,11 @@ public extension Conversation {
 
     var membersCountString: String {
         let totalCount = members.count
+        return "\(totalCount) \(totalCount == 1 ? "member" : "members")"
+    }
+
+    var membersCountStringCapitalized: String {
+        let totalCount = members.count
         return "\(totalCount) \(totalCount == 1 ? "Member" : "Members")"
     }
 
