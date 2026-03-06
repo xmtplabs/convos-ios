@@ -58,6 +58,50 @@ public enum MemberKind: SwiftProtobuf.Enum, Swift.CaseIterable {
 
 }
 
+/// A typed metadata value supporting multiple primitive types.
+public struct MetadataValue: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var value: MetadataValue.OneOf_Value? = nil
+
+  public var stringValue: String {
+    get {
+      if case .stringValue(let v)? = value {return v}
+      return String()
+    }
+    set {value = .stringValue(newValue)}
+  }
+
+  public var numberValue: Double {
+    get {
+      if case .numberValue(let v)? = value {return v}
+      return 0
+    }
+    set {value = .numberValue(newValue)}
+  }
+
+  public var boolValue: Bool {
+    get {
+      if case .boolValue(let v)? = value {return v}
+      return false
+    }
+    set {value = .boolValue(newValue)}
+  }
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public enum OneOf_Value: Equatable, Sendable {
+    case stringValue(String)
+    case numberValue(Double)
+    case boolValue(Bool)
+
+  }
+
+  public init() {}
+}
+
 /// ProfileUpdate is sent by a member when they change their own profile.
 /// The sender's inbox ID is implicit from the XMTP message — only the
 /// sender can author their own profile update, preventing spoofing.
@@ -87,6 +131,8 @@ public struct ProfileUpdate: Sendable {
   public mutating func clearEncryptedImage() {self._encryptedImage = nil}
 
   public var memberKind: MemberKind = .unspecified
+
+  public var metadata: Dictionary<String,MetadataValue> = [:]
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -144,6 +190,8 @@ public struct MemberProfile: Sendable {
 
   public var memberKind: MemberKind = .unspecified
 
+  public var metadata: Dictionary<String,MetadataValue> = [:]
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -179,9 +227,78 @@ extension MemberKind: SwiftProtobuf._ProtoNameProviding {
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{2}\0MEMBER_KIND_UNSPECIFIED\0\u{1}MEMBER_KIND_AGENT\0")
 }
 
+extension MetadataValue: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = "MetadataValue"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}string_value\0\u{3}number_value\0\u{3}bool_value\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try {
+        var v: String?
+        try decoder.decodeSingularStringField(value: &v)
+        if let v = v {
+          if self.value != nil {try decoder.handleConflictingOneOf()}
+          self.value = .stringValue(v)
+        }
+      }()
+      case 2: try {
+        var v: Double?
+        try decoder.decodeSingularDoubleField(value: &v)
+        if let v = v {
+          if self.value != nil {try decoder.handleConflictingOneOf()}
+          self.value = .numberValue(v)
+        }
+      }()
+      case 3: try {
+        var v: Bool?
+        try decoder.decodeSingularBoolField(value: &v)
+        if let v = v {
+          if self.value != nil {try decoder.handleConflictingOneOf()}
+          self.value = .boolValue(v)
+        }
+      }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    switch self.value {
+    case .stringValue?: try {
+      guard case .stringValue(let v)? = self.value else { preconditionFailure() }
+      try visitor.visitSingularStringField(value: v, fieldNumber: 1)
+    }()
+    case .numberValue?: try {
+      guard case .numberValue(let v)? = self.value else { preconditionFailure() }
+      try visitor.visitSingularDoubleField(value: v, fieldNumber: 2)
+    }()
+    case .boolValue?: try {
+      guard case .boolValue(let v)? = self.value else { preconditionFailure() }
+      try visitor.visitSingularBoolField(value: v, fieldNumber: 3)
+    }()
+    case nil: break
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: MetadataValue, rhs: MetadataValue) -> Bool {
+    if lhs.value != rhs.value {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
 extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ProfileUpdate"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0\u{1}metadata\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -192,6 +309,7 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       case 1: try { try decoder.decodeSingularStringField(value: &self._name) }()
       case 2: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
       case 3: try { try decoder.decodeSingularEnumField(value: &self.memberKind) }()
+      case 4: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: &self.metadata) }()
       default: break
       }
     }
@@ -211,6 +329,9 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if self.memberKind != .unspecified {
       try visitor.visitSingularEnumField(value: self.memberKind, fieldNumber: 3)
     }
+    if !self.metadata.isEmpty {
+      try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: self.metadata, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -218,6 +339,7 @@ extension ProfileUpdate: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if lhs._name != rhs._name {return false}
     if lhs._encryptedImage != rhs._encryptedImage {return false}
     if lhs.memberKind != rhs.memberKind {return false}
+    if lhs.metadata != rhs.metadata {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -255,7 +377,7 @@ extension ProfileSnapshot: SwiftProtobuf.Message, SwiftProtobuf._MessageImplemen
 
 extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "MemberProfile"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}inbox_id\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}inbox_id\0\u{1}name\0\u{3}encrypted_image\0\u{3}member_kind\0\u{1}metadata\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -267,6 +389,7 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
       case 2: try { try decoder.decodeSingularStringField(value: &self._name) }()
       case 3: try { try decoder.decodeSingularMessageField(value: &self._encryptedImage) }()
       case 4: try { try decoder.decodeSingularEnumField(value: &self.memberKind) }()
+      case 5: try { try decoder.decodeMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: &self.metadata) }()
       default: break
       }
     }
@@ -289,6 +412,9 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if self.memberKind != .unspecified {
       try visitor.visitSingularEnumField(value: self.memberKind, fieldNumber: 4)
     }
+    if !self.metadata.isEmpty {
+      try visitor.visitMapField(fieldType: SwiftProtobuf._ProtobufMessageMap<SwiftProtobuf.ProtobufString,MetadataValue>.self, value: self.metadata, fieldNumber: 5)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -297,6 +423,7 @@ extension MemberProfile: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementa
     if lhs._name != rhs._name {return false}
     if lhs._encryptedImage != rhs._encryptedImage {return false}
     if lhs.memberKind != rhs.memberKind {return false}
+    if lhs.metadata != rhs.metadata {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

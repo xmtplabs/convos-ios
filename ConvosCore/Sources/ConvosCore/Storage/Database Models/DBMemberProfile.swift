@@ -1,4 +1,5 @@
 import ConvosAppData
+import ConvosProfiles
 import Foundation
 import GRDB
 
@@ -19,6 +20,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         static let avatarKey: Column = Column(CodingKeys.avatarKey)
         static let avatarLastRenewed: Column = Column(CodingKeys.avatarLastRenewed)
         static let memberKind: Column = Column(CodingKeys.memberKind)
+        static let metadata: Column = Column(CodingKeys.metadata)
     }
 
     let conversationId: String
@@ -30,6 +32,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     let avatarKey: Data?
     let avatarLastRenewed: Date?
     let memberKind: DBMemberKind?
+    let metadata: ProfileMetadata?
 
     var isAgent: Bool {
         memberKind == .agent
@@ -44,7 +47,8 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
         avatarLastRenewed: Date? = nil,
-        memberKind: DBMemberKind? = nil
+        memberKind: DBMemberKind? = nil,
+        metadata: ProfileMetadata? = nil
     ) {
         self.conversationId = conversationId
         self.inboxId = inboxId
@@ -55,6 +59,7 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
         self.avatarKey = avatarKey
         self.avatarLastRenewed = avatarLastRenewed
         self.memberKind = memberKind
+        self.metadata = metadata
     }
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
@@ -110,7 +115,8 @@ extension DBMemberProfile {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind
+            memberKind: memberKind,
+            metadata: metadata
         )
     }
 
@@ -124,7 +130,8 @@ extension DBMemberProfile {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind
+            memberKind: memberKind,
+            metadata: metadata
         )
     }
 
@@ -138,7 +145,8 @@ extension DBMemberProfile {
             avatarNonce: nonce,
             avatarKey: key,
             avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind
+            memberKind: memberKind,
+            metadata: metadata
         )
     }
 
@@ -152,7 +160,8 @@ extension DBMemberProfile {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind
+            memberKind: memberKind,
+            metadata: metadata
         )
     }
 
@@ -166,7 +175,23 @@ extension DBMemberProfile {
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
             avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind
+            memberKind: memberKind,
+            metadata: metadata
+        )
+    }
+
+    func with(metadata: ProfileMetadata?) -> DBMemberProfile {
+        .init(
+            conversationId: conversationId,
+            inboxId: inboxId,
+            name: name,
+            avatar: avatar,
+            avatarSalt: avatarSalt,
+            avatarNonce: avatarNonce,
+            avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed,
+            memberKind: memberKind,
+            metadata: metadata
         )
     }
 

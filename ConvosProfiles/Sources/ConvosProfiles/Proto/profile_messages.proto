@@ -8,6 +8,15 @@ enum MemberKind {
     MEMBER_KIND_AGENT = 1;
 }
 
+// A typed metadata value supporting multiple primitive types.
+message MetadataValue {
+    oneof value {
+        string string_value = 1;
+        double number_value = 2;
+        bool bool_value = 3;
+    }
+}
+
 // ProfileUpdate is sent by a member when they change their own profile.
 // The sender's inbox ID is implicit from the XMTP message — only the
 // sender can author their own profile update, preventing spoofing.
@@ -17,6 +26,7 @@ message ProfileUpdate {
     optional string name = 1;
     optional EncryptedProfileImageRef encrypted_image = 2;
     MemberKind member_kind = 3;
+    map<string, MetadataValue> metadata = 4;
 }
 
 // ProfileSnapshot is sent by the member who adds new members to a group.
@@ -36,6 +46,7 @@ message MemberProfile {
     optional string name = 2;
     optional EncryptedProfileImageRef encrypted_image = 3;
     MemberKind member_kind = 4;
+    map<string, MetadataValue> metadata = 5;
 }
 
 // Reference to an encrypted profile image (matches EncryptedImageRef from ConvosAppData

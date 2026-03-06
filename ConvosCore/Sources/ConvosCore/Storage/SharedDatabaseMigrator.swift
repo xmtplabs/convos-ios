@@ -366,6 +366,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addMetadataToProfile") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "metadata", .jsonText)
+            }
+        }
+
         return migrator
     }
 }
