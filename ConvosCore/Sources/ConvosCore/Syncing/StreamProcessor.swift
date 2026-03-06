@@ -97,7 +97,8 @@ actor StreamProcessor: StreamProcessorProtocol {
         self.messageWriter = messageWriter
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
         self.joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: identityStore
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
         )
     }
 

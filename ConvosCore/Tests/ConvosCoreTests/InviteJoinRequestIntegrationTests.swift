@@ -2,6 +2,7 @@
 import ConvosInvites
 import ConvosInvitesCore
 import Foundation
+import GRDB
 import Testing
 @preconcurrency import XMTPiOS
 
@@ -65,8 +66,11 @@ struct InviteJoinRequestIntegrationTests {
             return
         }
 
+        let testDb = try DatabaseQueue()
+        try SharedDatabaseMigrator.shared.migrate(database: testDb)
         let joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            databaseWriter: testDb
         )
 
         let result = await joinRequestsManager.processJoinRequest(
@@ -128,8 +132,11 @@ struct InviteJoinRequestIntegrationTests {
 
         try await clientA.conversations.sync()
 
+        let testDb = try DatabaseQueue()
+        try SharedDatabaseMigrator.shared.migrate(database: testDb)
         let joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            databaseWriter: testDb
         )
 
         let results = await joinRequestsManager.processJoinRequests(
@@ -210,8 +217,11 @@ struct InviteJoinRequestIntegrationTests {
             return
         }
 
+        let testDb = try DatabaseQueue()
+        try SharedDatabaseMigrator.shared.migrate(database: testDb)
         let joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            databaseWriter: testDb
         )
 
         let result = await joinRequestsManager.processJoinRequest(
@@ -295,8 +305,11 @@ struct InviteJoinRequestIntegrationTests {
             return
         }
 
+        let testDb = try DatabaseQueue()
+        try SharedDatabaseMigrator.shared.migrate(database: testDb)
         let joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            databaseWriter: testDb
         )
 
         let result = await joinRequestsManager.processJoinRequest(
@@ -394,8 +407,11 @@ struct InviteJoinRequestIntegrationTests {
         }
         #expect(plainTextMessage != nil, "Should also have a plain text fallback message")
 
+        let testDb = try DatabaseQueue()
+        try SharedDatabaseMigrator.shared.migrate(database: testDb)
         let joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: fixtures.identityStore
+            identityStore: fixtures.identityStore,
+            databaseWriter: testDb
         )
 
         let result = await joinRequestsManager.processJoinRequest(
