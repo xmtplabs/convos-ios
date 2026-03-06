@@ -57,12 +57,12 @@ struct JoinerPairingSheetView: View {
     @ViewBuilder
     private func pinDisplayContent(pin: String) -> some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            Text("\"\(viewModel.initiatorDeviceName)\" is requesting to pair.")
+            Text("\"\(viewModel.initiatorDeviceName)\" is requesting to pair. Paired devices sync all conversations.")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text("Paired devices sync all conversations. Enter the code on \"\(viewModel.initiatorDeviceName)\" to finish pairing.")
+            Text("Enter this code on \"\(viewModel.initiatorDeviceName)\" to finish pairing.")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
