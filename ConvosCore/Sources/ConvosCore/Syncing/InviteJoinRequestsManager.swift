@@ -1,12 +1,15 @@
 import ConvosInvites
 import ConvosProfiles
 import Foundation
+import GRDB
 @preconcurrency import XMTPiOS
 
 public struct JoinRequestResult: Sendable {
     public let conversationId: String
     public let conversationName: String?
     public let joinerInboxId: String
+    public let profile: JoinRequestProfile?
+    public let metadata: [String: String]?
 }
 
 protocol InviteJoinRequestsManagerProtocol: Sendable {
@@ -27,9 +30,12 @@ protocol InviteJoinRequestsManagerProtocol: Sendable {
 /// Bridges ConvosCore callers to `InviteCoordinator`, adding logging and QA events.
 final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendable {
     private let coordinator: InviteCoordinator
+    private let databaseWriter: any DatabaseWriter
 
     init(identityStore: any KeychainIdentityStoreProtocol,
+         databaseWriter: any DatabaseWriter,
          tagStorage: any InviteTagStorageProtocol = ProtobufInviteTagStorage()) {
+        self.databaseWriter = databaseWriter
         self.coordinator = InviteCoordinator(
             privateKeyProvider: { inboxId in
                 let identity = try await identityStore.identity(for: inboxId)
@@ -47,11 +53,14 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
             return nil
         }
         logAccepted(result)
+        await persistJoinerProfile(result)
         await sendProfileSnapshotAfterJoin(conversationId: result.conversationId, client: client)
         return JoinRequestResult(
             conversationId: result.conversationId,
             conversationName: result.conversationName,
-            joinerInboxId: result.joinerInboxId
+            joinerInboxId: result.joinerInboxId,
+            profile: result.profile,
+            metadata: result.metadata
         )
     }
 
@@ -59,14 +68,19 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         since: Date?,
         client: AnyClientProvider
     ) async -> [JoinRequestResult] {
-        await coordinator.processJoinRequests(since: since, client: InviteClientProviderAdapter(client)).map {
-            logAccepted($0)
-            return JoinRequestResult(
-                conversationId: $0.conversationId,
-                conversationName: $0.conversationName,
-                joinerInboxId: $0.joinerInboxId
-            )
+        var results: [JoinRequestResult] = []
+        for joinResult in await coordinator.processJoinRequests(since: since, client: InviteClientProviderAdapter(client)) {
+            logAccepted(joinResult)
+            await persistJoinerProfile(joinResult)
+            results.append(JoinRequestResult(
+                conversationId: joinResult.conversationId,
+                conversationName: joinResult.conversationName,
+                joinerInboxId: joinResult.joinerInboxId,
+                profile: joinResult.profile,
+                metadata: joinResult.metadata
+            ))
         }
+        return results
     }
 
     func hasOutgoingJoinRequest(
@@ -74,6 +88,32 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         client: AnyClientProvider
     ) async throws -> Bool {
         try await coordinator.hasOutgoingJoinRequest(for: conversation, client: InviteClientProviderAdapter(client))
+    }
+
+    private func persistJoinerProfile(_ result: JoinResult) async {
+        guard let profile = result.profile else { return }
+        guard profile.name != nil || profile.imageURL != nil || profile.memberKind != nil else { return }
+
+        let memberKind: DBMemberKind? = profile.memberKind == "agent" ? .agent : nil
+
+        do {
+            try await databaseWriter.write { db in
+                let member = DBMember(inboxId: result.joinerInboxId)
+                try member.save(db)
+
+                let dbProfile = DBMemberProfile(
+                    conversationId: result.conversationId,
+                    inboxId: result.joinerInboxId,
+                    name: profile.name,
+                    avatar: profile.imageURL,
+                    memberKind: memberKind
+                )
+                try dbProfile.save(db)
+            }
+            Log.debug("Persisted join request profile for \(result.joinerInboxId) in \(result.conversationId)")
+        } catch {
+            Log.warning("Failed to persist join request profile: \(error.localizedDescription)")
+        }
     }
 
     private func logAccepted(_ result: JoinResult) {
