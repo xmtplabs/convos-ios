@@ -253,16 +253,17 @@ final class ConversationsViewModel {
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
-        case let .pairDevice(pairingId, expiresAt):
-            startJoinerPairing(pairingId: pairingId, expiresAt: expiresAt)
+        case let .pairDevice(pairingId, expiresAt, initiatorName):
+            startJoinerPairing(pairingId: pairingId, expiresAt: expiresAt, initiatorName: initiatorName)
         }
     }
 
-    private func startJoinerPairing(pairingId: String, expiresAt: Date?) {
+    private func startJoinerPairing(pairingId: String, expiresAt: Date?, initiatorName: String?) {
         let vaultManager = (session.vaultService as? VaultManager) ?? .preview
         let vm = JoinerPairingSheetViewModel(
             pairingId: pairingId,
             expiresAt: expiresAt,
+            initiatorName: initiatorName,
             vaultManager: vaultManager
         )
         joinerPairingViewModel = vm
