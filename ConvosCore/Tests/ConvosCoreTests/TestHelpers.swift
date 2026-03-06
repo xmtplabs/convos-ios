@@ -226,6 +226,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
 
     func requestDiscovery() async {
     }
+
+    func scheduleDelayedDiscovery(delays: [TimeInterval]) async {
+    }
 }
 
 /// Mock implementation of NetworkMonitor for testing

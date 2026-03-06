@@ -24,6 +24,8 @@ final class JoinerPairingSheetViewModel {
     private let timeoutInterval: TimeInterval
     private let vaultManager: VaultManager?
     private var countdownTask: Task<Void, Never>?
+    private nonisolated(unsafe) var keyBundleObserver: (any NSObjectProtocol)?
+    private nonisolated(unsafe) var pairingErrorObserver: (any NSObjectProtocol)?
 
     init(
         pairingId: String,
@@ -38,6 +40,42 @@ final class JoinerPairingSheetViewModel {
         self.expiresAt = expiresAt ?? Date().addingTimeInterval(timeoutInterval)
         self.secondsRemaining = max(0, Int(self.expiresAt.timeIntervalSinceNow))
         self.flowState = .showingPin(pin: pin, expiresAt: self.expiresAt)
+
+        observeNotifications()
+    }
+
+    deinit {
+        if let keyBundleObserver {
+            NotificationCenter.default.removeObserver(keyBundleObserver)
+        }
+        if let pairingErrorObserver {
+            NotificationCenter.default.removeObserver(pairingErrorObserver)
+        }
+    }
+
+    private func observeNotifications() {
+        keyBundleObserver = NotificationCenter.default.addObserver(
+            forName: .vaultDidReceiveKeyBundle,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            guard let self else { return }
+            Task { @MainActor in
+                self.onPairingCompleted()
+            }
+        }
+
+        pairingErrorObserver = NotificationCenter.default.addObserver(
+            forName: .vaultPairingError,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            let message = notification.userInfo?["message"] as? String ?? "Pairing failed"
+            Task { @MainActor in
+                self.onPairingFailed(message)
+            }
+        }
     }
 
     var formattedPin: String {
@@ -81,13 +119,8 @@ final class JoinerPairingSheetViewModel {
         }
     }
 
-    func onPairingApproved() {
-        countdownTask?.cancel()
-        canDismiss = false
-        flowState = .syncing
-    }
-
     func onPairingCompleted() {
+        countdownTask?.cancel()
         title = "Device paired"
         flowState = .completed
         canDismiss = true
@@ -100,5 +133,8 @@ final class JoinerPairingSheetViewModel {
 
     func cancel() {
         countdownTask?.cancel()
+        Task {
+            await vaultManager?.stopJoinerPairing()
+        }
     }
 }

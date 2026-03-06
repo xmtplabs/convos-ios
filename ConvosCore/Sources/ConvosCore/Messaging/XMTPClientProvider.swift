@@ -142,6 +142,7 @@ public protocol XMTPClientProvider: AnyObject {
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
+    func requestDeviceSync() async throws
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
@@ -244,6 +245,10 @@ extension XMTPiOS.Client: XMTPClientProvider {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
+    }
+
+    public func requestDeviceSync() async throws {
+        try await sendSyncRequest()
     }
 }
 

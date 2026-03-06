@@ -7,8 +7,9 @@ public actor VaultKeyStore {
         self.store = store
     }
 
-    public func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) async throws {
-        _ = try await store.save(
+    @discardableResult
+    public func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) async throws -> KeychainIdentity {
+        try await store.save(
             inboxId: inboxId,
             clientId: clientId,
             keys: keys

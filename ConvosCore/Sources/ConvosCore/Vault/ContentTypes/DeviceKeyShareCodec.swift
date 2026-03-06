@@ -15,6 +15,7 @@ public struct DeviceKeyShareContent: Codable, Sendable, Equatable {
     public let privateKeyData: Data
     public let databaseKey: Data
     public let senderInstallationId: String
+    public let senderDeviceName: String?
     public let timestamp: Date
 
     public init(
@@ -24,6 +25,7 @@ public struct DeviceKeyShareContent: Codable, Sendable, Equatable {
         privateKeyData: Data,
         databaseKey: Data,
         senderInstallationId: String,
+        senderDeviceName: String? = nil,
         timestamp: Date = Date()
     ) {
         self.conversationId = conversationId
@@ -32,6 +34,7 @@ public struct DeviceKeyShareContent: Codable, Sendable, Equatable {
         self.privateKeyData = privateKeyData
         self.databaseKey = databaseKey
         self.senderInstallationId = senderInstallationId
+        self.senderDeviceName = senderDeviceName
         self.timestamp = timestamp
     }
 }
