@@ -4,7 +4,8 @@ import SwiftUI
 
 enum PairingFlowState: Equatable {
     case qrCode(url: String)
-    case pinEntry(deviceName: String)
+    case showingPin(pin: String, deviceName: String)
+    case emojiConfirmation(emojis: [String], deviceName: String)
     case syncing
     case completed(deviceName: String)
     case failed(String)
@@ -15,15 +16,15 @@ enum PairingFlowState: Equatable {
 @MainActor
 final class PairingSheetViewModel {
     var flowState: PairingFlowState = .qrCode(url: "")
-    var enteredPin: String = ""
     var canDismiss: Bool = true
     var title: String = "Pair new device"
     var secondsRemaining: Int = 60
 
     private let vaultManager: VaultManager
     private let timeoutInterval: TimeInterval
-    private var coordinator: PairingCoordinator?
+    private(set) var coordinator: PairingCoordinator?
     private var joinerDeviceName: String = "New Device"
+    private var joinerInboxId: String?
     private var expiresAt: Date = .distantFuture
     private var countdownTask: Task<Void, Never>?
 
@@ -31,13 +32,6 @@ final class PairingSheetViewModel {
         self.vaultManager = vaultManager
         self.timeoutInterval = timeoutInterval
         self.secondsRemaining = Int(timeoutInterval)
-    }
-
-    var isApproveEnabled: Bool {
-        if case .pinEntry = flowState {
-            return enteredPin.filter(\.isNumber).count == 6
-        }
-        return false
     }
 
     func startPairing() async {
@@ -49,12 +43,13 @@ final class PairingSheetViewModel {
 
         do {
             let slug = try await vaultManager.createPairingInvite(expiresAt: expiresAt)
+            let vaultInboxId = await vaultManager.vaultInboxId ?? ""
 
             let domain = ConfigManager.shared.associatedDomain
             let encodedName = DeviceInfo.deviceName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
             let inviteURL = "https://\(domain)/pair/\(slug)?expires=\(expiresAtUnix)&name=\(encodedName)"
 
-            try await coordinator.startPairing(inviteURL: inviteURL)
+            try await coordinator.startPairing(inviteURL: inviteURL, initiatorInboxId: vaultInboxId)
             QAEvent.emit(.vault, "pairing_url_created", ["url": inviteURL])
             secondsRemaining = Int(timeoutInterval)
             flowState = .qrCode(url: inviteURL)
@@ -83,20 +78,40 @@ final class PairingSheetViewModel {
         }
     }
 
-    func onJoinRequestReceived(pin: String, deviceName: String, joinerInboxId: String) async {
+    func onJoinRequestReceived(deviceName: String, joinerInboxId: String) async {
         guard let coordinator else { return }
 
         joinerDeviceName = deviceName
+        self.joinerInboxId = joinerInboxId
         do {
-            try await coordinator.receivedJoinRequest(pin: pin, joinerInboxId: joinerInboxId)
-            flowState = .pinEntry(deviceName: deviceName)
+            try await coordinator.receivedJoinRequest(joinerInboxId: joinerInboxId, deviceName: deviceName)
+            let state = await coordinator.currentState
+            if case let .showingPin(pin, _, _) = state {
+                try await vaultManager.sendPinToJoiner(pin, joinerInboxId: joinerInboxId)
+                flowState = .showingPin(pin: pin, deviceName: deviceName)
+            }
         } catch {
             flowState = .failed(error.localizedDescription)
         }
     }
 
-    func approve() async {
-        guard coordinator != nil else { return }
+    func onPinEchoReceived(pin: String, from senderInboxId: String) async {
+        guard let coordinator else { return }
+
+        do {
+            try await coordinator.receivedPinEcho(pin, from: senderInboxId)
+            let state = await coordinator.currentState
+            if case let .waitingForEmojiConfirmation(emojis, _) = state {
+                title = "Confirm pairing"
+                flowState = .emojiConfirmation(emojis: emojis, deviceName: joinerDeviceName)
+            }
+        } catch {
+            flowState = .failed(error.localizedDescription)
+        }
+    }
+
+    func confirmEmoji() async {
+        guard let coordinator else { return }
 
         countdownTask?.cancel()
         let deviceName = joinerDeviceName
@@ -104,8 +119,8 @@ final class PairingSheetViewModel {
         flowState = .syncing
 
         do {
-            try await coordinator?.confirmPin(enteredPin)
-            let state = await coordinator?.currentState
+            try await coordinator.confirmEmoji()
+            let state = await coordinator.currentState
             if case .completed = state {
                 await vaultManager.stopPairing()
                 title = "Device added"
@@ -116,9 +131,6 @@ final class PairingSheetViewModel {
                 flowState = .failed(error.errorDescription ?? "Pairing failed")
                 canDismiss = true
             }
-        } catch let error as PairingError where error == .invalidConfirmationCode {
-            flowState = .failed(error.localizedDescription)
-            canDismiss = true
         } catch {
             await vaultManager.stopPairing()
             flowState = .failed(error.localizedDescription)
@@ -128,16 +140,21 @@ final class PairingSheetViewModel {
 
     func cancel() async {
         countdownTask?.cancel()
-        if let coordinator, case let .waitingForConfirmation(_, joinerInboxId) = await coordinator.currentState {
-            await vaultManager.sendPairingError(to: joinerInboxId, message: "Pairing was cancelled by the other device")
+        if let coordinator, let joinerInboxId {
+            let state = await coordinator.currentState
+            if case .showingPin = state {
+                await vaultManager.sendPairingError(to: joinerInboxId, message: "Pairing was cancelled by the other device")
+            } else if case .waitingForEmojiConfirmation = state {
+                await vaultManager.sendPairingError(to: joinerInboxId, message: "Pairing was cancelled by the other device")
+            }
         }
         await vaultManager.stopPairing()
         await coordinator?.cancel()
         coordinator = nil
     }
 
-    func triggerApprove() {
-        Task { await approve() }
+    func triggerConfirmEmoji() {
+        Task { await confirmEmoji() }
     }
 
     func triggerCancel() {
