@@ -1,10 +1,12 @@
+import CryptoKit
 import Foundation
 
 public enum PairingState: Sendable, Equatable {
     case idle
     case generatingInvite
     case waitingForScan(inviteURL: String, expiresAt: Date)
-    case waitingForConfirmation(pin: String, joinerInboxId: String)
+    case showingPin(pin: String, deviceName: String, joinerInboxId: String)
+    case waitingForEmojiConfirmation(emojis: [String], joinerInboxId: String)
     case addingDevice
     case sharingKeys
     case completed(deviceCount: Int)
@@ -21,8 +23,10 @@ public enum PairingState: Sendable, Equatable {
             return true
         case let (.waitingForScan(lURL, lExp), .waitingForScan(rURL, rExp)):
             return lURL == rURL && lExp == rExp
-        case let (.waitingForConfirmation(lPin, lInbox), .waitingForConfirmation(rPin, rInbox)):
-            return lPin == rPin && lInbox == rInbox
+        case let (.showingPin(lPin, lName, lInbox), .showingPin(rPin, rName, rInbox)):
+            return lPin == rPin && lName == rName && lInbox == rInbox
+        case let (.waitingForEmojiConfirmation(lEmojis, lInbox), .waitingForEmojiConfirmation(rEmojis, rInbox)):
+            return lEmojis == rEmojis && lInbox == rInbox
         case let (.completed(lCount), .completed(rCount)):
             return lCount == rCount
         case let (.failed(lErr), .failed(rErr)):
@@ -74,6 +78,8 @@ public actor PairingCoordinator {
     private let timeoutInterval: TimeInterval
     private var state: PairingState = .idle
     private var expirationTask: Task<Void, Never>?
+    private var generatedPin: String?
+    private var initiatorInboxId: String?
 
     public weak var delegate: (any PairingCoordinatorDelegate)?
 
@@ -84,34 +90,46 @@ public actor PairingCoordinator {
         self.timeoutInterval = timeoutInterval
     }
 
-    // MARK: - Device A: Initiate pairing
-
-    public func startPairing(inviteURL: String) async throws {
+    public func startPairing(inviteURL: String, initiatorInboxId: String) async throws {
         guard case .idle = state else {
             throw PairingError.alreadyPairing
         }
 
+        self.initiatorInboxId = initiatorInboxId
         let expiresAt = Date().addingTimeInterval(timeoutInterval)
         updateState(.waitingForScan(inviteURL: inviteURL, expiresAt: expiresAt))
         startExpirationTimer()
     }
 
-    public func receivedJoinRequest(pin: String, joinerInboxId: String) async throws {
+    public func receivedJoinRequest(joinerInboxId: String, deviceName: String) async throws {
         guard case .waitingForScan = state else { return }
 
         cancelExpirationTimer()
-        updateState(.waitingForConfirmation(pin: pin, joinerInboxId: joinerInboxId))
+        let pin = Self.generatePin()
+        generatedPin = pin
+        updateState(.showingPin(pin: pin, deviceName: deviceName, joinerInboxId: joinerInboxId))
         startExpirationTimer()
     }
 
-    public func confirmPin(_ enteredPin: String) async throws {
-        guard case let .waitingForConfirmation(expectedPin, joinerInboxId) = state else {
+    public func receivedPinEcho(_ echoedPin: String, from joinerInboxId: String) async throws {
+        guard case let .showingPin(_, _, expectedJoiner) = state else {
             throw PairingError.notConnected
         }
-
-        let cleanedInput = enteredPin.filter(\.isNumber)
-        guard cleanedInput == expectedPin, cleanedInput.count == 6 else {
+        guard joinerInboxId == expectedJoiner else { return }
+        guard let generatedPin, echoedPin == generatedPin else {
             throw PairingError.invalidConfirmationCode
+        }
+
+        cancelExpirationTimer()
+        guard let initiatorInboxId else { throw PairingError.notConnected }
+        let emojis = Self.emojiFingerprint(inboxA: initiatorInboxId, inboxB: joinerInboxId, pin: generatedPin)
+        updateState(.waitingForEmojiConfirmation(emojis: emojis, joinerInboxId: joinerInboxId))
+        startExpirationTimer()
+    }
+
+    public func confirmEmoji() async throws {
+        guard case let .waitingForEmojiConfirmation(_, joinerInboxId) = state else {
+            throw PairingError.notConnected
         }
 
         cancelExpirationTimer()
@@ -140,8 +158,6 @@ public actor PairingCoordinator {
         updateState(.completed(deviceCount: deviceCount))
     }
 
-    // MARK: - Device B: Generate pin
-
     public static func generatePin() -> String {
         (0 ..< 6).map { _ in String(Int.random(in: 0 ... 9)) }.joined()
     }
@@ -151,19 +167,30 @@ public actor PairingCoordinator {
         return "\(pin.prefix(3)) \(pin.suffix(3))"
     }
 
-    // MARK: - Cancel
+    public static func emojiFingerprint(inboxA: String, inboxB: String, pin: String) -> [String] {
+        let inputs = [inboxA, inboxB].sorted()
+        let combined = inputs.joined(separator: ":") + ":" + pin
+        let hash = SHA256.hash(data: Data(combined.utf8))
+        let bytes = Array(hash)
+        let emojiCount = EmojiSelector.emojis.count
+        return (0 ..< 3).map { i in
+            EmojiSelector.emojis[Int(bytes[i]) % emojiCount]
+        }
+    }
 
     public func cancel() {
         cancelExpirationTimer()
+        generatedPin = nil
+        initiatorInboxId = nil
         updateState(.idle)
     }
 
     public func reset() {
         cancelExpirationTimer()
+        generatedPin = nil
+        initiatorInboxId = nil
         state = .idle
     }
-
-    // MARK: - Private
 
     private func updateState(_ newState: PairingState) {
         state = newState
@@ -181,12 +208,12 @@ public actor PairingCoordinator {
     }
 
     private func handleExpiration() {
-        guard case .waitingForScan = state else {
-            guard case .waitingForConfirmation = state else { return }
+        switch state {
+        case .waitingForScan, .showingPin, .waitingForEmojiConfirmation:
             updateState(.expired)
-            return
+        default:
+            break
         }
-        updateState(.expired)
     }
 
     private func cancelExpirationTimer() {

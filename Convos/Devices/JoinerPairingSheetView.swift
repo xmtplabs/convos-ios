@@ -4,6 +4,7 @@ import SwiftUI
 struct JoinerPairingSheetView: View {
     @Bindable var viewModel: JoinerPairingSheetViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @FocusState private var pinFieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
@@ -31,8 +32,16 @@ struct JoinerPairingSheetView: View {
     @ViewBuilder
     private var centerContent: some View {
         switch viewModel.flowState {
-        case let .showingPin(pin, _):
-            pinDisplayContent(pin: pin)
+        case .connecting:
+            connectingContent
+                .transition(.blurReplace)
+
+        case .pinEntry:
+            pinEntryContent
+                .transition(.blurReplace)
+
+        case let .waitingForEmoji(emojis):
+            emojiDisplayContent(emojis: emojis)
                 .transition(.blurReplace)
 
         case .syncing:
@@ -53,30 +62,57 @@ struct JoinerPairingSheetView: View {
         }
     }
 
-    @ViewBuilder
-    private func pinDisplayContent(pin: String) -> some View {
+    private var connectingContent: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             Text("\"\(viewModel.initiatorDeviceName)\" is requesting to pair. Paired devices sync all conversations.")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text("Enter this code on \"\(viewModel.initiatorDeviceName)\" to finish pairing.")
+            ProgressView()
+                .frame(height: 44)
+
+            ExpiryLabel(secondsRemaining: viewModel.secondsRemaining)
+        }
+    }
+
+    @ViewBuilder
+    private var pinEntryContent: some View {
+        VStack(spacing: DesignConstants.Spacing.step4x) {
+            Text("Enter the code shown on \"\(viewModel.initiatorDeviceName)\" to finish pairing.")
                 .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
+                .foregroundStyle(.colorTextPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(spacing: DesignConstants.Spacing.step3x) {
-                Text(viewModel.formattedPin)
-                    .font(.system(size: 64, weight: .bold, design: .rounded))
-                    .minimumScaleFactor(0.7)
-                    .lineLimit(1)
-                    .kerning(4)
-                    .foregroundStyle(.colorTextPrimary)
-                    .accessibilityIdentifier("pairing-pin-display")
+            PinEntryField(pin: $viewModel.enteredPin, isFocused: $pinFieldFocused)
+                .accessibilityIdentifier("pin-entry-field")
+                .onAppear {
+                    pinFieldFocused = true
+                }
 
-                ExpiryLabel(secondsRemaining: viewModel.secondsRemaining)
+            ExpiryLabel(secondsRemaining: viewModel.secondsRemaining)
+        }
+    }
+
+    @ViewBuilder
+    private func emojiDisplayContent(emojis: [String]) -> some View {
+        VStack(spacing: DesignConstants.Spacing.step4x) {
+            Text("Make sure these emoji match on \"\(viewModel.initiatorDeviceName)\".")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: DesignConstants.Spacing.step6x) {
+                ForEach(emojis, id: \.self) { emoji in
+                    Text(emoji)
+                        .font(.system(size: 56))
+                }
             }
+            .accessibilityIdentifier("pairing-emoji-fingerprint")
+
+            Text("Waiting for confirmation...")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
         }
     }
 
@@ -142,7 +178,19 @@ struct JoinerPairingSheetView: View {
     @ViewBuilder
     private var primaryButton: some View {
         switch viewModel.flowState {
-        case .showingPin:
+        case .connecting:
+            EmptyView()
+
+        case .pinEntry:
+            let submitAction: @MainActor () -> Void = { Task { await viewModel.submitPin() } }
+            Button(action: submitAction) {
+                Text("Submit")
+            }
+            .convosButtonStyle(.rounded(fullWidth: true))
+            .disabled(!viewModel.isPinComplete)
+            .accessibilityIdentifier("submit-pin-button")
+
+        case .waitingForEmoji:
             EmptyView()
 
         case .syncing:
@@ -191,8 +239,69 @@ struct JoinerPairingSheetView: View {
     }
 }
 
-#Preview("Showing Pin") {
-    JoinerPairingSheetPreview(state: .showingPin(pin: "482916", expiresAt: Date().addingTimeInterval(45)))
+// MARK: - Pin Entry Field
+
+private struct PinEntryField: View {
+    @Binding var pin: String
+    @FocusState.Binding var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            ForEach(0 ..< 6, id: \.self) { index in
+                let digit = digitAt(index)
+                ZStack {
+                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
+                        .fill(.colorBackgroundRaisedSecondary)
+                        .frame(width: 44, height: 56)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
+                                .stroke(
+                                    index == pin.count ? Color.colorFillPrimary : .colorBorderSubtle,
+                                    lineWidth: index == pin.count ? 2 : 1
+                                )
+                        )
+
+                    Text(digit)
+                        .font(.title)
+                        .fontWeight(.semibold)
+                        .foregroundStyle(.colorTextPrimary)
+                }
+            }
+        }
+        .background(
+            TextField("", text: $pin)
+                .keyboardType(.numberPad)
+                .focused($isFocused)
+                .opacity(0.01)
+                .frame(width: 1, height: 1)
+                .onChange(of: pin) { _, newValue in
+                    let filtered = String(newValue.filter(\.isNumber).prefix(6))
+                    if filtered != newValue {
+                        pin = filtered
+                    }
+                }
+        )
+        .onTapGesture {
+            isFocused = true
+        }
+    }
+
+    private func digitAt(_ index: Int) -> String {
+        guard index < pin.count else { return "" }
+        return String(pin[pin.index(pin.startIndex, offsetBy: index)])
+    }
+}
+
+#Preview("Connecting") {
+    JoinerPairingSheetPreview(state: .connecting)
+}
+
+#Preview("Pin Entry") {
+    JoinerPairingSheetPreview(state: .pinEntry(initiatorInboxId: "test"))
+}
+
+#Preview("Emoji Waiting") {
+    JoinerPairingSheetPreview(state: .waitingForEmoji(emojis: ["🦊", "🎸", "🌊"]), title: "Confirm pairing")
 }
 
 #Preview("Syncing") {
