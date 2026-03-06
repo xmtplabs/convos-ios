@@ -139,7 +139,7 @@ struct ProfilePersistenceTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Profiles for removed members are cleaned up")
+    @Test("Profiles for removed members are preserved for message history")
     func removedMemberProfilesCleaned() async throws {
         let fixtures = TestFixtures()
         try await fixtures.createTestClients()
@@ -200,7 +200,7 @@ struct ProfilePersistenceTests {
         let bobAfter = try await fixtures.databaseManager.dbReader.read { db in
             try DBMemberProfile.fetchOne(db, conversationId: group.id, inboxId: clientB.inboxID)
         }
-        #expect(bobAfter == nil)
+        #expect(bobAfter?.name == "Bob")
 
         try? await fixtures.cleanup()
     }

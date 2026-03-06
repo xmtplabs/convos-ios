@@ -379,12 +379,6 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             // Save members (upserts conversation_members + stub memberProfile rows)
             try self.saveMembers(dbMembers, in: db)
 
-            // Clean up profiles for members no longer in the group
-            try DBMemberProfile
-                .filter(DBMemberProfile.Columns.conversationId == dbConversation.id)
-                .filter(!currentMemberInboxIds.contains(DBMemberProfile.Columns.inboxId))
-                .deleteAll(db)
-
             // Fill gaps: only write appData profiles for members without message-sourced data
             try memberProfiles.forEach { profile in
                 let existing = try DBMemberProfile.fetchOne(
