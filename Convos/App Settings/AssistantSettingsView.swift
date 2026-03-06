@@ -36,13 +36,15 @@ struct AssistantSettingsView: View {
             }
 
             Section {
-                let learnAction = { openURL(URL(string: "https://learn.convos.org/assistants")!) }
+                let learnURL = URL(string: "https://learn.convos.org/assistants")
+                let learnAction = { if let learnURL { openURL(learnURL) } }
                 Button(action: learnAction) {
                     NavigationLink("Learn about Convos Assistants", destination: EmptyView())
                 }
                 .foregroundStyle(.colorTextPrimary)
 
-                let privacyAction = { openURL(URL(string: "https://learn.convos.org/assistants-trust-and-security")!) }
+                let privacyURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")
+                let privacyAction = { if let privacyURL { openURL(privacyURL) } }
                 Button(action: privacyAction) {
                     NavigationLink("Privacy & Security", destination: EmptyView())
                 }

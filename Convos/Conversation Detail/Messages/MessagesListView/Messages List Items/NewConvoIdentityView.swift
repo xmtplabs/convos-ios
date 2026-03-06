@@ -5,7 +5,8 @@ struct NewConvoIdentityView: View {
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step2x) {
-            let action = { openURL(URL(string: "https://learn.convos.org/new-convo-new-identity")!) }
+            let url = URL(string: "https://learn.convos.org/new-convo-new-identity")
+            let action = { if let url { openURL(url) } }
             Button(action: action) {
                 HStack(spacing: DesignConstants.Spacing.stepX) {
                     Text("New convo, new everything")

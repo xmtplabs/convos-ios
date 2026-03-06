@@ -37,8 +37,8 @@ struct AssistantsInfoView: View {
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
 
-                let trustURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")!
-                let trustAction = { openURL(trustURL) }
+                let trustURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")
+                let trustAction = { if let trustURL { openURL(trustURL) } }
                 Button(action: trustAction) {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
                         Text("Trust and Security")
