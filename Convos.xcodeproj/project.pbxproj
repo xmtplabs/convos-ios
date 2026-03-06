@@ -251,6 +251,7 @@
 				"Conversations List/View Controller/ConversationsViewRepresentable.swift",
 				ConvosAppDelegate.swift,
 				"Debug View/DebugExportView.swift",
+				"Debug View/DebugLogExporter.swift",
 				"Debug View/DebugView.swift",
 				"Debug View/PendingInviteDebugView.swift",
 				DeepLinking/DeepLinkHandler.swift,
