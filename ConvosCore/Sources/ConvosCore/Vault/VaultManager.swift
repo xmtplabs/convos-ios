@@ -186,6 +186,7 @@ public actor VaultManager {
                     AND c.id NOT LIKE 'draft-%'
                     AND c.isUnused = 0
                 WHERE i.isVault = 0
+                    AND EXISTS (SELECT 1 FROM message m WHERE m.conversationId = c.id)
                 """
             return try Row.fetchAll(db, sql: sql).map { row in
                 InboxConversationRow(
