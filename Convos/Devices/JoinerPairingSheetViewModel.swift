@@ -121,9 +121,16 @@ final class JoinerPairingSheetViewModel {
 
     func onPairingCompleted() {
         countdownTask?.cancel()
-        title = "Device paired"
-        flowState = .completed
-        canDismiss = true
+        title = "Syncing"
+        flowState = .syncing
+        canDismiss = false
+
+        Task {
+            try? await Task.sleep(for: .seconds(1.5))
+            title = "Device paired"
+            flowState = .completed
+            canDismiss = true
+        }
     }
 
     func onPairingFailed(_ message: String) {
