@@ -321,6 +321,9 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                 profile = profile.with(memberKind: update.memberKind.dbMemberKind)
 
+                let profileMetadata = update.profileMetadata
+                profile = profile.with(metadata: profileMetadata.isEmpty ? nil : profileMetadata)
+
                 try profile.save(db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
@@ -375,6 +378,9 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
+
+                    let snapshotMetadata = memberProfile.profileMetadata
+                    profile = profile.with(metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata)
 
                     try profile.save(db)
                 }

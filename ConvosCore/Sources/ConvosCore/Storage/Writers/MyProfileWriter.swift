@@ -157,6 +157,9 @@ class MyProfileWriter: MyProfileWriterProtocol {
         if let kind = profile.memberKind {
             update.memberKind = kind.protoMemberKind
         }
+        if let metadata = profile.metadata, !metadata.isEmpty {
+            update.metadata = metadata.asProtoMap
+        }
 
         do {
             let codec = ProfileUpdateCodec()

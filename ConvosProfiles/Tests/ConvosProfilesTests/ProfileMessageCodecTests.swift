@@ -258,3 +258,128 @@ struct ProfileMessageHelpersTests {
         #expect(data.count < 100_000)
     }
 }
+
+@Suite("ProfileMetadata Tests")
+struct ProfileMetadataTests {
+    let updateCodec: ProfileUpdateCodec = ProfileUpdateCodec()
+    let snapshotCodec: ProfileSnapshotCodec = ProfileSnapshotCodec()
+
+    @Test("ProfileMetadataValue round-trips through proto")
+    func metadataValueRoundTrip() {
+        let stringVal = MetadataValue(ProfileMetadataValue.string("hello"))
+        #expect(stringVal.typed == .string("hello"))
+
+        let numberVal = MetadataValue(ProfileMetadataValue.number(3.14))
+        #expect(numberVal.typed == .number(3.14))
+
+        let boolVal = MetadataValue(ProfileMetadataValue.bool(true))
+        #expect(boolVal.typed == .bool(true))
+    }
+
+    @Test("Empty MetadataValue returns nil typed")
+    func emptyMetadataValue() {
+        let empty = MetadataValue()
+        #expect(empty.typed == nil)
+    }
+
+    @Test("ProfileUpdate with metadata round-trips through codec")
+    func updateWithMetadata() throws {
+        let metadata: ProfileMetadata = [
+            "bio": .string("Swift developer"),
+            "opacity": .number(0.85),
+            "verified": .bool(true)
+        ]
+        let update = ProfileUpdate(name: "Alice", metadata: metadata)
+
+        let encoded = try updateCodec.encode(content: update)
+        let decoded = try updateCodec.decode(content: encoded)
+
+        #expect(decoded.name == "Alice")
+        #expect(decoded.profileMetadata["bio"] == .string("Swift developer"))
+        #expect(decoded.profileMetadata["opacity"] == .number(0.85))
+        #expect(decoded.profileMetadata["verified"] == .bool(true))
+        #expect(decoded.profileMetadata.count == 3)
+    }
+
+    @Test("ProfileUpdate without metadata has empty profileMetadata")
+    func updateWithoutMetadata() throws {
+        let update = ProfileUpdate(name: "Bob")
+
+        let encoded = try updateCodec.encode(content: update)
+        let decoded = try updateCodec.decode(content: encoded)
+
+        #expect(decoded.profileMetadata.isEmpty)
+    }
+
+    @Test("MemberProfile with metadata round-trips through snapshot codec")
+    func snapshotWithMetadata() throws {
+        let inboxId = String(repeating: "ab", count: 32)
+        let metadata: ProfileMetadata = [
+            "status": .string("online"),
+            "score": .number(42.0)
+        ]
+        guard var profile = MemberProfile(inboxIdString: inboxId, name: "Charlie", metadata: metadata) else {
+            Issue.record("Failed to create MemberProfile")
+            return
+        }
+        let snapshot = ProfileSnapshot(profiles: [profile])
+
+        let encoded = try snapshotCodec.encode(content: snapshot)
+        let decoded = try snapshotCodec.decode(content: encoded)
+
+        #expect(decoded.profiles.count == 1)
+        let decodedProfile = decoded.profiles[0]
+        #expect(decodedProfile.name == "Charlie")
+        #expect(decodedProfile.profileMetadata["status"] == .string("online"))
+        #expect(decodedProfile.profileMetadata["score"] == .number(42.0))
+    }
+
+    @Test("ProfileMetadata converts between Swift and proto maps")
+    func metadataMapConversion() {
+        let metadata: ProfileMetadata = [
+            "key1": .string("value1"),
+            "key2": .number(99.9),
+            "key3": .bool(false)
+        ]
+
+        let protoMap = metadata.asProtoMap
+        let roundTripped = protoMap.asProfileMetadata
+
+        #expect(roundTripped == metadata)
+    }
+
+    @Test("ProfileMetadataValue is Codable")
+    func metadataValueCodable() throws {
+        let values: [ProfileMetadataValue] = [
+            .string("test"),
+            .number(2.718),
+            .bool(true)
+        ]
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        for value in values {
+            let data = try encoder.encode(value)
+            let decoded = try decoder.decode(ProfileMetadataValue.self, from: data)
+            #expect(decoded == value)
+        }
+    }
+
+    @Test("ProfileMetadata dictionary is Codable for DB storage")
+    func metadataDictionaryCodable() throws {
+        let metadata: ProfileMetadata = [
+            "bio": .string("Hello world"),
+            "level": .number(5.0),
+            "premium": .bool(true)
+        ]
+
+        let encoder = JSONEncoder()
+        let decoder = JSONDecoder()
+
+        let data = try encoder.encode(metadata)
+        let decoded = try decoder.decode(ProfileMetadata.self, from: data)
+
+        #expect(decoded == metadata)
+    }
+}
