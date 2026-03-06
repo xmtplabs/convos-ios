@@ -96,7 +96,20 @@ public extension Conversation {
 
     var membersCountString: String {
         let totalCount = members.count
-        return "\(totalCount) \(totalCount == 1 ? "member" : "members")"
+        return "\(totalCount) \(totalCount == 1 ? "Member" : "Members")"
+    }
+
+    var agentCount: Int {
+        members.filter(\.isAgent).count
+    }
+
+    var hasAssistant: Bool {
+        agentCount > 0
+    }
+
+    var assistantCountString: String? {
+        guard agentCount > 0 else { return nil }
+        return "\(agentCount) \(agentCount == 1 ? "Assistant" : "Assistants")"
     }
 
     var shouldShowQuickEdit: Bool {

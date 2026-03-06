@@ -144,6 +144,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     case .share:
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
+                            hasAssistant: viewModel.conversation.hasAssistant,
                             isEnabled: messagesTopBarTrailingItemEnabled,
                             onConvoCode: {
                                 if viewModel.isFull {

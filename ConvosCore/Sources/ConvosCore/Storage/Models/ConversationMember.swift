@@ -7,6 +7,14 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
     public let profile: Profile
     public let role: MemberRole
     public let isCurrentUser: Bool
+    public let isAgent: Bool
+
+    public init(profile: Profile, role: MemberRole, isCurrentUser: Bool, isAgent: Bool = false) {
+        self.profile = profile
+        self.role = role
+        self.isCurrentUser = isCurrentUser
+        self.isAgent = isAgent
+    }
 }
 
 public extension Array where Element == ConversationMember {

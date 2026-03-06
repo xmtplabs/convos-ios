@@ -2,6 +2,7 @@ import SwiftUI
 
 struct AddToConversationMenu: View {
     let isFull: Bool
+    var hasAssistant: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
     let onCopyLink: () -> Void
@@ -35,9 +36,10 @@ struct AddToConversationMenu: View {
             if isAssistantEnabled {
                 Button(action: onInviteAssistant) {
                     Text("Instant assistant")
-                    Text("Helps the group do things")
+                    Text(hasAssistant ? "Already in conversation" : "Helps the group do things")
                     Image(systemName: "a.circle")
                 }
+                .disabled(hasAssistant)
                 .accessibilityIdentifier("context-menu-add-assistant")
             }
         } label: {
