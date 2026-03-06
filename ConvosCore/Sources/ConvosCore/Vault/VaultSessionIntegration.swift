@@ -17,8 +17,4 @@ extension VaultManager: VaultServiceProtocol {
     public func resumeVault() async {
         await resume()
     }
-
-    public func shareNewKey(_ keyInfo: InboxKeyInfo) async {
-        await shareKeyFromNotification(keyInfo)
-    }
 }

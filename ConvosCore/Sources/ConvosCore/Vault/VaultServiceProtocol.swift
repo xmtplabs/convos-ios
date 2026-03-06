@@ -23,13 +23,10 @@ public protocol VaultServiceProtocol: Sendable {
     func pauseVault() async
     func resumeVault() async
     func unpairSelf() async throws
-    func shareNewKey(_ keyInfo: InboxKeyInfo) async
+    func broadcastConversationDeleted(inboxId: String, clientId: String) async
 }
 
 public extension Notification.Name {
-    static let inboxIdentityRegistered: Notification.Name = .init("ConvosInboxIdentityRegistered")
-}
-
-public enum InboxIdentityNotification {
-    public static let keyInfoKey: String = "inboxKeyInfo"
+    static let vaultDidImportInbox: Notification.Name = .init("ConvosVaultDidImportInbox")
+    static let vaultDidDeleteConversation: Notification.Name = .init("ConvosVaultDidDeleteConversation")
 }

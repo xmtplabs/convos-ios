@@ -107,6 +107,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private let apiClient: any ConvosAPIClientProtocol
     private let networkMonitor: any NetworkMonitorProtocol
     private let appLifecycle: any AppLifecycleProviding
+    private var requestDeviceSyncAfterAuthorize: Bool = false
 
     private var currentTask: Task<Void, Never>?
     private var actionQueue: [Action] = []
@@ -579,6 +580,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         let keys = identity.clientKeys
         let clientOptions = clientOptions(keys: keys)
         let client: any XMTPClientProvider
+        var wasNewlyCreated: Bool = false
         do {
             try Task.checkCancellation()
             client = try await buildXmtpClient(
@@ -597,6 +599,11 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 Log.error("Created client with mis-matched inboxId")
                 throw InboxStateError.clientIdInboxInconsistency
             }
+            wasNewlyCreated = true
+        }
+
+        if wasNewlyCreated {
+            requestDeviceSyncAfterAuthorize = true
         }
 
         try Task.checkCancellation()
@@ -681,13 +688,27 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     }
 
     private func handleAuthorized(clientId: String, result: InboxReadyResult) async throws {
+        let needsDeviceSync = requestDeviceSyncAfterAuthorize
+        if needsDeviceSync {
+            requestDeviceSyncAfterAuthorize = false
+            do {
+                try await result.client.requestDeviceSync()
+                Log.info("Requested device sync for vault-imported inbox: \(result.client.inboxId)")
+            } catch {
+                Log.warning("Device sync request failed (non-fatal): \(error)")
+            }
+        }
+
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
+
+        if needsDeviceSync {
+            await syncingManager?.scheduleDelayedDiscovery(delays: [5, 10, 20])
+        }
+
         emitStateChange(.ready(clientId: clientId, result: result))
-        // Start app lifecycle observation and network monitoring after starting sync
         await startNetworkMonitoring()
         startAppLifecycleObservation()
-        // check if app was backgrounded during auth
         if await appLifecycle.currentState != .active {
             enqueueAction(.enterBackground)
         }

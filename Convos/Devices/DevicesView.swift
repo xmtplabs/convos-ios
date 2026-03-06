@@ -8,8 +8,8 @@ struct DevicesView: View {
         content
             .navigationTitle("Devices")
             .toolbarTitleDisplayMode(.inline)
-            .task {
-                await viewModel.loadDevices()
+            .onAppear {
+                viewModel.startObserving()
             }
             .selfSizingSheet(isPresented: $viewModel.showPairingSheet, onDismiss: {
                 viewModel.stopPairing()
@@ -18,6 +18,19 @@ struct DevicesView: View {
                 if let pairingVM = viewModel.pairingViewModel {
                     PairingSheetView(viewModel: pairingVM)
                         .padding(.top, DesignConstants.Spacing.step5x)
+                }
+            })
+            .selfSizingSheet(isPresented: $viewModel.showRemoveDeviceSheet, onDismiss: {
+                viewModel.devicePendingRemoval = nil
+            }, content: {
+                if let device = viewModel.devicePendingRemoval {
+                    RemoveDeviceSheetView(
+                        deviceName: device.name,
+                        isRemoving: viewModel.isRemovingDevice,
+                        onRemove: { viewModel.confirmRemoveDevice() },
+                        onCancel: { viewModel.devicePendingRemoval = nil }
+                    )
+                    .padding(.top, DesignConstants.Spacing.step5x)
                 }
             })
             .accessibilityIdentifier("devices-view")
@@ -66,25 +79,7 @@ struct DevicesView: View {
         List {
             Section {
                 ForEach(viewModel.devices, id: \.inboxId) { device in
-                    HStack(spacing: DesignConstants.Spacing.step3x) {
-                        Image(systemName: "iphone.gen3")
-                            .foregroundStyle(.colorTextPrimary)
-                            .frame(width: 24)
-
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(device.name)
-                                .foregroundStyle(.colorTextPrimary)
-
-                            if device.isCurrentDevice {
-                                Text("This device")
-                                    .font(.caption)
-                                    .foregroundStyle(.colorTextSecondary)
-                            }
-                        }
-
-                        Spacer()
-                    }
-                    .accessibilityIdentifier("device-row-\(device.inboxId)")
+                    deviceRow(device)
                 }
             }
 
@@ -105,6 +100,106 @@ struct DevicesView: View {
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
     }
+
+    private func deviceRow(_ device: VaultDevice) -> some View {
+        HStack(spacing: DesignConstants.Spacing.step3x) {
+            Image(systemName: "iphone.gen3")
+                .foregroundStyle(.colorTextPrimary)
+                .frame(width: 24)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(device.name)
+                    .foregroundStyle(.colorTextPrimary)
+
+                if device.isCurrentDevice {
+                    Text("This device")
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+
+            Spacer()
+        }
+        .contentShape(Rectangle())
+        .accessibilityIdentifier("device-row-\(device.inboxId)")
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            if !device.isCurrentDevice {
+                let deleteAction = { viewModel.devicePendingRemoval = device }
+                Button(action: deleteAction) {
+                    Label("Delete", systemImage: "trash")
+                }
+                .tint(.red)
+            }
+        }
+        .contextMenu {
+            if !device.isCurrentDevice {
+                let deleteAction = { viewModel.devicePendingRemoval = device }
+                Button(role: .destructive, action: deleteAction) {
+                    Label("Delete", systemImage: "trash")
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Remove Device Sheet
+
+private struct RemoveDeviceSheetView: View {
+    let deviceName: String
+    let isRemoving: Bool
+    let onRemove: () -> Void
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            Text("Remove \(deviceName)?")
+                .font(.system(.largeTitle))
+                .fontWeight(.bold)
+
+            Text("This will lock the device out of all conversations.")
+                .font(.body)
+                .foregroundStyle(.colorTextSecondary)
+
+            VStack(spacing: DesignConstants.Spacing.step4x) {
+                holdToDeleteButton
+
+                let cancelAction = { onCancel() }
+                Button(action: cancelAction) {
+                    Text("Cancel")
+                }
+                .convosButtonStyle(.text)
+                .disabled(isRemoving)
+                .hoverEffect(.lift)
+            }
+            .padding(.top, DesignConstants.Spacing.step4x)
+        }
+        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+    }
+
+    private var holdToDeleteButton: some View {
+        Button {
+            onRemove()
+        } label: {
+            ZStack {
+                Text("Hold to delete")
+                    .opacity(isRemoving ? 0 : 1)
+                Text("Removing...")
+                    .opacity(isRemoving ? 1 : 0)
+            }
+            .animation(.easeInOut(duration: 0.2), value: isRemoving)
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+        }
+        .disabled(isRemoving)
+        .buttonStyle(HoldToConfirmPrimitiveStyle(config: {
+            var config = HoldToConfirmStyleConfig.default
+            config.duration = 3.0
+            config.backgroundColor = .colorCaution
+            return config
+        }()))
+        .hoverEffect(.lift)
+        .accessibilityIdentifier("hold-to-delete-device-button")
+    }
 }
 
 #Preview("Empty") {
@@ -124,4 +219,13 @@ struct DevicesView: View {
             return vm
         }())
     }
+}
+
+#Preview("Remove Device Sheet") {
+    RemoveDeviceSheetView(
+        deviceName: "Jarod's iPad",
+        isRemoving: false,
+        onRemove: {},
+        onCancel: {}
+    )
 }
