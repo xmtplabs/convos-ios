@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosProfiles
 import Foundation
 import GRDB
 import os
@@ -1070,7 +1071,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 RemoteAttachmentCodec(),
                 GroupUpdatedCodec(),
                 ExplodeSettingsCodec(),
-                InviteJoinErrorCodec()
+                InviteJoinErrorCodec(),
+                ProfileUpdateCodec(),
+                ProfileSnapshotCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,

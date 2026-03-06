@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import ConvosProfiles
 import Foundation
 import GRDB
 import Testing
@@ -111,7 +112,9 @@ class TestFixtures {
                 AttachmentCodec(),
                 RemoteAttachmentCodec(),
                 GroupUpdatedCodec(),
-                ExplodeSettingsCodec()
+                ExplodeSettingsCodec(),
+                ProfileUpdateCodec(),
+                ProfileSnapshotCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory
