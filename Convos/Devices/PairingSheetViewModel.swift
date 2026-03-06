@@ -54,6 +54,7 @@ final class PairingSheetViewModel {
             let inviteURL = "https://\(domain)/pair/\(slug)?expires=\(expiresAtUnix)"
 
             try await coordinator.startPairing(inviteURL: inviteURL)
+            QAEvent.emit(.vault, "pairing_url_created", ["url": inviteURL])
             secondsRemaining = Int(timeoutInterval)
             flowState = .qrCode(url: inviteURL)
             startCountdown()

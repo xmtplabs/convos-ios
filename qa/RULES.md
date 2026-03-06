@@ -257,6 +257,7 @@ The app emits structured `[EVENT]` log lines at key milestones. Use `sim_log_eve
 | `invite.join_request_sent` | Join request sent to inviter |
 | `invite.member_accepted` | Join request processed, member added (includes conversation, member) |
 | `sync.completed` | Full sync completed |
+| `vault.pairing_url_created` | Vault pairing invite URL generated (includes url) |
 
 **Usage pattern:**
 ```
