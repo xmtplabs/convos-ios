@@ -114,6 +114,9 @@ final class PairingSheetViewModel {
                 flowState = .failed(error.errorDescription ?? "Pairing failed")
                 canDismiss = true
             }
+        } catch let error as PairingError where error == .invalidConfirmationCode {
+            flowState = .failed(error.localizedDescription)
+            canDismiss = true
         } catch {
             await vaultManager.stopPairing()
             flowState = .failed(error.localizedDescription)
@@ -123,6 +126,9 @@ final class PairingSheetViewModel {
 
     func cancel() async {
         countdownTask?.cancel()
+        if let coordinator, case let .waitingForConfirmation(_, joinerInboxId) = await coordinator.currentState {
+            await vaultManager.sendPairingError(to: joinerInboxId, message: "Pairing was cancelled by the other device")
+        }
         await vaultManager.stopPairing()
         await coordinator?.cancel()
         coordinator = nil
