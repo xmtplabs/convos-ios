@@ -610,6 +610,40 @@ extension UnusedConversationCache {
         }
     }
 
+    func reserveUnusedConversation(
+        conversationId: String,
+        databaseWriter: any DatabaseWriter
+    ) async throws {
+        try await databaseWriter.write { db in
+            guard try DBConversation.fetchOne(db, key: conversationId) == nil else { return }
+            let placeholder = DBConversation(
+                id: conversationId,
+                inboxId: "",
+                clientId: "",
+                clientConversationId: conversationId,
+                inviteTag: "",
+                creatorId: "",
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: true
+            )
+            try placeholder.insert(db)
+        }
+    }
+
     func markConversationAsUsed(
         conversationId: String,
         databaseWriter: any DatabaseWriter
@@ -826,7 +860,6 @@ extension UnusedConversationCache {
             // here because prepareConversation() is a one-shot operation, not a long-running
             // stream that could overlap with other XMTP operations.
             nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
-            try await optimisticConversation.publish()
 
             let conversationId = optimisticConversation.id
             Log.debug("Created unused conversation: \(conversationId)")
@@ -835,9 +868,24 @@ extension UnusedConversationCache {
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
 
+            try await reserveUnusedConversation(
+                conversationId: conversationId,
+                databaseWriter: databaseWriter
+            )
+
+            try await optimisticConversation.publish()
+
             guard let group = optimisticConversation as? XMTPiOS.Group else {
                 throw UnusedConversationCacheError.invalidConversationType
             }
+
+            try await group.ensureInviteTag()
+            do {
+                try await group.ensureImageEncryptionKey()
+            } catch {
+                Log.warning("Failed to generate image encryption key for unused conversation: \(error). Will retry on first image upload.")
+            }
+
             try await saveUnusedConversationToDatabase(
                 conversation: group,
                 inboxId: inboxId,
@@ -898,9 +946,35 @@ extension UnusedConversationCache {
             try member.save(db, onConflict: .ignore)
 
             if let existing = try DBConversation.fetchOne(db, key: conversationId) {
-                let updated = existing.with(isUnused: true)
+                var updated = existing.with(isUnused: true)
+                if existing.inboxId.isEmpty {
+                    updated = DBConversation(
+                        id: conversationId,
+                        inboxId: inboxId,
+                        clientId: clientId,
+                        clientConversationId: conversationId,
+                        inviteTag: inviteTag.isEmpty ? existing.inviteTag : inviteTag,
+                        creatorId: creatorInboxId,
+                        kind: .group,
+                        consent: existing.consent,
+                        createdAt: conversation.createdAt,
+                        name: existing.name,
+                        description: existing.description,
+                        imageURLString: existing.imageURLString,
+                        publicImageURLString: existing.publicImageURLString,
+                        includeInfoInPublicPreview: existing.includeInfoInPublicPreview,
+                        expiresAt: existing.expiresAt,
+                        debugInfo: existing.debugInfo,
+                        isLocked: existing.isLocked,
+                        imageSalt: existing.imageSalt,
+                        imageNonce: existing.imageNonce,
+                        imageEncryptionKey: existing.imageEncryptionKey,
+                        imageLastRenewed: existing.imageLastRenewed,
+                        isUnused: true
+                    )
+                }
                 try updated.update(db)
-                Log.debug("Conversation already exists from sync, marked as unused: \(conversationId)")
+                Log.debug("Conversation already exists, marked as unused: \(conversationId)")
             } else {
                 let dbConversation = DBConversation(
                     id: conversationId,

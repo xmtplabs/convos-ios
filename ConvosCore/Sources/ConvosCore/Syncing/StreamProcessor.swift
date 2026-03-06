@@ -1,4 +1,5 @@
 import ConvosInvites
+import ConvosProfiles
 import Foundation
 import GRDB
 import UserNotifications
@@ -71,6 +72,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let notificationCenter: any UserNotificationCenterProtocol
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
+    private let vaultMessageProcessor: (any VaultMessageProcessorProtocol)?
 
     // MARK: - Initialization
 
@@ -79,12 +81,14 @@ actor StreamProcessor: StreamProcessorProtocol {
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
+        vaultMessageProcessor: (any VaultMessageProcessorProtocol)? = nil,
         notificationCenter: any UserNotificationCenterProtocol
     ) {
         self.identityStore = identityStore
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.deviceRegistrationManager = deviceRegistrationManager
+        self.vaultMessageProcessor = vaultMessageProcessor
         self.notificationCenter = notificationCenter
         self.inviteJoinErrorHandler = nil
         let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
@@ -96,7 +100,8 @@ actor StreamProcessor: StreamProcessorProtocol {
         self.messageWriter = messageWriter
         self.localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
         self.joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: identityStore
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
         )
     }
 
@@ -123,6 +128,11 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         clientConversationId: String? = nil
     ) async throws {
+        if let vaultProcessor = vaultMessageProcessor,
+           await vaultProcessor.isVaultConversation(conversation.id) {
+            return
+        }
+
         guard try await shouldProcessConversation(conversation, params: params) else { return }
 
         let creatorInboxId = try await conversation.creatorInboxId()
@@ -150,6 +160,10 @@ actor StreamProcessor: StreamProcessorProtocol {
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)")
 
+        if creatorInboxId == params.client.inboxId {
+            await sendInitialProfileSnapshot(group: conversation)
+        }
+
         // Subscribe to push notifications
         await subscribeToConversationTopics(
             conversationId: conversation.id,
@@ -163,6 +177,12 @@ actor StreamProcessor: StreamProcessorProtocol {
         params: SyncClientParams,
         activeConversationId: String?
     ) async {
+        if let vaultProcessor = vaultMessageProcessor,
+           await vaultProcessor.isVaultConversation(message.conversationId) {
+            await vaultProcessor.processVaultMessage(message)
+            return
+        }
+
         let perfStart = CFAbsoluteTimeGetCurrent()
         do {
             guard let conversation = try await params.client.conversationsProvider.findConversation(
@@ -209,6 +229,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
                     guard explodeSettings == nil else { return }
 
+                    if await processProfileMessage(message, conversationId: conversation.id) {
+                        return
+                    }
+
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
                     // Mark unread if needed
@@ -244,6 +268,148 @@ actor StreamProcessor: StreamProcessorProtocol {
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
         Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
+    }
+
+    // MARK: - Profile Messages
+
+    private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
+        guard let contentType = try? message.encodedContent.type else {
+            return false
+        }
+
+        if contentType == ContentTypeProfileUpdate {
+            await processProfileUpdate(message, conversationId: conversationId)
+            return true
+        } else if contentType == ContentTypeProfileSnapshot {
+            await processProfileSnapshot(message, conversationId: conversationId)
+            return true
+        }
+
+        return false
+    }
+
+    private func processProfileUpdate(_ message: DecodedMessage, conversationId: String) async {
+        guard let update = try? ProfileUpdateCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode ProfileUpdate from message \(message.id)")
+            return
+        }
+
+        let senderInboxId = message.senderInboxId
+        guard !senderInboxId.isEmpty else {
+            Log.warning("ProfileUpdate with empty senderInboxId, skipping")
+            return
+        }
+        do {
+            try await databaseWriter.write { db in
+                let member = DBMember(inboxId: senderInboxId)
+                try member.save(db)
+
+                var profile = try DBMemberProfile.fetchOne(
+                    db,
+                    conversationId: conversationId,
+                    inboxId: senderInboxId
+                ) ?? DBMemberProfile(
+                    conversationId: conversationId,
+                    inboxId: senderInboxId,
+                    name: nil,
+                    avatar: nil
+                )
+
+                profile = profile.with(name: update.hasName ? update.name : nil)
+
+                if update.hasEncryptedImage, update.encryptedImage.isValid {
+                    let encryptionKey: Data? = if let existingKey = profile.avatarKey {
+                        existingKey
+                    } else {
+                        try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
+                    }
+                    profile = profile.with(
+                        avatar: update.encryptedImage.url,
+                        salt: update.encryptedImage.salt,
+                        nonce: update.encryptedImage.nonce,
+                        key: encryptionKey
+                    )
+                } else {
+                    profile = profile.with(avatar: nil, salt: nil, nonce: nil, key: nil)
+                }
+
+                profile = profile.with(memberKind: update.memberKind.dbMemberKind)
+
+                try profile.save(db)
+            }
+            Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
+        } catch {
+            Log.error("Failed to process ProfileUpdate: \(error.localizedDescription)")
+        }
+    }
+
+    private func processProfileSnapshot(_ message: DecodedMessage, conversationId: String) async {
+        guard let snapshot = try? ProfileSnapshotCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode ProfileSnapshot from message \(message.id)")
+            return
+        }
+
+        do {
+            try await databaseWriter.write { db in
+                let encryptionKey = try DBConversation.fetchOne(db, id: conversationId)?.imageEncryptionKey
+
+                for memberProfile in snapshot.profiles {
+                    let inboxId = memberProfile.inboxIdString
+                    guard !inboxId.isEmpty else { continue }
+
+                    let member = DBMember(inboxId: inboxId)
+                    try member.save(db)
+
+                    let existingProfile = try DBMemberProfile.fetchOne(
+                        db,
+                        conversationId: conversationId,
+                        inboxId: inboxId
+                    )
+
+                    if existingProfile?.name != nil || existingProfile?.avatar != nil {
+                        continue
+                    }
+
+                    var profile = existingProfile ?? DBMemberProfile(
+                        conversationId: conversationId,
+                        inboxId: inboxId,
+                        name: nil,
+                        avatar: nil
+                    )
+
+                    profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
+
+                    if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
+                        profile = profile.with(
+                            avatar: memberProfile.encryptedImage.url,
+                            salt: memberProfile.encryptedImage.salt,
+                            nonce: memberProfile.encryptedImage.nonce,
+                            key: existingProfile?.avatarKey ?? encryptionKey
+                        )
+                    }
+
+                    profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
+
+                    try profile.save(db)
+                }
+            }
+            Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
+        } catch {
+            Log.error("Failed to process ProfileSnapshot: \(error.localizedDescription)")
+        }
+    }
+
+    private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {
+        do {
+            let allMemberInboxIds = try await group.members.map(\.inboxId)
+            try await ProfileSnapshotBuilder.sendSnapshot(
+                group: group,
+                memberInboxIds: allMemberInboxIds
+            )
+            Log.debug("Sent initial ProfileSnapshot for \(group.id)")
+        } catch {
+            Log.warning("Failed to send initial ProfileSnapshot: \(error.localizedDescription)")
+        }
     }
 
     private func processExplodeSettings(

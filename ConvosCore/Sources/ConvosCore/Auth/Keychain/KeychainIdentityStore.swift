@@ -35,6 +35,11 @@ public struct KeychainIdentityKeys: Codable, XMTPClientKeys, Sendable {
         self.databaseKey = databaseKey
     }
 
+    public init(privateKeyData: Data, databaseKey: Data) throws {
+        self.privateKey = try PrivateKey(privateKeyData)
+        self.databaseKey = databaseKey
+    }
+
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         databaseKey = try container.decode(Data.self, forKey: .databaseKey)
@@ -217,13 +222,16 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     private let keychainService: String
     private let keychainAccessGroup: String
 
-    static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
+    public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
 
     // MARK: - Initialization
 
-    public init(accessGroup: String) {
+    public init(
+        accessGroup: String,
+        service: String = KeychainIdentityStore.defaultService
+    ) {
         self.keychainAccessGroup = accessGroup
-        self.keychainService = Self.defaultService
+        self.keychainService = service
     }
 
     // MARK: - Public Interface
@@ -386,7 +394,6 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
         let data = try JSONEncoder().encode(identity)
 
-        // Create access control for enhanced security
         guard let accessControl = SecAccessControlCreateWithFlags(
             nil,
             kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,

@@ -397,11 +397,20 @@ struct ConversationInfoView: View {
                             Text("Remote commit log")
                         }
                         if let url = exportedLogsURL {
-                            HStack {
-                                ShareLink(item: url) {
+                            ShareLink(item: url) {
+                                HStack {
                                     Text("Share logs")
+                                    Spacer()
+                                    Image(systemName: "square.and.arrow.up")
                                 }
                             }
+                        } else {
+                            HStack {
+                                Text("Preparing logs…")
+                                Spacer()
+                                ProgressView()
+                            }
+                            .foregroundStyle(.colorTextSecondary)
                         }
                     } header: {
                         Text("Debug info")
@@ -410,11 +419,9 @@ struct ConversationInfoView: View {
                     }
                     .task {
                         do {
-                            let url = try await viewModel.exportDebugLogs()
-                            exportedLogsURL = url
+                            exportedLogsURL = try await viewModel.exportDebugLogs()
                         } catch {
                             Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
-                            exportedLogsURL = nil
                         }
                     }
                 }

@@ -1,0 +1,340 @@
+id: "26"
+name: "Pair Device"
+description: >
+  Verify that two devices can pair via the Vault pairing flow with pin +
+  emoji fingerprint verification, and that after pairing, conversations
+  from both devices are synced across both devices.
+tags: [vault, multi-device, pairing, security]
+estimated_duration_s: 180
+
+multi_device: true
+devices:
+  device_a:
+    role: initiator
+    note: "The device that creates the pairing invite (QR code)"
+  device_b:
+    role: joiner
+    note: "The device that scans the pairing link"
+
+prerequisites:
+  app_installed: true
+  simulators_erased: true
+  note: "Both simulators must be erased to ensure fresh keychain state. Cloned simulators share keychain and will cause memberCannotBeSelf errors."
+
+setup:
+  - id: create_convo_a
+    device: device_a
+    name: "Create a conversation on Device A"
+    actions:
+      - tap: { id: "compose-button", retries: 3 }
+      - wait: 2
+      - tap: { id: "conversation-toolbar-button" }
+      - wait: 1
+      - tap: { label: "Continue" }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "Device A Convo" }
+      - tap: { id: "quick-edit-done-button" }
+      - wait: 2
+      - type_in_field: { id: "message-text-field", text: "Hello from A" }
+      - tap: { id: "send-message-button" }
+      - wait: 2
+      - tap: { label: "Close" }
+    verify:
+      - element_exists: { label_contains: "Device A Convo" }
+    criteria: setup_convo_a
+
+  - id: create_convo_b
+    device: device_b
+    name: "Create a conversation on Device B"
+    actions:
+      - tap: { id: "compose-button", retries: 3 }
+      - wait: 2
+      - tap: { id: "conversation-toolbar-button" }
+      - wait: 1
+      - tap: { label: "Continue" }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "Device B Convo" }
+      - tap: { id: "quick-edit-done-button" }
+      - wait: 2
+      - type_in_field: { id: "message-text-field", text: "Hello from B" }
+      - tap: { id: "send-message-button" }
+      - wait: 2
+      - tap: { label: "Close" }
+    verify:
+      - element_exists: { label_contains: "Device B Convo" }
+    criteria: setup_convo_b
+
+steps:
+  # --- Phase 1: Initiate pairing on Device A ---
+
+  - id: open_devices_a
+    device: device_a
+    name: "Navigate to Devices screen on Device A"
+    actions:
+      - tap: { id: "app-settings-button", retries: 3 }
+      - tap: { id: "devices-row", retries: 3 }
+      - wait_for_element: { id: "add-device-button", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "This device" }
+    criteria: single_device_before_pairing
+
+  - id: start_pairing_a
+    device: device_a
+    name: "Open pairing sheet on Device A"
+    actions:
+      - tap: { id: "add-device-button" }
+      - wait_for_element: { id: "hold-to-reveal-button", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Pair new device" }
+      - element_exists: { id: "pairing-qr-code" }
+    criteria: pairing_sheet_qr_code
+
+  # --- Phase 2: Extract URL and open on Device B ---
+
+  - id: extract_pairing_url
+    device: device_a
+    name: "Extract pairing URL from app logs"
+    actions:
+      - log_events: { event_filter: "vault.pairing_url_created" }
+    save:
+      pairing_url: "from event url= parameter"
+    verify:
+      - url_contains: "dev.convos.org/pair/"
+      - url_contains: "&name="
+    criteria: pairing_url_format
+
+  - id: open_url_on_b
+    device: device_b
+    name: "Open pairing URL on Device B"
+    actions:
+      - open_url: { url: "{{pairing_url}}" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Request to pair" }
+      - element_exists: { label_contains: "is requesting to pair" }
+    criteria: joiner_sheet_displayed
+
+  # --- Phase 3: Device A shows generated pin ---
+
+  - id: device_a_shows_pin
+    device: device_a
+    name: "Device A transitions to pin display"
+    actions:
+      - wait_for_element: { id: "pairing-pin-display", timeout: 10 }
+    save:
+      generated_pin: "from pairing-pin-display accessibility value"
+    verify:
+      - element_exists: { id: "pairing-pin-display" }
+      - element_exists: { label_contains: "Share this code" }
+    criteria: pin_displayed_on_a
+
+  # --- Phase 4: Device B enters pin ---
+
+  - id: enter_pin_on_b
+    device: device_b
+    name: "Enter pin on Device B and submit"
+    actions:
+      - wait_for_element: { id: "pin-entry-field", timeout: 10 }
+      - tap: { id: "pin-entry-field" }
+      - type: { text: "{{generated_pin}}" }
+      - tap: { id: "submit-pin-button" }
+    verify:
+      - element_exists: { label_contains: "Enter the code shown on" }
+    criteria: pin_entered_on_b
+
+  # --- Phase 5: Verify emoji fingerprint ---
+
+  - id: verify_emoji_b
+    device: device_b
+    name: "Device B shows emoji fingerprint"
+    actions:
+      - wait_for_element: { id: "pairing-emoji-fingerprint", timeout: 5 }
+    save:
+      emoji_b: "from pairing-emoji-fingerprint children"
+    verify:
+      - element_exists: { id: "pairing-emoji-fingerprint" }
+      - element_exists: { label_contains: "Confirm pairing" }
+      - element_exists: { label_contains: "Waiting for confirmation" }
+    criteria: emoji_shown_on_b
+
+  - id: verify_emoji_a
+    device: device_a
+    name: "Device A shows matching emoji fingerprint"
+    actions:
+      - wait_for_element: { id: "pairing-emoji-fingerprint", timeout: 5 }
+    save:
+      emoji_a: "from pairing-emoji-fingerprint children"
+    verify:
+      - element_exists: { id: "pairing-emoji-fingerprint" }
+      - element_exists: { id: "confirm-emoji-button" }
+      - element_exists: { label_contains: "Confirm pairing" }
+    criteria: emoji_shown_on_a
+
+  - id: compare_emoji
+    name: "Verify emoji match on both devices"
+    verify:
+      - values_equal: { a: "{{emoji_a}}", b: "{{emoji_b}}" }
+    criteria: emoji_match
+
+  # --- Phase 6: Confirm and complete ---
+
+  - id: confirm_pairing
+    device: device_a
+    name: "Confirm emoji on Device A to complete pairing"
+    actions:
+      - tap: { id: "confirm-emoji-button" }
+      - wait: 8
+    verify:
+      - element_exists: { label_contains: "Device added" }
+    criteria: pairing_completed
+
+  - id: dismiss_pairing_a
+    device: device_a
+    name: "Dismiss pairing sheet on Device A"
+    actions:
+      - tap: { id: "got-it-button" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "add-device-button" }
+
+  - id: verify_both_devices
+    device: device_a
+    name: "Verify both devices shown in list"
+    verify:
+      - element_count_gte: { pattern: "device-row", min: 2 }
+      - element_exists: { label_contains: "This device" }
+    criteria: devices_list_both
+
+  # --- Phase 7: Verify conversation sync ---
+
+  - id: navigate_to_convos_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { id: "BackButton" }
+      - wait: 1
+      - tap: { label: "Cancel" }
+      - wait: 10
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: verify_sync_a
+    device: device_a
+    name: "Device A has both conversations and no extras"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_a_convo_count: "count of conversation-list-item elements"
+    verify:
+      - element_exists: { label_contains: "Device A Convo" }
+      - element_exists: { label_contains: "Device B Convo" }
+      - element_count_exact: { pattern: "conversation-list-item", count: 2 }
+    criteria: device_a_both_convos
+
+  - id: dismiss_pairing_b
+    device: device_b
+    name: "Dismiss any sheet on Device B"
+    actions:
+      - tap: { id: "got-it-button", retries: 1 }
+      - wait: 10
+    verify:
+      - element_exists: { id: "compose-button" }
+    note: "Device B may be on completed or emoji screen"
+
+  - id: verify_sync_b
+    device: device_b
+    name: "Device B has both conversations and no extras"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_b_convo_count: "count of conversation-list-item elements"
+    verify:
+      - element_exists: { label_contains: "Device A Convo" }
+      - element_exists: { label_contains: "Device B Convo" }
+      - element_count_exact: { pattern: "conversation-list-item", count: 2 }
+    criteria: device_b_both_convos
+
+  - id: verify_lists_match
+    name: "Conversation lists match exactly on both devices"
+    verify:
+      - values_equal: { a: "{{device_a_convo_count}}", b: "{{device_b_convo_count}}" }
+    note: "No unconsumed unused conversations should leak across devices during pairing"
+    criteria: convo_lists_match
+
+  # --- Phase 8: Verify pre-pairing messages synced ---
+
+  - id: verify_messages_a
+    device: device_a
+    name: "Device A shows pre-pairing messages from Device B Convo"
+    actions:
+      - tap: { label_contains: "Device B Convo" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Hello from B" }
+    criteria: pre_pairing_messages_on_a
+
+  - id: navigate_back_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: verify_messages_b
+    device: device_b
+    name: "Device B shows pre-pairing messages from Device A Convo"
+    actions:
+      - tap: { label_contains: "Device A Convo" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Hello from A" }
+    criteria: pre_pairing_messages_on_b
+
+  - id: navigate_back_b
+    device: device_b
+    name: "Navigate back to conversations list on Device B"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+teardown: []
+
+criteria:
+  setup_convo_a:
+    description: "Conversation 'Device A Convo' created on Device A"
+  setup_convo_b:
+    description: "Conversation 'Device B Convo' created on Device B"
+  single_device_before_pairing:
+    description: "Device A shows single-device state before pairing"
+  pairing_sheet_qr_code:
+    description: "Pairing sheet opens with QR code and 'Pair new device' title"
+  pairing_url_format:
+    description: "Pairing URL has correct format with name parameter"
+  joiner_sheet_displayed:
+    description: "Device B shows joiner sheet with Device A's name"
+  pin_displayed_on_a:
+    description: "Device A generates and displays a 6-digit pin"
+  pin_entered_on_b:
+    description: "Device B shows pin entry and pin is entered"
+  emoji_shown_on_b:
+    description: "Device B shows 3-emoji fingerprint with 'Waiting for confirmation'"
+  emoji_shown_on_a:
+    description: "Device A shows 3-emoji fingerprint with Confirm button"
+  emoji_match:
+    description: "Emoji fingerprint matches on both devices"
+  pairing_completed:
+    description: "Pairing completes — Device A shows 'Device added' with checkmark"
+  devices_list_both:
+    description: "Devices list shows both devices (one marked 'This device')"
+  device_a_both_convos:
+    description: "Device A's conversations list contains exactly 'Device A Convo' and 'Device B Convo' (no extras)"
+  device_b_both_convos:
+    description: "Device B's conversations list contains exactly 'Device A Convo' and 'Device B Convo' (no extras)"
+  convo_lists_match:
+    description: "Both devices have the same number of conversations — no unconsumed unused conversations leaked during pairing"
+  pre_pairing_messages_on_a:
+    description: "Device A shows 'Hello from B' inside 'Device B Convo' — pre-pairing messages synced via device sync"
+  pre_pairing_messages_on_b:
+    description: "Device B shows 'Hello from A' inside 'Device A Convo' — pre-pairing messages synced via device sync"

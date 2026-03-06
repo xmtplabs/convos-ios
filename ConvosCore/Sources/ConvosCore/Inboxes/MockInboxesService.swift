@@ -1,7 +1,10 @@
 import Combine
 import Foundation
+import GRDB
 
 public final class MockInboxesService: SessionManagerProtocol {
+    // swiftlint:disable:next force_try
+    public let databaseReader: any DatabaseReader = try! DatabaseQueue()
     private let mockMessagingService: MockMessagingService = MockMessagingService()
 
     public func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, any Error> {
@@ -120,6 +123,10 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func isInboxSleeping(clientId: String) async -> Bool {
         false
     }
+
+    // MARK: - Vault
+
+    public var vaultService: (any VaultServiceProtocol)? { nil }
 
     // MARK: - Debug
 

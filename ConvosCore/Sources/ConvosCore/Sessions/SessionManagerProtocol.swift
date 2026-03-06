@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import GRDB
 
 /// Progress events for inbox deletion
 public enum InboxDeletionProgress: Sendable, Equatable {
@@ -67,6 +68,14 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Helpers
 
     func inboxId(for conversationId: String) async -> String?
+
+    // MARK: Database
+
+    var databaseReader: any DatabaseReader { get }
+
+    // MARK: Vault
+
+    var vaultService: (any VaultServiceProtocol)? { get }
 
     // MARK: Debug
 

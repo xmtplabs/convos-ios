@@ -58,30 +58,33 @@ steps:
     verify:
       - find_elements: { pattern: "QA Tester" }
     criteria: quickname_can_be_set
-    note: "Quick-edit uses quick-edit-display-name-field and quick-edit-done-button, not the full profile editor"
+    note: >
+      Quick-edit uses quick-edit-display-name-field and quick-edit-done-button.
+      A keyboard tutorial overlay may appear on fresh simulators — dismiss it
+      by tapping "Continue" before typing.
 
   - id: quickname_saved
     name: "Quickname saved confirmation appears"
     actions:
-      - wait_for_element: { pattern: "new you in every convo", timeout: 10 }
+      - wait_for_element: { label_contains: "new you in every convo", timeout: 10 }
     verify:
-      - element_exists: { pattern: "new you in every convo" }
+      - element_exists: { label_contains: "new you in every convo" }
     criteria: quickname_saved_confirmation
 
   - id: continue_after_quickname
     name: "Tap Continue on quickname confirmation screen"
     actions:
       - tap: { label: "Continue" }
-      - wait: 2
-    note: "The quickname confirmation screen shows identity explanation and a Continue button. Must tap before notification prompt appears."
+      - wait_for_element: { id: "notification-permission-button", timeout: 10 }
+    note: >
+      The quickname confirmation screen shows identity explanation and a
+      Continue button. Tapping it advances to the notification permission step.
 
   - id: notification_permission
     name: "Notification permission step shown"
     actions:
-      - wait_for_element: { id: "notification-permission-button", timeout: 10 }
       - tap: { id: "notification-permission-button" }
-      - wait: 2
-      - find_elements: { pattern: "Allow" }
+      - wait_for_element: { label: "Allow", timeout: 5 }
     verify:
       - element_exists: { id: "notification-permission-button" }
       - any_element_matches: { patterns: ["Allow", "Don't Allow"] }
@@ -93,12 +96,12 @@ steps:
     actions:
       - tap: { label: "Allow", optional: true }
       - tap: { label: "Don't Allow", optional: true }
-      - wait: 2
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
 
   - id: conversation_usable
     name: "Onboarding completes and conversation is usable"
     actions:
-      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - find_elements: { id: "message-text-field" }
     verify:
       - element_exists: { id: "message-text-field" }
       - element_enabled: { id: "message-text-field" }
@@ -107,15 +110,15 @@ steps:
   - id: verify_list
     name: "Conversation appears in list"
     actions:
+      - tap: { id: "close-new-conversation", optional: true }
       - tap: { id: "BackButton", optional: true }
-      - tap: { label: "Close", optional: true }
-      - wait: 2
+      - wait_for_element: { id: "compose-button", timeout: 10 }
       - find_elements: { pattern: "conversation-list-item" }
     verify:
       - element_count_gte: { pattern: "conversation-list-item", min: 1 }
     criteria: conversation_in_list
     save:
-      conversation_id: "extract from conversation-list-item-* identifier"
+      conversation_id: "extract from conversation-list-item-* identifier suffix"
 
 teardown: []
 

@@ -1,4 +1,6 @@
 @testable import ConvosCore
+import ConvosInvites
+import ConvosProfiles
 import Foundation
 import GRDB
 import Testing
@@ -111,7 +113,11 @@ class TestFixtures {
                 AttachmentCodec(),
                 RemoteAttachmentCodec(),
                 GroupUpdatedCodec(),
-                ExplodeSettingsCodec()
+                ExplodeSettingsCodec(),
+                InviteJoinErrorCodec(),
+                ProfileUpdateCodec(),
+                ProfileSnapshotCodec(),
+                JoinRequestCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory
@@ -215,6 +221,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
     }
 
     func requestDiscovery() async {
+    }
+
+    func scheduleDelayedDiscovery(delays: [TimeInterval]) async {
     }
 }
 

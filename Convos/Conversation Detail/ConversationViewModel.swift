@@ -53,6 +53,7 @@ class ConversationViewModel {
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
+    private let applyGlobalDefaultsForNewConversation: Bool
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
@@ -70,9 +71,11 @@ class ConversationViewModel {
         didSet {
             presentingConversationForked = conversation.isForked
             if oldValue.isDraft, !conversation.isDraft {
+                // Keep the draft include-info override until remote metadata changes propagate.
+                // Clearing it here can briefly show stale false values during async sync.
                 applyPendingDraftEdits()
-                _editingIncludeInfoInPublicPreview = nil
             }
+
             if oldValue.isPendingInvite, !conversation.isPendingInvite {
                 inviteWasAccepted()
             }
@@ -235,12 +238,7 @@ class ConversationViewModel {
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
 
-    var autoRevealPhotos: Bool = false {
-        didSet {
-            guard oldValue != autoRevealPhotos else { return }
-            persistAutoReveal(autoRevealPhotos)
-        }
-    }
+    var autoRevealPhotos: Bool = false
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -344,13 +342,15 @@ class ConversationViewModel {
         conversation: Conversation,
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
+        applyGlobalDefaultsForNewConversation: Bool = false
     ) {
         let perfStart = CFAbsoluteTimeGetCurrent()
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
+        self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
 
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
@@ -395,6 +395,7 @@ class ConversationViewModel {
         Log.info("[PERF] ConversationViewModel.init: \(perfElapsed)ms, \(individualMessageCount) messages loaded (\(messages.count) list items)")
         Log.info("Created for conversation: \(conversation.id)")
 
+        applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
 
@@ -410,12 +411,14 @@ class ConversationViewModel {
         session: any SessionManagerProtocol,
         messagingService: any MessagingServiceProtocol,
         conversationStateManager: any ConversationStateManagerProtocol,
-        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared
+        backgroundUploadManager: any BackgroundUploadManagerProtocol = BackgroundUploadManager.shared,
+        applyGlobalDefaultsForNewConversation: Bool = false
     ) {
         self.conversation = conversation
         self.session = session
         self.messagingService = messagingService
         self.backgroundUploadManager = backgroundUploadManager
+        self.applyGlobalDefaultsForNewConversation = applyGlobalDefaultsForNewConversation
 
         // Extract dependencies from conversation state manager
         self.conversationStateManager = conversationStateManager
@@ -450,6 +453,7 @@ class ConversationViewModel {
 
         Log.info("Created for draft conversation: \(conversation.id)")
 
+        applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
 
@@ -464,7 +468,8 @@ class ConversationViewModel {
             guard let self else { return }
             do {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
-                self.autoRevealPhotos = prefs?.autoReveal ?? false
+                let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
+                setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoReveal)
             } catch {
                 Log.error("Error loading photo preferences: \(error)")
             }
@@ -520,8 +525,28 @@ class ConversationViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] prefs in
                 guard let self else { return }
-                self.autoRevealPhotos = prefs?.autoReveal ?? false
+                setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoRevealForNewConversation)
             }
+    }
+
+    private var defaultAutoRevealForNewConversation: Bool {
+        applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
+    }
+
+    private func applyGlobalDefaultsForDraftConversationIfNeeded() {
+        guard applyGlobalDefaultsForNewConversation else { return }
+        guard conversation.isDraft else { return }
+        _editingIncludeInfoInPublicPreview = GlobalConvoDefaults.shared.includeInfoWithInvites
+    }
+
+    private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {
+        autoRevealPhotos = autoReveal
+    }
+
+    private func setAutoRevealPhotosPersisted(_ autoReveal: Bool) {
+        guard autoRevealPhotos != autoReveal else { return }
+        autoRevealPhotos = autoReveal
+        persistAutoReveal(autoReveal)
     }
 
     private func loadConversationImage(for conversation: Conversation) {
@@ -900,25 +925,51 @@ extension ConversationViewModel {
 
     @MainActor
     func exportDebugLogs() async throws -> URL {
-        // Get the XMTP client for this conversation
-        let messagingService = try await session.messagingService(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
+        let environment = ConfigManager.shared.currentEnvironment
 
-        // Wait for inbox to be ready and get the client
-        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-        let client = inboxResult.client
-
-        guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
-            throw NSError(
-                domain: "ConversationViewModel",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Conversation not found"]
-            )
+        var conversationDebugURL: URL?
+        do {
+            conversationDebugURL = try await withThrowingTimeout(seconds: 10) { [self] in
+                let messagingService = try await session.messagingService(
+                    for: conversation.clientId,
+                    inboxId: conversation.inboxId
+                )
+                let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                let client = inboxResult.client
+                guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
+                    return nil
+                }
+                return try await xmtpConversation.exportDebugLogs()
+            }
+        } catch {
+            Log.warning("Could not get XMTP debug info (will still export app + XMTP logs): \(error.localizedDescription)")
         }
 
-        return try await xmtpConversation.exportDebugLogs()
+        let debugInfoURL = conversationDebugURL
+        return try await Task.detached {
+            try DebugLogExporter.exportAllLogs(
+                environment: environment,
+                conversationDebugInfo: debugInfoURL
+            )
+        }.value
+    }
+
+    private func withThrowingTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw CancellationError()
+            }
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
+            group.cancelAll()
+            return result
+        }
     }
 }
 
@@ -1028,6 +1079,8 @@ extension ConversationViewModel {
             }
         }
 
+        guard !autoRevealPhotos else { return }
+
         if !hasShownRevealInfoSheet {
             hasShownRevealInfoSheet = true
             hasShownRevealToast = true
@@ -1071,7 +1124,7 @@ extension ConversationViewModel {
     }
 
     func setAutoReveal(_ autoReveal: Bool) {
-        autoRevealPhotos = autoReveal
+        setAutoRevealPhotosPersisted(autoReveal)
     }
 
     private func persistAutoReveal(_ autoReveal: Bool) {

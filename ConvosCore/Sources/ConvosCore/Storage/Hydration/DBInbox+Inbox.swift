@@ -5,7 +5,8 @@ extension DBInbox {
         Inbox(
             inboxId: inboxId,
             clientId: clientId,
-            createdAt: createdAt
+            createdAt: createdAt,
+            isVault: isVault
         )
     }
 }
