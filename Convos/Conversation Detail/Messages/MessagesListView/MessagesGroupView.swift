@@ -90,7 +90,7 @@ struct MessagesGroupView: View {
                     )
                     .overlay(alignment: .bottomLeading) {
                         if isLast && !group.sender.isCurrentUser {
-                            MessageAvatarView(profile: group.sender.profile, size: avatarSize)
+                            MessageAvatarView(profile: group.sender.profile, size: avatarSize, isAgent: group.sender.isAgent)
                                 .offset(x: -(avatarSize + avatarSpacing))
                                 .onTapGesture {
                                     onTapAvatar(message)

@@ -2,13 +2,16 @@ import SwiftUI
 
 struct MonogramView: View {
     private let initials: String
+    private let isAgent: Bool
 
-    init(text: String) {
+    init(text: String, isAgent: Bool = false) {
         self.initials = text
+        self.isAgent = isAgent
     }
 
-    init(name: String) {
+    init(name: String, isAgent: Bool = false) {
         self.initials = Self.initials(from: name)
+        self.isAgent = isAgent
     }
 
     var body: some View {
@@ -33,7 +36,7 @@ struct MonogramView: View {
                     endPoint: .bottom
                 )
             )
-            .background(.colorFillTertiary)
+            .background(isAgent ? .colorLava : .colorFillTertiary)
             .clipShape(Circle())
         }
         .aspectRatio(1.0, contentMode: .fit)

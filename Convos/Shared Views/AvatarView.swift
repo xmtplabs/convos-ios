@@ -6,18 +6,21 @@ struct AvatarView: View {
     let cacheableObject: any ImageCacheable
     let placeholderImage: UIImage?
     let placeholderImageName: String?
+    let isAgent: Bool
     @State private var cachedImage: UIImage?
 
     init(
         fallbackName: String,
         cacheableObject: any ImageCacheable,
         placeholderImage: UIImage?,
-        placeholderImageName: String?
+        placeholderImageName: String?,
+        isAgent: Bool = false
     ) {
         self.fallbackName = fallbackName
         self.cacheableObject = cacheableObject
         self.placeholderImage = placeholderImage
         self.placeholderImageName = placeholderImageName
+        self.isAgent = isAgent
         _cachedImage = State(initialValue: ImageCache.shared.image(for: cacheableObject))
     }
 
@@ -36,9 +39,9 @@ struct AvatarView: View {
                     .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                     .padding(DesignConstants.Spacing.step2x)
                     .foregroundStyle(.colorTextPrimaryInverted)
-                    .background(.colorFillTertiary)
+                    .background(isAgent ? .colorLava : .colorFillTertiary)
             } else {
-                MonogramView(name: fallbackName)
+                MonogramView(name: fallbackName, isAgent: isAgent)
             }
         }
         .aspectRatio(1.0, contentMode: .fit)
@@ -52,13 +55,15 @@ struct ProfileAvatarView: View {
     let profile: Profile
     let profileImage: UIImage?
     let useSystemPlaceholder: Bool
+    var isAgent: Bool = false
 
     var body: some View {
         AvatarView(
             fallbackName: profile.displayName,
             cacheableObject: profile,
             placeholderImage: profileImage,
-            placeholderImageName: useSystemPlaceholder ? "person.crop.circle.fill" : nil
+            placeholderImageName: useSystemPlaceholder ? "person.crop.circle.fill" : nil,
+            isAgent: isAgent
         )
     }
 }
@@ -112,6 +117,7 @@ struct ConversationAvatarView: View {
 struct MessageAvatarView: View {
     let profile: Profile
     let size: CGFloat
+    var isAgent: Bool = false
 
     @State private var cachedImage: UIImage?
 
@@ -122,7 +128,7 @@ struct MessageAvatarView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                MonogramView(name: profile.displayName)
+                MonogramView(name: profile.displayName, isAgent: isAgent)
             }
         }
         .frame(width: size, height: size)
