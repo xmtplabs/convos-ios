@@ -925,25 +925,51 @@ extension ConversationViewModel {
 
     @MainActor
     func exportDebugLogs() async throws -> URL {
-        // Get the XMTP client for this conversation
-        let messagingService = try await session.messagingService(
-            for: conversation.clientId,
-            inboxId: conversation.inboxId
-        )
+        let environment = ConfigManager.shared.currentEnvironment
 
-        // Wait for inbox to be ready and get the client
-        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
-        let client = inboxResult.client
-
-        guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
-            throw NSError(
-                domain: "ConversationViewModel",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Conversation not found"]
-            )
+        var conversationDebugURL: URL?
+        do {
+            conversationDebugURL = try await withThrowingTimeout(seconds: 10) { [self] in
+                let messagingService = try await session.messagingService(
+                    for: conversation.clientId,
+                    inboxId: conversation.inboxId
+                )
+                let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+                let client = inboxResult.client
+                guard let xmtpConversation = try await client.conversation(with: conversation.id) else {
+                    return nil
+                }
+                return try await xmtpConversation.exportDebugLogs()
+            }
+        } catch {
+            Log.warning("Could not get XMTP debug info (will still export app + XMTP logs): \(error.localizedDescription)")
         }
 
-        return try await xmtpConversation.exportDebugLogs()
+        let debugInfoURL = conversationDebugURL
+        return try await Task.detached {
+            try DebugLogExporter.exportAllLogs(
+                environment: environment,
+                conversationDebugInfo: debugInfoURL
+            )
+        }.value
+    }
+
+    private func withThrowingTimeout<T: Sendable>(
+        seconds: TimeInterval,
+        operation: @escaping @Sendable () async throws -> T
+    ) async throws -> T {
+        try await withThrowingTaskGroup(of: T.self) { group in
+            group.addTask { try await operation() }
+            group.addTask {
+                try await Task.sleep(for: .seconds(seconds))
+                throw CancellationError()
+            }
+            guard let result = try await group.next() else {
+                throw CancellationError()
+            }
+            group.cancelAll()
+            return result
+        }
     }
 }
 
