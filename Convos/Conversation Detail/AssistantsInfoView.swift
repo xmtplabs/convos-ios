@@ -2,25 +2,31 @@ import SwiftUI
 
 struct AssistantsInfoView: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+
+    private let horizontalPadding: CGFloat = DesignConstants.Spacing.step10x
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text("Private chat for the AI world")
-                .font(.caption)
-                .foregroundStyle(.colorTextSecondary)
+            Group {
+                Text("Private chat for the AI world")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
 
-            Text("Assistants help groups do things")
-                .font(.convosTitle)
-                .tracking(Font.convosTitleTracking)
+                Text("Assistants help groups do things")
+                    .font(.convosTitle)
+                    .tracking(Font.convosTitleTracking)
 
-            Text("Assistants learn by listening. They can only see and act in one convo.")
-                .font(.body)
-                .foregroundStyle(.colorTextPrimary)
+                Text("Assistants learn by listening. They can only see and act in one convo.")
+                    .font(.body)
+                    .foregroundStyle(.colorTextPrimary)
 
-            Text("They have tools to get things done in the real world.")
-                .font(.body)
-                .foregroundStyle(.colorTextSecondary)
+                Text("They have tools to get things done in the real world.")
+                    .font(.body)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .padding(.horizontal, horizontalPadding)
 
             abilitiesScroller
 
@@ -31,19 +37,22 @@ struct AssistantsInfoView: View {
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
 
-                let trustAction = { }
+                let trustURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")!
+                let trustAction = { openURL(trustURL) }
                 Button(action: trustAction) {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
                         Text("Trust and Security")
                         Image(systemName: "chevron.right")
+                            .font(.system(size: 13))
+                            .foregroundStyle(.colorFillTertiary)
                     }
                 }
                 .convosButtonStyle(.text)
                 .frame(maxWidth: .infinity)
             }
+            .padding(.horizontal, horizontalPadding)
             .padding(.top, DesignConstants.Spacing.step4x)
         }
-        .padding([.leading, .trailing], DesignConstants.Spacing.step10x)
         .padding(.top, DesignConstants.Spacing.step8x)
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
         .sheetDragIndicator(.hidden)
@@ -56,8 +65,8 @@ struct AssistantsInfoView: View {
                 abilityPill(icon: "waveform", label: "Phone calls")
                 abilityPill(icon: "envelope.fill", label: "Email")
             }
+            .padding(.horizontal, horizontalPadding)
         }
-        .contentMargins(.leading, 0)
     }
 
     private func abilityPill(icon: String, label: String) -> some View {
