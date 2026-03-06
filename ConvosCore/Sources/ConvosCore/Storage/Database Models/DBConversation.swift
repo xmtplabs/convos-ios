@@ -398,6 +398,33 @@ extension DBConversation {
         )
     }
 
+    func with(createdAt: Date) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
+        )
+    }
+
     func with(expiresAt: Date) -> Self {
         .init(
             id: id,
