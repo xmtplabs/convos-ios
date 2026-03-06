@@ -67,7 +67,7 @@ struct PairingSheetView: View {
                 .foregroundStyle(.colorTextPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Text("All devices that are paired sync all of their existing convos.")
+            Text("All devices that are paired sync their existing convos.")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
                 .frame(maxWidth: .infinity, alignment: .leading)
