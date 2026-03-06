@@ -26,6 +26,7 @@ public struct PairingJoinRequest: Sendable {
 
 public protocol VaultManagerDelegate: AnyObject, Sendable {
     func vaultManager(_ manager: VaultManager, didReceivePairingJoinRequest request: PairingJoinRequest)
+    func vaultManager(_ manager: VaultManager, didReceivePinEcho pin: String, from joinerInboxId: String)
 }
 
 public actor VaultManager {

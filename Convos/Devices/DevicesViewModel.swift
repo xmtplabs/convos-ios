@@ -80,15 +80,21 @@ final class DevicesViewModel {
         pairingViewModel = vm
         showPairingSheet = true
 
-        let bridge = VaultManagerDelegateBridge { [weak vm] request in
-            Task { @MainActor in
-                await vm?.onJoinRequestReceived(
-                    pin: request.pin,
-                    deviceName: request.deviceName,
-                    joinerInboxId: request.joinerInboxId
-                )
+        let bridge = VaultManagerDelegateBridge(
+            onJoinRequest: { [weak vm] request in
+                Task { @MainActor in
+                    await vm?.onJoinRequestReceived(
+                        deviceName: request.deviceName,
+                        joinerInboxId: request.joinerInboxId
+                    )
+                }
+            },
+            onPinEcho: { [weak vm] pin, joinerInboxId in
+                Task { @MainActor in
+                    await vm?.onPinEchoReceived(pin: pin, from: joinerInboxId)
+                }
             }
-        }
+        )
         delegateBridge = bridge
         Task { await vaultManager.setDelegate(bridge) }
     }
@@ -102,12 +108,21 @@ final class DevicesViewModel {
 
 private final class VaultManagerDelegateBridge: VaultManagerDelegate, Sendable {
     private let onJoinRequest: @Sendable (PairingJoinRequest) -> Void
+    private let onPinEcho: @Sendable (String, String) -> Void
 
-    init(onJoinRequest: @escaping @Sendable (PairingJoinRequest) -> Void) {
+    init(
+        onJoinRequest: @escaping @Sendable (PairingJoinRequest) -> Void,
+        onPinEcho: @escaping @Sendable (String, String) -> Void
+    ) {
         self.onJoinRequest = onJoinRequest
+        self.onPinEcho = onPinEcho
     }
 
     func vaultManager(_ manager: VaultManager, didReceivePairingJoinRequest request: PairingJoinRequest) {
         onJoinRequest(request)
+    }
+
+    func vaultManager(_ manager: VaultManager, didReceivePinEcho pin: String, from joinerInboxId: String) {
+        onPinEcho(pin, joinerInboxId)
     }
 }

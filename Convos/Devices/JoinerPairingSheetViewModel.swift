@@ -1,9 +1,12 @@
 import ConvosCore
+import CryptoKit
 import Observation
 import SwiftUI
 
 enum JoinerPairingFlowState: Equatable {
-    case showingPin(pin: String, expiresAt: Date)
+    case connecting
+    case pinEntry(initiatorInboxId: String)
+    case waitingForEmoji(emojis: [String])
     case syncing
     case completed
     case failed(String)
@@ -17,17 +20,18 @@ final class JoinerPairingSheetViewModel {
     var title: String = "Request to pair"
     var canDismiss: Bool = true
     var secondsRemaining: Int
+    var enteredPin: String = ""
 
     private let pairingId: String
-    private let pin: String
     private let expiresAt: Date
     private let timeoutInterval: TimeInterval
     private let vaultManager: VaultManager?
+    private let initiatorName: String?
     private var countdownTask: Task<Void, Never>?
     private nonisolated(unsafe) var keyBundleObserver: (any NSObjectProtocol)?
     private nonisolated(unsafe) var pairingErrorObserver: (any NSObjectProtocol)?
-
-    private let initiatorName: String?
+    private nonisolated(unsafe) var pinReceivedObserver: (any NSObjectProtocol)?
+    private var initiatorInboxId: String?
 
     init(
         pairingId: String,
@@ -40,10 +44,9 @@ final class JoinerPairingSheetViewModel {
         self.timeoutInterval = timeoutInterval
         self.initiatorName = initiatorName
         self.vaultManager = vaultManager
-        self.pin = PairingCoordinator.generatePin()
         self.expiresAt = expiresAt ?? Date().addingTimeInterval(timeoutInterval)
         self.secondsRemaining = max(0, Int(self.expiresAt.timeIntervalSinceNow))
-        self.flowState = .showingPin(pin: pin, expiresAt: self.expiresAt)
+        self.flowState = .connecting
 
         observeNotifications()
     }
@@ -54,6 +57,9 @@ final class JoinerPairingSheetViewModel {
         }
         if let pairingErrorObserver {
             NotificationCenter.default.removeObserver(pairingErrorObserver)
+        }
+        if let pinReceivedObserver {
+            NotificationCenter.default.removeObserver(pinReceivedObserver)
         }
     }
 
@@ -80,14 +86,32 @@ final class JoinerPairingSheetViewModel {
                 self.onPairingFailed(message)
             }
         }
-    }
 
-    var formattedPin: String {
-        PairingCoordinator.formatPin(pin)
+        pinReceivedObserver = NotificationCenter.default.addObserver(
+            forName: .vaultDidReceivePin,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let self else { return }
+            guard let pin = notification.userInfo?["pin"] as? String,
+                  let senderInboxId = notification.userInfo?["initiatorInboxId"] as? String
+            else { return }
+            Task { @MainActor in
+                self.onPinReceived(pin, from: senderInboxId)
+            }
+        }
     }
 
     var initiatorDeviceName: String {
         initiatorName ?? "the other device"
+    }
+
+    var formattedPin: String {
+        PairingCoordinator.formatPin(enteredPin)
+    }
+
+    var isPinComplete: Bool {
+        enteredPin.count == 6
     }
 
     func sendJoinRequest() async {
@@ -96,9 +120,27 @@ final class JoinerPairingSheetViewModel {
         do {
             try await vaultManager.sendPairingJoinRequest(
                 slug: pairingId,
-                pin: pin,
                 deviceName: DeviceInfo.deviceName
             )
+        } catch {
+            flowState = .failed(error.localizedDescription)
+        }
+    }
+
+    func submitPin() async {
+        guard let vaultManager, let initiatorInboxId, isPinComplete else { return }
+
+        do {
+            try await vaultManager.sendPinEcho(enteredPin, to: initiatorInboxId)
+
+            let vaultInboxId = await vaultManager.vaultInboxId ?? ""
+            let emojis = PairingCoordinator.emojiFingerprint(
+                inboxA: initiatorInboxId,
+                inboxB: vaultInboxId,
+                pin: enteredPin
+            )
+            title = "Confirm pairing"
+            flowState = .waitingForEmoji(emojis: emojis)
         } catch {
             flowState = .failed(error.localizedDescription)
         }
@@ -121,6 +163,11 @@ final class JoinerPairingSheetViewModel {
                 self.secondsRemaining = remaining
             }
         }
+    }
+
+    private func onPinReceived(_ pin: String, from senderInboxId: String) {
+        initiatorInboxId = senderInboxId
+        flowState = .pinEntry(initiatorInboxId: senderInboxId)
     }
 
     func onPairingCompleted() {

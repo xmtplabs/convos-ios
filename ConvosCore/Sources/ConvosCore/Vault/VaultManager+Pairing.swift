@@ -47,6 +47,11 @@ extension VaultManager {
         }
     }
 
+    public func sendPinToJoiner(_ pin: String, joinerInboxId: String) async throws {
+        let dm = try await vaultClient.findOrCreateDm(with: joinerInboxId)
+        _ = try await dm.send(content: "PAIRING_PIN:\(pin)")
+    }
+
     func startDmStream() {
         dmStreamTask?.cancel()
         dmStreamTask = Task { [weak self] in
@@ -66,38 +71,41 @@ extension VaultManager {
     }
 
     func handleDmMessage(_ message: DecodedMessage) async {
-        guard let activePairingSlug else {
-            return
-        }
         guard let vaultInboxId = await vaultInboxId, message.senderInboxId != vaultInboxId else {
             return
         }
 
-        var request: PairingJoinRequest?
+        if let activePairingSlug {
+            var request: PairingJoinRequest?
 
-        if let joinRequest: JoinRequestContent = try? message.content(),
-           joinRequest.inviteSlug == activePairingSlug {
-            let pin = joinRequest.metadata?["pin"] ?? ""
-            let name = joinRequest.metadata?["deviceName"] ?? "Unknown device"
-            request = PairingJoinRequest(
-                pin: pin,
-                deviceName: name,
-                joinerInboxId: message.senderInboxId
-            )
-        } else if let text: String = try? message.content(),
-                  text == activePairingSlug {
-            request = PairingJoinRequest(pin: "", deviceName: "Unknown device", joinerInboxId: message.senderInboxId)
+            if let joinRequest: JoinRequestContent = try? message.content(),
+               joinRequest.inviteSlug == activePairingSlug {
+                let name = joinRequest.metadata?["deviceName"] ?? "Unknown device"
+                request = PairingJoinRequest(
+                    pin: "",
+                    deviceName: name,
+                    joinerInboxId: message.senderInboxId
+                )
+            } else if let text: String = try? message.content(),
+                      text == activePairingSlug {
+                request = PairingJoinRequest(pin: "", deviceName: "Unknown device", joinerInboxId: message.senderInboxId)
+            }
+
+            if let request {
+                pendingPeerDeviceNames[request.joinerInboxId] = request.deviceName
+                await lockVault()
+                self.activePairingSlug = nil
+
+                delegate?.vaultManager(self, didReceivePairingJoinRequest: request)
+                return
+            }
         }
 
-        guard let request else { return }
-
-        pendingPeerDeviceNames[request.joinerInboxId] = request.deviceName
-        await lockVault()
-        self.activePairingSlug = nil
-        dmStreamTask?.cancel()
-        dmStreamTask = nil
-
-        delegate?.vaultManager(self, didReceivePairingJoinRequest: request)
+        if let text: String = try? message.content(),
+           text.hasPrefix("PIN_ECHO:") {
+            let echoedPin = String(text.dropFirst("PIN_ECHO:".count))
+            delegate?.vaultManager(self, didReceivePinEcho: echoedPin, from: message.senderInboxId)
+        }
     }
 
     public func sendPairingError(to joinerInboxId: String, message: String) async {
@@ -115,7 +123,6 @@ extension VaultManager {
 extension VaultManager {
     public func sendPairingJoinRequest(
         slug: String,
-        pin: String,
         deviceName: String
     ) async throws {
         guard let client = await vaultClient.xmtpClient else {
@@ -136,11 +143,15 @@ extension VaultManager {
             for: signedInvite,
             client: adapter,
             metadata: [
-                "pin": pin,
                 "deviceName": deviceName,
             ]
         )
         startJoinerDmStream()
+    }
+
+    public func sendPinEcho(_ pin: String, to initiatorInboxId: String) async throws {
+        let dm = try await vaultClient.findOrCreateDm(with: initiatorInboxId)
+        _ = try await dm.send(content: "PIN_ECHO:\(pin)")
     }
 
     func startJoinerDmStream() {
@@ -189,16 +200,24 @@ extension VaultManager {
     func handleJoinerDmMessage(_ message: DecodedMessage) async {
         guard let vaultInboxId = await vaultInboxId, message.senderInboxId != vaultInboxId else { return }
 
-        if let text: String = try? message.content(),
-           text.hasPrefix("PAIRING_ERROR:") {
-            let errorMessage = String(text.dropFirst("PAIRING_ERROR:".count))
-            joinerDmStreamTask?.cancel()
-            joinerDmStreamTask = nil
-            NotificationCenter.default.post(
-                name: .vaultPairingError,
-                object: nil,
-                userInfo: ["message": errorMessage]
-            )
+        if let text: String = try? message.content() {
+            if text.hasPrefix("PAIRING_ERROR:") {
+                let errorMessage = String(text.dropFirst("PAIRING_ERROR:".count))
+                joinerDmStreamTask?.cancel()
+                joinerDmStreamTask = nil
+                NotificationCenter.default.post(
+                    name: .vaultPairingError,
+                    object: nil,
+                    userInfo: ["message": errorMessage]
+                )
+            } else if text.hasPrefix("PAIRING_PIN:") {
+                let pin = String(text.dropFirst("PAIRING_PIN:".count))
+                NotificationCenter.default.post(
+                    name: .vaultDidReceivePin,
+                    object: nil,
+                    userInfo: ["pin": pin, "initiatorInboxId": message.senderInboxId]
+                )
+            }
         }
     }
 

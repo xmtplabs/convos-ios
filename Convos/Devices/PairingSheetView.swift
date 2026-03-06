@@ -4,7 +4,6 @@ import SwiftUI
 struct PairingSheetView: View {
     @Bindable var viewModel: PairingSheetViewModel
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @FocusState private var pinFieldFocused: Bool
     @State private var isHoldingReveal: Bool = false
 
     var body: some View {
@@ -36,8 +35,12 @@ struct PairingSheetView: View {
             qrCodeContent(url: url)
                 .transition(.blurReplace)
 
-        case let .pinEntry(deviceName):
-            pinEntryContent(deviceName: deviceName)
+        case let .showingPin(pin, deviceName):
+            pinDisplayContent(pin: pin, deviceName: deviceName)
+                .transition(.blurReplace)
+
+        case let .emojiConfirmation(emojis, deviceName):
+            emojiConfirmationContent(emojis: emojis, deviceName: deviceName)
                 .transition(.blurReplace)
 
         case .syncing:
@@ -115,20 +118,40 @@ struct PairingSheetView: View {
     }
 
     @ViewBuilder
-    private func pinEntryContent(deviceName: String) -> some View {
+    private func pinDisplayContent(pin: String, deviceName: String) -> some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            Text("Enter the code shown on \"\(deviceName)\" to finish pairing.")
+            Text("Share this code with \"\(deviceName)\" to continue pairing.")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextPrimary)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            PinEntryField(pin: $viewModel.enteredPin, isFocused: $pinFieldFocused)
-                .accessibilityIdentifier("pin-entry-field")
-                .onAppear {
-                    pinFieldFocused = true
-                }
+            Text(PairingCoordinator.formatPin(pin))
+                .font(.system(size: 64, weight: .bold, design: .rounded))
+                .kerning(4)
+                .foregroundStyle(.colorTextPrimary)
+                .minimumScaleFactor(0.7)
+                .lineLimit(1)
+                .accessibilityIdentifier("pairing-pin-display")
 
             ExpiryLabel(secondsRemaining: viewModel.secondsRemaining)
+        }
+    }
+
+    @ViewBuilder
+    private func emojiConfirmationContent(emojis: [String], deviceName: String) -> some View {
+        VStack(spacing: DesignConstants.Spacing.step4x) {
+            Text("Make sure these emoji match on \"\(deviceName)\" before confirming.")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            HStack(spacing: DesignConstants.Spacing.step6x) {
+                ForEach(emojis, id: \.self) { emoji in
+                    Text(emoji)
+                        .font(.system(size: 56))
+                }
+            }
+            .accessibilityIdentifier("pairing-emoji-fingerprint")
         }
     }
 
@@ -199,14 +222,16 @@ struct PairingSheetView: View {
             HoldToRevealButton(isHolding: $isHoldingReveal)
                 .accessibilityIdentifier("hold-to-reveal-button")
 
-        case .pinEntry:
-            let approveAction = { viewModel.triggerApprove() }
-            Button(action: approveAction) {
-                Text("Approve")
+        case .showingPin:
+            EmptyView()
+
+        case .emojiConfirmation:
+            let confirmAction = { viewModel.triggerConfirmEmoji() }
+            Button(action: confirmAction) {
+                Text("Confirm")
             }
             .convosButtonStyle(.rounded(fullWidth: true))
-            .disabled(!viewModel.isApproveEnabled)
-            .accessibilityIdentifier("approve-button")
+            .accessibilityIdentifier("confirm-emoji-button")
 
         case .syncing:
             let action = {}
@@ -254,65 +279,11 @@ struct PairingSheetView: View {
     }
 }
 
-// MARK: - Pin Entry Field
-
-private struct PinEntryField: View {
-    @Binding var pin: String
-    @FocusState.Binding var isFocused: Bool
-
-    var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            ForEach(0 ..< 6, id: \.self) { index in
-                let digit = digitAt(index)
-                ZStack {
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
-                        .fill(.colorBackgroundRaisedSecondary)
-                        .frame(width: 44, height: 56)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small)
-                                .stroke(
-                                    index == pin.count ? Color.colorFillPrimary : .colorBorderSubtle,
-                                    lineWidth: index == pin.count ? 2 : 1
-                                )
-                        )
-
-                    Text(digit)
-                        .font(.title)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.colorTextPrimary)
-                }
-            }
-        }
-        .background(
-            TextField("", text: $pin)
-                .keyboardType(.numberPad)
-                .focused($isFocused)
-                .opacity(0.01)
-                .frame(width: 1, height: 1)
-                .onChange(of: pin) { _, newValue in
-                    let filtered = String(newValue.filter(\.isNumber).prefix(6))
-                    if filtered != newValue {
-                        pin = filtered
-                    }
-                }
-        )
-        .onTapGesture {
-            isFocused = true
-        }
-    }
-
-    private func digitAt(_ index: Int) -> String {
-        guard index < pin.count else { return "" }
-        return String(pin[pin.index(pin.startIndex, offsetBy: index)])
-    }
-}
-
 // MARK: - Hold To Reveal Button
 
 private struct HoldToRevealButton: View {
     @Binding var isHolding: Bool
     @State private var buttonSize: CGSize = .zero
-    @State private var isDragging: Bool = false
 
     var body: some View {
         Text("Hold to reveal")
@@ -368,8 +339,12 @@ private struct HoldToRevealButton: View {
     }
 }
 
-#Preview("Pin Entry") {
-    PairingSheetPreview(state: .pinEntry(deviceName: "Jarod's iPad"))
+#Preview("Showing Pin") {
+    PairingSheetPreview(state: .showingPin(pin: "482916", deviceName: "Jarod's iPad"))
+}
+
+#Preview("Emoji Confirmation") {
+    PairingSheetPreview(state: .emojiConfirmation(emojis: ["🦊", "🎸", "🌊"], deviceName: "Jarod's iPad"), title: "Confirm pairing")
 }
 
 #Preview("Syncing") {
