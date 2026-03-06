@@ -2,12 +2,13 @@ import SwiftUI
 
 struct AddToConversationMenu: View {
     let isFull: Bool
+    var hasAssistant: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
     let onCopyLink: () -> Void
     let onInviteAssistant: () -> Void
 
-    private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled }
+    private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled }
 
     private var labelColor: Color {
         if !isEnabled {
@@ -35,9 +36,10 @@ struct AddToConversationMenu: View {
             if isAssistantEnabled {
                 Button(action: onInviteAssistant) {
                     Text("Instant assistant")
-                    Text("Helps the group do things")
+                    Text(hasAssistant ? "Already in conversation" : "Helps the group do things")
                     Image(systemName: "a.circle")
                 }
+                .disabled(hasAssistant)
                 .accessibilityIdentifier("context-menu-add-assistant")
             }
         } label: {

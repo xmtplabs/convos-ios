@@ -11,6 +11,8 @@ struct CellConfig {
     let contextMenuState: MessageContextMenuState
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
+    let onAboutAssistants: () -> Void
+    let onAgentOutOfCredits: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
 }
 

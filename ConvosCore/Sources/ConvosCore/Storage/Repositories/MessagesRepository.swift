@@ -550,7 +550,8 @@ struct MemberProfileCache {
             map[profile.inboxId] = ConversationMember(
                 profile: profile.hydrateProfile(),
                 role: .member,
-                isCurrentUser: profile.inboxId == currentInboxId
+                isCurrentUser: profile.inboxId == currentInboxId,
+                isAgent: profile.isAgent
             )
         }
 
@@ -634,7 +635,8 @@ private extension LightweightConversationDetails {
             creator = ConversationMember(
                 profile: profile.hydrateProfile(),
                 role: creatorDetails.role,
-                isCurrentUser: profile.inboxId == conversation.inboxId
+                isCurrentUser: profile.inboxId == conversation.inboxId,
+                isAgent: profile.isAgent
             )
         } else {
             creator = ConversationMember(

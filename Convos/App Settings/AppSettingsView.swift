@@ -101,6 +101,20 @@ struct AppSettingsView: View {
                     Text("Private unless you choose to share")
                 }
 
+                if FeatureFlags.shared.isAssistantEnabled {
+                    Section {
+                        NavigationLink {
+                            AssistantSettingsView()
+                        } label: {
+                            Text("Assistants")
+                                .foregroundStyle(.colorTextPrimary)
+                        }
+                        .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                    } footer: {
+                        Text("Optional AI for groups")
+                    }
+                }
+
                 Section {
                     NavigationLink {
                         CustomizeSettingsView()

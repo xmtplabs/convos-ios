@@ -448,6 +448,7 @@ struct ConversationInfoView: View {
                     } else {
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
+                            hasAssistant: viewModel.conversation.hasAssistant,
                             isEnabled: true,
                             onConvoCode: {
                                 if viewModel.isFull {

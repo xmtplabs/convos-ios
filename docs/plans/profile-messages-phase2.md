@@ -175,3 +175,17 @@ For a better experience, we could reverse the order (process messages first, the
 **Not a risk:**
 - Old clients that only write to appData will still have their profiles picked up via gap-filling
 - New clients that only read messages will get profiles from `ProfileUpdate`/`ProfileSnapshot`
+
+## Future: Store ProfileUpdates as DB Messages
+
+Currently, `StreamProcessor.processProfileMessage` intercepts ProfileUpdate/ProfileSnapshot messages before `messageWriter.store()`, so they never become DB messages and never appear in the messages list. This works for the common case (silent profile changes), but limits our ability to show profile-derived events chronologically in the conversation.
+
+**Example:** When an agent's `credits` metadata goes to 0, we show an "out of processing power" system message. Today this is positioned heuristically (after the agent's last message group) rather than at the actual timestamp of the ProfileUpdate that set credits to 0.
+
+**Proposed change:** Store ProfileUpdate messages in the DB as a new `MessageContent` case (e.g., `.profileUpdate`), filtered from the messages list by default (`showsInMessagesList = false`), but queryable for specific use cases like agent status changes. This would allow:
+
+- Chronologically accurate positioning of agent status messages
+- History of profile changes per member
+- Potential UI for "name changed" events in the future
+
+This is not urgent — the current heuristic positioning works well enough — but should be considered as part of a future profile messages iteration.

@@ -65,10 +65,16 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .update(_, let update, _):
-                    TextTitleContentView(title: update.summary, profile: update.profile)
-                        .id(update.differenceIdentifier)
-                        .padding(.vertical, DesignConstants.Spacing.step4x)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    VStack(spacing: 0) {
+                        TextTitleContentView(title: update.summary, profile: update.profile)
+                            .id(update.differenceIdentifier)
+                            .padding(.vertical, DesignConstants.Spacing.step4x)
+                            .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        if update.addedAgent {
+                            AssistantJoinedInfoView(onAboutAssistants: config.onAboutAssistants)
+                                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        }
+                    }
 
                 case .messages(let group):
                     MessagesGroupView(
@@ -84,14 +90,29 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     )
 
                 case .invite(let invite):
-                    InviteView(invite: invite)
-                        .padding(.vertical, DesignConstants.Spacing.step4x)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    VStack(spacing: DesignConstants.Spacing.step4x) {
+                        InviteView(invite: invite)
+                        NewConvoIdentityView()
+                    }
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .conversationInfo(let conversation):
-                    ConversationInfoPreview(conversation: conversation)
-                        .padding(.vertical, DesignConstants.Spacing.step4x)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    VStack(spacing: DesignConstants.Spacing.step4x) {
+                        ConversationInfoPreview(conversation: conversation)
+                        NewConvoIdentityView()
+                    }
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case .agentOutOfCredits(let profile):
+                    TextTitleContentView(
+                        title: "\(profile.displayName) is out of processing power",
+                        profile: profile,
+                        onTap: config.onAgentOutOfCredits
+                    )
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

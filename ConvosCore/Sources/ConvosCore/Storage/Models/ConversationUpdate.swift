@@ -58,6 +58,10 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
         }
     }
 
+    public var addedAgent: Bool {
+        addedMembers.contains(where: \.isAgent)
+    }
+
     var showsInMessagesList: Bool {
         guard metadataChanges.allSatisfy({ $0.field.showsInMessagesList }) else {
             return false

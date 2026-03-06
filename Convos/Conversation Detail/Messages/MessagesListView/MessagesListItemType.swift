@@ -143,6 +143,9 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
     /// Shows conversation info at the top of the conversation (for non-creators)
     case conversationInfo(Conversation)
 
+    /// Shows when an agent is out of processing power (credits depleted)
+    case agentOutOfCredits(Profile)
+
     var id: String {
         switch self {
         case .update(let id, _, _):
@@ -155,6 +158,8 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "invite-\(invite.id)"
         case .conversationInfo(let conversation):
             return "conversation-info-\(conversation.id)"
+        case .agentOutOfCredits(let profile):
+            return "agent-out-of-credits-\(profile.inboxId)"
         }
     }
 
@@ -183,7 +188,7 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits:
             return nil
         }
     }
@@ -198,6 +203,8 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
         switch self {
         case .invite, .conversationInfo:
             return .center
+        case .agentOutOfCredits:
+            return .fullWidth
         default:
             return .fullWidth
         }
@@ -216,6 +223,8 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "MessagesListItemTypeCell-invite"
         case .conversationInfo:
             return "MessagesListItemTypeCell-conversationInfo"
+        case .agentOutOfCredits:
+            return "MessagesListItemTypeCell-agentOutOfCredits"
         }
     }
 
@@ -226,7 +235,8 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             "MessagesListItemTypeCell-update",
             "MessagesListItemTypeCell-messages",
             "MessagesListItemTypeCell-invite",
-            "MessagesListItemTypeCell-conversationInfo"
+            "MessagesListItemTypeCell-conversationInfo",
+            "MessagesListItemTypeCell-agentOutOfCredits"
         ]
     }
 }

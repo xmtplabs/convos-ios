@@ -14,6 +14,8 @@ struct MessagesListView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onAboutAssistants: () -> Void
+    let onAgentOutOfCredits: () -> Void
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -25,11 +27,17 @@ struct MessagesListView: View {
                 LazyVStack(spacing: 0.0) {
                     // Show invite or conversation info at the top
                     if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
-                        InviteView(invite: invite)
-                            .id("invite")
+                        VStack(spacing: DesignConstants.Spacing.step4x) {
+                            InviteView(invite: invite)
+                            NewConvoIdentityView()
+                        }
+                        .id("invite")
                     } else {
-                        ConversationInfoPreview(conversation: conversation)
-                            .id("conversation-info")
+                        VStack(spacing: DesignConstants.Spacing.step4x) {
+                            ConversationInfoPreview(conversation: conversation)
+                            NewConvoIdentityView()
+                        }
+                        .id("conversation-info")
                     }
 
                     // Render each message list item
@@ -41,8 +49,13 @@ struct MessagesListView: View {
                                     .padding(.vertical, DesignConstants.Spacing.step2x)
 
                             case .update(_, let update, _):
-                                TextTitleContentView(title: update.summary, profile: update.profile)
-                                    .padding(.vertical, DesignConstants.Spacing.stepX)
+                                VStack(spacing: 0) {
+                                    TextTitleContentView(title: update.summary, profile: update.profile)
+                                        .padding(.vertical, DesignConstants.Spacing.stepX)
+                                    if update.addedAgent {
+                                        AssistantJoinedInfoView(onAboutAssistants: onAboutAssistants)
+                                    }
+                                }
 
                             case .messages(let group):
                                 MessagesGroupView(
@@ -64,6 +77,14 @@ struct MessagesListView: View {
                             case .conversationInfo(let conversation):
                                 ConversationInfoPreview(conversation: conversation)
                                     .padding(.vertical, DesignConstants.Spacing.step2x)
+
+                            case .agentOutOfCredits(let profile):
+                                TextTitleContentView(
+                                    title: "\(profile.displayName) is out of processing power",
+                                    profile: profile,
+                                    onTap: onAgentOutOfCredits
+                                )
+                                .padding(.vertical, DesignConstants.Spacing.step2x)
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in
