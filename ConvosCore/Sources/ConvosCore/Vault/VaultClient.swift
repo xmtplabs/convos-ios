@@ -28,30 +28,24 @@ public extension VaultClientDelegate {
     func vaultClient(_ client: VaultClient, didEncounterError error: any Error) {}
 }
 
-private struct VaultClientInternalState: Sendable {
-    var state: VaultClientState = .disconnected
-    var client: Client?
-    var group: XMTPiOS.Group?
-}
-
-public final class VaultClient: @unchecked Sendable {
-    private let stateLock: OSAllocatedUnfairLock<VaultClientInternalState> = .init(initialState: .init())
+public actor VaultClient {
+    private var state: VaultClientState = .disconnected
+    private var client: Client?
+    private var group: XMTPiOS.Group?
     private var streamTask: Task<Void, Never>?
     private var lifecycleTask: Task<Void, Never>?
 
     public weak var delegate: (any VaultClientDelegate)?
 
-    public var state: VaultClientState {
-        stateLock.withLock { $0.state }
+    public func setDelegate(_ delegate: any VaultClientDelegate) {
+        self.delegate = delegate
     }
 
-    public var inboxId: String? {
-        stateLock.withLock { $0.client?.inboxID }
-    }
-
-    public var installationId: String? {
-        stateLock.withLock { $0.client?.installationID }
-    }
+    public var currentState: VaultClientState { state }
+    public var inboxId: String? { client?.inboxID }
+    public var installationId: String? { client?.installationID }
+    public var vaultGroup: XMTPiOS.Group? { group }
+    public var xmtpClient: Client? { client }
 
     public init() {}
 
@@ -61,31 +55,29 @@ public final class VaultClient: @unchecked Sendable {
     ) async throws {
         updateState(.connecting)
 
-        let client: Client
+        let xmtpClient: Client
         do {
-            client = try await Client.build(
+            xmtpClient = try await Client.build(
                 publicIdentity: signingKey.identity,
                 options: options,
                 inboxId: nil
             )
         } catch {
-            client = try await Client.create(
+            xmtpClient = try await Client.create(
                 account: signingKey,
                 options: options
             )
         }
 
-        try await client.conversations.sync()
+        try await xmtpClient.conversations.sync()
 
-        let group = try await findOrCreateVaultGroup(client: client)
+        let vaultGroup = try await findOrCreateVaultGroup(client: xmtpClient)
 
-        stateLock.withLock {
-            $0.client = client
-            $0.group = group
-        }
+        self.client = xmtpClient
+        self.group = vaultGroup
 
         updateState(.connected)
-        startStreaming(client: client, group: group)
+        startStreaming(client: xmtpClient, group: vaultGroup)
         startLifecycleObservation()
     }
 
@@ -93,25 +85,18 @@ public final class VaultClient: @unchecked Sendable {
         stopLifecycleObservation()
         streamTask?.cancel()
         streamTask = nil
-
-        stateLock.withLock {
-            $0.client = nil
-            $0.group = nil
-        }
-
+        client = nil
+        group = nil
         updateState(.disconnected)
     }
 
     public func pause() {
         streamTask?.cancel()
         streamTask = nil
-
-        let client = stateLock.withLock { $0.client }
         try? client?.dropLocalDatabaseConnection()
     }
 
     public func resume() async {
-        let (client, group) = stateLock.withLock { ($0.client, $0.group) }
         guard let client, let group else { return }
 
         try? await client.reconnectLocalDatabase()
@@ -122,10 +107,10 @@ public final class VaultClient: @unchecked Sendable {
     }
 
     public func send<T: Codable, C: ContentCodec>(
-        _ content: T,
+        _ content: sending T,
         codec: C
     ) async throws where C.T == T {
-        guard let group = stateLock.withLock({ $0.group }) else {
+        guard let group else {
             throw VaultClientError.notConnected
         }
 
@@ -135,46 +120,103 @@ public final class VaultClient: @unchecked Sendable {
         )
     }
 
-    public func members() async throws -> [XMTPiOS.Member] {
-        guard let group = stateLock.withLock({ $0.group }) else {
+    public func members() async throws -> sending [XMTPiOS.Member] {
+        guard let group else {
             throw VaultClientError.notConnected
         }
         return try await group.members
     }
 
     public func addMember(inboxId: String) async throws {
-        guard let group = stateLock.withLock({ $0.group }) else {
+        guard let group else {
             throw VaultClientError.notConnected
         }
         try await group.addMembers(inboxIds: [inboxId])
     }
 
     public func removeMember(inboxId: String) async throws {
-        guard let group = stateLock.withLock({ $0.group }) else {
+        guard let group else {
             throw VaultClientError.notConnected
         }
         try await group.removeMembers(inboxIds: [inboxId])
     }
 
-    public func vaultGroupMessages() async throws -> [DecodedMessage] {
-        guard let group = stateLock.withLock({ $0.group }) else {
+    public func vaultGroupMessages() async throws -> sending [DecodedMessage] {
+        guard let group else {
             throw VaultClientError.notConnected
         }
         try await group.sync()
         return try await group.messages()
     }
 
-    public var vaultGroup: XMTPiOS.Group? {
-        stateLock.withLock { $0.group }
-    }
-
     public func resyncVaultGroup() async throws {
-        guard let client = stateLock.withLock({ $0.client }) else {
+        guard let client else {
             throw VaultClientError.notConnected
         }
 
         try await client.conversations.sync()
+        let vaultGroups = try filterVaultGroups(client: client)
+        guard !vaultGroups.isEmpty else { return }
 
+        let selectedGroup = try await selectBestVaultGroup(from: vaultGroups, cleanupOrphans: true)
+        if selectedGroup.id != group?.id {
+            group = selectedGroup
+            startStreaming(client: client, group: selectedGroup)
+        }
+    }
+
+    public func findOrCreateDm(with inboxId: String) async throws -> XMTPiOS.Dm {
+        guard let client else {
+            throw VaultClientError.notConnected
+        }
+        return try await client.conversations.findOrCreateDm(with: inboxId)
+    }
+
+    public nonisolated func streamAllDmMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
+        return AsyncThrowingStream { continuation in
+            Task {
+                guard let client = await self.client else {
+                    continuation.finish(throwing: VaultClientError.notConnected)
+                    return
+                }
+                let stream = client.conversations.streamAllMessages(type: .dms)
+                do {
+                    for try await message in stream {
+                        continuation.yield(message)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+        }
+    }
+
+    // MARK: - Private
+
+    private func findOrCreateVaultGroup(client: Client) async throws -> XMTPiOS.Group {
+        let vaultGroups = try filterVaultGroups(client: client)
+
+        if !vaultGroups.isEmpty {
+            return try await selectBestVaultGroup(from: vaultGroups, cleanupOrphans: true)
+        }
+
+        let newGroup = try await client.conversations.newGroup(
+            with: [],
+            name: "Convos Vault",
+            imageUrl: "",
+            description: ""
+        )
+
+        var metadata: ConversationCustomMetadata = .init()
+        metadata.conversationType = "vault"
+        let appDataString = try metadata.toCompactString()
+        try await newGroup.updateAppData(appData: appDataString)
+
+        return newGroup
+    }
+
+    private func filterVaultGroups(client: Client) throws -> [XMTPiOS.Group] {
         let groups = try client.conversations.listGroups(
             createdAfterNs: nil,
             createdBeforeNs: nil,
@@ -193,9 +235,13 @@ public final class VaultClient: @unchecked Sendable {
                 vaultGroups.append(group)
             }
         }
+        return vaultGroups
+    }
 
-        guard !vaultGroups.isEmpty else { return }
-
+    private func selectBestVaultGroup(
+        from vaultGroups: [XMTPiOS.Group],
+        cleanupOrphans: Bool
+    ) async throws -> XMTPiOS.Group {
         var memberCounts: [Int] = []
         for group in vaultGroups {
             memberCounts.append(try await group.members.count)
@@ -206,94 +252,14 @@ public final class VaultClient: @unchecked Sendable {
             bestIndex = i
         }
 
-        let selectedGroup = vaultGroups[bestIndex]
-        let currentGroup = stateLock.withLock { $0.group }
-        if selectedGroup.id != currentGroup?.id {
-            stateLock.withLock { $0.group = selectedGroup }
-            startStreaming(client: client, group: selectedGroup)
-        }
-
-        if memberCounts[bestIndex] > 1 {
+        if cleanupOrphans, memberCounts[bestIndex] > 1 {
             for (i, group) in vaultGroups.enumerated() where i != bestIndex && memberCounts[i] <= 1 {
                 try? await group.leaveGroup()
                 Log.info("Left orphaned solo vault group: \(group.id)")
             }
         }
-    }
 
-    public var xmtpClient: Client? {
-        stateLock.withLock { $0.client }
-    }
-
-    public func findOrCreateDm(with inboxId: String) async throws -> XMTPiOS.Dm {
-        guard let client = stateLock.withLock({ $0.client }) else {
-            throw VaultClientError.notConnected
-        }
-        return try await client.conversations.findOrCreateDm(with: inboxId)
-    }
-
-    public func streamAllDmMessages() -> AsyncThrowingStream<DecodedMessage, Error> {
-        guard let client = stateLock.withLock({ $0.client }) else {
-            return AsyncThrowingStream { $0.finish(throwing: VaultClientError.notConnected) }
-        }
-        return client.conversations.streamAllMessages(type: .dms)
-    }
-
-    private func findOrCreateVaultGroup(client: Client) async throws -> XMTPiOS.Group {
-        let groups = try client.conversations.listGroups(
-            createdAfterNs: nil,
-            createdBeforeNs: nil,
-            lastActivityAfterNs: nil,
-            lastActivityBeforeNs: nil,
-            limit: nil,
-            consentStates: nil,
-            orderBy: .createdAt
-        )
-
-        var vaultGroups: [XMTPiOS.Group] = []
-        for group in groups {
-            let appData = try group.appData()
-            let metadata = ConversationCustomMetadata.parseAppData(appData)
-            if metadata.hasConversationType && metadata.conversationType == "vault" {
-                vaultGroups.append(group)
-            }
-        }
-
-        if !vaultGroups.isEmpty {
-            var bestIndex: Int = 0
-            var bestCount = try await vaultGroups[0].members.count
-            for i in 1 ..< vaultGroups.count {
-                let count = try await vaultGroups[i].members.count
-                if count > bestCount {
-                    bestIndex = i
-                    bestCount = count
-                }
-            }
-            if bestCount > 1 {
-                for (i, group) in vaultGroups.enumerated() where i != bestIndex {
-                    let count = try await group.members.count
-                    if count <= 1 {
-                        try? await group.leaveGroup()
-                        Log.info("Left orphaned solo vault group at bootstrap: \(group.id)")
-                    }
-                }
-            }
-            return vaultGroups[bestIndex]
-        }
-
-        let group = try await client.conversations.newGroup(
-            with: [],
-            name: "Convos Vault",
-            imageUrl: "",
-            description: ""
-        )
-
-        var metadata: ConversationCustomMetadata = .init()
-        metadata.conversationType = "vault"
-        let appDataString = try metadata.toCompactString()
-        try await group.updateAppData(appData: appDataString)
-
-        return group
+        return vaultGroups[bestIndex]
     }
 
     private func startStreaming(client: Client, group: XMTPiOS.Group) {
@@ -305,12 +271,12 @@ public final class VaultClient: @unchecked Sendable {
                 for try await message in group.streamMessages() {
                     guard !Task.isCancelled else { break }
                     guard message.senderInboxId != clientInboxId else { continue }
-                    self.handleMessage(message)
+                    await self.handleMessage(message)
                 }
             } catch {
                 if !Task.isCancelled {
-                    self.delegate?.vaultClient(self, didEncounterError: error)
-                    self.updateState(.error(error))
+                    await self.delegate?.vaultClient(self, didEncounterError: error)
+                    await self.updateState(.error(error))
                 }
             }
         }
@@ -338,17 +304,17 @@ public final class VaultClient: @unchecked Sendable {
         stopLifecycleObservation()
 
         lifecycleTask = Task { [weak self] in
-            await withTaskGroup(of: Void.self) { group in
-                group.addTask { [weak self] in
+            await withTaskGroup(of: Void.self) { taskGroup in
+                taskGroup.addTask { [weak self] in
                     let stream = NotificationCenter.default.notifications(
                         named: .vaultDidEnterBackground
                     )
                     for await _ in stream {
-                        self?.pause()
+                        await self?.pause()
                     }
                 }
 
-                group.addTask { [weak self] in
+                taskGroup.addTask { [weak self] in
                     let stream = NotificationCenter.default.notifications(
                         named: .vaultWillEnterForeground
                     )
@@ -357,7 +323,7 @@ public final class VaultClient: @unchecked Sendable {
                     }
                 }
 
-                await group.waitForAll()
+                await taskGroup.waitForAll()
             }
         }
     }
@@ -368,16 +334,9 @@ public final class VaultClient: @unchecked Sendable {
     }
 
     private func updateState(_ newState: VaultClientState) {
-        stateLock.withLock { $0.state = newState }
+        state = newState
         delegate?.vaultClient(self, didChangeState: newState)
     }
-}
-
-public extension Notification.Name {
-    static let vaultDidEnterBackground: Notification.Name = .init("ConvosVaultDidEnterBackground")
-    static let vaultWillEnterForeground: Notification.Name = .init("ConvosVaultWillEnterForeground")
-    static let vaultDidReceiveKeyBundle: Notification.Name = .init("ConvosVaultDidReceiveKeyBundle")
-    static let vaultPairingError: Notification.Name = .init("ConvosVaultPairingError")
 }
 
 public enum VaultClientError: Error, LocalizedError {

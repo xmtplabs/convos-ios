@@ -29,4 +29,8 @@ public protocol VaultServiceProtocol: Sendable {
 public extension Notification.Name {
     static let vaultDidImportInbox: Notification.Name = .init("ConvosVaultDidImportInbox")
     static let vaultDidDeleteConversation: Notification.Name = .init("ConvosVaultDidDeleteConversation")
+    static let vaultDidReceiveKeyBundle: Notification.Name = .init("ConvosVaultDidReceiveKeyBundle")
+    static let vaultPairingError: Notification.Name = .init("ConvosVaultPairingError")
+    static let vaultDidEnterBackground: Notification.Name = .init("ConvosVaultDidEnterBackground")
+    static let vaultWillEnterForeground: Notification.Name = .init("ConvosVaultWillEnterForeground")
 }
