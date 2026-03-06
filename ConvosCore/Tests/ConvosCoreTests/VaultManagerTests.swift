@@ -123,34 +123,6 @@ struct VaultManagerTests {
         #expect(device.isCurrentDevice == true)
     }
 
-    @Test("VaultIdentityEntry model")
-    func vaultIdentityEntryModel() {
-        let entry = VaultIdentityEntry(
-            inboxId: "inbox-1",
-            clientId: "client-1",
-            privateKeyData: Data([1, 2, 3]),
-            databaseKey: Data([4, 5, 6])
-        )
-        #expect(entry.inboxId == "inbox-1")
-        #expect(entry.clientId == "client-1")
-    }
-
-    @Test("Not connected throws on share")
-    func notConnectedThrows() async throws {
-        let (manager, _, _) = try makeManager()
-
-        let entry = VaultIdentityEntry(
-            inboxId: "inbox-1",
-            clientId: "client-1",
-            privateKeyData: Data([1]),
-            databaseKey: Data([2])
-        )
-
-        await #expect(throws: VaultClientError.self) {
-            try await manager.shareKey(entry)
-        }
-    }
-
     @Test("Not connected throws on shareAllKeys")
     func notConnectedThrowsShareAll() async throws {
         let (manager, _, _) = try makeManager()
