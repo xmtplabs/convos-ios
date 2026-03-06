@@ -7,6 +7,7 @@ struct ConversationMemberView: View {
 
     @State private var presentingBlockConfirmation: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
+    @Environment(\.openURL) private var openURL: OpenURLAction
 
     var body: some View {
         List {
@@ -34,6 +35,39 @@ struct ConversationMemberView: View {
             }
             .listSectionMargins(.top, 0.0)
             .listSectionSeparator(.hidden)
+
+            if member.isAgent && member.profile.isOutOfCredits {
+                Section {
+                    let url = URL(string: "https://learn.convos.org/assistants-processing-power")
+                    let action = { if let url { openURL(url) } }
+                    Button(action: action) {
+                        HStack {
+                            Image(systemName: "battery.0percent")
+                                .font(.system(size: 16))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(.colorRed, in: RoundedRectangle(cornerRadius: 8))
+
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("No Power")
+                                    .font(.body)
+                                    .foregroundStyle(.colorTextPrimary)
+                                Text("Paused indefinitely")
+                                    .font(.subheadline)
+                                    .foregroundStyle(.colorRed)
+                            }
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.colorFillTertiary)
+                        }
+                    }
+                } footer: {
+                    Text("Assistants require processing power")
+                }
+            }
 
             if !member.isCurrentUser {
                 Section {
