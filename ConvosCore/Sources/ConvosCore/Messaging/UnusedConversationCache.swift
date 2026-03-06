@@ -610,6 +610,40 @@ extension UnusedConversationCache {
         }
     }
 
+    func reserveUnusedConversation(
+        conversationId: String,
+        databaseWriter: any DatabaseWriter
+    ) async throws {
+        try await databaseWriter.write { db in
+            guard try DBConversation.fetchOne(db, key: conversationId) == nil else { return }
+            let placeholder = DBConversation(
+                id: conversationId,
+                inboxId: "",
+                clientId: "",
+                clientConversationId: conversationId,
+                inviteTag: "",
+                creatorId: "",
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: true
+            )
+            try placeholder.insert(db)
+        }
+    }
+
     func markConversationAsUsed(
         conversationId: String,
         databaseWriter: any DatabaseWriter
@@ -826,7 +860,6 @@ extension UnusedConversationCache {
             // here because prepareConversation() is a one-shot operation, not a long-running
             // stream that could overlap with other XMTP operations.
             nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
-            try await optimisticConversation.publish()
 
             let conversationId = optimisticConversation.id
             Log.debug("Created unused conversation: \(conversationId)")
@@ -834,6 +867,13 @@ extension UnusedConversationCache {
             let identity = try await identityStore.identity(for: inboxId)
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
+
+            try await reserveUnusedConversation(
+                conversationId: conversationId,
+                databaseWriter: databaseWriter
+            )
+
+            try await optimisticConversation.publish()
 
             guard let group = optimisticConversation as? XMTPiOS.Group else {
                 throw UnusedConversationCacheError.invalidConversationType

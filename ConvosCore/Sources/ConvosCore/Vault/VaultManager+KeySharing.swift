@@ -23,9 +23,17 @@ extension VaultManager {
 
     func shareUnsharedInboxes(_ rows: [InboxConversationRow]) async {
         guard await isConnected, hasMultipleDevices, let databaseWriter else { return }
-        Log.info("Vault: found \(rows.count) unshared inbox(es) with conversations")
 
-        for row in rows {
+        let newRows = rows.filter { !inboxesBeingShared.contains($0.inboxId) }
+        guard !newRows.isEmpty else { return }
+
+        for row in newRows {
+            inboxesBeingShared.insert(row.inboxId)
+        }
+
+        Log.info("Vault: found \(newRows.count) unshared inbox(es) with conversations")
+
+        for row in newRows {
             await shareKeyForInbox(row.inboxId, clientId: row.clientId)
 
             try? await databaseWriter.write { db in
@@ -34,6 +42,7 @@ extension VaultManager {
                     arguments: [row.inboxId]
                 )
             }
+            inboxesBeingShared.remove(row.inboxId)
         }
     }
 
@@ -98,7 +107,6 @@ extension VaultManager {
                 AND c.id NOT LIKE 'draft-%'
                 AND c.isUnused = 0
             WHERE i.isVault = 0 AND i.sharedToVault = 0
-                AND EXISTS (SELECT 1 FROM message m WHERE m.conversationId = c.id)
             """
         return try Row.fetchAll(db, sql: sql).map { row in
             InboxConversationRow(
