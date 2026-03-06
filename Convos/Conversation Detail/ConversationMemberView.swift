@@ -45,7 +45,7 @@ struct ConversationMemberView: View {
                             Image(systemName: "battery.0percent")
                                 .font(.system(size: 16))
                                 .foregroundStyle(.white)
-                                .frame(width: 36, height: 36)
+                                .frame(width: 40, height: 40)
                                 .background(.colorRed, in: RoundedRectangle(cornerRadius: 8))
 
                             VStack(alignment: .leading, spacing: 2) {

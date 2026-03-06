@@ -481,8 +481,16 @@ extension MessagesViewController {
             }
         }
 
-        if let agentProfile = conversation.agentOutOfCreditsProfile {
-            cells.append(.agentOutOfCredits(agentProfile))
+        if let agentMember = conversation.members.first(where: { $0.isAgent && $0.profile.isOutOfCredits }) {
+            let agentInboxId = agentMember.profile.inboxId
+            if let lastAgentIndex = cells.lastIndex(where: {
+                if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
+                return false
+            }) {
+                cells.insert(.agentOutOfCredits(agentMember.profile), at: lastAgentIndex + 1)
+            } else {
+                cells.append(.agentOutOfCredits(agentMember.profile))
+            }
         }
 
         let sections: [MessagesCollectionSection] = [
