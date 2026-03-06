@@ -9,7 +9,6 @@ struct NewConvoIdentityView: View {
             Button(action: action) {
                 HStack(spacing: DesignConstants.Spacing.stepX) {
                     Text("New convo, new everything")
-                        .fontWeight(.medium)
                         .foregroundStyle(.colorTextPrimary)
                     Image(systemName: "info.circle")
                         .foregroundStyle(.colorTextSecondary)
