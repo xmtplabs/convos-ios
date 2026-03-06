@@ -218,10 +218,15 @@ steps:
 
   - id: verify_sync_a
     device: device_a
-    name: "Device A has both conversations"
+    name: "Device A has both conversations and no extras"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_a_convo_count: "count of conversation-list-item elements"
     verify:
       - element_exists: { label_contains: "Device A Convo" }
       - element_exists: { label_contains: "Device B Convo" }
+      - element_count_exact: { pattern: "conversation-list-item", count: 2 }
     criteria: device_a_both_convos
 
   - id: dismiss_pairing_b
@@ -236,11 +241,23 @@ steps:
 
   - id: verify_sync_b
     device: device_b
-    name: "Device B has both conversations"
+    name: "Device B has both conversations and no extras"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_b_convo_count: "count of conversation-list-item elements"
     verify:
       - element_exists: { label_contains: "Device A Convo" }
       - element_exists: { label_contains: "Device B Convo" }
+      - element_count_exact: { pattern: "conversation-list-item", count: 2 }
     criteria: device_b_both_convos
+
+  - id: verify_lists_match
+    name: "Conversation lists match exactly on both devices"
+    verify:
+      - values_equal: { a: "{{device_a_convo_count}}", b: "{{device_b_convo_count}}" }
+    note: "No unconsumed unused conversations should leak across devices during pairing"
+    criteria: convo_lists_match
 
 teardown: []
 
@@ -272,6 +289,8 @@ criteria:
   devices_list_both:
     description: "Devices list shows both devices (one marked 'This device')"
   device_a_both_convos:
-    description: "Device A's conversations list contains both 'Device A Convo' and 'Device B Convo'"
+    description: "Device A's conversations list contains exactly 'Device A Convo' and 'Device B Convo' (no extras)"
   device_b_both_convos:
-    description: "Device B's conversations list contains both 'Device A Convo' and 'Device B Convo'"
+    description: "Device B's conversations list contains exactly 'Device A Convo' and 'Device B Convo' (no extras)"
+  convo_lists_match:
+    description: "Both devices have the same number of conversations — no unconsumed unused conversations leaked during pairing"
