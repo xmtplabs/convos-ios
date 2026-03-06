@@ -56,7 +56,7 @@ private struct MemberRow: View {
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
-            ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false, isAgent: member.isAgent)
+            ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
                 .frame(width: DesignConstants.ImageSizes.mediumAvatar, height: DesignConstants.ImageSizes.mediumAvatar)
                 .accessibilityHidden(true)
 

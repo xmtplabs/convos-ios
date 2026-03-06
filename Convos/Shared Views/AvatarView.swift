@@ -55,7 +55,6 @@ struct ProfileAvatarView: View {
     let profile: Profile
     let profileImage: UIImage?
     let useSystemPlaceholder: Bool
-    var isAgent: Bool = false
 
     var body: some View {
         AvatarView(
@@ -63,7 +62,7 @@ struct ProfileAvatarView: View {
             cacheableObject: profile,
             placeholderImage: profileImage,
             placeholderImageName: useSystemPlaceholder ? "person.crop.circle.fill" : nil,
-            isAgent: isAgent
+            isAgent: profile.isAgent
         )
     }
 }
@@ -101,7 +100,7 @@ struct ConversationAvatarView: View {
         case .customImage:
             MonogramView(name: conversation.computedDisplayName)
         case .profile(let profile):
-            MonogramView(name: profile.displayName)
+            MonogramView(name: profile.displayName, isAgent: profile.isAgent)
         case .clustered(let profiles):
             ClusteredAvatarView(profiles: profiles)
         case .emoji(let emoji):
@@ -117,7 +116,6 @@ struct ConversationAvatarView: View {
 struct MessageAvatarView: View {
     let profile: Profile
     let size: CGFloat
-    var isAgent: Bool = false
 
     @State private var cachedImage: UIImage?
 
@@ -128,7 +126,7 @@ struct MessageAvatarView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                MonogramView(name: profile.displayName, isAgent: isAgent)
+                MonogramView(name: profile.displayName, isAgent: profile.isAgent)
             }
         }
         .frame(width: size, height: size)

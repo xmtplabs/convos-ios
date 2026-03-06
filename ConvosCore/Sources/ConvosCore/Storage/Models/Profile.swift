@@ -9,6 +9,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     public let avatarSalt: Data?
     public let avatarNonce: Data?
     public let avatarKey: Data?
+    public let isAgent: Bool
 
     public init(
         inboxId: String,
@@ -17,7 +18,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         avatar: String?,
         avatarSalt: Data? = nil,
         avatarNonce: Data? = nil,
-        avatarKey: Data? = nil
+        avatarKey: Data? = nil,
+        isAgent: Bool = false
     ) {
         self.inboxId = inboxId
         self.conversationId = conversationId
@@ -26,6 +28,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         self.avatarSalt = avatarSalt
         self.avatarNonce = avatarNonce
         self.avatarKey = avatarKey
+        self.isAgent = isAgent
     }
 
     public var avatarURL: URL? {
@@ -51,7 +54,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             avatar: avatar,
             avatarSalt: avatarSalt,
             avatarNonce: avatarNonce,
-            avatarKey: avatarKey
+            avatarKey: avatarKey,
+            isAgent: isAgent
         )
     }
 

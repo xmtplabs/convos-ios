@@ -29,13 +29,15 @@ struct MonogramView: View {
                     .padding(padding)
             }
             .frame(width: side, height: side)
-            .background(
-                LinearGradient(
-                    gradient: Gradient(colors: [.clear, .black.opacity(0.2)]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
+            .background {
+                if !isAgent {
+                    LinearGradient(
+                        gradient: Gradient(colors: [.clear, .black.opacity(0.2)]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                }
+            }
             .background(isAgent ? .colorLava : .colorFillTertiary)
             .clipShape(Circle())
         }
