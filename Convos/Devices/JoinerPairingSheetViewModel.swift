@@ -27,14 +27,18 @@ final class JoinerPairingSheetViewModel {
     private nonisolated(unsafe) var keyBundleObserver: (any NSObjectProtocol)?
     private nonisolated(unsafe) var pairingErrorObserver: (any NSObjectProtocol)?
 
+    private let initiatorName: String?
+
     init(
         pairingId: String,
         expiresAt: Date? = nil,
+        initiatorName: String? = nil,
         timeoutInterval: TimeInterval = 60,
         vaultManager: VaultManager? = nil
     ) {
         self.pairingId = pairingId
         self.timeoutInterval = timeoutInterval
+        self.initiatorName = initiatorName
         self.vaultManager = vaultManager
         self.pin = PairingCoordinator.generatePin()
         self.expiresAt = expiresAt ?? Date().addingTimeInterval(timeoutInterval)
@@ -83,7 +87,7 @@ final class JoinerPairingSheetViewModel {
     }
 
     var initiatorDeviceName: String {
-        "the other device"
+        initiatorName ?? "the other device"
     }
 
     func sendJoinRequest() async {
