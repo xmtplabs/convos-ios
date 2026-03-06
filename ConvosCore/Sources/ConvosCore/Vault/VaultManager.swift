@@ -182,7 +182,9 @@ public actor VaultManager {
             let sql = """
                 SELECT i.inboxId, i.clientId, c.id as conversationId
                 FROM inbox i
-                LEFT JOIN conversation c ON c.clientId = i.clientId AND c.id NOT LIKE 'draft-%'
+                INNER JOIN conversation c ON c.clientId = i.clientId
+                    AND c.id NOT LIKE 'draft-%'
+                    AND c.isUnused = 0
                 WHERE i.isVault = 0
                 """
             return try Row.fetchAll(db, sql: sql).map { row in
