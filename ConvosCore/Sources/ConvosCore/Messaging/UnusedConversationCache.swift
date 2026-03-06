@@ -1061,9 +1061,35 @@ extension UnusedConversationCache {
             try member.save(db, onConflict: .ignore)
 
             if let existing = try DBConversation.fetchOne(db, key: conversationId) {
-                let updated = existing.with(isUnused: true)
+                var updated = existing.with(isUnused: true)
+                if existing.inboxId.isEmpty {
+                    updated = DBConversation(
+                        id: conversationId,
+                        inboxId: inboxId,
+                        clientId: clientId,
+                        clientConversationId: conversationId,
+                        inviteTag: inviteTag.isEmpty ? existing.inviteTag : inviteTag,
+                        creatorId: creatorInboxId,
+                        kind: .group,
+                        consent: existing.consent,
+                        createdAt: conversation.createdAt,
+                        name: existing.name,
+                        description: existing.description,
+                        imageURLString: existing.imageURLString,
+                        publicImageURLString: existing.publicImageURLString,
+                        includeInfoInPublicPreview: existing.includeInfoInPublicPreview,
+                        expiresAt: existing.expiresAt,
+                        debugInfo: existing.debugInfo,
+                        isLocked: existing.isLocked,
+                        imageSalt: existing.imageSalt,
+                        imageNonce: existing.imageNonce,
+                        imageEncryptionKey: existing.imageEncryptionKey,
+                        imageLastRenewed: existing.imageLastRenewed,
+                        isUnused: true
+                    )
+                }
                 try updated.update(db)
-                Log.debug("Conversation already exists from sync, marked as unused: \(conversationId)")
+                Log.debug("Conversation already exists, marked as unused: \(conversationId)")
             } else {
                 let dbConversation = DBConversation(
                     id: conversationId,

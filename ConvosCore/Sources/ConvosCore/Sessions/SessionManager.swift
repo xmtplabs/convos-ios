@@ -505,8 +505,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func wakeImportedInbox(inboxId: String, clientId: String) async {
         do {
-            _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .userInteraction)
+            let service = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .userInteraction)
             Log.info("Woke imported vault inbox: \(inboxId), clientId: \(clientId)")
+
+            let result = try await service.inboxStateManager.waitForInboxReadyResult()
+            try await result.client.requestDeviceSync()
+            Log.info("Requested device sync for vault-imported inbox: \(inboxId)")
         } catch {
             Log.error("Failed to wake imported vault inbox \(inboxId): \(error)")
         }
