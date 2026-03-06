@@ -11,6 +11,10 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     public let avatarKey: Data?
     public let isAgent: Bool
 
+    private enum CodingKeys: String, CodingKey {
+        case inboxId, conversationId, name, avatar, avatarSalt, avatarNonce, avatarKey, isAgent
+    }
+
     public init(
         inboxId: String,
         conversationId: String? = nil,
@@ -29,6 +33,18 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         self.avatarNonce = avatarNonce
         self.avatarKey = avatarKey
         self.isAgent = isAgent
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.inboxId = try container.decode(String.self, forKey: .inboxId)
+        self.conversationId = try container.decodeIfPresent(String.self, forKey: .conversationId)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.avatar = try container.decodeIfPresent(String.self, forKey: .avatar)
+        self.avatarSalt = try container.decodeIfPresent(Data.self, forKey: .avatarSalt)
+        self.avatarNonce = try container.decodeIfPresent(Data.self, forKey: .avatarNonce)
+        self.avatarKey = try container.decodeIfPresent(Data.self, forKey: .avatarKey)
+        self.isAgent = try container.decodeIfPresent(Bool.self, forKey: .isAgent) ?? false
     }
 
     public var avatarURL: URL? {
