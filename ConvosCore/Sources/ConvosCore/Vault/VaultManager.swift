@@ -48,16 +48,20 @@ public protocol VaultManagerDelegate: AnyObject, Sendable {
 }
 
 public actor VaultManager {
-    private let vaultClient: VaultClient
-    private let identityStore: any KeychainIdentityStoreProtocol
-    private let vaultKeyStore: VaultKeyStore?
-    private let databaseReader: any DatabaseReader
-    private var databaseWriter: (any DatabaseWriter)?
-    private let deviceName: String
-    private var pendingPeerDeviceNames: [String: String] = [:]
-    private var inboxObservationCancellable: AnyCancellable?
+    let vaultClient: VaultClient
+    let identityStore: any KeychainIdentityStoreProtocol
+    let vaultKeyStore: VaultKeyStore?
+    let databaseReader: any DatabaseReader
+    var databaseWriter: (any DatabaseWriter)?
+    let deviceName: String
+    var pendingPeerDeviceNames: [String: String] = [:]
+    var inboxObservationCancellable: AnyCancellable?
 
     public weak var delegate: (any VaultManagerDelegate)?
+
+    var dmStreamTask: Task<Void, Never>?
+    var activePairingSlug: String?
+    var joinerDmStreamTask: Task<Void, Never>?
 
     public var isConnected: Bool {
         get async {
@@ -170,64 +174,7 @@ public actor VaultManager {
         }
     }
 
-    private func startObservingInboxes() {
-        let observation = ValueObservation.tracking { db in
-            try Self.fetchUnsharedRows(db)
-        }
-
-        inboxObservationCancellable = observation
-            .publisher(in: databaseReader)
-            .sink(
-                receiveCompletion: { _ in },
-                receiveValue: { [weak self] unsharedRows in
-                    guard let self, !unsharedRows.isEmpty else { return }
-                    Task { await self.shareUnsharedInboxes(unsharedRows) }
-                }
-            )
-        Log.info("Vault: started observing inboxes for key sharing")
-    }
-
-    private func shareUnsharedInboxes(_ rows: [InboxConversationRow]) async {
-        guard await isConnected, hasMultipleDevices, let databaseWriter else { return }
-        Log.info("Vault: found \(rows.count) unshared inbox(es) with conversations")
-
-        for row in rows {
-            await shareKeyForInbox(row.inboxId, clientId: row.clientId)
-
-            try? await databaseWriter.write { db in
-                try db.execute(
-                    sql: "UPDATE inbox SET sharedToVault = 1 WHERE inboxId = ?",
-                    arguments: [row.inboxId]
-                )
-            }
-        }
-    }
-
-    private func shareKeyForInbox(_ inboxId: String, clientId: String) async {
-        guard let identity = try? await identityStore.identity(for: inboxId) else {
-            Log.warning("Vault: no keychain identity for inbox \(inboxId)")
-            return
-        }
-
-        let conversationId = try? await databaseReader.read { db -> String? in
-            let sql = """
-                SELECT c.id FROM conversation c
-                WHERE c.clientId = ? AND c.id NOT LIKE 'draft-%'
-                LIMIT 1
-                """
-            return try String.fetchOne(db, sql: sql, arguments: [clientId])
-        }
-
-        let keyInfo = InboxKeyInfo(
-            inboxId: inboxId,
-            clientId: clientId,
-            conversationId: conversationId ?? "",
-            privateKeyData: Data(identity.keys.privateKey.secp256K1.bytes),
-            databaseKey: identity.keys.databaseKey
-        )
-        Log.info("Vault: sharing key for inbox \(inboxId)")
-        await shareKeyFromNotification(keyInfo)
-    }
+    // MARK: - Lifecycle
 
     public func disconnect() async {
         await vaultClient.disconnect()
@@ -241,6 +188,9 @@ public actor VaultManager {
         await vaultClient.resume()
         await syncDevicesToDatabase()
     }
+
+    // MARK: - Key Sharing (Public API)
+
     public func shareKey(_ entry: VaultIdentityEntry) async throws {
         guard let installationId = await vaultClient.installationId else {
             throw VaultClientError.notConnected
@@ -315,244 +265,7 @@ public actor VaultManager {
         }
     }
 
-    func shareKeyFromNotification(_ keyInfo: InboxKeyInfo) async {
-        guard await isConnected, hasMultipleDevices, let installationId = await vaultClient.installationId else { return }
-        let share = DeviceKeyShareContent(
-            conversationId: keyInfo.conversationId,
-            inboxId: keyInfo.inboxId,
-            clientId: keyInfo.clientId,
-            privateKeyData: keyInfo.privateKeyData,
-            databaseKey: keyInfo.databaseKey,
-            senderInstallationId: installationId,
-            senderDeviceName: deviceName
-        )
-
-        do {
-            try await vaultClient.send(share, codec: DeviceKeyShareCodec())
-        } catch {
-            Log.error("Vault: failed to share key for \(keyInfo.inboxId): \(error)")
-        }
-    }
-
-    // MARK: - Pairing (Initiator - Device A)
-
-    private var dmStreamTask: Task<Void, Never>?
-    private var activePairingSlug: String?
-
-    public func createPairingInvite(expiresAt: Date) async throws -> String {
-        guard let group = await vaultClient.vaultGroup else { throw PairingError.noVaultGroup }
-        guard let client = await vaultClient.xmtpClient, let vaultInboxId = await vaultInboxId, let vaultKeyStore else {
-            throw VaultClientError.notConnected
-        }
-
-        let identity = try await vaultKeyStore.load(inboxId: vaultInboxId)
-        let privateKey: Data = identity.keys.privateKey.secp256K1.bytes
-
-        try await group.ensureInviteTag()
-
-        let coordinator = InviteCoordinator(
-            privateKeyProvider: { _ in privateKey },
-            tagStorage: ProtobufInviteTagStorage()
-        )
-
-        let adapter = VaultInviteClientAdapter(client: client)
-        let result = try await coordinator.createInvite(
-            for: group,
-            client: adapter,
-            options: InviteOptions(expiresAt: expiresAt, singleUse: true)
-        )
-
-        activePairingSlug = result.slug
-        startDmStream()
-        return result.slug
-    }
-
-    public func lockVault() async {
-        guard let group = await vaultClient.vaultGroup else { return }
-        try? await group.clearInviteTag()
-    }
-    public func stopPairing() async {
-        dmStreamTask?.cancel()
-        dmStreamTask = nil
-        if activePairingSlug != nil {
-            activePairingSlug = nil
-            await lockVault()
-        }
-    }
-
-    private func startDmStream() {
-        dmStreamTask?.cancel()
-        dmStreamTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let stream = try await self.vaultClient.streamAllDmMessages()
-                for try await message in stream {
-                    guard !Task.isCancelled else { break }
-                    await self.handleDmMessage(message)
-                }
-            } catch {
-                if !Task.isCancelled {
-                    Log.error("Vault: DM stream error: \(error)")
-                }
-            }
-        }
-    }
-
-    private func handleDmMessage(_ message: DecodedMessage) async {
-        guard let activePairingSlug else {
-            return
-        }
-        guard let vaultInboxId = await vaultInboxId, message.senderInboxId != vaultInboxId else {
-            return
-        }
-
-        var request: PairingJoinRequest?
-
-        if let joinRequest: JoinRequestContent = try? message.content(),
-           joinRequest.inviteSlug == activePairingSlug {
-            let pin = joinRequest.metadata?["pin"] ?? ""
-            let name = joinRequest.metadata?["deviceName"] ?? "Unknown device"
-            request = PairingJoinRequest(
-                pin: pin,
-                deviceName: name,
-                joinerInboxId: message.senderInboxId
-            )
-        } else if let text: String = try? message.content(),
-                  text == activePairingSlug {
-            request = PairingJoinRequest(pin: "", deviceName: "Unknown device", joinerInboxId: message.senderInboxId)
-        }
-
-        guard let request else { return }
-
-        pendingPeerDeviceNames[request.joinerInboxId] = request.deviceName
-        await lockVault()
-        self.activePairingSlug = nil
-        dmStreamTask?.cancel()
-        dmStreamTask = nil
-
-        delegate?.vaultManager(self, didReceivePairingJoinRequest: request)
-    }
-
-    public func sendPairingError(to joinerInboxId: String, message: String) async {
-        do {
-            let dm = try await vaultClient.findOrCreateDm(with: joinerInboxId)
-            _ = try await dm.send(content: "PAIRING_ERROR:\(message)")
-        } catch {
-            Log.error("Failed to send pairing error to joiner: \(error)")
-        }
-    }
-
-    // MARK: - Pairing (Joiner - Device B)
-
-    private var joinerDmStreamTask: Task<Void, Never>?
-
-    public func sendPairingJoinRequest(
-        slug: String,
-        pin: String,
-        deviceName: String
-    ) async throws {
-        guard let client = await vaultClient.xmtpClient else {
-            throw VaultClientError.notConnected
-        }
-
-        guard let signedInvite = try? SignedInvite.fromURLSafeSlug(slug) else {
-            throw PairingError.invalidInviteSlug
-        }
-
-        let adapter = VaultInviteClientAdapter(client: client)
-        let coordinator = InviteCoordinator(
-            privateKeyProvider: { _ in Data() },
-            tagStorage: ProtobufInviteTagStorage()
-        )
-
-        _ = try await coordinator.sendJoinRequest(
-            for: signedInvite,
-            client: adapter,
-            metadata: [
-                "pin": pin,
-                "deviceName": deviceName,
-            ]
-        )
-        startJoinerDmStream()
-    }
-
-    private func startJoinerDmStream() {
-        joinerDmStreamTask?.cancel()
-        joinerDmStreamTask = Task { [weak self] in
-            guard let self else { return }
-
-            async let dmStream: Void = {
-                do {
-                    let stream = await self.vaultClient.streamAllDmMessages()
-                    for try await message in stream {
-                        guard !Task.isCancelled else { break }
-                        await self.handleJoinerDmMessage(message)
-                    }
-                } catch {
-                    if !Task.isCancelled {
-                        Log.error("Joiner DM stream error: \(error)")
-                    }
-                }
-            }()
-
-            async let vaultPoll: Void = {
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(3))
-                    guard !Task.isCancelled else { break }
-                    do {
-                        try await self.vaultClient.resyncVaultGroup()
-                        let messages = try await self.vaultClient.vaultGroupMessages()
-                        for message in messages {
-                            if let bundle: DeviceKeyBundleContent = try? message.content(),
-                               !bundle.keys.isEmpty {
-                                await self.importKeyBundle(bundle)
-                                return
-                            }
-                        }
-                    } catch {
-                        continue
-                    }
-                }
-            }()
-
-            _ = await (dmStream, vaultPoll)
-        }
-    }
-
-    private func handleJoinerDmMessage(_ message: DecodedMessage) async {
-        guard let vaultInboxId = await vaultInboxId, message.senderInboxId != vaultInboxId else { return }
-
-        if let text: String = try? message.content(),
-           text.hasPrefix("PAIRING_ERROR:") {
-            let errorMessage = String(text.dropFirst("PAIRING_ERROR:".count))
-            joinerDmStreamTask?.cancel()
-            joinerDmStreamTask = nil
-            NotificationCenter.default.post(
-                name: .vaultPairingError,
-                object: nil,
-                userInfo: ["message": errorMessage]
-            )
-        }
-    }
-
-    public func stopJoinerPairing() {
-        joinerDmStreamTask?.cancel()
-        joinerDmStreamTask = nil
-    }
-
-    public static var preview: VaultManager {
-        VaultManager(
-            identityStore: MockKeychainIdentityStore(),
-            databaseReader: try! DatabaseQueue(), // swiftlint:disable:this force_try
-            deviceName: "Preview Device"
-        )
-    }
-
-    private struct InboxConversationRow {
-        let inboxId: String
-        let clientId: String
-        let conversationId: String
-    }
+    // MARK: - Device Management
 
     public func listDevices() async throws -> [VaultDevice] {
         let dbDevices = try VaultDeviceRepository(dbReader: databaseReader).fetchAll()
@@ -562,58 +275,10 @@ public actor VaultManager {
         return dbDevices.map { VaultDevice(inboxId: $0.inboxId, name: $0.name, isCurrentDevice: $0.isCurrentDevice) }
     }
 
-    private func loadDeviceNames() async -> [String: String] {
-        guard let messages = try? await vaultClient.vaultGroupMessages() else { return [:] }
-
-        var names: [String: String] = [:]
-        for message in messages {
-            if let bundle: DeviceKeyBundleContent = try? message.content() {
-                if let name = bundle.senderDeviceName {
-                    names[message.senderInboxId] = name
-                }
-                if let peers = bundle.peerDeviceNames {
-                    for (inboxId, peerName) in peers {
-                        names[inboxId] = peerName
-                    }
-                }
-            } else if let share: DeviceKeyShareContent = try? message.content(),
-                      let name = share.senderDeviceName {
-                names[message.senderInboxId] = name
-            }
-        }
-        return names
-    }
-
     public func addMember(inboxId: String) async throws {
         try await vaultClient.addMember(inboxId: inboxId)
         await syncDevicesToDatabase()
         await checkUnsharedInboxes()
-    }
-
-    private func checkUnsharedInboxes() async {
-        guard await isConnected, hasMultipleDevices else { return }
-        guard let rows = try? await databaseReader.read({ db in
-            try Self.fetchUnsharedRows(db)
-        }), !rows.isEmpty else { return }
-        await shareUnsharedInboxes(rows)
-    }
-
-    private static func fetchUnsharedRows(_ db: Database) throws -> [InboxConversationRow] {
-        let sql = """
-            SELECT i.inboxId, i.clientId, c.id as conversationId
-            FROM inbox i
-            INNER JOIN conversation c ON c.clientId = i.clientId
-                AND c.id NOT LIKE 'draft-%'
-                AND c.isUnused = 0
-            WHERE i.isVault = 0 AND i.sharedToVault = 0
-            """
-        return try Row.fetchAll(db, sql: sql).map { row in
-            InboxConversationRow(
-                inboxId: row["inboxId"],
-                clientId: row["clientId"],
-                conversationId: row["conversationId"] ?? ""
-            )
-        }
     }
 
     public func removeDevice(inboxId: String) async throws {
@@ -657,7 +322,7 @@ public actor VaultManager {
         await vaultClient.disconnect()
     }
 
-    private func syncDevicesToDatabase() async {
+    func syncDevicesToDatabase() async {
         guard let databaseWriter else { return }
         guard let selfInboxId = await vaultInboxId else { return }
 
@@ -689,82 +354,44 @@ public actor VaultManager {
         }
     }
 
-    private func importKeyShare(_ share: DeviceKeyShareContent) async {
-        guard await !hasIdentity(for: share.inboxId) else { return }
-
-        do {
-            let keys = try KeychainIdentityKeys(
-                privateKeyData: share.privateKeyData,
-                databaseKey: share.databaseKey
-            )
-            let identity = try await identityStore.save(
-                inboxId: share.inboxId,
-                clientId: share.clientId,
-                keys: keys
-            )
-
-            if let databaseWriter {
-                let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-                try await inboxWriter.save(inboxId: identity.inboxId, clientId: identity.clientId)
-            }
-
-            postImportNotification(inboxId: identity.inboxId, clientId: identity.clientId)
-        } catch {
-            Log.error("Vault: failed to import key share for \(share.inboxId): \(error)")
-        }
-    }
-
-    private func importKeyBundle(_ bundle: DeviceKeyBundleContent) async {
-        var importedEntries: [(inboxId: String, clientId: String)] = []
-        for key in bundle.keys {
-            guard await !hasIdentity(for: key.inboxId) else { continue }
-
-            do {
-                let keys = try KeychainIdentityKeys(
-                    privateKeyData: key.privateKeyData,
-                    databaseKey: key.databaseKey
-                )
-                let identity = try await identityStore.save(
-                    inboxId: key.inboxId,
-                    clientId: key.clientId,
-                    keys: keys
-                )
-
-                if let databaseWriter {
-                    let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-                    try await inboxWriter.save(inboxId: identity.inboxId, clientId: identity.clientId)
-                }
-
-                importedEntries.append((inboxId: identity.inboxId, clientId: identity.clientId))
-            } catch {
-                Log.error("Vault: failed to import key bundle entry for \(key.inboxId): \(error)")
-            }
-        }
-
-        if !importedEntries.isEmpty {
-            for entry in importedEntries {
-                postImportNotification(inboxId: entry.inboxId, clientId: entry.clientId)
-            }
-            NotificationCenter.default.post(
-                name: .vaultDidReceiveKeyBundle,
-                object: nil,
-                userInfo: ["importedCount": importedEntries.count]
-            )
-        }
-    }
-
-    private func postImportNotification(inboxId: String, clientId: String) {
-        NotificationCenter.default.post(
-            name: .vaultDidImportInbox,
-            object: nil,
-            userInfo: ["inboxId": inboxId, "clientId": clientId]
+    public static var preview: VaultManager {
+        VaultManager(
+            identityStore: MockKeychainIdentityStore(),
+            databaseReader: try! DatabaseQueue(), // swiftlint:disable:this force_try
+            deviceName: "Preview Device"
         )
     }
 
-    private func hasIdentity(for inboxId: String) async -> Bool {
-        (try? await identityStore.identity(for: inboxId)) != nil
+    struct InboxConversationRow {
+        let inboxId: String
+        let clientId: String
+        let conversationId: String
+    }
+
+    private func loadDeviceNames() async -> [String: String] {
+        guard let messages = try? await vaultClient.vaultGroupMessages() else { return [:] }
+
+        var names: [String: String] = [:]
+        for message in messages {
+            if let bundle: DeviceKeyBundleContent = try? message.content() {
+                if let name = bundle.senderDeviceName {
+                    names[message.senderInboxId] = name
+                }
+                if let peers = bundle.peerDeviceNames {
+                    for (inboxId, peerName) in peers {
+                        names[inboxId] = peerName
+                    }
+                }
+            } else if let share: DeviceKeyShareContent = try? message.content(),
+                      let name = share.senderDeviceName {
+                names[message.senderInboxId] = name
+            }
+        }
+        return names
     }
 }
+
+// MARK: - VaultClientDelegate
 
 extension VaultManager: VaultClientDelegate {
     nonisolated public func vaultClient(_ client: VaultClient, didReceiveKeyBundle bundle: DeviceKeyBundleContent, from senderInboxId: String) {
