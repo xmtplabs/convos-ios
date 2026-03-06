@@ -58,6 +58,9 @@ public enum ProfileSnapshotBuilder {
             memberProfile.encryptedImage = update.encryptedImage
         }
         memberProfile.memberKind = update.memberKind
+        if !update.metadata.isEmpty {
+            memberProfile.metadata = update.metadata
+        }
         profiles[senderInboxId] = memberProfile
     }
 
