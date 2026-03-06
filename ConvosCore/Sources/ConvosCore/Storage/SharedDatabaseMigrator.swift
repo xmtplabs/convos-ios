@@ -380,6 +380,19 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("addVaultDeviceTable") { db in
+            try db.create(table: "vaultDevice") { t in
+                t.primaryKey("inboxId", .text)
+                t.column("name", .text).notNull()
+                t.column("isCurrentDevice", .boolean).notNull().defaults(to: false)
+                t.column("addedAt", .datetime).notNull()
+            }
+
+            try db.alter(table: "inbox") { t in
+                t.add(column: "sharedToVault", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

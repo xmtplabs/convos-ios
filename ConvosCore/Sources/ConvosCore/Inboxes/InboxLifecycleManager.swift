@@ -474,16 +474,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
 
             if let vaultActivity = allActivities.first(where: { $0.isVault }) {
                 _vaultClientId = vaultActivity.clientId
-                do {
-                    _ = try await attemptWake(
-                        clientId: vaultActivity.clientId,
-                        inboxId: vaultActivity.inboxId,
-                        reason: .appLaunch
-                    )
-                    Log.debug("Vault inbox woke successfully: \(vaultActivity.clientId)")
-                } catch {
-                    Log.error("Failed to wake Vault inbox: \(error)")
-                }
+                Log.debug("Vault inbox tracked: \(vaultActivity.clientId) (managed by VaultClient)")
             }
 
             let allPendingInvites = try pendingInviteRepository.allPendingInvites()

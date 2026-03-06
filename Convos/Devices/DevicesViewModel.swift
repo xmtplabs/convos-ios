@@ -1,3 +1,4 @@
+import Combine
 import ConvosCore
 import Observation
 import SwiftUI
@@ -9,41 +10,61 @@ final class DevicesViewModel {
     var isLoading: Bool = false
     var showPairingSheet: Bool = false
     var pairingViewModel: PairingSheetViewModel?
+    var devicePendingRemoval: VaultDevice?
+    var isRemovingDevice: Bool = false
+
+    var showRemoveDeviceSheet: Bool {
+        get { devicePendingRemoval != nil }
+        set { if !newValue { devicePendingRemoval = nil } }
+    }
 
     private let session: any SessionManagerProtocol
     private var delegateBridge: VaultManagerDelegateBridge?
+    private var devicesCancellable: AnyCancellable?
 
     init(session: any SessionManagerProtocol) {
         self.session = session
     }
 
-    func loadDevices() async {
-        isLoading = true
-        defer { isLoading = false }
+    func startObserving() {
+        let repository = VaultDeviceRepository(dbReader: session.databaseReader)
+        devicesCancellable = repository.devicesPublisher
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] dbDevices in
+                guard let self else { return }
+                if dbDevices.isEmpty {
+                    self.devices = [
+                        VaultDevice(
+                            inboxId: "self",
+                            name: DeviceInfo.deviceName,
+                            isCurrentDevice: true
+                        ),
+                    ]
+                } else {
+                    self.devices = dbDevices.map {
+                        VaultDevice(inboxId: $0.inboxId, name: $0.name, isCurrentDevice: $0.isCurrentDevice)
+                    }
+                }
+            }
+    }
 
-        guard let vaultService = session.vaultService,
-              let vaultManager = vaultService as? VaultManager
-        else {
-            devices = [
-                VaultDevice(
-                    inboxId: "self",
-                    name: DeviceInfo.deviceName,
-                    isCurrentDevice: true
-                ),
-            ]
-            return
-        }
+    func confirmRemoveDevice() {
+        guard let device = devicePendingRemoval else { return }
+        isRemovingDevice = true
 
-        do {
-            devices = try await vaultManager.listDevices()
-        } catch {
-            devices = [
-                VaultDevice(
-                    inboxId: "self",
-                    name: DeviceInfo.deviceName,
-                    isCurrentDevice: true
-                ),
-            ]
+        Task {
+            defer {
+                isRemovingDevice = false
+                devicePendingRemoval = nil
+            }
+
+            guard let vaultManager = session.vaultService as? VaultManager else { return }
+
+            do {
+                try await vaultManager.removeDevice(inboxId: device.inboxId)
+            } catch {
+                Log.error("Failed to remove device: \(error)")
+            }
         }
     }
 
@@ -74,7 +95,7 @@ final class DevicesViewModel {
 
     func stopPairing() {
         guard let vaultManager = session.vaultService as? VaultManager else { return }
-        Task { await vaultManager.stopPairingListener() }
+        Task { await vaultManager.stopPairing() }
         delegateBridge = nil
     }
 }

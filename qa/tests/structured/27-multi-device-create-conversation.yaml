@@ -1,0 +1,230 @@
+id: "27"
+name: "Multi-Device Create Conversation Sync"
+description: >
+  Verify that new conversations created on one paired device appear on the
+  other, and messages sent from either device show correctly on both.
+  Requires two simulators already paired via the Vault (test 26).
+tags: [vault, multi-device, sync]
+depends_on: ["26"]
+estimated_duration_s: 90
+
+multi_device: true
+devices:
+  device_a:
+    role: initiator
+    note: "The device that initiated the pairing (test 26)"
+  device_b:
+    role: joiner
+    note: "The device that joined via the pairing link (test 26)"
+
+prerequisites:
+  app_installed: true
+  devices_paired: true
+  note: "Both devices must be paired via test 26. Both must be on the conversations list (not inside settings or sheets)."
+
+setup:
+  - id: verify_pairing_a
+    device: device_a
+    name: "Verify pairing is active on Device A"
+    actions:
+      - tap: { id: "app-settings-button", retries: 3 }
+      - wait_for_element: { id: "devices-row", timeout: 5 }
+      - tap: { id: "devices-row" }
+      - wait_for_element: { id: "add-device-button", timeout: 5 }
+    verify:
+      - element_count_gte: { pattern: "device-row", min: 2 }
+    note: "Devices list should show two devices, one marked 'This device'"
+
+  - id: navigate_back_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { id: "BackButton" }
+      - wait: 1
+      - tap: { label: "Cancel" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: ensure_convos_list_b
+    device: device_b
+    name: "Ensure Device B is on conversations list"
+    actions:
+      - find_elements: { id: "compose-button" }
+    verify:
+      - element_exists: { id: "compose-button" }
+    note: "If Device B has a sheet showing, dismiss it first"
+
+steps:
+  # --- Phase 1: Create conversation on Device A, verify on Device B ---
+
+  - id: create_convo_on_a
+    device: device_a
+    name: "Create a new conversation on Device A"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+      - type_in_field: { id: "message-text-field", text: "Sync test from A" }
+      - tap: { id: "send-message-button" }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    expect_event: "message.sent"
+    criteria: convo_created_on_a
+    save:
+      convo_a_created: true
+
+  - id: go_back_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: convo_appears_on_b
+    device: device_b
+    name: "New conversation from Device A appears on Device B"
+    actions:
+      - wait_for_element: { pattern: "New Convo", timeout: 5 }
+    verify:
+      - element_count_gte: { pattern: "conversation-list-item", min: 1 }
+    criteria: convo_a_visible_on_b
+
+  - id: open_convo_on_b
+    device: device_b
+    name: "Open the synced conversation on Device B"
+    actions:
+      - tap: { label_contains: "New Convo" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "Sync test from A" }
+    criteria: message_from_a_visible_on_b
+
+  # --- Phase 2: Send message from Device B, verify sender style ---
+
+  - id: send_from_b
+    device: device_b
+    name: "Send a message from Device B in the synced conversation"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Reply from B" }
+      - tap: { id: "send-message-button" }
+    verify:
+      - element_exists: { label_contains: "Reply from B" }
+    expect_event: "message.sent"
+    criteria: message_sent_from_b
+
+  # --- Phase 3: Verify message from B arrives on Device A ---
+
+  - id: verify_reply_on_a
+    device: device_a
+    name: "Verify 'Reply from B' appears on Device A"
+    actions:
+      - tap: { label_contains: "New Convo" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+      - wait_for_element: { label_contains: "Reply from B", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "Reply from B" }
+    criteria: reply_from_b_visible_on_a
+
+  # --- Phase 4: Send message from Device A, verify sender style ---
+
+  - id: send_from_a
+    device: device_a
+    name: "Send a message from Device A"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Reply from A" }
+      - tap: { id: "send-message-button" }
+    verify:
+      - element_exists: { label_contains: "Reply from A" }
+    expect_event: "message.sent"
+    criteria: message_sent_from_a
+
+  # --- Phase 5: Verify message from A arrives on Device B ---
+
+  - id: verify_reply_on_b
+    device: device_b
+    name: "Verify 'Reply from A' appears on Device B"
+    actions:
+      - wait_for_element: { label_contains: "Reply from A", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "Reply from A" }
+    criteria: reply_from_a_visible_on_b
+
+  # --- Phase 6: Create conversation on Device B, verify on Device A ---
+
+  - id: go_back_b
+    device: device_b
+    name: "Navigate back to conversations list on Device B"
+    actions:
+      - tap: { label: "Back" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: create_convo_on_b
+    device: device_b
+    name: "Create a new conversation on Device B"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+      - type_in_field: { id: "message-text-field", text: "Created on B" }
+      - tap: { id: "send-message-button" }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    expect_event: "message.sent"
+    criteria: convo_created_on_b
+
+  - id: go_back_a_2
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Back" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: convo_b_appears_on_a
+    device: device_a
+    name: "Conversation created on Device B appears on Device A"
+    actions:
+      - wait_for_element: { pattern: "conversation-list-item", timeout: 5 }
+    verify:
+      - element_count_gte: { pattern: "conversation-list-item", min: 2 }
+    criteria: convo_b_visible_on_a
+
+  - id: open_convo_b_on_a
+    device: device_a
+    name: "Open the conversation from Device B on Device A"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+      - tap: { label_contains: "New Convo" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "Created on B" }
+    criteria: message_from_b_visible_on_a
+    note: "May need to identify the correct 'New Convo' row (both conversations have same name)"
+
+teardown: []
+
+criteria:
+  convo_created_on_a:
+    description: "Conversation created on Device A with message 'Sync test from A'"
+  convo_a_visible_on_b:
+    description: "Conversation from Device A appears on Device B within 30 seconds"
+  message_from_a_visible_on_b:
+    description: "Message 'Sync test from A' is visible when opening the conversation on Device B"
+  message_sent_from_b:
+    description: "Message 'Reply from B' sent from Device B and appears as sent message"
+  reply_from_b_visible_on_a:
+    description: "Message 'Reply from B' arrives on Device A"
+  message_sent_from_a:
+    description: "Message 'Reply from A' sent from Device A and appears as sent message"
+  reply_from_a_visible_on_b:
+    description: "Message 'Reply from A' arrives on Device B"
+  convo_created_on_b:
+    description: "Conversation created on Device B with message 'Created on B'"
+  convo_b_visible_on_a:
+    description: "Conversation from Device B appears on Device A within 30 seconds"
+  message_from_b_visible_on_a:
+    description: "Message 'Created on B' is visible when opening the conversation on Device A"

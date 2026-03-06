@@ -10,8 +10,14 @@ extension ConvosClient {
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
         let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
+        let vaultKeychainStore = KeychainIdentityStore(
+            accessGroup: environment.keychainAccessGroup,
+            service: "org.convos.vault-identity"
+        )
+        let vaultKeyStore = VaultKeyStore(store: vaultKeychainStore)
         let vaultManager = VaultManager(
             identityStore: identityStore,
+            vaultKeyStore: vaultKeyStore,
             databaseReader: databaseReader,
             deviceName: platformProviders.deviceInfo.deviceName
         )

@@ -27,7 +27,7 @@ final class PairingSheetViewModel {
     private var expiresAt: Date = .distantFuture
     private var countdownTask: Task<Void, Never>?
 
-    init(vaultManager: VaultManager, timeoutInterval: TimeInterval = 60) {
+    init(vaultManager: VaultManager, timeoutInterval: TimeInterval = 120) {
         self.vaultManager = vaultManager
         self.timeoutInterval = timeoutInterval
         self.secondsRemaining = Int(timeoutInterval)
@@ -105,14 +105,17 @@ final class PairingSheetViewModel {
             try await coordinator?.confirmPin(enteredPin)
             let state = await coordinator?.currentState
             if case .completed = state {
+                await vaultManager.stopPairing()
                 title = "Device added"
                 flowState = .completed(deviceName: deviceName)
                 canDismiss = true
             } else if case let .failed(error) = state {
+                await vaultManager.stopPairing()
                 flowState = .failed(error.errorDescription ?? "Pairing failed")
                 canDismiss = true
             }
         } catch {
+            await vaultManager.stopPairing()
             flowState = .failed(error.localizedDescription)
             canDismiss = true
         }
@@ -120,7 +123,7 @@ final class PairingSheetViewModel {
 
     func cancel() async {
         countdownTask?.cancel()
-        await vaultManager.stopPairingListener()
+        await vaultManager.stopPairing()
         await coordinator?.cancel()
         coordinator = nil
     }

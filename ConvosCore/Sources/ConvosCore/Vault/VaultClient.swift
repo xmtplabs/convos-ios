@@ -14,6 +14,7 @@ public protocol VaultClientDelegate: AnyObject, Sendable {
     func vaultClient(_ client: VaultClient, didReceiveKeyBundle bundle: DeviceKeyBundleContent, from senderInboxId: String)
     func vaultClient(_ client: VaultClient, didReceiveKeyShare share: DeviceKeyShareContent, from senderInboxId: String)
     func vaultClient(_ client: VaultClient, didReceiveDeviceRemoved removal: DeviceRemovedContent, from senderInboxId: String)
+    func vaultClient(_ client: VaultClient, didReceiveConversationDeleted deletion: ConversationDeletedContent, from senderInboxId: String)
     func vaultClient(_ client: VaultClient, didChangeState state: VaultClientState)
     func vaultClient(_ client: VaultClient, didEncounterError error: any Error)
 }
@@ -22,6 +23,7 @@ public extension VaultClientDelegate {
     func vaultClient(_ client: VaultClient, didReceiveKeyBundle bundle: DeviceKeyBundleContent, from senderInboxId: String) {}
     func vaultClient(_ client: VaultClient, didReceiveKeyShare share: DeviceKeyShareContent, from senderInboxId: String) {}
     func vaultClient(_ client: VaultClient, didReceiveDeviceRemoved removal: DeviceRemovedContent, from senderInboxId: String) {}
+    func vaultClient(_ client: VaultClient, didReceiveConversationDeleted deletion: ConversationDeletedContent, from senderInboxId: String) {}
     func vaultClient(_ client: VaultClient, didChangeState state: VaultClientState) {}
     func vaultClient(_ client: VaultClient, didEncounterError error: any Error) {}
 }
@@ -154,8 +156,69 @@ public final class VaultClient: @unchecked Sendable {
         try await group.removeMembers(inboxIds: [inboxId])
     }
 
+    public func vaultGroupMessages() async throws -> [DecodedMessage] {
+        guard let group = stateLock.withLock({ $0.group }) else {
+            throw VaultClientError.notConnected
+        }
+        try await group.sync()
+        return try await group.messages()
+    }
+
     public var vaultGroup: XMTPiOS.Group? {
         stateLock.withLock { $0.group }
+    }
+
+    public func resyncVaultGroup() async throws {
+        guard let client = stateLock.withLock({ $0.client }) else {
+            throw VaultClientError.notConnected
+        }
+
+        try await client.conversations.sync()
+
+        let groups = try client.conversations.listGroups(
+            createdAfterNs: nil,
+            createdBeforeNs: nil,
+            lastActivityAfterNs: nil,
+            lastActivityBeforeNs: nil,
+            limit: nil,
+            consentStates: nil,
+            orderBy: .createdAt
+        )
+
+        var vaultGroups: [XMTPiOS.Group] = []
+        for group in groups {
+            let appData = try group.appData()
+            let metadata = ConversationCustomMetadata.parseAppData(appData)
+            if metadata.hasConversationType && metadata.conversationType == "vault" {
+                vaultGroups.append(group)
+            }
+        }
+
+        guard !vaultGroups.isEmpty else { return }
+
+        var memberCounts: [Int] = []
+        for group in vaultGroups {
+            memberCounts.append(try await group.members.count)
+        }
+
+        var bestIndex: Int = 0
+        for i in 1 ..< memberCounts.count where memberCounts[i] > memberCounts[bestIndex] {
+            bestIndex = i
+        }
+
+        let selectedGroup = vaultGroups[bestIndex]
+        let currentGroup = stateLock.withLock { $0.group }
+        if selectedGroup.id != currentGroup?.id {
+            stateLock.withLock { $0.group = selectedGroup }
+            startStreaming(client: client, group: selectedGroup)
+        }
+
+        if memberCounts[bestIndex] > 1 {
+            for (i, group) in vaultGroups.enumerated() where i != bestIndex && memberCounts[i] <= 1 {
+                try? await group.leaveGroup()
+                Log.info("Left orphaned solo vault group: \(group.id)")
+            }
+        }
     }
 
     public var xmtpClient: Client? {
@@ -187,12 +250,35 @@ public final class VaultClient: @unchecked Sendable {
             orderBy: .createdAt
         )
 
+        var vaultGroups: [XMTPiOS.Group] = []
         for group in groups {
             let appData = try group.appData()
             let metadata = ConversationCustomMetadata.parseAppData(appData)
             if metadata.hasConversationType && metadata.conversationType == "vault" {
-                return group
+                vaultGroups.append(group)
             }
+        }
+
+        if !vaultGroups.isEmpty {
+            var bestIndex: Int = 0
+            var bestCount = try await vaultGroups[0].members.count
+            for i in 1 ..< vaultGroups.count {
+                let count = try await vaultGroups[i].members.count
+                if count > bestCount {
+                    bestIndex = i
+                    bestCount = count
+                }
+            }
+            if bestCount > 1 {
+                for (i, group) in vaultGroups.enumerated() where i != bestIndex {
+                    let count = try await group.members.count
+                    if count <= 1 {
+                        try? await group.leaveGroup()
+                        Log.info("Left orphaned solo vault group at bootstrap: \(group.id)")
+                    }
+                }
+            }
+            return vaultGroups[bestIndex]
         }
 
         let group = try await client.conversations.newGroup(
@@ -242,6 +328,9 @@ public final class VaultClient: @unchecked Sendable {
         } else if contentType == ContentTypeDeviceRemoved {
             guard let removal: DeviceRemovedContent = try? message.content() else { return }
             delegate?.vaultClient(self, didReceiveDeviceRemoved: removal, from: message.senderInboxId)
+        } else if contentType == ContentTypeConversationDeleted {
+            guard let deletion: ConversationDeletedContent = try? message.content() else { return }
+            delegate?.vaultClient(self, didReceiveConversationDeleted: deletion, from: message.senderInboxId)
         }
     }
 
@@ -287,6 +376,8 @@ public final class VaultClient: @unchecked Sendable {
 public extension Notification.Name {
     static let vaultDidEnterBackground: Notification.Name = .init("ConvosVaultDidEnterBackground")
     static let vaultWillEnterForeground: Notification.Name = .init("ConvosVaultWillEnterForeground")
+    static let vaultDidReceiveKeyBundle: Notification.Name = .init("ConvosVaultDidReceiveKeyBundle")
+    static let vaultPairingError: Notification.Name = .init("ConvosVaultPairingError")
 }
 
 public enum VaultClientError: Error, LocalizedError {
