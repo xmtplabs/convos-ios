@@ -556,33 +556,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
             try await databaseWriter.write { db in
                 for (inboxId, update) in resolvedUpdates {
-                    let member = DBMember(inboxId: inboxId)
-                    try member.save(db)
-
-                    var profile = try DBMemberProfile.fetchOne(
-                        db,
-                        conversationId: conversationId,
-                        inboxId: inboxId
-                    ) ?? DBMemberProfile(
-                        conversationId: conversationId,
-                        inboxId: inboxId,
-                        name: nil,
-                        avatar: nil
+                    try Self.applyProfileData(
+                        db: db, conversationId: conversationId, inboxId: inboxId,
+                        name: update.hasName ? update.name : nil,
+                        encryptedImage: update.hasEncryptedImage ? update.encryptedImage : nil,
+                        memberKind: update.memberKind.dbMemberKind,
+                        fallbackEncryptionKey: encryptionKey
                     )
-
-                    profile = profile.with(name: update.hasName ? update.name : nil)
-
-                    if update.hasEncryptedImage, update.encryptedImage.isValid {
-                        profile = profile.with(
-                            avatar: update.encryptedImage.url,
-                            salt: update.encryptedImage.salt,
-                            nonce: update.encryptedImage.nonce,
-                            key: profile.avatarKey ?? encryptionKey
-                        )
-                    }
-
-                    profile = profile.with(memberKind: update.memberKind.dbMemberKind)
-                    try profile.save(db)
                 }
 
                 if let snapshot = resolvedSnapshot {
@@ -590,34 +570,16 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                         let inboxId = memberProfile.inboxIdString
                         guard !inboxId.isEmpty, resolvedUpdates[inboxId] == nil else { continue }
 
-                        let existing = try DBMemberProfile.fetchOne(
-                            db,
-                            conversationId: conversationId,
-                            inboxId: inboxId
-                        )
+                        let existing = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
                         guard existing?.name == nil, existing?.avatar == nil else { continue }
 
-                        let member = DBMember(inboxId: inboxId)
-                        try member.save(db)
-
-                        var profile = existing ?? DBMemberProfile(
-                            conversationId: conversationId,
-                            inboxId: inboxId,
-                            name: nil,
-                            avatar: nil
+                        try Self.applyProfileData(
+                            db: db, conversationId: conversationId, inboxId: inboxId,
+                            name: memberProfile.hasName ? memberProfile.name : nil,
+                            encryptedImage: memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil,
+                            memberKind: memberProfile.memberKind.dbMemberKind,
+                            fallbackEncryptionKey: encryptionKey
                         )
-
-                        profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
-                        if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
-                            profile = profile.with(
-                                avatar: memberProfile.encryptedImage.url,
-                                salt: memberProfile.encryptedImage.salt,
-                                nonce: memberProfile.encryptedImage.nonce,
-                                key: profile.avatarKey ?? encryptionKey
-                            )
-                        }
-                        profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
-                        try profile.save(db)
                     }
                 }
             }
@@ -629,6 +591,37 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         } catch {
             Log.warning("Failed to process profile messages from history: \(error.localizedDescription)")
         }
+    }
+
+    private static func applyProfileData( // swiftlint:disable:this function_parameter_count
+        db: Database,
+        conversationId: String,
+        inboxId: String,
+        name: String?,
+        encryptedImage: EncryptedProfileImageRef?,
+        memberKind: DBMemberKind?,
+        fallbackEncryptionKey: Data?
+    ) throws {
+        let member = DBMember(inboxId: inboxId)
+        try member.save(db)
+
+        var profile = try DBMemberProfile.fetchOne(
+            db, conversationId: conversationId, inboxId: inboxId
+        ) ?? DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: nil, avatar: nil)
+
+        profile = profile.with(name: name)
+
+        if let image = encryptedImage, image.isValid {
+            profile = profile.with(
+                avatar: image.url, salt: image.salt, nonce: image.nonce,
+                key: profile.avatarKey ?? fallbackEncryptionKey
+            )
+        }
+
+        if let memberKind {
+            profile = profile.with(memberKind: memberKind)
+        }
+        try profile.save(db)
     }
 
     private func getLastMessageTimestamp(for conversationId: String) async throws -> Int64? {
