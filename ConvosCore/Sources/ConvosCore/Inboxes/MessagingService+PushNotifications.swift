@@ -123,7 +123,8 @@ extension MessagingService {
         let existingGroupIds = try await getExistingGroupIds(client: client)
 
         let joinRequestsManager = InviteJoinRequestsManager(
-            identityStore: identityStore
+            identityStore: identityStore,
+            databaseWriter: databaseWriter
         )
 
         // Sync all conversations - this will fetch any groups we've been added to
@@ -263,7 +264,8 @@ extension MessagingService {
             // When someone accepts an invite, they send the signed invite back via DM
             // This allows us to add them to the group conversation they were invited to
             let joinRequestsManager = InviteJoinRequestsManager(
-                identityStore: identityStore
+                identityStore: identityStore,
+                databaseWriter: databaseWriter
             )
 
             if let result = await joinRequestsManager.processJoinRequest(message: decodedMessage, client: client) {
