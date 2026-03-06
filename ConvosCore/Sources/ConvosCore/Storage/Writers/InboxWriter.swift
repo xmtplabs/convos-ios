@@ -43,10 +43,7 @@ struct InboxWriter {
                 }
             }
 
-            // Check if inbox already exists
             if let existingInbox = try DBInbox.fetchOne(db, id: inboxId) {
-                // INVARIANT: For a given inboxId, the clientId must never change
-                // If they don't match, this is a data corruption bug that must be caught
                 if existingInbox.clientId != clientId {
                     Log.error("""
                         ClientId mismatch detected!

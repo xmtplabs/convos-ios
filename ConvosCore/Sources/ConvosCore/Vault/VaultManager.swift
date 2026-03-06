@@ -44,6 +44,7 @@ public actor VaultManager {
     var dmStreamTask: Task<Void, Never>?
     var activePairingSlug: String?
     var joinerDmStreamTask: Task<Void, Never>?
+    var inboxesBeingShared: Set<String> = []
 
     public var isConnected: Bool {
         get async {
@@ -186,7 +187,6 @@ public actor VaultManager {
                     AND c.id NOT LIKE 'draft-%'
                     AND c.isUnused = 0
                 WHERE i.isVault = 0
-                    AND EXISTS (SELECT 1 FROM message m WHERE m.conversationId = c.id)
                 """
             return try Row.fetchAll(db, sql: sql).map { row in
                 InboxConversationRow(
