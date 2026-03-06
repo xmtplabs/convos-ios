@@ -443,6 +443,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
             conversationToSave = conversationToSave
                 .with(clientConversationId: preferredClientConversationId)
+            if !localConversation.isUnused {
+                conversationToSave = conversationToSave.with(createdAt: localConversation.createdAt)
+            }
             try conversationToSave.save(db, onConflict: .replace)
             firstTimeSeeingConversationExpired = conversationToSave.isExpired && conversationToSave.expiresAt != localConversation.expiresAt
             actualClientConversationId = preferredClientConversationId
@@ -461,6 +464,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             var updatedConversation = conversationToSave.with(clientConversationId: preferredClientConversationId)
             if existingConversation.isUnused {
                 updatedConversation = updatedConversation.with(isUnused: true)
+            }
+            if !existingConversation.isUnused {
+                updatedConversation = updatedConversation.with(createdAt: existingConversation.createdAt)
             }
             if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
                 updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
