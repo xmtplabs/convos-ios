@@ -100,9 +100,21 @@ Verify that two devices can pair via the Vault pairing flow with pin + emoji ver
 47. The conversations list should contain **exactly** "Device A Convo" and "Device B Convo" — no other conversations. Device A's conversation was synced to Device B as part of the pairing key share.
 48. Count the conversation list items. There should be exactly 2, matching Device A.
 
+### Verify pre-pairing messages synced on Device A
+
+50. On **Device A**, tap on "Device B Convo" (the conversation that was synced from Device B).
+51. Wait for the messages to load. The message "Hello from B" (sent before pairing) should appear in the message list.
+52. Navigate back to the conversations list.
+
+### Verify pre-pairing messages synced on Device B
+
+53. On **Device B**, tap on "Device A Convo" (the conversation that was synced from Device A).
+54. Wait for the messages to load. The message "Hello from A" (sent before pairing) should appear in the message list.
+55. Navigate back to the conversations list.
+
 ### Verify no leaked unused conversations
 
-49. Neither device should show any extra "New Convo" entries or other conversations that weren't explicitly created by the user. Unconsumed unused conversations (pre-created by the app for quick-start) must not be shared during pairing.
+56. Neither device should show any extra "New Convo" entries or other conversations that weren't explicitly created by the user. Unconsumed unused conversations (pre-created by the app for quick-start) must not be shared during pairing.
 
 ## Teardown
 
@@ -122,6 +134,8 @@ No specific cleanup needed — the simulators were started fresh for this test a
 - [ ] Device A's conversations list contains exactly "Device A Convo" and "Device B Convo" (no extras)
 - [ ] Device B's conversations list contains exactly "Device A Convo" and "Device B Convo" (no extras)
 - [ ] Both devices have the same conversation count — no unconsumed unused conversations leaked
+- [ ] Device A shows "Hello from B" inside "Device B Convo" (pre-pairing messages synced)
+- [ ] Device B shows "Hello from A" inside "Device A Convo" (pre-pairing messages synced)
 
 ## Notes
 

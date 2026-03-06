@@ -259,6 +259,46 @@ steps:
     note: "No unconsumed unused conversations should leak across devices during pairing"
     criteria: convo_lists_match
 
+  # --- Phase 8: Verify pre-pairing messages synced ---
+
+  - id: verify_messages_a
+    device: device_a
+    name: "Device A shows pre-pairing messages from Device B Convo"
+    actions:
+      - tap: { label_contains: "Device B Convo" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Hello from B" }
+    criteria: pre_pairing_messages_on_a
+
+  - id: navigate_back_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: verify_messages_b
+    device: device_b
+    name: "Device B shows pre-pairing messages from Device A Convo"
+    actions:
+      - tap: { label_contains: "Device A Convo" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Hello from A" }
+    criteria: pre_pairing_messages_on_b
+
+  - id: navigate_back_b
+    device: device_b
+    name: "Navigate back to conversations list on Device B"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
 teardown: []
 
 criteria:
@@ -294,3 +334,7 @@ criteria:
     description: "Device B's conversations list contains exactly 'Device A Convo' and 'Device B Convo' (no extras)"
   convo_lists_match:
     description: "Both devices have the same number of conversations — no unconsumed unused conversations leaked during pairing"
+  pre_pairing_messages_on_a:
+    description: "Device A shows 'Hello from B' inside 'Device B Convo' — pre-pairing messages synced via device sync"
+  pre_pairing_messages_on_b:
+    description: "Device B shows 'Hello from A' inside 'Device A Convo' — pre-pairing messages synced via device sync"
