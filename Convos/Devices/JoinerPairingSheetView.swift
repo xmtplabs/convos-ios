@@ -14,10 +14,9 @@ struct JoinerPairingSheetView: View {
 
             centerContent
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 260)
 
             buttons
-                .padding(.top, DesignConstants.Spacing.step2x)
+                .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .trailing], DesignConstants.Spacing.step10x)
         .padding(.top, DesignConstants.Spacing.step8x)
@@ -69,7 +68,9 @@ struct JoinerPairingSheetView: View {
 
             VStack(spacing: DesignConstants.Spacing.step3x) {
                 Text(viewModel.formattedPin)
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .font(.system(size: 64, weight: .bold, design: .rounded))
+                    .minimumScaleFactor(0.7)
+                    .lineLimit(1)
                     .kerning(4)
                     .foregroundStyle(.colorTextPrimary)
                     .accessibilityIdentifier("pairing-pin-display")

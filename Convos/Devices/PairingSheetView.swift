@@ -16,10 +16,9 @@ struct PairingSheetView: View {
 
             centerContent
                 .frame(maxWidth: .infinity)
-                .frame(minHeight: 260)
 
             buttons
-                .padding(.top, DesignConstants.Spacing.step2x)
+                .padding(.top, DesignConstants.Spacing.step4x)
         }
         .padding([.leading, .trailing], DesignConstants.Spacing.step10x)
         .padding(.top, DesignConstants.Spacing.step8x)
@@ -118,13 +117,10 @@ struct PairingSheetView: View {
     @ViewBuilder
     private func pinEntryContent(deviceName: String) -> some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
-            Text(deviceName)
+            Text("Enter the code shown on \"\(deviceName)\" to finish pairing.")
                 .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
-
-            Text("Enter the code shown on the new device")
-                .font(.subheadline)
-                .foregroundStyle(.colorTextSecondary)
+                .foregroundStyle(.colorTextPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             PinEntryField(pin: $viewModel.enteredPin, isFocused: $pinFieldFocused)
                 .accessibilityIdentifier("pin-entry-field")
