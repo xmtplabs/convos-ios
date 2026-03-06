@@ -65,12 +65,12 @@ struct PairingSheetView: View {
             Text("Scan this code with your new device to pair")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextPrimary)
-                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             Text("All devices that are paired sync all of their existing convos.")
                 .font(.subheadline)
                 .foregroundStyle(.colorTextSecondary)
-                .multilineTextAlignment(.center)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
             if let qrURL = URL(string: url), !url.isEmpty {
                 QRCodeView(
