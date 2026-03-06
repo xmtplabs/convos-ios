@@ -27,10 +27,12 @@ public struct JoinRequestContent: Codable, Sendable, Equatable {
 public struct JoinRequestProfile: Codable, Sendable, Equatable {
     public let name: String?
     public let imageURL: String?
+    public let memberKind: String?
 
-    public init(name: String? = nil, imageURL: String? = nil) {
+    public init(name: String? = nil, imageURL: String? = nil, memberKind: String? = nil) {
         self.name = name
         self.imageURL = imageURL
+        self.memberKind = memberKind
     }
 }
 

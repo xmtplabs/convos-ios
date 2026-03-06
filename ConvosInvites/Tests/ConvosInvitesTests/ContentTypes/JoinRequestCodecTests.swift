@@ -206,6 +206,33 @@ struct JoinRequestCodecTests {
         #expect(a != c)
     }
 
+    @Test("Encode and decode with agent member kind")
+    func encodeDecodeAgentMemberKind() throws {
+        let profile = JoinRequestProfile(name: "Bot", memberKind: "agent")
+        let original = JoinRequestContent(inviteSlug: "agent-slug", profile: profile)
+
+        let encoded = try codec.encode(content: original)
+        let decoded: JoinRequestContent = try codec.decode(content: encoded)
+
+        #expect(decoded.profile?.name == "Bot")
+        #expect(decoded.profile?.memberKind == "agent")
+    }
+
+    @Test("Profile without member kind decodes as nil")
+    func profileWithoutMemberKind() throws {
+        let json = Data("""
+        {"inviteSlug": "old-slug", "profile": {"name": "Alice"}}
+        """.utf8)
+
+        var encodedContent = EncodedContent()
+        encodedContent.type = ContentTypeJoinRequest
+        encodedContent.content = json
+
+        let decoded: JoinRequestContent = try codec.decode(content: encodedContent)
+        #expect(decoded.profile?.name == "Alice")
+        #expect(decoded.profile?.memberKind == nil)
+    }
+
     @Test("Long invite slug")
     func longInviteSlug() throws {
         let longSlug = String(repeating: "x", count: 5000)
