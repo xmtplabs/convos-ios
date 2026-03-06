@@ -72,7 +72,7 @@ let package = Package(
         ),
         .testTarget(
             name: "ConvosCoreTests",
-            dependencies: ["ConvosCore", "ConvosCoreiOS"]
+            dependencies: ["ConvosCore", "ConvosCoreiOS", "ConvosProfiles"]
         ),
     ]
 )

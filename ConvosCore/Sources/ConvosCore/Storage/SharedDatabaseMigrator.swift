@@ -360,6 +360,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addMemberKindToProfile") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "memberKind", .text)
+            }
+        }
+
         return migrator
     }
 }

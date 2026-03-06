@@ -436,6 +436,17 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         Log.info("Added members to conversation \(conversationId): \(memberInboxIds)")
         QAEvent.emit(.member, "added", ["conversation": conversationId, "count": String(memberInboxIds.count)])
+
+        let allMemberInboxIds = try await group.members.map(\.inboxId)
+        do {
+            try await ProfileSnapshotBuilder.sendSnapshot(
+                group: group,
+                memberInboxIds: allMemberInboxIds
+            )
+            Log.debug("Sent ProfileSnapshot after adding members to \(conversationId)")
+        } catch {
+            Log.warning("Failed to send ProfileSnapshot after adding members: \(error.localizedDescription)")
+        }
     }
 
     func removeMembers(_ memberInboxIds: [String], from conversationId: String) async throws {
