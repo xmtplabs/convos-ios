@@ -90,14 +90,20 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     )
 
                 case .invite(let invite):
-                    InviteView(invite: invite)
-                        .padding(.vertical, DesignConstants.Spacing.step4x)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    VStack(spacing: DesignConstants.Spacing.step4x) {
+                        InviteView(invite: invite)
+                        NewConvoIdentityView()
+                    }
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .conversationInfo(let conversation):
-                    ConversationInfoPreview(conversation: conversation)
-                        .padding(.vertical, DesignConstants.Spacing.step4x)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    VStack(spacing: DesignConstants.Spacing.step4x) {
+                        ConversationInfoPreview(conversation: conversation)
+                        NewConvoIdentityView()
+                    }
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

@@ -26,11 +26,17 @@ struct MessagesListView: View {
                 LazyVStack(spacing: 0.0) {
                     // Show invite or conversation info at the top
                     if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
-                        InviteView(invite: invite)
-                            .id("invite")
+                        VStack(spacing: DesignConstants.Spacing.step4x) {
+                            InviteView(invite: invite)
+                            NewConvoIdentityView()
+                        }
+                        .id("invite")
                     } else {
-                        ConversationInfoPreview(conversation: conversation)
-                            .id("conversation-info")
+                        VStack(spacing: DesignConstants.Spacing.step4x) {
+                            ConversationInfoPreview(conversation: conversation)
+                            NewConvoIdentityView()
+                        }
+                        .id("conversation-info")
                     }
 
                     // Render each message list item
