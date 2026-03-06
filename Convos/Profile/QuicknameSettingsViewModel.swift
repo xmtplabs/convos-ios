@@ -33,6 +33,9 @@ class QuicknameSettingsViewModel {
     func save() {
         do {
             try quicknameSettings.save()
+            if !quicknameSettings.isDefault {
+                ConversationOnboardingCoordinator.markQuicknameEditorShown()
+            }
         } catch {
             Log.error("Failed saving quickname settings: \(error.localizedDescription)")
         }

@@ -2,14 +2,15 @@ import Foundation
 
 public enum QAEvent {
     public enum Category: String {
-        case message
+        case app
         case conversation
-        case reaction
-        case profile
-        case sync
         case invite
         case member
-        case app
+        case message
+        case onboarding
+        case profile
+        case reaction
+        case sync
     }
 
     public static func emit(

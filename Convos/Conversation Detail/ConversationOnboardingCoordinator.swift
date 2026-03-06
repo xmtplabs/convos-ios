@@ -146,6 +146,10 @@ final class ConversationOnboardingCoordinator {
     private static let hasCompletedOnboardingKey: String = "hasCompletedConversationOnboarding"
     private static let hasSetQuicknamePrefix: String = "hasSetQuicknameForConversation_"
     private static let hasSeenAddAsQuicknameKey: String = "hasSeenAddAsQuickname"
+    static func markQuicknameEditorShown() {
+        UserDefaults.standard.set(true, forKey: hasShownQuicknameEditorKey)
+    }
+
     static func resetUserDefaults() {
         UserDefaults.standard.removeObject(forKey: hasShownQuicknameEditorKey)
         UserDefaults.standard.removeObject(forKey: hasCompletedOnboardingKey)
@@ -337,14 +341,12 @@ final class ConversationOnboardingCoordinator {
             state = .notificationsDenied
             handleStateChange()
         case .authorized, .provisional, .ephemeral:
-            // Already granted, skip to quickname
             if !isWaitingForInviteAcceptance {
                 await startQuicknameFlow(for: clientId)
             }
             shouldShowQuicknameAfterNotifications = false
             pendingClientId = nil
         @unknown default:
-            // Unknown, skip to quickname
             if !isWaitingForInviteAcceptance {
                 await startQuicknameFlow(for: clientId)
             }
@@ -355,42 +357,41 @@ final class ConversationOnboardingCoordinator {
 
     /// Start or continue the quickname onboarding flow
     private func startQuicknameFlow(for clientId: String) async {
-        // Check if we've ever set a quickname for this specific clientId
         let hasSetQuicknameForConversation = hasSetQuickname(for: clientId)
         setHasSetQuickname(true, for: clientId)
 
-        // Determine which quickname state to show
         let quicknameSettings = quicknameViewModel.quicknameSettings
 
         if !hasShownQuicknameEditor {
-            // First time: show non-dismissible setup prompt
             shouldAnimateAvatarForQuicknameSetup = true
             state = .setupQuickname
+            QAEvent.emit(.onboarding, "setup_quickname", ["reason": "first_time"])
             handleStateChange()
         } else if quicknameSettings.isDefault && !hasSetQuicknameForConversation {
-            // Has seen editor but no quickname: show auto-dismissing setup
             shouldAnimateAvatarForQuicknameSetup = true
             state = .setupQuickname
+            QAEvent.emit(.onboarding, "setup_quickname", ["reason": "no_quickname"])
             handleStateChange()
         } else if !hasSetQuicknameForConversation {
-            // Has quickname: show auto-dismissing add name
             let profileImage = quicknameSettings.profileImage
             state = .addQuickname(settings: quicknameSettings, profileImage: profileImage)
+            QAEvent.emit(.onboarding, "add_quickname", ["name": quicknameSettings.profile.displayName])
             handleStateChange()
         } else {
+            QAEvent.emit(.onboarding, "quickname_skipped", ["reason": "already_set"])
             await transitionAfterQuickname()
         }
     }
 
     /// Call this when the invite has been accepted
     func inviteWasAccepted(for clientId: String) async {
-        // No longer waiting for invite
+        guard isWaitingForInviteAcceptance else {
+            return
+        }
         isWaitingForInviteAcceptance = false
 
-        // If we're not in an active flow, start notification flow
         switch state {
         case .idle, .started:
-            // Start notification flow, then quickname
             await startNotificationFlow(for: clientId)
         default:
             break
@@ -420,18 +421,21 @@ final class ConversationOnboardingCoordinator {
     }
 
     func didSelectQuickname() async {
+        QAEvent.emit(.onboarding, "quickname_applied")
         shouldAnimateAvatarForQuicknameSetup = false
         await transitionAfterQuickname()
     }
 
     func skipAddQuickname() {
         guard case .addQuickname = state else { return }
+        QAEvent.emit(.onboarding, "quickname_dismissed", ["reason": "user"])
         Task {
             await transitionAfterQuickname()
         }
     }
 
     private func addQuicknameDidAutoDismiss() async {
+        QAEvent.emit(.onboarding, "quickname_dismissed", ["reason": "auto"])
         await transitionAfterQuickname()
     }
 
@@ -444,10 +448,10 @@ final class ConversationOnboardingCoordinator {
         let quicknameSettings = quicknameViewModel.quicknameSettings
         guard state == .settingUpQuickname, quicknameSettings.isDefault else { return }
 
-        // save the first name/photo the user sets as the quickname
         quicknameViewModel.editingDisplayName = displayName
         quicknameViewModel.profileImage = profileImage
         quicknameViewModel.save()
+        QAEvent.emit(.onboarding, "quickname_saved", ["name": displayName])
         state = .quicknameLearnMore
         handleStateChange()
     }
