@@ -11,6 +11,7 @@ public enum QAEvent {
         case profile
         case reaction
         case sync
+        case vault
     }
 
     public static func emit(
