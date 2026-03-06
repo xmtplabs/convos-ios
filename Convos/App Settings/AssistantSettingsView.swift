@@ -2,7 +2,6 @@ import SwiftUI
 
 struct AssistantSettingsView: View {
     @Bindable private var defaults: GlobalConvoDefaults = .shared
-    @Environment(\.openURL) private var openURL: OpenURLAction
 
     var body: some View {
         List {
@@ -36,19 +35,20 @@ struct AssistantSettingsView: View {
             }
 
             Section {
-                let learnURL = URL(string: "https://learn.convos.org/assistants")
-                let learnAction = { if let learnURL { openURL(learnURL) } }
-                Button(action: learnAction) {
-                    NavigationLink("Learn about Convos Assistants", destination: EmptyView())
+                if let learnURL = URL(string: "https://learn.convos.org/assistants") {
+                    Link(destination: learnURL) {
+                        Text("Learn about Convos Assistants")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .foregroundStyle(.colorTextPrimary)
                 }
-                .foregroundStyle(.colorTextPrimary)
-
-                let privacyURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")
-                let privacyAction = { if let privacyURL { openURL(privacyURL) } }
-                Button(action: privacyAction) {
-                    NavigationLink("Privacy & Security", destination: EmptyView())
+                if let privacyURL = URL(string: "https://learn.convos.org/assistants-trust-and-security") {
+                    Link(destination: privacyURL) {
+                        Text("Privacy & Security")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .foregroundStyle(.colorTextPrimary)
                 }
-                .foregroundStyle(.colorTextPrimary)
             }
             .listRowSeparatorTint(.colorBorderSubtle)
         }
