@@ -202,7 +202,8 @@ class NewConversationViewModel: Identifiable {
             conversation: draftConversation,
             session: session,
             messagingService: messagingService,
-            conversationStateManager: stateManager
+            conversationStateManager: stateManager,
+            applyGlobalDefaultsForNewConversation: autoCreateConversation
         )
         if startedWithFullscreenScanner {
             convoVM.showsInfoView = false
@@ -222,6 +223,7 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 do {
                     try await stateManager.createConversation()
+                    await self?.applyGlobalConversationDefaultsIfNeeded(using: stateManager)
                 } catch {
                     Log.error("Error auto-creating conversation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -253,6 +255,7 @@ class NewConversationViewModel: Identifiable {
             guard !Task.isCancelled else { return }
             do {
                 try await conversationStateManager.joinConversation(inviteCode: inviteCode)
+                await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
                 guard !Task.isCancelled else { return }
 
                 await MainActor.run { [weak self] in
@@ -309,6 +312,7 @@ class NewConversationViewModel: Identifiable {
                 guard !Task.isCancelled else { return }
                 do {
                     try await conversationStateManager.createConversation()
+                    await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
                 } catch {
                     Log.error("Error retrying conversation creation: \(error.localizedDescription)")
                     guard !Task.isCancelled else { return }
@@ -451,6 +455,28 @@ class NewConversationViewModel: Identifiable {
 
         case .error(let error):
             handleErrorState(error)
+        }
+    }
+
+    private func applyGlobalConversationDefaultsIfNeeded(using stateManager: any ConversationStateManagerProtocol) async {
+        let conversationId: String = stateManager.conversationId
+        guard !conversationId.isEmpty else { return }
+
+        do {
+            try await session.photoPreferencesWriter().setAutoReveal(GlobalConvoDefaults.shared.autoRevealPhotos, for: conversationId)
+        } catch {
+            Log.error("Error applying global auto reveal preference: \(error)")
+        }
+
+        guard autoCreateConversation else { return }
+
+        do {
+            try await stateManager.conversationMetadataWriter.updateIncludeInfoInPublicPreview(
+                GlobalConvoDefaults.shared.includeInfoWithInvites,
+                for: conversationId
+            )
+        } catch {
+            Log.error("Error applying global include-info preference: \(error)")
         }
     }
 

@@ -99,7 +99,10 @@ private struct ConversationIndicatorWrapper: View {
             conversationImage: $viewModel.conversationImage,
             presentingConversationSettings: $viewModel.presentingConversationSettings,
             activeToast: $viewModel.activeToast,
-            autoRevealPhotos: $viewModel.autoRevealPhotos,
+            autoRevealPhotos: Binding(
+                get: { viewModel.autoRevealPhotos },
+                set: { viewModel.setAutoReveal($0) }
+            ),
             focusState: $focusState,
             focusCoordinator: focusCoordinator,
             showsExplodeNowButton: viewModel.showsExplodeNowButton,
