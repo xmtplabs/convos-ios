@@ -183,8 +183,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             )
             .background(.colorBackgroundSurfaceless)
         }
-        .sheet(isPresented: $showingAssistantsInfo) {
+        .selfSizingSheet(isPresented: $showingAssistantsInfo) {
             AssistantsInfoView()
+                .padding(.top, 20)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
             NavigationStack {
