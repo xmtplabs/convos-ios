@@ -65,10 +65,16 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .update(_, let update, _):
-                    TextTitleContentView(title: update.summary, profile: update.profile)
-                        .id(update.differenceIdentifier)
-                        .padding(.vertical, DesignConstants.Spacing.step4x)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    VStack(spacing: 0) {
+                        TextTitleContentView(title: update.summary, profile: update.profile)
+                            .id(update.differenceIdentifier)
+                            .padding(.vertical, DesignConstants.Spacing.step4x)
+                            .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        if update.addedAgent {
+                            AssistantJoinedInfoView(onAboutAssistants: config.onAboutAssistants)
+                                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        }
+                    }
 
                 case .messages(let group):
                     MessagesGroupView(

@@ -22,6 +22,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
+    var onAboutAssistants: (() -> Void)?
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -76,6 +77,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onPhotoHidden: { [weak self] attachmentData in
                 Log.debug("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
                 self?.onPhotoHidden?(attachmentData)
+            },
+            onAboutAssistants: { [weak self] in
+                self?.onAboutAssistants?()
             },
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
                 self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
