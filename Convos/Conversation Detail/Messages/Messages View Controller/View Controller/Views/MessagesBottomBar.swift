@@ -189,6 +189,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onPhotoRevealed: { _ in },
             onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },
+            onAboutAssistants: {},
+            onAgentOutOfCredits: {},
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             scrollToBottomTrigger: { _ in }

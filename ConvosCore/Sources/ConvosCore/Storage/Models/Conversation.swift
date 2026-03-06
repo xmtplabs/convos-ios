@@ -99,6 +99,32 @@ public extension Conversation {
         return "\(totalCount) \(totalCount == 1 ? "member" : "members")"
     }
 
+    var membersCountStringCapitalized: String {
+        let totalCount = members.count
+        return "\(totalCount) \(totalCount == 1 ? "Member" : "Members")"
+    }
+
+    var agentCount: Int {
+        members.filter(\.isAgent).count
+    }
+
+    var hasAssistant: Bool {
+        agentCount > 0
+    }
+
+    var assistantCountString: String? {
+        guard agentCount > 0 else { return nil }
+        return "\(agentCount) \(agentCount == 1 ? "Assistant" : "Assistants")"
+    }
+
+    public var hasAgentOutOfCredits: Bool {
+        members.contains { $0.isAgent && $0.profile.isOutOfCredits }
+    }
+
+    public var agentOutOfCreditsProfile: Profile? {
+        members.first { $0.isAgent && $0.profile.isOutOfCredits }?.profile
+    }
+
     var shouldShowQuickEdit: Bool {
         (hasJoined && members.count <= 1) || isDraft
     }

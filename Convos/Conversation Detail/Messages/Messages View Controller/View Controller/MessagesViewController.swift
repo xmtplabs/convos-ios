@@ -182,6 +182,8 @@ final class MessagesViewController: UIViewController {
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
+    var onAboutAssistants: (() -> Void)?
+    var onAgentOutOfCredits: (() -> Void)?
     var shouldBlurPhotos: Bool = true {
         didSet {
             guard oldValue != shouldBlurPhotos else { return }
@@ -329,6 +331,12 @@ final class MessagesViewController: UIViewController {
         dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
             self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
         }
+        dataSource.onAboutAssistants = { [weak self] in
+            self?.onAboutAssistants?()
+        }
+        dataSource.onAgentOutOfCredits = { [weak self] in
+            self?.onAgentOutOfCredits?()
+        }
 
         setupImmediateTouchGesture()
         setupHorizontalBlockerGesture()
@@ -470,6 +478,18 @@ extension MessagesViewController {
                 cells.insert(.invite(invite), at: 0)
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)
+            }
+        }
+
+        if let agentMember = conversation.members.first(where: { $0.isAgent && $0.profile.isOutOfCredits }) {
+            let agentInboxId = agentMember.profile.inboxId
+            if let lastAgentIndex = cells.lastIndex(where: {
+                if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
+                return false
+            }) {
+                cells.insert(.agentOutOfCredits(agentMember.profile), at: lastAgentIndex + 1)
+            } else {
+                cells.append(.agentOutOfCredits(agentMember.profile))
             }
         }
 

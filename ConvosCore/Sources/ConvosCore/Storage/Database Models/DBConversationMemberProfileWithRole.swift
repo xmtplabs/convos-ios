@@ -13,7 +13,8 @@ extension DBConversationMemberProfileWithRole {
         .init(
             profile: memberProfile.hydrateProfile(),
             role: role,
-            isCurrentUser: memberProfile.inboxId == currentInboxId
+            isCurrentUser: memberProfile.inboxId == currentInboxId,
+            isAgent: memberProfile.isAgent
         )
     }
 
