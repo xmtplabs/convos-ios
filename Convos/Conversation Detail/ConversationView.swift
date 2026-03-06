@@ -80,6 +80,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
 
+                    if let agentProfile = viewModel.conversation.agentOutOfCreditsProfile {
+                        AgentOutOfCreditsView(profile: agentProfile)
+                    }
+
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,
                         focusCoordinator: focusCoordinator,

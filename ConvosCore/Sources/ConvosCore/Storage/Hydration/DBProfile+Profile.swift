@@ -10,7 +10,8 @@ extension DBMemberProfile {
             avatarSalt: avatarSalt,
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
-            isAgent: isAgent
+            isAgent: isAgent,
+            metadata: metadata
         )
     }
 }

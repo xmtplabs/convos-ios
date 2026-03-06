@@ -1,3 +1,4 @@
+import ConvosProfiles
 import Foundation
 
 public struct Profile: Codable, Identifiable, Hashable, Sendable {
@@ -10,9 +11,10 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     public let avatarNonce: Data?
     public let avatarKey: Data?
     public let isAgent: Bool
+    public let metadata: ProfileMetadata?
 
     private enum CodingKeys: String, CodingKey {
-        case inboxId, conversationId, name, avatar, avatarSalt, avatarNonce, avatarKey, isAgent
+        case inboxId, conversationId, name, avatar, avatarSalt, avatarNonce, avatarKey, isAgent, metadata
     }
 
     public init(
@@ -23,7 +25,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         avatarSalt: Data? = nil,
         avatarNonce: Data? = nil,
         avatarKey: Data? = nil,
-        isAgent: Bool = false
+        isAgent: Bool = false,
+        metadata: ProfileMetadata? = nil
     ) {
         self.inboxId = inboxId
         self.conversationId = conversationId
@@ -33,6 +36,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         self.avatarNonce = avatarNonce
         self.avatarKey = avatarKey
         self.isAgent = isAgent
+        self.metadata = metadata
     }
 
     public init(from decoder: Decoder) throws {
@@ -45,6 +49,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         self.avatarNonce = try container.decodeIfPresent(Data.self, forKey: .avatarNonce)
         self.avatarKey = try container.decodeIfPresent(Data.self, forKey: .avatarKey)
         self.isAgent = try container.decodeIfPresent(Bool.self, forKey: .isAgent) ?? false
+        self.metadata = try container.decodeIfPresent(ProfileMetadata.self, forKey: .metadata)
     }
 
     public var avatarURL: URL? {
@@ -62,6 +67,11 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         name ?? "Somebody"
     }
 
+    public var isOutOfCredits: Bool {
+        guard let credits = metadata?["credits"]?.numberValue else { return false }
+        return credits <= 0
+    }
+
     public func with(inboxId: String) -> Profile {
         .init(
             inboxId: inboxId,
@@ -71,7 +81,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             avatarSalt: avatarSalt,
             avatarNonce: avatarNonce,
             avatarKey: avatarKey,
-            isAgent: isAgent
+            isAgent: isAgent,
+            metadata: metadata
         )
     }
 
