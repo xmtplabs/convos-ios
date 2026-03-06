@@ -183,6 +183,7 @@ final class MessagesViewController: UIViewController {
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAboutAssistants: (() -> Void)?
+    var onAgentOutOfCredits: (() -> Void)?
     var shouldBlurPhotos: Bool = true {
         didSet {
             guard oldValue != shouldBlurPhotos else { return }
@@ -332,6 +333,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onAboutAssistants = { [weak self] in
             self?.onAboutAssistants?()
+        }
+        dataSource.onAgentOutOfCredits = { [weak self] in
+            self?.onAgentOutOfCredits?()
         }
 
         setupImmediateTouchGesture()

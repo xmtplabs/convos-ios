@@ -15,6 +15,7 @@ struct MessagesListView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAboutAssistants: () -> Void
+    let onAgentOutOfCredits: () -> Void
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -80,7 +81,8 @@ struct MessagesListView: View {
                             case .agentOutOfCredits(let profile):
                                 TextTitleContentView(
                                     title: "\(profile.displayName) is out of processing power",
-                                    profile: profile
+                                    profile: profile,
+                                    onTap: onAgentOutOfCredits
                                 )
                                 .padding(.vertical, DesignConstants.Spacing.step2x)
                             }

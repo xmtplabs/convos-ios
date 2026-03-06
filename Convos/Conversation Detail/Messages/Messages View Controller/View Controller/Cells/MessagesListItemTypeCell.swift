@@ -108,7 +108,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .agentOutOfCredits(let profile):
                     TextTitleContentView(
                         title: "\(profile.displayName) is out of processing power",
-                        profile: profile
+                        profile: profile,
+                        onTap: config.onAgentOutOfCredits
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
