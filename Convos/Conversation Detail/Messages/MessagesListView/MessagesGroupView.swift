@@ -40,18 +40,23 @@ struct MessagesGroupView: View {
                 let isFullWidthAttachment = message.base.content.isAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
-                    Text(group.sender.profile.displayName)
-                        .scaleEffect(isAppearing ? 0.9 : 1.0)
-                        .opacity(isAppearing ? 0.0 : 1.0)
-                        .offset(
-                            x: 0.0,
-                            y: isAppearing ? 100 : 0
-                        )
-                        .blur(radius: isAppearing ? 10.0 : 0.0)
-                        .font(.footnote)
-                        .foregroundColor(group.sender.isAgent ? .colorLava : .secondary)
-                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
-                        .padding(.bottom, DesignConstants.Spacing.stepHalf)
+                    HStack(spacing: DesignConstants.Spacing.stepX) {
+                        Text(group.sender.profile.displayName)
+                        if group.sender.isAgent && group.sender.profile.isOutOfCredits {
+                            Image(systemName: "battery.0percent")
+                        }
+                    }
+                    .scaleEffect(isAppearing ? 0.9 : 1.0)
+                    .opacity(isAppearing ? 0.0 : 1.0)
+                    .offset(
+                        x: 0.0,
+                        y: isAppearing ? 100 : 0
+                    )
+                    .blur(radius: isAppearing ? 10.0 : 0.0)
+                    .font(.footnote)
+                    .foregroundColor(group.sender.isAgent ? .colorLava : .secondary)
+                    .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
+                    .padding(.bottom, DesignConstants.Spacing.stepHalf)
                 }
 
                 let lastMessage = group.messages.last
