@@ -49,7 +49,7 @@ struct MessagesGroupView: View {
                         )
                         .blur(radius: isAppearing ? 10.0 : 0.0)
                         .font(.footnote)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(group.sender.isAgent ? .colorLava : .secondary)
                         .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
                         .padding(.bottom, DesignConstants.Spacing.stepHalf)
                 }

@@ -21,6 +21,7 @@ struct AssistantJoinedInfoView: View {
                         .foregroundStyle(.colorTextPrimary)
                 }
                 .padding(DesignConstants.Spacing.step2x)
+                .padding(.trailing, DesignConstants.Spacing.stepX)
                 .background(.colorLava.opacity(0.1), in: .capsule)
             }
         }
