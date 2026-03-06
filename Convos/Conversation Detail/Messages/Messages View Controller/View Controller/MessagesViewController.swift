@@ -477,6 +477,10 @@ extension MessagesViewController {
             }
         }
 
+        if let agentProfile = conversation.agentOutOfCreditsProfile {
+            cells.append(.agentOutOfCredits(agentProfile))
+        }
+
         let sections: [MessagesCollectionSection] = [
             .init(id: 0, title: "", cells: cells)
         ]

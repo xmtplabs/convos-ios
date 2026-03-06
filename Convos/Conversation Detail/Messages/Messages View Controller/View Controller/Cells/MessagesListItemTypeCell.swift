@@ -104,6 +104,14 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     }
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case .agentOutOfCredits(let profile):
+                    TextTitleContentView(
+                        title: "\(profile.displayName) is out of processing power",
+                        profile: profile
+                    )
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

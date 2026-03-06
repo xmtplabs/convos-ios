@@ -76,6 +76,13 @@ struct MessagesListView: View {
                             case .conversationInfo(let conversation):
                                 ConversationInfoPreview(conversation: conversation)
                                     .padding(.vertical, DesignConstants.Spacing.step2x)
+
+                            case .agentOutOfCredits(let profile):
+                                TextTitleContentView(
+                                    title: "\(profile.displayName) is out of processing power",
+                                    profile: profile
+                                )
+                                .padding(.vertical, DesignConstants.Spacing.step2x)
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in
