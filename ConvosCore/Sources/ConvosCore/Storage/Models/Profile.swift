@@ -68,8 +68,15 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var isOutOfCredits: Bool {
-        guard let credits = metadata?["credits"]?.numberValue else { return false }
-        return credits <= 0
+        guard let credits = metadata?["credits"] else { return false }
+        switch credits {
+        case .number(let value):
+            return value <= 0
+        case .bool(let value):
+            return !value
+        case .string:
+            return false
+        }
     }
 
     public func with(inboxId: String) -> Profile {
