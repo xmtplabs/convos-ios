@@ -18,25 +18,6 @@ public struct VaultDevice: Sendable {
     }
 }
 
-public struct VaultIdentityEntry: Codable, Sendable {
-    public let inboxId: String
-    public let clientId: String
-    public let privateKeyData: Data
-    public let databaseKey: Data
-
-    public init(
-        inboxId: String,
-        clientId: String,
-        privateKeyData: Data,
-        databaseKey: Data
-    ) {
-        self.inboxId = inboxId
-        self.clientId = clientId
-        self.privateKeyData = privateKeyData
-        self.databaseKey = databaseKey
-    }
-}
-
 public struct PairingJoinRequest: Sendable {
     public let pin: String
     public let deviceName: String
@@ -189,25 +170,7 @@ public actor VaultManager {
         await syncDevicesToDatabase()
     }
 
-    // MARK: - Key Sharing (Public API)
-
-    public func shareKey(_ entry: VaultIdentityEntry) async throws {
-        guard let installationId = await vaultClient.installationId else {
-            throw VaultClientError.notConnected
-        }
-
-        let share = DeviceKeyShareContent(
-            conversationId: "",
-            inboxId: entry.inboxId,
-            clientId: entry.clientId,
-            privateKeyData: entry.privateKeyData,
-            databaseKey: entry.databaseKey,
-            senderInstallationId: installationId,
-            senderDeviceName: deviceName
-        )
-
-        try await vaultClient.send(share, codec: DeviceKeyShareCodec())
-    }
+    // MARK: - Key Sharing
 
     public func shareAllKeys() async throws {
         guard let installationId = await vaultClient.installationId else {
