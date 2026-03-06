@@ -90,13 +90,19 @@ Verify that two devices can pair via the Vault pairing flow with pin + emoji ver
 ### Verify conversation sync on Device A
 
 42. Navigate back to the conversations list on **Device A** (tap the back button from Devices → Settings, then dismiss settings).
-43. The conversations list should contain **both** "Device A Convo" and "Device B Convo". Device B's conversation was synced to Device A as part of the pairing key share.
+43. The conversations list should contain **exactly** "Device A Convo" and "Device B Convo" — no other conversations. Device B's conversation was synced to Device A as part of the pairing key share.
+44. Count the conversation list items. There should be exactly 2.
 
 ### Verify conversation sync on Device B
 
-44. On **Device B**, dismiss the pairing sheet if it's still showing (tap "Got it" if available).
-45. Navigate to the conversations list on **Device B**.
-46. The conversations list should contain **both** "Device A Convo" and "Device B Convo". Device A's conversation was synced to Device B as part of the pairing key share.
+45. On **Device B**, dismiss the pairing sheet if it's still showing (tap "Got it" if available).
+46. Navigate to the conversations list on **Device B**.
+47. The conversations list should contain **exactly** "Device A Convo" and "Device B Convo" — no other conversations. Device A's conversation was synced to Device B as part of the pairing key share.
+48. Count the conversation list items. There should be exactly 2, matching Device A.
+
+### Verify no leaked unused conversations
+
+49. Neither device should show any extra "New Convo" entries or other conversations that weren't explicitly created by the user. Unconsumed unused conversations (pre-created by the app for quick-start) must not be shared during pairing.
 
 ## Teardown
 
@@ -113,8 +119,9 @@ No specific cleanup needed — the simulators were started fresh for this test a
 - [ ] Both devices show matching 3-emoji fingerprint after pin submission
 - [ ] Pairing completes after emoji confirmation — Device A shows "Device added"
 - [ ] Devices list on Device A shows both devices (one marked "This device")
-- [ ] Device A's conversations list contains both "Device A Convo" and "Device B Convo"
-- [ ] Device B's conversations list contains both "Device A Convo" and "Device B Convo"
+- [ ] Device A's conversations list contains exactly "Device A Convo" and "Device B Convo" (no extras)
+- [ ] Device B's conversations list contains exactly "Device A Convo" and "Device B Convo" (no extras)
+- [ ] Both devices have the same conversation count — no unconsumed unused conversations leaked
 
 ## Notes
 
