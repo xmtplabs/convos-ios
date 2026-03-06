@@ -51,7 +51,8 @@ final class PairingSheetViewModel {
             let slug = try await vaultManager.createPairingInvite(expiresAt: expiresAt)
 
             let domain = ConfigManager.shared.associatedDomain
-            let inviteURL = "https://\(domain)/pair/\(slug)?expires=\(expiresAtUnix)"
+            let encodedName = DeviceInfo.deviceName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            let inviteURL = "https://\(domain)/pair/\(slug)?expires=\(expiresAtUnix)&name=\(encodedName)"
 
             try await coordinator.startPairing(inviteURL: inviteURL)
             QAEvent.emit(.vault, "pairing_url_created", ["url": inviteURL])

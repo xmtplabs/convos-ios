@@ -56,7 +56,17 @@ struct JoinerPairingSheetView: View {
 
     @ViewBuilder
     private func pinDisplayContent(pin: String) -> some View {
-        VStack(spacing: DesignConstants.Spacing.step6x) {
+        VStack(spacing: DesignConstants.Spacing.step4x) {
+            Text("\"\(viewModel.initiatorDeviceName)\" is requesting to pair.")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextPrimary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Text("Paired devices sync all conversations. Enter the code on \"\(viewModel.initiatorDeviceName)\" to finish pairing.")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
             VStack(spacing: DesignConstants.Spacing.step3x) {
                 Text(viewModel.formattedPin)
                     .font(.system(size: 48, weight: .bold, design: .rounded))
@@ -65,17 +75,6 @@ struct JoinerPairingSheetView: View {
                     .accessibilityIdentifier("pairing-pin-display")
 
                 ExpiryLabel(secondsRemaining: viewModel.secondsRemaining)
-            }
-
-            VStack(spacing: DesignConstants.Spacing.step2x) {
-                Text("\(viewModel.initiatorDeviceName) is requesting to pair")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-
-                Text("Enter the code above on \(viewModel.initiatorDeviceName) to finish pairing")
-                    .font(.subheadline)
-                    .foregroundStyle(.colorTextSecondary)
-                    .multilineTextAlignment(.center)
             }
         }
     }
