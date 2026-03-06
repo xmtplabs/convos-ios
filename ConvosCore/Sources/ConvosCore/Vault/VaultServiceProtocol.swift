@@ -31,6 +31,7 @@ public extension Notification.Name {
     static let vaultDidDeleteConversation: Notification.Name = .init("ConvosVaultDidDeleteConversation")
     static let vaultDidReceiveKeyBundle: Notification.Name = .init("ConvosVaultDidReceiveKeyBundle")
     static let vaultPairingError: Notification.Name = .init("ConvosVaultPairingError")
+    static let vaultDidReceivePin: Notification.Name = .init("ConvosVaultDidReceivePin")
     static let vaultDidEnterBackground: Notification.Name = .init("ConvosVaultDidEnterBackground")
     static let vaultWillEnterForeground: Notification.Name = .init("ConvosVaultWillEnterForeground")
 }
