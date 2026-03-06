@@ -8,7 +8,7 @@ struct AddToConversationMenu: View {
     let onCopyLink: () -> Void
     let onInviteAssistant: () -> Void
 
-    private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled }
+    private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled }
 
     private var labelColor: Color {
         if !isEnabled {
