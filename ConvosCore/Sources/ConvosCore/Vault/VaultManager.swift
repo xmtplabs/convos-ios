@@ -44,17 +44,7 @@ public struct PairingJoinRequest: Sendable {
 }
 
 public protocol VaultManagerDelegate: AnyObject, Sendable {
-    func vaultManager(_ manager: VaultManager, didImportKey entry: VaultIdentityEntry)
-    func vaultManager(_ manager: VaultManager, didRemoveDevice inboxId: String)
     func vaultManager(_ manager: VaultManager, didReceivePairingJoinRequest request: PairingJoinRequest)
-    func vaultManager(_ manager: VaultManager, didEncounterError error: any Error)
-}
-
-public extension VaultManagerDelegate {
-    func vaultManager(_ manager: VaultManager, didImportKey entry: VaultIdentityEntry) {}
-    func vaultManager(_ manager: VaultManager, didRemoveDevice inboxId: String) {}
-    func vaultManager(_ manager: VaultManager, didReceivePairingJoinRequest request: PairingJoinRequest) {}
-    func vaultManager(_ manager: VaultManager, didEncounterError error: any Error) {}
 }
 
 public actor VaultManager {
@@ -70,8 +60,10 @@ public actor VaultManager {
     public weak var delegate: (any VaultManagerDelegate)?
 
     public var isConnected: Bool {
-        if case .connected = vaultClient.state { return true }
-        return false
+        get async {
+            if case .connected = await vaultClient.currentState { return true }
+            return false
+        }
     }
 
     public var hasMultipleDevices: Bool {
@@ -79,8 +71,8 @@ public actor VaultManager {
         return count > 1
     }
 
-    public nonisolated var vaultInboxId: String? {
-        vaultClient.inboxId
+    public var vaultInboxId: String? {
+        get async { await vaultClient.inboxId }
     }
 
     public init(
@@ -101,7 +93,7 @@ public actor VaultManager {
     }
 
     public func connect(signingKey: SigningKey, options: ClientOptions) async throws {
-        vaultClient.delegate = self
+        await vaultClient.setDelegate(self)
         try await vaultClient.connect(signingKey: signingKey, options: options)
         await syncDevicesToDatabase()
     }
@@ -154,8 +146,8 @@ public actor VaultManager {
         do {
             try await connect(signingKey: signingKey, options: options)
 
-            guard let inboxId = vaultInboxId,
-                  let installationId = vaultClient.installationId else {
+            guard let inboxId = await vaultInboxId,
+                  let installationId = await vaultClient.installationId else {
                 Log.error("Vault connected but missing inboxId or installationId")
                 return
             }
@@ -196,7 +188,7 @@ public actor VaultManager {
     }
 
     private func shareUnsharedInboxes(_ rows: [InboxConversationRow]) async {
-        guard isConnected, hasMultipleDevices, let databaseWriter else { return }
+        guard await isConnected, hasMultipleDevices, let databaseWriter else { return }
         Log.info("Vault: found \(rows.count) unshared inbox(es) with conversations")
 
         for row in rows {
@@ -237,12 +229,12 @@ public actor VaultManager {
         await shareKeyFromNotification(keyInfo)
     }
 
-    public func disconnect() {
-        vaultClient.disconnect()
+    public func disconnect() async {
+        await vaultClient.disconnect()
     }
 
-    public func pause() {
-        vaultClient.pause()
+    public func pause() async {
+        await vaultClient.pause()
     }
 
     public func resume() async {
@@ -250,7 +242,7 @@ public actor VaultManager {
         await syncDevicesToDatabase()
     }
     public func shareKey(_ entry: VaultIdentityEntry) async throws {
-        guard let installationId = vaultClient.installationId else {
+        guard let installationId = await vaultClient.installationId else {
             throw VaultClientError.notConnected
         }
 
@@ -268,7 +260,7 @@ public actor VaultManager {
     }
 
     public func shareAllKeys() async throws {
-        guard let installationId = vaultClient.installationId else {
+        guard let installationId = await vaultClient.installationId else {
             throw VaultClientError.notConnected
         }
 
@@ -324,7 +316,7 @@ public actor VaultManager {
     }
 
     func shareKeyFromNotification(_ keyInfo: InboxKeyInfo) async {
-        guard isConnected, hasMultipleDevices, let installationId = vaultClient.installationId else { return }
+        guard await isConnected, hasMultipleDevices, let installationId = await vaultClient.installationId else { return }
         let share = DeviceKeyShareContent(
             conversationId: keyInfo.conversationId,
             inboxId: keyInfo.inboxId,
@@ -338,7 +330,7 @@ public actor VaultManager {
         do {
             try await vaultClient.send(share, codec: DeviceKeyShareCodec())
         } catch {
-            delegate?.vaultManager(self, didEncounterError: error)
+            Log.error("Vault: failed to share key for \(keyInfo.inboxId): \(error)")
         }
     }
 
@@ -348,8 +340,8 @@ public actor VaultManager {
     private var activePairingSlug: String?
 
     public func createPairingInvite(expiresAt: Date) async throws -> String {
-        guard let group = vaultClient.vaultGroup else { throw PairingError.noVaultGroup }
-        guard let client = vaultClient.xmtpClient, let vaultInboxId, let vaultKeyStore else {
+        guard let group = await vaultClient.vaultGroup else { throw PairingError.noVaultGroup }
+        guard let client = await vaultClient.xmtpClient, let vaultInboxId = await vaultInboxId, let vaultKeyStore else {
             throw VaultClientError.notConnected
         }
 
@@ -376,7 +368,7 @@ public actor VaultManager {
     }
 
     public func lockVault() async {
-        guard let group = vaultClient.vaultGroup else { return }
+        guard let group = await vaultClient.vaultGroup else { return }
         try? await group.clearInviteTag()
     }
     public func stopPairing() async {
@@ -401,7 +393,6 @@ public actor VaultManager {
             } catch {
                 if !Task.isCancelled {
                     Log.error("Vault: DM stream error: \(error)")
-                    await self.delegate?.vaultManager(self, didEncounterError: error)
                 }
             }
         }
@@ -411,7 +402,7 @@ public actor VaultManager {
         guard let activePairingSlug else {
             return
         }
-        guard let vaultInboxId, message.senderInboxId != vaultInboxId else {
+        guard let vaultInboxId = await vaultInboxId, message.senderInboxId != vaultInboxId else {
             return
         }
 
@@ -460,7 +451,7 @@ public actor VaultManager {
         pin: String,
         deviceName: String
     ) async throws {
-        guard let client = vaultClient.xmtpClient else {
+        guard let client = await vaultClient.xmtpClient else {
             throw VaultClientError.notConnected
         }
 
@@ -529,7 +520,7 @@ public actor VaultManager {
     }
 
     private func handleJoinerDmMessage(_ message: DecodedMessage) async {
-        guard let vaultInboxId, message.senderInboxId != vaultInboxId else { return }
+        guard let vaultInboxId = await vaultInboxId, message.senderInboxId != vaultInboxId else { return }
 
         if let text: String = try? message.content(),
            text.hasPrefix("PAIRING_ERROR:") {
@@ -563,10 +554,10 @@ public actor VaultManager {
         let conversationId: String
     }
 
-    public func listDevices() throws -> [VaultDevice] {
+    public func listDevices() async throws -> [VaultDevice] {
         let dbDevices = try VaultDeviceRepository(dbReader: databaseReader).fetchAll()
         if dbDevices.isEmpty {
-            return [VaultDevice(inboxId: vaultInboxId ?? "self", name: deviceName, isCurrentDevice: true)]
+            return [VaultDevice(inboxId: await vaultInboxId ?? "self", name: deviceName, isCurrentDevice: true)]
         }
         return dbDevices.map { VaultDevice(inboxId: $0.inboxId, name: $0.name, isCurrentDevice: $0.isCurrentDevice) }
     }
@@ -600,7 +591,7 @@ public actor VaultManager {
     }
 
     private func checkUnsharedInboxes() async {
-        guard isConnected, hasMultipleDevices else { return }
+        guard await isConnected, hasMultipleDevices else { return }
         guard let rows = try? await databaseReader.read({ db in
             try Self.fetchUnsharedRows(db)
         }), !rows.isEmpty else { return }
@@ -653,7 +644,7 @@ public actor VaultManager {
     }
 
     public func unpairSelf() async throws {
-        guard let selfInboxId = vaultInboxId else {
+        guard let selfInboxId = await vaultInboxId else {
             throw VaultClientError.notConnected
         }
 
@@ -663,12 +654,12 @@ public actor VaultManager {
         )
 
         try await vaultClient.send(removal, codec: DeviceRemovedCodec())
-        vaultClient.disconnect()
+        await vaultClient.disconnect()
     }
 
     private func syncDevicesToDatabase() async {
         guard let databaseWriter else { return }
-        guard let selfInboxId = vaultInboxId else { return }
+        guard let selfInboxId = await vaultInboxId else { return }
 
         do {
             let members = try await vaultClient.members()
@@ -717,16 +708,9 @@ public actor VaultManager {
                 try await inboxWriter.save(inboxId: identity.inboxId, clientId: identity.clientId)
             }
 
-            let entry = VaultIdentityEntry(
-                inboxId: identity.inboxId,
-                clientId: identity.clientId,
-                privateKeyData: share.privateKeyData,
-                databaseKey: share.databaseKey
-            )
-            delegate?.vaultManager(self, didImportKey: entry)
             postImportNotification(inboxId: identity.inboxId, clientId: identity.clientId)
         } catch {
-            delegate?.vaultManager(self, didEncounterError: error)
+            Log.error("Vault: failed to import key share for \(share.inboxId): \(error)")
         }
     }
 
@@ -751,16 +735,9 @@ public actor VaultManager {
                     try await inboxWriter.save(inboxId: identity.inboxId, clientId: identity.clientId)
                 }
 
-                let entry = VaultIdentityEntry(
-                    inboxId: identity.inboxId,
-                    clientId: identity.clientId,
-                    privateKeyData: key.privateKeyData,
-                    databaseKey: key.databaseKey
-                )
-                delegate?.vaultManager(self, didImportKey: entry)
                 importedEntries.append((inboxId: identity.inboxId, clientId: identity.clientId))
             } catch {
-                delegate?.vaultManager(self, didEncounterError: error)
+                Log.error("Vault: failed to import key bundle entry for \(key.inboxId): \(error)")
             }
         }
 
@@ -805,7 +782,7 @@ extension VaultManager: VaultClientDelegate {
     }
 
     nonisolated public func vaultClient(_ client: VaultClient, didReceiveDeviceRemoved removal: DeviceRemovedContent, from senderInboxId: String) {
-        Task { await delegate?.vaultManager(self, didRemoveDevice: removal.removedInboxId) }
+        Log.info("Device removed from vault: \(removal.removedInboxId), reason: \(removal.reason)")
     }
 
     nonisolated public func vaultClient(_ client: VaultClient, didReceiveConversationDeleted deletion: ConversationDeletedContent, from senderInboxId: String) {
@@ -823,6 +800,6 @@ extension VaultManager: VaultClientDelegate {
     nonisolated public func vaultClient(_ client: VaultClient, didChangeState state: VaultClientState) {}
 
     nonisolated public func vaultClient(_ client: VaultClient, didEncounterError error: any Error) {
-        Task { await delegate?.vaultManager(self, didEncounterError: error) }
+        Log.error("VaultClient error: \(error)")
     }
 }

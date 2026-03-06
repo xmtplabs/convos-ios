@@ -6,12 +6,12 @@ extension VaultManager: VaultServiceProtocol {
         try await connect(signingKey: signingKey, options: options)
     }
 
-    public func stopVault() {
-        disconnect()
+    public func stopVault() async {
+        await disconnect()
     }
 
-    public func pauseVault() {
-        pause()
+    public func pauseVault() async {
+        await pause()
     }
 
     public func resumeVault() async {
