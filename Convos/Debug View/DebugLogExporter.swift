@@ -7,6 +7,8 @@ enum DebugLogExporter {
         environment: AppEnvironment,
         conversationDebugInfo: URL? = nil
     ) throws -> URL {
+        pruneXMTPLogs(environment: environment, keepRecentHours: 48)
+
         let stagingDir = try createStagingDirectory()
         defer { try? FileManager.default.removeItem(at: stagingDir) }
 
@@ -21,6 +23,67 @@ enum DebugLogExporter {
         }
 
         return try zipDirectory(stagingDir)
+    }
+
+    struct LogStorageInfo {
+        var appLogSize: Int64
+        var xmtpFileCount: Int
+        var xmtpTotalSize: Int64
+        var totalSize: Int64 { appLogSize + xmtpTotalSize }
+
+        var formattedTotalSize: String { ByteCountFormatter.string(fromByteCount: totalSize, countStyle: .file) }
+    }
+
+    static func getStorageInfo(environment: AppEnvironment) -> LogStorageInfo {
+        let fileManager = FileManager.default
+        var info = LogStorageInfo(appLogSize: 0, xmtpFileCount: 0, xmtpTotalSize: 0)
+
+        if let containerURL = fileManager.containerURL(
+            forSecurityApplicationGroupIdentifier: environment.appGroupIdentifier
+        ) {
+            let logURL = containerURL.appendingPathComponent("Logs").appendingPathComponent("convos.log")
+            if let attrs = try? fileManager.attributesOfItem(atPath: logURL.path),
+               let size = attrs[.size] as? Int64 {
+                info.appLogSize = size
+            }
+        }
+
+        let logDir = environment.defaultXMTPLogsDirectoryURL
+        let filePaths = Client.getXMTPLogFilePaths(customLogDirectory: logDir)
+        info.xmtpFileCount = filePaths.count
+        for path in filePaths {
+            if let attrs = try? fileManager.attributesOfItem(atPath: path),
+               let size = attrs[.size] as? Int64 {
+                info.xmtpTotalSize += size
+            }
+        }
+
+        return info
+    }
+
+    @discardableResult
+    static func pruneXMTPLogs(environment: AppEnvironment, keepRecentHours: Int = 24) -> Int {
+        let logDir = environment.defaultXMTPLogsDirectoryURL
+        let filePaths = Client.getXMTPLogFilePaths(customLogDirectory: logDir)
+        guard !filePaths.isEmpty else { return 0 }
+
+        let fileManager = FileManager.default
+        let cutoff = Date().addingTimeInterval(-Double(keepRecentHours) * 3600)
+        var deletedCount: Int = 0
+
+        for path in filePaths {
+            guard let attrs = try? fileManager.attributesOfItem(atPath: path),
+                  let modDate = attrs[.modificationDate] as? Date else { continue }
+
+            if modDate < cutoff {
+                if (try? fileManager.removeItem(atPath: path)) != nil {
+                    deletedCount += 1
+                }
+            }
+        }
+
+        Log.info("Pruned \(deletedCount) XMTP log files older than \(keepRecentHours)h")
+        return deletedCount
     }
 
     private static func stageAppLog(to directory: URL, environment: AppEnvironment) {
