@@ -565,7 +565,10 @@ final class ConversationsViewController: UIViewController {
                 self.onExplodeConversation?(fresh)
                 completion(true)
             }
-            explodeAction.image = UIImage(systemName: "burst")
+            let explodeIconColor: UIColor = traitCollection.userInterfaceStyle == .dark ? .black : .white
+            let explodeSymbolConfig: UIImage.SymbolConfiguration = .init(weight: .bold)
+            explodeAction.image = UIImage(systemName: "burst", withConfiguration: explodeSymbolConfig)?
+                .withTintColor(explodeIconColor, renderingMode: .alwaysOriginal)
             explodeAction.backgroundColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
             actions.append(explodeAction)
         }
@@ -600,7 +603,9 @@ final class ConversationsViewController: UIViewController {
             self.onToggleReadState?(fresh)
             completion(true)
         }
-        readAction.image = UIImage(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")
+        let readIconColor: UIColor = traitCollection.userInterfaceStyle == .dark ? .black : .white
+        readAction.image = UIImage(systemName: conversation.isUnread ? "checkmark.message.fill" : "message.badge.fill")?
+            .withTintColor(readIconColor, renderingMode: .alwaysOriginal)
         readAction.backgroundColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
         actions.append(readAction)
 
