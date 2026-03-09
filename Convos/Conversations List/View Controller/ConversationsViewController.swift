@@ -566,8 +566,7 @@ final class ConversationsViewController: UIViewController {
                 completion(true)
             }
             let explodeIconColor: UIColor = traitCollection.userInterfaceStyle == .dark ? .black : .white
-            let explodeSymbolConfig: UIImage.SymbolConfiguration = .init(weight: .bold)
-            explodeAction.image = UIImage(systemName: "burst", withConfiguration: explodeSymbolConfig)?
+            explodeAction.image = UIImage(systemName: "burst.fill")?
                 .withTintColor(explodeIconColor, renderingMode: .alwaysOriginal)
             explodeAction.backgroundColor = traitCollection.userInterfaceStyle == .dark ? .white : .black
             actions.append(explodeAction)
