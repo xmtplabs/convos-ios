@@ -442,8 +442,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageLastRenewed = nil
         }
 
-        // Apply the preserved timestamp
-        var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
+        // Preserve assistantJoinStatus (managed locally, not from XMTP metadata)
+        let assistantJoinStatus = existingConversation?.assistantJoinStatus
+
+        // Apply preserved local fields
+        var conversationToSave = dbConversation
+            .with(imageLastRenewed: imageLastRenewed)
+            .with(assistantJoinStatus: assistantJoinStatus)
 
         if !dbConversation.inviteTag.isEmpty,
            let localConversation = try DBConversation
