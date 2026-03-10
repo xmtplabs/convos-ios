@@ -170,13 +170,15 @@ extension VaultManager {
         }
 
         if !importedEntries.isEmpty {
-            for entry in importedEntries {
-                postImportNotification(inboxId: entry.inboxId, clientId: entry.clientId)
-            }
+            let importedInboxIds = Set(importedEntries.map { $0.inboxId })
+            Log.info("Vault: imported \(importedEntries.count) key(s) from bundle")
             NotificationCenter.default.post(
                 name: .vaultDidReceiveKeyBundle,
                 object: nil,
-                userInfo: ["importedCount": importedEntries.count]
+                userInfo: [
+                    "importedCount": importedEntries.count,
+                    "importedInboxIds": importedInboxIds,
+                ]
             )
         }
     }

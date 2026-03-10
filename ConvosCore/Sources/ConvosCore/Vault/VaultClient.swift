@@ -19,15 +19,6 @@ public protocol VaultClientDelegate: AnyObject, Sendable {
     func vaultClient(_ client: VaultClient, didEncounterError error: any Error)
 }
 
-public extension VaultClientDelegate {
-    func vaultClient(_ client: VaultClient, didReceiveKeyBundle bundle: DeviceKeyBundleContent, from senderInboxId: String) {}
-    func vaultClient(_ client: VaultClient, didReceiveKeyShare share: DeviceKeyShareContent, from senderInboxId: String) {}
-    func vaultClient(_ client: VaultClient, didReceiveDeviceRemoved removal: DeviceRemovedContent, from senderInboxId: String) {}
-    func vaultClient(_ client: VaultClient, didReceiveConversationDeleted deletion: ConversationDeletedContent, from senderInboxId: String) {}
-    func vaultClient(_ client: VaultClient, didChangeState state: VaultClientState) {}
-    func vaultClient(_ client: VaultClient, didEncounterError error: any Error) {}
-}
-
 public actor VaultClient {
     private var state: VaultClientState = .disconnected
     private var client: Client?

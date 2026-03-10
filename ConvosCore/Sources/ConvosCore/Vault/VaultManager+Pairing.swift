@@ -49,7 +49,10 @@ extension VaultManager {
 
     public func sendPinToJoiner(_ pin: String, joinerInboxId: String) async throws {
         let dm = try await vaultClient.findOrCreateDm(with: joinerInboxId)
-        _ = try await dm.send(content: "PAIRING_PIN:\(pin)")
+        _ = try await dm.send(
+            content: PairingMessageContent.pin(pin),
+            options: SendOptions(contentType: ContentTypePairingMessage)
+        )
     }
 
     func startDmStream() {
@@ -101,17 +104,19 @@ extension VaultManager {
             }
         }
 
-        if let text: String = try? message.content(),
-           text.hasPrefix("PIN_ECHO:") {
-            let echoedPin = String(text.dropFirst("PIN_ECHO:".count))
-            delegate?.vaultManager(self, didReceivePinEcho: echoedPin, from: message.senderInboxId)
+        if let pairing: PairingMessageContent = try? message.content(),
+           pairing.type == .pinEcho {
+            delegate?.vaultManager(self, didReceivePinEcho: pairing.payload, from: message.senderInboxId)
         }
     }
 
     public func sendPairingError(to joinerInboxId: String, message: String) async {
         do {
             let dm = try await vaultClient.findOrCreateDm(with: joinerInboxId)
-            _ = try await dm.send(content: "PAIRING_ERROR:\(message)")
+            _ = try await dm.send(
+                content: PairingMessageContent.error(message),
+                options: SendOptions(contentType: ContentTypePairingMessage)
+            )
         } catch {
             Log.error("Failed to send pairing error to joiner: \(error)")
         }
@@ -151,8 +156,14 @@ extension VaultManager {
 
     public func sendPinEcho(_ pin: String, to initiatorInboxId: String) async throws {
         let dm = try await vaultClient.findOrCreateDm(with: initiatorInboxId)
-        _ = try await dm.send(content: "PIN_ECHO:\(pin)")
+        _ = try await dm.send(
+            content: PairingMessageContent.pinEcho(pin),
+            options: SendOptions(contentType: ContentTypePairingMessage)
+        )
     }
+
+    private static let joinerPollInterval: TimeInterval = 3
+    private static let joinerPollMaxDuration: TimeInterval = 120
 
     func startJoinerDmStream() {
         joinerDmStreamTask?.cancel()
@@ -174,8 +185,9 @@ extension VaultManager {
             }()
 
             async let vaultPoll: Void = {
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(3))
+                let deadline = Date().addingTimeInterval(Self.joinerPollMaxDuration)
+                while !Task.isCancelled, Date() < deadline {
+                    try? await Task.sleep(for: .seconds(Self.joinerPollInterval))
                     guard !Task.isCancelled else { break }
                     do {
                         try await self.vaultClient.resyncVaultGroup()
@@ -191,6 +203,14 @@ extension VaultManager {
                         continue
                     }
                 }
+                if !Task.isCancelled {
+                    Log.warning("Joiner vault poll timed out after \(Self.joinerPollMaxDuration)s")
+                    NotificationCenter.default.post(
+                        name: .vaultPairingError,
+                        object: nil,
+                        userInfo: ["message": "Pairing timed out waiting for key bundle"]
+                    )
+                }
             }()
 
             _ = await (dmStream, vaultPoll)
@@ -200,24 +220,25 @@ extension VaultManager {
     func handleJoinerDmMessage(_ message: DecodedMessage) async {
         guard let vaultInboxId = await vaultInboxId, message.senderInboxId != vaultInboxId else { return }
 
-        if let text: String = try? message.content() {
-            if text.hasPrefix("PAIRING_ERROR:") {
-                let errorMessage = String(text.dropFirst("PAIRING_ERROR:".count))
-                joinerDmStreamTask?.cancel()
-                joinerDmStreamTask = nil
-                NotificationCenter.default.post(
-                    name: .vaultPairingError,
-                    object: nil,
-                    userInfo: ["message": errorMessage]
-                )
-            } else if text.hasPrefix("PAIRING_PIN:") {
-                let pin = String(text.dropFirst("PAIRING_PIN:".count))
-                NotificationCenter.default.post(
-                    name: .vaultDidReceivePin,
-                    object: nil,
-                    userInfo: ["pin": pin, "initiatorInboxId": message.senderInboxId]
-                )
-            }
+        guard let pairing: PairingMessageContent = try? message.content() else { return }
+
+        switch pairing.type {
+        case .error:
+            joinerDmStreamTask?.cancel()
+            joinerDmStreamTask = nil
+            NotificationCenter.default.post(
+                name: .vaultPairingError,
+                object: nil,
+                userInfo: ["message": pairing.payload]
+            )
+        case .pin:
+            NotificationCenter.default.post(
+                name: .vaultDidReceivePin,
+                object: nil,
+                userInfo: ["pin": pairing.payload, "initiatorInboxId": message.senderInboxId]
+            )
+        case .pinEcho:
+            break
         }
     }
 
