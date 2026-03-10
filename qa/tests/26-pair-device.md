@@ -16,105 +16,142 @@ Verify that two devices can pair via the Vault pairing flow with pin + emoji ver
 1. Erase both simulators, boot them, and install a fresh build of the app on each.
 2. Launch the app on both simulators. Both should show the empty-state onboarding screen ("Pop-up private convos").
 
-### Create a conversation on Device A
+### Create initial conversation and complete onboarding on Device A
 
 3. On **Device A**, tap the compose button to start a new conversation.
 4. Complete onboarding if prompted (quickname setup, notification permission — dismiss or complete quickly).
-5. Name the conversation something identifiable like "Device A Convo".
-6. Send a message (e.g., "Hello from A") so the conversation is created on the network.
-7. Navigate back to the conversations list. Verify "Device A Convo" appears.
+5. Send a message (e.g., "Setup from A") so the first conversation is created on the network.
+6. Navigate back to the conversations list.
 
-### Create a conversation on Device B
+### Seed conversations on Device A
 
-8. On **Device B**, tap the compose button to start a new conversation.
-9. Complete onboarding if prompted.
-10. Name the conversation something identifiable like "Device B Convo".
-11. Send a message (e.g., "Hello from B") so the conversation is created on the network.
-12. Navigate back to the conversations list. Verify "Device B Convo" appears.
+7. On **Device A**, navigate to Settings (`app-settings-button`) → Debug.
+8. In the "QA Seed Data" section, select "5" from the conversations picker.
+9. Tap "Seed Conversations" and wait for the progress to show 5/5 with a checkmark.
+10. Navigate back to the conversations list. Verify at least 5 "Seed" conversations appear.
+
+### Populate seed conversations with varied content via CLI
+
+11. Read seed events from Device A's logs: `sim_log_events(udid=DEVICE_A_UDID, event_filter="qa.seed_conversation")`. Extract the conversation IDs and invite URLs.
+12. For each seed conversation, use the CLI to join and send varied messages:
+    - Join: `convos conversations join <slug> --profile-name "QA Bot"`
+    - Wait for the app to process the join request (the `InviteJoinRequestsManager` streams join requests automatically). Check logs for `member.joined` events.
+    - Send text: `convos conversation send-text <id> "Hello from QA Bot"`
+    - Get the message ID from the send output, then send a reaction: `convos conversation send-reaction <id> <msg-id> add "👍"`
+    - Send a reply: `convos conversation send-reply <id> <msg-id> "This is a reply"`
+    - Send a URL: `convos conversation send-text <id> "Check out https://example.com/test"`
+    - Send a photo: `curl -L -o /tmp/qa-photo.jpg https://picsum.photos/400/300 && convos conversation send-attachment <id> /tmp/qa-photo.jpg`
+13. Verify messages are received on Device A. Wait a few seconds, then check the conversations list — seed conversations should show recent message previews.
+
+### Create initial conversation and complete onboarding on Device B
+
+14. On **Device B**, tap the compose button to start a new conversation.
+15. Complete onboarding if prompted.
+16. Send a message (e.g., "Setup from B") so the first conversation is created on the network.
+17. Navigate back to the conversations list.
+
+### Seed conversations on Device B
+
+18. On **Device B**, navigate to Settings → Debug.
+19. In the "QA Seed Data" section, select "3" from the conversations picker.
+20. Tap "Seed Conversations" and wait for the progress to show 3/3 with a checkmark.
+21. Navigate back to the conversations list. Verify at least 3 "Seed" conversations appear.
+
+### Populate seed conversations on Device B with varied content via CLI
+
+22. Read seed events from Device B's logs: `sim_log_events(udid=DEVICE_B_UDID, event_filter="qa.seed_conversation")`. Extract the conversation IDs and invite URLs.
+23. For each seed conversation, join via CLI and send at least 2 messages each (text + reaction or reply).
+24. Verify messages are received on Device B.
+
+### Record conversation counts
+
+25. Count conversations on Device A (should be ~6: 1 manual + 5 seeded). Save this count.
+26. Count conversations on Device B (should be ~4: 1 manual + 3 seeded). Save this count.
+27. The expected post-pairing count on both devices = Device A count + Device B count.
 
 ## Steps
 
 ### Initiate pairing on Device A
 
-13. On **Device A**, tap the settings button (`app-settings-button`).
-14. Tap the "Devices" row (`devices-row`).
-15. The Devices screen should show only the current device (with "This device" label).
-16. Tap "Add new device" (`add-device-button`).
-17. The pairing sheet should appear with title "Pair new device" and a blurred QR code.
-18. Long-press the "Hold to reveal" button (`hold-to-reveal-button`) to reveal the QR code.
+28. On **Device A**, tap the settings button (`app-settings-button`).
+29. Tap the "Devices" row (`devices-row`).
+30. The Devices screen should show only the current device (with "This device" label).
+31. Tap "Add new device" (`add-device-button`).
+32. The pairing sheet should appear with title "Pair new device" and a blurred QR code.
+33. Long-press the "Hold to reveal" button (`hold-to-reveal-button`) to reveal the QR code.
 
 ### Extract the pairing URL
 
-19. Read the pairing URL from the app event log using `sim_log_events(udid=DEVICE_A_UDID, event_filter="vault.pairing_url_created")`. The URL is in the `url=` parameter of the event line.
-20. Verify the URL has the format `https://dev.convos.org/pair/<slug>?expires=<unix_timestamp>&name=<device_name>`.
+34. Read the pairing URL from the app event log using `sim_log_events(udid=DEVICE_A_UDID, event_filter="vault.pairing_url_created")`. The URL is in the `url=` parameter of the event line.
+35. Verify the URL has the format `https://dev.convos.org/pair/<slug>?expires=<unix_timestamp>&name=<device_name>`.
 
 ### Open pairing URL on Device B
 
-21. On **Device B**, open the pairing URL as a deep link using `sim_open_url`.
-22. The joiner pairing sheet should appear with title "Request to pair".
-23. The sheet should show a connecting/loading state briefly, then the text should read `"<Device A name>" is requesting to pair. Paired devices sync all conversations.`
+36. On **Device B**, open the pairing URL as a deep link using `sim_open_url`.
+37. The joiner pairing sheet should appear with title "Request to pair".
+38. The sheet should show a connecting/loading state briefly, then the text should read `"<Device A name>" is requesting to pair. Paired devices sync all conversations.`
 
 ### Device A shows generated pin
 
-24. On **Device A**, the pairing sheet should transition from the QR code to a pin display state. Wait for `pairing-pin-display` to appear.
-25. The sheet should show `Share this code with "<Device B name>" to continue pairing.` with a 6-digit pin displayed below.
-26. Read the pin from the accessibility tree (`pairing-pin-display`).
+39. On **Device A**, the pairing sheet should transition from the QR code to a pin display state. Wait for `pairing-pin-display` to appear.
+40. The sheet should show `Share this code with "<Device B name>" to continue pairing.` with a 6-digit pin displayed below.
+41. Read the pin from the accessibility tree (`pairing-pin-display`).
 
 ### Device B enters pin
 
-27. On **Device B**, the sheet should have transitioned to pin entry. Wait for `pin-entry-field` to appear.
-28. The sheet should read `Enter the code shown on "<Device A name>" to finish pairing.`
-29. Type the 6-digit pin (read from step 26) into the pin entry field.
-30. The "Submit" button (`submit-pin-button`) should become enabled once all 6 digits are entered.
-31. Tap "Submit".
+42. On **Device B**, the sheet should have transitioned to pin entry. Wait for `pin-entry-field` to appear.
+43. The sheet should read `Enter the code shown on "<Device A name>" to finish pairing.`
+44. Type the 6-digit pin (read from step 41) into the pin entry field.
+45. The "Submit" button (`submit-pin-button`) should become enabled once all 6 digits are entered.
+46. Tap "Submit".
 
 ### Verify emoji fingerprint on both devices
 
-32. On **Device B**, the sheet should transition to show 3 emoji (`pairing-emoji-fingerprint`). Title changes to "Confirm pairing". Text reads `Make sure these emoji match on "<Device A name>".` with "Waiting for confirmation..." below.
-33. On **Device A**, the sheet should also transition to show the same 3 emoji (`pairing-emoji-fingerprint`). Title changes to "Confirm pairing". Text reads `Make sure these emoji match on "<Device B name>" before confirming.`
-34. Verify the emoji shown on both devices are identical.
+47. On **Device B**, the sheet should transition to show 3 emoji (`pairing-emoji-fingerprint`). Title changes to "Confirm pairing". Text reads `Make sure these emoji match on "<Device A name>".` with "Waiting for confirmation..." below.
+48. On **Device A**, the sheet should also transition to show the same 3 emoji (`pairing-emoji-fingerprint`). Title changes to "Confirm pairing". Text reads `Make sure these emoji match on "<Device B name>" before confirming.`
+49. Verify the emoji shown on both devices are identical.
 
 ### Confirm pairing on Device A
 
-35. Tap "Confirm" (`confirm-emoji-button`) on **Device A**.
-36. The sheet should transition to the "syncing" state showing "Pairing..." with a rotating sync icon.
-37. After a few seconds, the sheet should transition to the "completed" state. The title should change to "Device added" and show a checkmark icon with Device B's name.
-38. Tap "Got it" (`got-it-button`) to dismiss the pairing sheet.
+50. Tap "Confirm" (`confirm-emoji-button`) on **Device A**.
+51. The sheet should transition to the "syncing" state showing "Pairing..." with a rotating sync icon.
+52. After a few seconds, the sheet should transition to the "completed" state. The title should change to "Device added" and show a checkmark icon with Device B's name.
+53. Tap "Got it" (`got-it-button`) to dismiss the pairing sheet.
 
 ### Verify Device A shows both devices
 
-39. The Devices screen should now show two devices in the list.
-40. One device should have the "This device" label (Device A).
-41. The other device should show Device B's simulator name.
+54. The Devices screen should now show two devices in the list.
+55. One device should have the "This device" label (Device A).
+56. The other device should show Device B's simulator name.
 
 ### Verify conversation sync on Device A
 
-42. Navigate back to the conversations list on **Device A** (tap the back button from Devices → Settings, then dismiss settings).
-43. The conversations list should contain **exactly** "Device A Convo" and "Device B Convo" — no other conversations. Device B's conversation was synced to Device A as part of the pairing key share.
-44. Count the conversation list items. There should be exactly 2.
+57. Navigate back to the conversations list on **Device A** (tap the back button from Devices → Settings, then dismiss settings).
+58. Wait up to 60 seconds for the VaultImportSyncDrainer to process imported inboxes. The conversations list should grow as inboxes are synced.
+59. The conversations list should contain all conversations from both devices — the total should equal Device A's original count + Device B's original count (saved in steps 25-27).
+60. Verify at least one "Seed" conversation from Device B appears.
 
 ### Verify conversation sync on Device B
 
-45. On **Device B**, dismiss the pairing sheet if it's still showing (tap "Got it" if available).
-46. Navigate to the conversations list on **Device B**.
-47. The conversations list should contain **exactly** "Device A Convo" and "Device B Convo" — no other conversations. Device A's conversation was synced to Device B as part of the pairing key share.
-48. Count the conversation list items. There should be exactly 2, matching Device A.
+61. On **Device B**, dismiss the pairing sheet if it's still showing (tap "Got it" if available).
+62. Navigate to the conversations list on **Device B**.
+63. Wait up to 60 seconds for sync. The conversations list should grow as inboxes are imported.
+64. The conversations list should contain the same total count as Device A.
+65. Verify at least one "Seed" conversation from Device A appears.
 
-### Verify pre-pairing messages synced on Device A
+### Verify message content survived sync
 
-50. On **Device A**, tap on "Device B Convo" (the conversation that was synced from Device B).
-51. Wait for the messages to load. The message "Hello from B" (sent before pairing) should appear in the message list.
-52. Navigate back to the conversations list.
+66. On **Device A**, tap on one of Device B's seed conversations.
+67. Wait for messages to load. Verify that messages from the CLI QA Bot are visible (text, reactions, replies, photos, or links — at least some content should appear).
+68. Navigate back to the conversations list.
 
-### Verify pre-pairing messages synced on Device B
-
-53. On **Device B**, tap on "Device A Convo" (the conversation that was synced from Device A).
-54. Wait for the messages to load. The message "Hello from A" (sent before pairing) should appear in the message list.
-55. Navigate back to the conversations list.
+69. On **Device B**, tap on one of Device A's seed conversations.
+70. Wait for messages to load. Verify that messages from the CLI QA Bot are visible.
+71. Navigate back to the conversations list.
 
 ### Verify no leaked unused conversations
 
-56. Neither device should show any extra "New Convo" entries or other conversations that weren't explicitly created by the user. Unconsumed unused conversations (pre-created by the app for quick-start) must not be shared during pairing.
+72. Neither device should show any extra "New Convo" entries or other conversations that weren't explicitly created by the user or the seed process. Unconsumed unused conversations (pre-created by the app for quick-start) must not be shared during pairing.
 
 ## Teardown
 
@@ -122,6 +159,9 @@ No specific cleanup needed — the simulators were started fresh for this test a
 
 ## Pass/Fail Criteria
 
+- [ ] Seed conversations created successfully on Device A (5 conversations with checkmark)
+- [ ] CLI QA Bot joined seed conversations and sent varied message types
+- [ ] Seed conversations created successfully on Device B (3 conversations with checkmark)
 - [ ] Device A shows single-device state before pairing
 - [ ] Pairing sheet opens with blurred QR code and "Pair new device" title
 - [ ] Pairing URL has correct format with `&name=` parameter
@@ -131,15 +171,20 @@ No specific cleanup needed — the simulators were started fresh for this test a
 - [ ] Both devices show matching 3-emoji fingerprint after pin submission
 - [ ] Pairing completes after emoji confirmation — Device A shows "Device added"
 - [ ] Devices list on Device A shows both devices (one marked "This device")
-- [ ] Device A's conversations list contains exactly "Device A Convo" and "Device B Convo" (no extras)
-- [ ] Device B's conversations list contains exactly "Device A Convo" and "Device B Convo" (no extras)
+- [ ] Device A's conversations list contains all conversations from both devices (count matches)
+- [ ] Device B's conversations list contains all conversations from both devices (count matches)
 - [ ] Both devices have the same conversation count — no unconsumed unused conversations leaked
-- [ ] Device A shows "Hello from B" inside "Device B Convo" (pre-pairing messages synced)
-- [ ] Device B shows "Hello from A" inside "Device A Convo" (pre-pairing messages synced)
+- [ ] Synced conversations contain messages (text, reactions, replies, photos from CLI QA Bot)
 
 ## Notes
 
-- The pairing timeout is currently set to 120 seconds for dev testing. All steps from URL extraction through emoji confirmation must complete within this window.
+- The seed conversations feature is in Debug settings (non-production only). It creates real conversations using the app's normal flow, generates invites, and emits QA events.
+- QA events for seed data follow the format: `[EVENT] app.seed_conversation index=1 id=<conv_id> name=Seed_1 invite_url=<url>`. Read with `sim_log_events(event_filter="qa.seed_conversation")`.
+- The CLI `convos conversation send-attachment` command handles inline photos under 1MB. Use `curl -L -o /tmp/qa-photo.jpg https://picsum.photos/400/300` to download a random photo.
+- The `InviteJoinRequestsManager` automatically processes join requests via streaming — no manual processing step needed after CLI joins.
+- The VaultImportSyncDrainer processes imported inboxes one at a time in the foreground. With ~8 conversations to import, this may take 60-90 seconds after pairing completes. The conversations list updates reactively as each inbox is synced.
+- The pairing timeout is 120 seconds. All steps from URL extraction through emoji confirmation must complete within this window.
 - The pairing URL is extracted from the `vault.pairing_url_created` QA event in the app log. Do not use the share sheet "Copy" button — it is unreliable due to iOS share sheet accessibility limitations.
 - The emoji fingerprint is derived from `SHA256(sorted(inboxA, inboxB) + pin)` — both devices compute it independently, so matching emoji proves both devices are talking to each other (not an attacker).
 - Each simulator generates its own unique vault identity on first launch, so cloned simulators must be erased first to avoid "memberCannotBeSelf" errors from XMTP.
+- Pre-pairing message sync depends on XMTP history sync completing its 3-step roundtrip, which may take longer than the test window. The test focuses on conversation metadata sync (names, counts) rather than asserting specific pre-pairing message content.
