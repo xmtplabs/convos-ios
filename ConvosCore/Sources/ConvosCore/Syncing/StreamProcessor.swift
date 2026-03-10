@@ -215,6 +215,14 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
                     guard explodeSettings == nil else { return }
 
+                    if let assistantJoinRequest = decodeAssistantJoinRequest(from: message) {
+                        await processAssistantJoinRequest(
+                            assistantJoinRequest,
+                            conversationId: conversation.id
+                        )
+                        return
+                    }
+
                     if await processProfileMessage(message, conversationId: conversation.id) {
                         return
                     }
@@ -240,6 +248,28 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Private Helpers
+
+    private func decodeAssistantJoinRequest(from message: DecodedMessage) -> AssistantJoinRequest? {
+        guard let encodedContentType = try? message.encodedContent.type,
+              encodedContentType == ContentTypeAssistantJoinRequest,
+              let content = try? message.content() as Any,
+              let request = content as? AssistantJoinRequest else {
+            return nil
+        }
+        return request
+    }
+
+    private func processAssistantJoinRequest(
+        _ request: AssistantJoinRequest,
+        conversationId: String
+    ) async {
+        Log.info("Received AssistantJoinRequest status=\(request.status.rawValue) requestId=\(request.requestId) for conversation=\(conversationId)")
+        do {
+            try await conversationWriter.updateAssistantJoinStatus(request.status, for: conversationId)
+        } catch {
+            Log.error("Failed to update assistant join status: \(error.localizedDescription)")
+        }
+    }
 
     private func decodeInviteJoinError(from message: DecodedMessage) -> InviteJoinError? {
         guard let encodedContentType = try? message.encodedContent.type,
