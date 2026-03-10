@@ -190,6 +190,38 @@ This is **out of scope** for this iteration — the iOS app will optimistically 
 | `Convos/Conversation Detail/AddToConversationMenu.swift` | Disable button when `assistantJoinStatus != nil` |
 | `Convos/Conversation Detail/Messages/Messages View Controller/View Controller/MessagesViewController.swift` | Inject status item into list |
 
+## Testing
+
+### Mock Updates
+
+Make `MockInboxesService.requestAgentJoin()` configurable to return different outcomes:
+- Success (`joined: true` and `joined: false`)
+- `APIError.noAgentsAvailable`
+- `APIError.agentProvisionFailed`
+- `APIError.agentPoolTimeout`
+- Generic network error (`URLError(.notConnectedToInternet)`)
+
+### Unit Tests (`ConvosTests`)
+
+| Test | Asserts |
+|------|---------|
+| Tapping "Instant assistant" sets status to `.pending` immediately | `assistantJoinStatus == .pending` before API responds |
+| API returns 200 with `joined: true` | Status stays `.pending` |
+| API returns 200 with `joined: false` | Status stays `.pending` |
+| API returns 503 | Status becomes `.noAgentsAvailable` |
+| API returns 502 | Status becomes `.failed` |
+| API returns 504 | Status becomes `.failed` |
+| Network error (URLError) | Status becomes `.failed` |
+| Retry from `.failed` | Status resets to `.pending`, new API call fires |
+| Agent group update arrives while `.pending` | `assistantJoinStatus` becomes `nil` |
+| Agent group update arrives while in error state | `assistantJoinStatus` becomes `nil` |
+| Menu button disabled while status is non-nil | `hasAssistant \|\| assistantJoinStatus != nil` disables button |
+| Auto-dismiss fires after 45s for error states | Status becomes `nil` after timer |
+| Auto-dismiss cancelled on retry | Retry resets timer, old timer doesn't clear `.pending` |
+| Sending a message dismisses error state | Status becomes `nil` on message send |
+
+All tests are pure ViewModel logic — no simulator, no Docker, fast to run.
+
 ## Out of Scope
 
 - Pre-checking agent availability before showing the menu
