@@ -9,6 +9,11 @@ extension DecodedMessage {
         guard let contentType = try? encodedContent.type else { return false }
         return contentType == ContentTypeProfileUpdate || contentType == ContentTypeProfileSnapshot
     }
+
+    var isAssistantJoinRequestMessage: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType == ContentTypeAssistantJoinRequest
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -254,9 +259,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             try await fetchAndStoreLatestMessages(for: conversation, dbConversation: dbConversation)
         }
 
-        // Store last message (skip profile messages which aren't stored as DB messages)
+        // Store last message (skip profile and assistant join request messages which aren't stored as DB messages)
         let lastMessage = try await conversation.lastMessage()
-        if let lastMessage, !lastMessage.isProfileMessage {
+        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isAssistantJoinRequestMessage {
             let result = try await messageWriter.store(
                 message: lastMessage,
                 for: dbConversation
@@ -549,7 +554,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Store messages and track if conversation should be marked unread
         var marksConversationAsUnread = false
         for message in messages {
-            guard !message.isProfileMessage else { continue }
+            guard !message.isProfileMessage, !message.isAssistantJoinRequestMessage else { continue }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread {

@@ -26,20 +26,16 @@ struct AssistantJoinStatusView: View {
     }
 
     private var pendingView: some View {
-        VStack(spacing: DesignConstants.Spacing.stepX) {
-            if let requesterName {
-                Text("\(requesterName) requested an assistant")
-                    .lineLimit(1)
-                    .font(.caption)
-                    .foregroundStyle(.colorTextTertiary)
-                    .frame(maxWidth: .infinity, alignment: .center)
-            }
-            Text("Assistant is joining…")
-                .lineLimit(1)
-                .font(.caption)
-                .foregroundStyle(.colorTextTertiary)
-                .frame(maxWidth: .infinity, alignment: .center)
+        let text = if let requesterName {
+            "\(requesterName) invited an assistant to join"
+        } else {
+            "Assistant is joining…"
         }
+        return Text(text)
+            .lineLimit(1)
+            .font(.caption)
+            .foregroundStyle(.colorTextTertiary)
+            .frame(maxWidth: .infinity, alignment: .center)
     }
 
     @ViewBuilder
@@ -76,7 +72,7 @@ struct AssistantJoinStatusView: View {
     AssistantJoinStatusView(status: .pending)
 }
 
-#Preview("Pending - Other") {
+#Preview("Pending - Other Member") {
     AssistantJoinStatusView(status: .pending, requesterName: "Louis")
 }
 

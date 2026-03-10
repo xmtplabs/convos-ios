@@ -957,19 +957,11 @@ extension ConversationViewModel {
                 let status: AssistantJoinStatus
                 if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
                 try? await localStateWriter.updateAssistantJoinStatus(status, requestedBy: inboxId, for: conversationId)
-                await Self.broadcastAssistantJoinRequest(
-                    status: status, requestedBy: inboxId, requestId: requestId,
-                    conversationId: conversationId, clientId: clientId, session: session
-                )
                 await MainActor.run {
                     self?.onAssistantJoinError(conversationId: conversationId)
                 }
             } catch {
                 try? await localStateWriter.updateAssistantJoinStatus(.failed, requestedBy: inboxId, for: conversationId)
-                await Self.broadcastAssistantJoinRequest(
-                    status: .failed, requestedBy: inboxId, requestId: requestId,
-                    conversationId: conversationId, clientId: clientId, session: session
-                )
                 await MainActor.run {
                     self?.onAssistantJoinError(conversationId: conversationId)
                 }
