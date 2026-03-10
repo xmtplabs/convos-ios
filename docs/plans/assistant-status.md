@@ -74,6 +74,13 @@ User taps "Instant assistant"
 - **User taps "Instant assistant" again** while pending: no-op (button should be disabled while `assistantJoinStatus != nil`).
 - **Conversation already has an assistant**: the "Instant assistant" button is already disabled via `hasAssistant` (existing behavior).
 - **Retry after error**: resets to pending state, fires a new API call.
+- **200 with `joined: false`**: The backend can return `{ success: true, joined: false }` if the pool accepted the task but the agent hasn't joined XMTP yet. Treat this the same as `joined: true` — keep `.pending` and wait for the XMTP group update. The agent should still arrive.
+- **`AGENT_POOL_UNAVAILABLE` (503)**: The backend returns a different 503 error string when the pool isn't configured at all vs. no agents being idle. The iOS client currently matches on HTTP status code only (not error string), so both 503s map to `APIError.noAgentsAvailable` and show "No assistants are available." This is correct behavior — no distinction needed on the iOS side.
+- **Network / non-HTTP errors**: `URLSession` can throw `URLError` (no network, DNS failure, iOS-side timeout, etc.) which won't be an `APIError`. The `requestAssistantJoin()` catch block must handle **all** errors — map any unknown error to `.failed` so the status never gets stuck on `.pending`.
+- **iOS-side timeout**: The backend's pool timeout is 30 seconds. `URLSession.default` has a 60-second timeout. Set an explicit `timeoutIntervalForRequest` of 35 seconds on the agent join request so the backend's 504 fires first and returns a proper error code, rather than iOS timing out with a generic `URLError.timedOut`.
+- **Race condition — clearing status on XMTP update**: The plan clears status when a `ConversationUpdate` with `addedAgent == true` arrives. This checks `addedMembers.contains(where: \.isAgent)`, so a regular human member being added won't trigger it. Multiple simultaneous agent joins to the same conversation aren't possible (the menu is disabled once `hasAssistant` is true or `assistantJoinStatus != nil`).
+- **Auto-dismiss error states**: Error rows (`.noAgentsAvailable` and `.failed`) auto-dismiss after 30 seconds or when the user sends a new message — whichever comes first. This prevents stale errors from cluttering the chat.
+- **Haptic feedback on error**: Play a light impact haptic (`UIImpactFeedbackGenerator(style: .light)`) when the status transitions to an error state, since the user initiated the action and deserves tactile feedback that something went wrong.
 
 ---
 
@@ -98,9 +105,14 @@ enum AssistantJoinStatus: Equatable {
   - Set `assistantJoinStatus = .pending` immediately.
   - On `APIError.noAgentsAvailable` → set `.noAgentsAvailable`.
   - On `APIError.agentProvisionFailed` or `.agentPoolTimeout` → set `.failed`.
-  - On success (200) → keep `.pending` (wait for XMTP group update to clear it).
+  - On success (200), regardless of `joined` value → keep `.pending` (wait for XMTP group update to clear it).
+  - On **any other error** (network, URLError, unknown) → set `.failed`. This prevents the status from getting stuck on `.pending`.
 - Add observation: when a new `ConversationUpdate` with `addedAgent == true` arrives in the messages list, set `assistantJoinStatus = nil`.
 - Disable the "Instant assistant" menu button when `assistantJoinStatus != nil` (in addition to existing `hasAssistant` check).
+
+### 2b. Set explicit timeout on agent join request
+
+In `ConvosAPIClient.requestAgentJoin()`, set `request.timeoutInterval = 35` before firing the request. This ensures the backend's 30-second pool timeout fires first and returns a proper 504, rather than iOS timing out with a generic `URLError.timedOut`.
 
 ### 3. Add `AssistantJoinStatusView`
 
