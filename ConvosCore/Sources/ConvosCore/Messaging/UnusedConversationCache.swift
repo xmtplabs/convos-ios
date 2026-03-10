@@ -826,12 +826,22 @@ extension UnusedConversationCache {
             // here because prepareConversation() is a one-shot operation, not a long-running
             // stream that could overlap with other XMTP operations.
             nonisolated(unsafe) let optimisticConversation = try client.prepareConversation()
-            try await optimisticConversation.publish()
 
             let conversationId = optimisticConversation.id
+            let identity = try await identityStore.identity(for: inboxId)
+
+            // Reserve the conversation in the database before publishing so the conversation
+            // stream processor finds it with isUnused=true and preserves that flag.
+            try await reserveUnusedConversation(
+                conversationId: conversationId,
+                inboxId: inboxId,
+                clientId: identity.clientId,
+                databaseWriter: databaseWriter
+            )
+
+            try await optimisticConversation.publish()
             Log.debug("Created unused conversation: \(conversationId)")
 
-            let identity = try await identityStore.identity(for: inboxId)
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
 
@@ -891,6 +901,56 @@ extension UnusedConversationCache {
 // MARK: - Database Helpers
 
 extension UnusedConversationCache {
+    private func reserveUnusedConversation(
+        conversationId: String,
+        inboxId: String,
+        clientId: String,
+        databaseWriter: any DatabaseWriter
+    ) async throws {
+        try await databaseWriter.write { db in
+            let member = DBMember(inboxId: inboxId)
+            try member.save(db, onConflict: .ignore)
+
+            let dbConversation = DBConversation(
+                id: conversationId,
+                inboxId: inboxId,
+                clientId: clientId,
+                clientConversationId: conversationId,
+                inviteTag: "",
+                creatorId: inboxId,
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: true
+            )
+            try dbConversation.save(db)
+
+            let localState = ConversationLocalState(
+                conversationId: conversationId,
+                isPinned: false,
+                isUnread: false,
+                isUnreadUpdatedAt: Date.distantPast,
+                isMuted: false,
+                pinnedOrder: nil
+            )
+            try localState.save(db)
+
+            Log.debug("Reserved unused conversation in database: \(conversationId)")
+        }
+    }
+
     private func saveUnusedConversationToDatabase(
         conversation: XMTPConversation,
         inboxId: String,
