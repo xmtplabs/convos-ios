@@ -11,11 +11,11 @@ struct AddToConversationMenu: View {
     let onInviteAssistant: () -> Void
 
     private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled }
-    private var isAssistantActionDisabled: Bool { hasAssistant || assistantJoinStatus != nil }
+    private var isAssistantActionDisabled: Bool { hasAssistant || assistantJoinStatus == .pending }
 
     private var assistantSubtitle: String {
         if hasAssistant { return "Already in conversation" }
-        if assistantJoinStatus != nil { return "Joining…" }
+        if assistantJoinStatus == .pending { return "Joining…" }
         return "Helps the group do things"
     }
 
