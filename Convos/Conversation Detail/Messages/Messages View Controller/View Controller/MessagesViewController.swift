@@ -67,6 +67,7 @@ final class MessagesViewController: UIViewController {
     private var isFirstStateUpdate: Bool = true
     private var hasPendingInterrupt: Bool = false
     private var previousLastMessageId: String?
+    private var previousAssistantJoinStatus: AssistantJoinStatus?
     private var previousFocusState: MessagesViewInputFocus?
 
     /// Whether the user is near the bottom of the scroll view (within one screen height)
@@ -120,6 +121,12 @@ final class MessagesViewController: UIViewController {
                         } else if nearBottom && !userScrolling {
                             self.scrollToBottom()
                         }
+                    }
+
+                    let prevJoinStatus = self.previousAssistantJoinStatus
+                    self.previousAssistantJoinStatus = state.assistantJoinStatus
+                    if !isInitialLoad && prevJoinStatus == nil && state.assistantJoinStatus != nil {
+                        self.scrollToBottom()
                     }
                 }
             isFirstStateUpdate = false
