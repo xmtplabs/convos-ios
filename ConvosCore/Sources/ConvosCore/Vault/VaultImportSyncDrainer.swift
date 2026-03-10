@@ -15,6 +15,7 @@ public actor VaultImportSyncDrainer {
 
     private static let settleDelay: TimeInterval = 8
     private static let betweenInboxDelay: TimeInterval = 1
+    private static let perInboxTimeout: TimeInterval = 30
 
     public var remainingCount: Int { pendingInboxIds.subtracting(syncedInboxIds).count }
     public var isDraining: Bool { drainTask?.isCancelled == false }
@@ -89,12 +90,14 @@ public actor VaultImportSyncDrainer {
 
             do {
                 Log.debug("VaultImportSyncDrainer: syncing inbox \(inbox.inboxId)")
-                let service = try await lifecycleManager.wake(
-                    clientId: inbox.clientId,
-                    inboxId: inbox.inboxId,
-                    reason: .activityRanking
-                )
-                _ = try await service.inboxStateManager.waitForInboxReadyResult()
+                try await withTimeout(seconds: Self.perInboxTimeout) {
+                    let service = try await self.lifecycleManager.wake(
+                        clientId: inbox.clientId,
+                        inboxId: inbox.inboxId,
+                        reason: .activityRanking
+                    )
+                    _ = try await service.inboxStateManager.waitForInboxReadyResult()
+                }
 
                 try? await Task.sleep(for: .seconds(Self.settleDelay))
                 guard !Task.isCancelled else { return }
@@ -111,6 +114,7 @@ public actor VaultImportSyncDrainer {
                 try? await Task.sleep(for: .seconds(Self.betweenInboxDelay))
             } catch {
                 Log.warning("VaultImportSyncDrainer: failed to sync inbox \(inbox.inboxId): \(error)")
+                await lifecycleManager.sleep(clientId: inbox.clientId)
                 syncedInboxIds.insert(inbox.inboxId)
             }
         }
