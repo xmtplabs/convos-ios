@@ -163,7 +163,6 @@ extension VaultManager {
     }
 
     private static let joinerPollInterval: TimeInterval = 3
-    private static let joinerPollMaxDuration: TimeInterval = 120
 
     func startJoinerDmStream() {
         joinerDmStreamTask?.cancel()
@@ -185,8 +184,7 @@ extension VaultManager {
             }()
 
             async let vaultPoll: Void = {
-                let deadline = Date().addingTimeInterval(Self.joinerPollMaxDuration)
-                while !Task.isCancelled, Date() < deadline {
+                while !Task.isCancelled {
                     try? await Task.sleep(for: .seconds(Self.joinerPollInterval))
                     guard !Task.isCancelled else { break }
                     do {
@@ -202,14 +200,6 @@ extension VaultManager {
                     } catch {
                         continue
                     }
-                }
-                if !Task.isCancelled {
-                    Log.warning("Joiner vault poll timed out after \(Self.joinerPollMaxDuration)s")
-                    NotificationCenter.default.post(
-                        name: .vaultPairingError,
-                        object: nil,
-                        userInfo: ["message": "Pairing timed out waiting for key bundle"]
-                    )
                 }
             }()
 

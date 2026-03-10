@@ -133,6 +133,8 @@ final class JoinerPairingSheetViewModel {
         do {
             try await vaultManager.sendPinEcho(enteredPin, to: initiatorInboxId)
 
+            countdownTask?.cancel()
+
             let vaultInboxId = await vaultManager.vaultInboxId ?? ""
             let emojis = PairingCoordinator.emojiFingerprint(
                 inboxA: initiatorInboxId,
