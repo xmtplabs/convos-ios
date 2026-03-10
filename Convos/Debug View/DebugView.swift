@@ -161,6 +161,8 @@ struct DebugViewSection: View {
                 .disabled(isRenewingAssets)
             }
 
+            SeedConversationsView(session: session)
+
             Section("Sheets") {
                 Button {
                     presentingPhotosInfoSheet = true
