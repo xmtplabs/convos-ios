@@ -37,8 +37,11 @@ public actor VaultImportSyncDrainer {
         guard !newIds.isEmpty else { return }
 
         pendingInboxIds.formUnion(newIds)
-        sortedQueue = []
-        resumeDraining()
+
+        if drainTask == nil || drainTask?.isCancelled == true {
+            sortedQueue = []
+            resumeDraining()
+        }
     }
 
     public func resume() {
@@ -60,7 +63,7 @@ public actor VaultImportSyncDrainer {
     }
 
     private func resumeDraining() {
-        drainTask?.cancel()
+        guard drainTask == nil || drainTask?.isCancelled == true else { return }
         drainTask = Task { [weak self] in
             guard let self else { return }
             await self.drain()
@@ -68,63 +71,64 @@ public actor VaultImportSyncDrainer {
     }
 
     private func drain() async {
-        if sortedQueue.isEmpty {
+        while true {
             let remaining = pendingInboxIds.subtracting(syncedInboxIds)
-            guard !remaining.isEmpty else { return }
+            guard !remaining.isEmpty else { break }
+
             sortedQueue = await fetchAndSortByActivity(inboxIds: remaining)
-        }
 
-        let total = pendingInboxIds.count
-        Log.info("VaultImportSyncDrainer: draining \(sortedQueue.count) inboxes (\(syncedInboxIds.count)/\(total) already synced)")
+            let total = pendingInboxIds.count
+            Log.info("VaultImportSyncDrainer: draining \(sortedQueue.count) inboxes (\(syncedInboxIds.count)/\(total) already synced)")
 
-        while let inbox = sortedQueue.first {
-            guard !Task.isCancelled else { return }
-            sortedQueue.removeFirst()
-
-            if syncedInboxIds.contains(inbox.inboxId) { continue }
-
-            if await lifecycleManager.isAwake(clientId: inbox.clientId) {
-                syncedInboxIds.insert(inbox.inboxId)
-                continue
-            }
-
-            do {
-                Log.debug("VaultImportSyncDrainer: syncing inbox \(inbox.inboxId)")
-                try await withTimeout(seconds: Self.perInboxTimeout) {
-                    let service = try await self.lifecycleManager.wake(
-                        clientId: inbox.clientId,
-                        inboxId: inbox.inboxId,
-                        reason: .activityRanking
-                    )
-                    _ = try await service.inboxStateManager.waitForInboxReadyResult()
-                }
-
-                try? await Task.sleep(for: .seconds(Self.settleDelay))
+            while let inbox = sortedQueue.first {
                 guard !Task.isCancelled else { return }
+                sortedQueue.removeFirst()
 
-                await lifecycleManager.sleep(clientId: inbox.clientId)
-                syncedInboxIds.insert(inbox.inboxId)
-                Log.debug("VaultImportSyncDrainer: finished inbox \(inbox.inboxId)")
+                if syncedInboxIds.contains(inbox.inboxId) { continue }
 
-                let synced = syncedInboxIds.count
-                if synced.isMultiple(of: 10) {
-                    Log.info("VaultImportSyncDrainer: progress \(synced)/\(total)")
+                if await lifecycleManager.isAwake(clientId: inbox.clientId) {
+                    syncedInboxIds.insert(inbox.inboxId)
+                    continue
                 }
 
-                try? await Task.sleep(for: .seconds(Self.betweenInboxDelay))
-            } catch {
-                Log.warning("VaultImportSyncDrainer: failed to sync inbox \(inbox.inboxId): \(error)")
-                await lifecycleManager.sleep(clientId: inbox.clientId)
-                syncedInboxIds.insert(inbox.inboxId)
+                do {
+                    Log.debug("VaultImportSyncDrainer: syncing inbox \(inbox.inboxId)")
+                    try await withTimeout(seconds: Self.perInboxTimeout) {
+                        let service = try await self.lifecycleManager.wake(
+                            clientId: inbox.clientId,
+                            inboxId: inbox.inboxId,
+                            reason: .activityRanking
+                        )
+                        _ = try await service.inboxStateManager.waitForInboxReadyResult()
+                    }
+
+                    try? await Task.sleep(for: .seconds(Self.settleDelay))
+                    guard !Task.isCancelled else { return }
+
+                    await lifecycleManager.sleep(clientId: inbox.clientId)
+                    syncedInboxIds.insert(inbox.inboxId)
+                    Log.debug("VaultImportSyncDrainer: finished inbox \(inbox.inboxId)")
+
+                    let synced = syncedInboxIds.count
+                    if synced.isMultiple(of: 10) {
+                        Log.info("VaultImportSyncDrainer: progress \(synced)/\(total)")
+                    }
+
+                    try? await Task.sleep(for: .seconds(Self.betweenInboxDelay))
+                } catch {
+                    Log.warning("VaultImportSyncDrainer: failed to sync inbox \(inbox.inboxId): \(error)")
+                    await lifecycleManager.sleep(clientId: inbox.clientId)
+                    syncedInboxIds.insert(inbox.inboxId)
+                }
             }
+
+            guard !Task.isCancelled else { return }
         }
 
-        if !Task.isCancelled {
-            Log.info("VaultImportSyncDrainer: completed \(syncedInboxIds.count)/\(total)")
-            pendingInboxIds.removeAll()
-            syncedInboxIds.removeAll()
-            sortedQueue = []
-        }
+        Log.info("VaultImportSyncDrainer: completed \(syncedInboxIds.count)/\(pendingInboxIds.count)")
+        pendingInboxIds.removeAll()
+        syncedInboxIds.removeAll()
+        sortedQueue = []
     }
 
     private struct InboxRow {
