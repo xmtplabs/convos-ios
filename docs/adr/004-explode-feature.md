@@ -328,7 +328,7 @@ However, the per-conversation identity model provides cryptographic assurance: e
 
 - ADR 002: Per-Conversation Identity Model (explains why destroying the inbox destroys the conversation's cryptographic identity)
 - ADR 003: Inbox Lifecycle Management (explains inbox deletion process)
-- ADR 005: Profile Storage in Conversation Metadata (also uses XMTP custom metadata for expiration timestamps)
+- ADR 005: Member Profile System (profiles use XMTP messages; expiration timestamps remain in appData)
 
 ## References
 

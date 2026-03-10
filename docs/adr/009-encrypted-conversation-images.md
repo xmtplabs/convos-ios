@@ -6,7 +6,7 @@
 
 ## Context
 
-Convos needs end-to-end confidentiality for profile pictures and group images shared in conversation metadata. The design must fit XMTP metadata constraints, preserve backward compatibility, and remain practical to ship and operate.
+Convos needs end-to-end confidentiality for profile pictures and group images. Profile avatars are transmitted via ProfileUpdate and ProfileSnapshot messages (see ADR 005) as `EncryptedProfileImageRef` references. Group images are stored in conversation metadata. The design must preserve backward compatibility and remain practical to ship and operate.
 
 ## Decision
 
@@ -49,10 +49,11 @@ Use one shared encryption key per conversation group and store encrypted image r
 
 ## Related Files
 
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/proto/conversation_custom_metadata.proto`
-- `ConvosCore/Sources/ConvosCore/Crypto/ImageEncryption.swift`
-- `ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift`
-- `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationMetadataWriter.swift`
+- `ConvosProfiles/Sources/ConvosProfiles/Proto/profile_messages.proto` — `EncryptedProfileImageRef` for profile avatars
+- `ConvosProfiles/Sources/ConvosProfiles/Crypto/ImageEncryption.swift` — AES-256-GCM encrypt/decrypt
+- `ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift` — encrypts and uploads profile avatars
+- `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationMetadataWriter.swift` — group image encryption
+- `ConvosCore/Sources/ConvosCore/Crypto/EncryptedImageService.swift` — encrypted image loading
 - `Convos/Shared Views/AvatarView.swift`
 
 ## Related Decisions
