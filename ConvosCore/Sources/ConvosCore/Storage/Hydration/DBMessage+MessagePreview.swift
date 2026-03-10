@@ -49,6 +49,8 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "sent an invite"
                 }
+            case .assistantJoinRequest:
+                text = ""
             }
 
         case .reply:
@@ -74,6 +76,8 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "replied with an invite"
                 }
+            case .assistantJoinRequest:
+                text = ""
             }
 
         case .reaction:
