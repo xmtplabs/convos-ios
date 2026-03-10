@@ -56,7 +56,8 @@ extension DBConversationDetails {
             invite: conversationInvite?.hydrateInvite(),
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
-            isLocked: conversation.isLocked
+            isLocked: conversation.isLocked,
+            assistantJoinStatus: conversation.assistantJoinStatus
         )
     }
 }
