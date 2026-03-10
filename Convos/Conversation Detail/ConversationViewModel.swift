@@ -934,6 +934,7 @@ extension ConversationViewModel {
         assistantJoinStatus = .pending
         Self.assistantJoinStatuses[conversation.id] = .pending
         assistantJoinDismissTask?.cancel()
+        assistantJoinTask?.cancel()
 
         let forceErrorCode = assistantJoinForceErrorCode
         let conversationId = conversation.id
