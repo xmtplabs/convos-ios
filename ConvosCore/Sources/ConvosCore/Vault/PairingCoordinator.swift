@@ -124,7 +124,6 @@ public actor PairingCoordinator {
         guard let initiatorInboxId else { throw PairingError.notConnected }
         let emojis = Self.emojiFingerprint(inboxA: initiatorInboxId, inboxB: joinerInboxId, pin: generatedPin)
         updateState(.waitingForEmojiConfirmation(emojis: emojis, joinerInboxId: joinerInboxId))
-        startExpirationTimer()
     }
 
     public func confirmEmoji() async throws {
