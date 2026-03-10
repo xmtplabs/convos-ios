@@ -495,8 +495,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                         guard let self else { return }
                         let count = notification.userInfo?["importedCount"] as? Int ?? 0
                         let importedInboxIds = notification.userInfo?["importedInboxIds"] as? Set<String> ?? []
-                        Log.info("Vault key bundle imported (\(count) keys), rebalancing then draining")
-                        await self.lifecycleManager.rebalance()
+                        Log.info("Vault key bundle imported (\(count) keys), starting drainer")
                         await self.importSyncDrainer.startDraining(importedInboxIds: importedInboxIds)
                     }
                 }
