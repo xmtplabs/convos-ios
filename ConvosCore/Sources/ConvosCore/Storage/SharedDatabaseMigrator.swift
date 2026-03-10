@@ -375,6 +375,7 @@ extension SharedDatabaseMigrator {
         migrator.registerMigration("addAssistantJoinStatusToConversation") { db in
             try db.alter(table: "conversation") { t in
                 t.add(column: "assistantJoinStatus", .text)
+                t.add(column: "assistantJoinRequestedBy", .text)
             }
         }
 

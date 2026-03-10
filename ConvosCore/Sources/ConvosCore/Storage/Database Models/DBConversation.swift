@@ -50,6 +50,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
         static let assistantJoinStatus: Column = Column(CodingKeys.assistantJoinStatus)
+        static let assistantJoinRequestedBy: Column = Column(CodingKeys.assistantJoinRequestedBy)
     }
 
     let id: String
@@ -75,6 +76,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageLastRenewed: Date?
     let isUnused: Bool
     let assistantJoinStatus: AssistantJoinStatus?
+    let assistantJoinRequestedBy: String?
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
         [Columns.creatorId, Columns.id],
@@ -233,7 +235,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -261,7 +264,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -289,7 +293,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -317,7 +322,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -345,7 +351,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -375,7 +382,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -403,7 +411,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -431,7 +440,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -459,7 +469,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -487,7 +498,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -515,7 +527,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -543,7 +556,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -571,7 +585,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -599,7 +614,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -627,7 +643,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -655,7 +672,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
@@ -683,11 +701,12 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 
-    func with(assistantJoinStatus: AssistantJoinStatus?) -> Self {
+    func with(assistantJoinStatus: AssistantJoinStatus?, assistantJoinRequestedBy: String?) -> Self {
         .init(
             id: id,
             inboxId: inboxId,
@@ -711,7 +730,8 @@ extension DBConversation {
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            assistantJoinRequestedBy: assistantJoinRequestedBy
         )
     }
 

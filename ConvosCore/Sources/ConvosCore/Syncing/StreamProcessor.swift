@@ -265,7 +265,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     ) async {
         Log.info("Received AssistantJoinRequest status=\(request.status.rawValue) requestId=\(request.requestId) for conversation=\(conversationId)")
         do {
-            try await conversationWriter.updateAssistantJoinStatus(request.status, for: conversationId)
+            try await conversationWriter.updateAssistantJoinStatus(request.status, requestedBy: request.requestedByInboxId, for: conversationId)
         } catch {
             Log.error("Failed to update assistant join status: \(error.localizedDescription)")
         }

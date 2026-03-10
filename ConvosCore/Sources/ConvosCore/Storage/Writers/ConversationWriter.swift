@@ -37,6 +37,7 @@ protocol ConversationWriterProtocol: Sendable {
     ) async throws -> String
     func updateAssistantJoinStatus(
         _ status: AssistantJoinStatus?,
+        requestedBy: String?,
         for conversationId: String
     ) async throws
 }
@@ -156,7 +157,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil
+                assistantJoinStatus: nil,
+                assistantJoinRequestedBy: nil
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -270,13 +272,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
     func updateAssistantJoinStatus(
         _ status: AssistantJoinStatus?,
+        requestedBy: String?,
         for conversationId: String
     ) async throws {
         try await databaseWriter.write { db in
             guard var conversation = try DBConversation.fetchOne(db, id: conversationId) else {
                 return
             }
-            conversation = conversation.with(assistantJoinStatus: status)
+            conversation = conversation.with(assistantJoinStatus: status, assistantJoinRequestedBy: requestedBy)
             try conversation.update(db)
         }
     }
@@ -356,7 +359,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageEncryptionKey: metadata.imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            assistantJoinRequestedBy: nil
         )
     }
 
@@ -442,13 +446,14 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageLastRenewed = nil
         }
 
-        // Preserve assistantJoinStatus (managed locally, not from XMTP metadata)
+        // Preserve assistant join fields (managed locally, not from XMTP metadata)
         let assistantJoinStatus = existingConversation?.assistantJoinStatus
+        let assistantJoinRequestedBy = existingConversation?.assistantJoinRequestedBy
 
         // Apply preserved local fields
         var conversationToSave = dbConversation
             .with(imageLastRenewed: imageLastRenewed)
-            .with(assistantJoinStatus: assistantJoinStatus)
+            .with(assistantJoinStatus: assistantJoinStatus, assistantJoinRequestedBy: assistantJoinRequestedBy)
 
         if !dbConversation.inviteTag.isEmpty,
            let localConversation = try DBConversation
