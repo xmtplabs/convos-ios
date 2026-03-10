@@ -357,6 +357,12 @@ actor StreamProcessor: StreamProcessorProtocol {
                 profile = profile.with(metadata: profileMetadata.isEmpty ? nil : profileMetadata)
 
                 try profile.save(db)
+
+                if profile.isAgent, var conv = try DBConversation.fetchOne(db, id: conversationId),
+                   conv.assistantJoinStatus != nil {
+                    conv = conv.with(assistantJoinStatus: nil, assistantJoinRequestedBy: nil)
+                    try conv.update(db)
+                }
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -415,6 +421,16 @@ actor StreamProcessor: StreamProcessorProtocol {
                     profile = profile.with(metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata)
 
                     try profile.save(db)
+                }
+
+                let hasAgent = try DBMemberProfile
+                    .filter(DBMemberProfile.Columns.conversationId == conversationId)
+                    .filter(DBMemberProfile.Columns.memberKind == DBMemberKind.agent.rawValue)
+                    .fetchCount(db) > 0
+                if hasAgent, var conv = try DBConversation.fetchOne(db, id: conversationId),
+                   conv.assistantJoinStatus != nil {
+                    conv = conv.with(assistantJoinStatus: nil, assistantJoinRequestedBy: nil)
+                    try conv.update(db)
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
