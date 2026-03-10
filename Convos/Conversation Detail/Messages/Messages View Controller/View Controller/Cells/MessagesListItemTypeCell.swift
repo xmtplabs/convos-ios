@@ -113,6 +113,14 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case .assistantJoinStatus(let status):
+                    AssistantJoinStatusView(
+                        status: status,
+                        onRetry: config.onRetryAssistantJoin
+                    )
+                    .padding(.vertical, DesignConstants.Spacing.step4x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

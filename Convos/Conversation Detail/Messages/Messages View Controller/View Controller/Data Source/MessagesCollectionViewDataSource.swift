@@ -24,6 +24,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAboutAssistants: (() -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    var onRetryAssistantJoin: (() -> Void)?
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -84,6 +85,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onAgentOutOfCredits: { [weak self] in
                 self?.onAgentOutOfCredits?()
+            },
+            onRetryAssistantJoin: { [weak self] in
+                self?.onRetryAssistantJoin?()
             },
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
                 self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)

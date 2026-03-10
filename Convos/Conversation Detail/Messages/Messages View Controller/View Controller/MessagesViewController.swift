@@ -24,6 +24,7 @@ final class MessagesViewController: UIViewController {
         let messages: [MessagesListItemType]
         let invite: Invite
         let hasLoadedAllMessages: Bool
+        let assistantJoinStatus: AssistantJoinStatus?
     }
 
     private enum ReactionTypes {
@@ -184,6 +185,7 @@ final class MessagesViewController: UIViewController {
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAboutAssistants: (() -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    var onRetryAssistantJoin: (() -> Void)?
     var shouldBlurPhotos: Bool = true {
         didSet {
             guard oldValue != shouldBlurPhotos else { return }
@@ -336,6 +338,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onAgentOutOfCredits = { [weak self] in
             self?.onAgentOutOfCredits?()
+        }
+        dataSource.onRetryAssistantJoin = { [weak self] in
+            self?.onRetryAssistantJoin?()
         }
 
         setupImmediateTouchGesture()
@@ -491,6 +496,10 @@ extension MessagesViewController {
             } else {
                 cells.append(.agentOutOfCredits(agentMember.profile))
             }
+        }
+
+        if let joinStatus = state?.assistantJoinStatus {
+            cells.append(.assistantJoinStatus(joinStatus))
         }
 
         let sections: [MessagesCollectionSection] = [

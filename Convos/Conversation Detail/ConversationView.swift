@@ -75,6 +75,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
             onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
+            onRetryAssistantJoin: { viewModel.requestAssistantJoin() },
+            assistantJoinStatus: viewModel.assistantJoinStatus,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
             },
@@ -149,6 +151,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
                             hasAssistant: viewModel.conversation.hasAssistant,
+                            assistantJoinStatus: viewModel.assistantJoinStatus,
                             isEnabled: messagesTopBarTrailingItemEnabled,
                             onConvoCode: {
                                 if viewModel.isFull {
