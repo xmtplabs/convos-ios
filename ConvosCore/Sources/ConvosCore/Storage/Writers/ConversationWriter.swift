@@ -35,6 +35,10 @@ protocol ConversationWriterProtocol: Sendable {
         for signedInvite: SignedInvite,
         inboxId: String
     ) async throws -> String
+    func updateAssistantJoinStatus(
+        _ status: AssistantJoinStatus?,
+        for conversationId: String
+    ) async throws
 }
 
 extension ConversationWriterProtocol {
@@ -262,6 +266,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         await processProfileMessagesFromHistory(conversation: conversation)
 
         return dbConversation
+    }
+
+    func updateAssistantJoinStatus(
+        _ status: AssistantJoinStatus?,
+        for conversationId: String
+    ) async throws {
+        try await databaseWriter.write { db in
+            guard var conversation = try DBConversation.fetchOne(db, id: conversationId) else {
+                return
+            }
+            conversation = conversation.with(assistantJoinStatus: status)
+            try conversation.update(db)
+        }
     }
 
     // MARK: - Helper Methods
