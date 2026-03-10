@@ -8,6 +8,7 @@ Verify that when a new conversation is created on one paired device, it appears 
 - Both devices have been paired via the Vault pairing flow (test 26 or equivalent).
 - Both devices are past onboarding and showing the conversations list (not inside any settings screen or sheet).
 - Both simulators have Reduce Motion enabled and animations disabled (per RULES.md simulator preparation).
+- If running after test 26, both devices already have seeded conversations with varied message types. New conversations created in this test are in addition to those.
 
 ## Setup
 

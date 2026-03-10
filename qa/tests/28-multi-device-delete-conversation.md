@@ -8,15 +8,15 @@ Verify that deleting and exploding conversations on one paired device correctly 
 - Both devices have been paired via the Vault pairing flow (test 26 or equivalent).
 - Both devices are past onboarding and showing the conversations list.
 - Both simulators have Reduce Motion enabled and animations disabled (per RULES.md simulator preparation).
-- At least two conversations exist on both devices (e.g., from test 27 or prior setup).
+- At least two conversations exist on both devices (e.g., from test 26 seed data, test 27, or prior setup).
 
 ## Setup
 
-### Create test conversations
+### Verify or create test conversations
 
-If conversations are not already present on both devices:
+If running after test 26 with seed data, conversations are already present on both devices. Otherwise:
 
-1. On **Device A**, create two conversations by tapping compose (`compose-button`), sending a message in each, and navigating back. Send identifiable messages like "Alpha conversation" and "Beta conversation" so the conversations are distinguishable.
+1. On **Device A**, use the seed feature (Settings → Debug → Seed Conversations) to create 2 conversations, or manually create them by tapping compose (`compose-button`), sending a message in each, and navigating back.
 2. Wait for both conversations to appear on **Device B** (up to 30 seconds each). Verify with `sim_find_elements`.
 3. Confirm both devices show both conversations in their lists.
 

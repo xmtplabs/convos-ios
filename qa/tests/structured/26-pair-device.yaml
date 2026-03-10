@@ -3,9 +3,10 @@ name: "Pair Device"
 description: >
   Verify that two devices can pair via the Vault pairing flow with pin +
   emoji fingerprint verification, and that after pairing, conversations
-  from both devices are synced across both devices.
-tags: [vault, multi-device, pairing, security]
-estimated_duration_s: 180
+  from both devices (including CLI-populated seed conversations with varied
+  message types) are synced across both devices.
+tags: [vault, multi-device, pairing, security, seed]
+estimated_duration_s: 300
 
 multi_device: true
 devices:
@@ -22,45 +23,141 @@ prerequisites:
   note: "Both simulators must be erased to ensure fresh keychain state. Cloned simulators share keychain and will cause memberCannotBeSelf errors."
 
 setup:
-  - id: create_convo_a
-    device: device_a
-    name: "Create a conversation on Device A"
-    actions:
-      - tap: { id: "compose-button", retries: 3 }
-      - wait: 2
-      - tap: { id: "conversation-toolbar-button" }
-      - wait: 1
-      - tap: { label: "Continue" }
-      - type_in_field: { id: "quick-edit-display-name-field", text: "Device A Convo" }
-      - tap: { id: "quick-edit-done-button" }
-      - wait: 2
-      - type_in_field: { id: "message-text-field", text: "Hello from A" }
-      - tap: { id: "send-message-button" }
-      - wait: 2
-      - tap: { label: "Close" }
-    verify:
-      - element_exists: { label_contains: "Device A Convo" }
-    criteria: setup_convo_a
+  # --- Device A: onboard + seed ---
 
-  - id: create_convo_b
-    device: device_b
-    name: "Create a conversation on Device B"
+  - id: onboard_a
+    device: device_a
+    name: "Create initial conversation on Device A to complete onboarding"
     actions:
       - tap: { id: "compose-button", retries: 3 }
       - wait: 2
       - tap: { id: "conversation-toolbar-button" }
       - wait: 1
       - tap: { label: "Continue" }
-      - type_in_field: { id: "quick-edit-display-name-field", text: "Device B Convo" }
-      - tap: { id: "quick-edit-done-button" }
-      - wait: 2
-      - type_in_field: { id: "message-text-field", text: "Hello from B" }
+      - type_in_field: { id: "message-text-field", text: "Setup from A" }
       - tap: { id: "send-message-button" }
       - wait: 2
       - tap: { label: "Close" }
     verify:
-      - element_exists: { label_contains: "Device B Convo" }
-    criteria: setup_convo_b
+      - element_exists: { id: "compose-button" }
+
+  - id: seed_a
+    device: device_a
+    name: "Seed 5 conversations on Device A via Debug settings"
+    actions:
+      - tap: { id: "app-settings-button" }
+      - tap: { label: "Debug" }
+      - wait: 1
+      - tap: { label: "5" }
+      - tap: { label: "Seed Conversations" }
+      - wait_for_element: { label: "checkmark.circle.fill", timeout: 120 }
+    verify:
+      - element_exists: { label: "checkmark.circle.fill" }
+    criteria: seed_a_completed
+
+  - id: navigate_back_from_debug_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Back" }
+      - wait: 1
+      - tap: { label: "Cancel" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: populate_seed_a
+    device: device_a
+    name: "Read seed events and populate conversations via CLI"
+    actions:
+      - log_events: { event_filter: "qa.seed_conversation" }
+    note: >
+      For each seed conversation:
+      1. Extract invite URL from event
+      2. CLI: convos conversations join <slug> --profile-name "QA Bot"
+      3. Wait for member.joined event in app logs
+      4. CLI: convos conversation send-text <id> "Hello from QA Bot"
+      5. Get msg ID from send output
+      6. CLI: convos conversation send-reaction <id> <msg-id> add "👍"
+      7. CLI: convos conversation send-reply <id> <msg-id> "This is a reply"
+      8. CLI: convos conversation send-text <id> "Check out https://example.com/test"
+      9. curl -L -o /tmp/qa-photo.jpg https://picsum.photos/400/300
+      10. CLI: convos conversation send-attachment <id> /tmp/qa-photo.jpg
+    criteria: seed_a_populated
+
+  - id: count_convos_a
+    device: device_a
+    name: "Count conversations on Device A"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_a_count: "count of conversation-list-item elements"
+    note: "Expected: ~6 (1 manual + 5 seeded)"
+
+  # --- Device B: onboard + seed ---
+
+  - id: onboard_b
+    device: device_b
+    name: "Create initial conversation on Device B to complete onboarding"
+    actions:
+      - tap: { id: "compose-button", retries: 3 }
+      - wait: 2
+      - tap: { id: "conversation-toolbar-button" }
+      - wait: 1
+      - tap: { label: "Continue" }
+      - type_in_field: { id: "message-text-field", text: "Setup from B" }
+      - tap: { id: "send-message-button" }
+      - wait: 2
+      - tap: { label: "Close" }
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: seed_b
+    device: device_b
+    name: "Seed 3 conversations on Device B via Debug settings"
+    actions:
+      - tap: { id: "app-settings-button" }
+      - tap: { label: "Debug" }
+      - wait: 1
+      - tap: { label: "3" }
+      - tap: { label: "Seed Conversations" }
+      - wait_for_element: { label: "checkmark.circle.fill", timeout: 120 }
+    verify:
+      - element_exists: { label: "checkmark.circle.fill" }
+    criteria: seed_b_completed
+
+  - id: navigate_back_from_debug_b
+    device: device_b
+    name: "Navigate back to conversations list on Device B"
+    actions:
+      - tap: { label: "Back" }
+      - wait: 1
+      - tap: { label: "Cancel" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: populate_seed_b
+    device: device_b
+    name: "Read seed events and populate Device B conversations via CLI"
+    actions:
+      - log_events: { event_filter: "qa.seed_conversation" }
+    note: >
+      For each seed conversation:
+      1. Extract invite URL from event
+      2. CLI: convos conversations join <slug> --profile-name "QA Bot"
+      3. Wait for member.joined event
+      4. CLI: send at least 2 messages per conversation (text + reaction or reply)
+    criteria: seed_b_populated
+
+  - id: count_convos_b
+    device: device_b
+    name: "Count conversations on Device B"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_b_count: "count of conversation-list-item elements"
+    note: "Expected: ~4 (1 manual + 3 seeded)"
 
 steps:
   # --- Phase 1: Initiate pairing on Device A ---
@@ -216,18 +313,24 @@ steps:
     verify:
       - element_exists: { id: "compose-button" }
 
-  - id: verify_sync_a
+  - id: wait_for_sync_a
     device: device_a
-    name: "Device A has both conversations and no extras"
+    name: "Wait for VaultImportSyncDrainer to process imported inboxes"
     actions:
+      - wait: 60
       - find_elements: { pattern: "conversation-list-item" }
     save:
-      device_a_convo_count: "count of conversation-list-item elements"
+      device_a_post_pairing_count: "count of conversation-list-item elements"
+    note: "VaultImportSyncDrainer processes ~1 inbox per 10 seconds. Wait for all to appear."
+
+  - id: verify_sync_a
+    device: device_a
+    name: "Device A has conversations from both devices"
     verify:
-      - element_exists: { label_contains: "Device A Convo" }
-      - element_exists: { label_contains: "Device B Convo" }
-      - element_count_exact: { pattern: "conversation-list-item", count: 2 }
-    criteria: device_a_both_convos
+      - element_count_gte: { pattern: "conversation-list-item", min: "{{device_a_count}}" }
+      - element_exists: { label_contains: "Seed" }
+    note: "Device A should have its own conversations plus Device B's seed conversations"
+    criteria: device_a_synced
 
   - id: dismiss_pairing_b
     device: device_b
@@ -239,37 +342,42 @@ steps:
       - element_exists: { id: "compose-button" }
     note: "Device B may be on completed or emoji screen"
 
-  - id: verify_sync_b
+  - id: wait_for_sync_b
     device: device_b
-    name: "Device B has both conversations and no extras"
+    name: "Wait for sync on Device B"
     actions:
+      - wait: 60
       - find_elements: { pattern: "conversation-list-item" }
     save:
-      device_b_convo_count: "count of conversation-list-item elements"
+      device_b_post_pairing_count: "count of conversation-list-item elements"
+
+  - id: verify_sync_b
+    device: device_b
+    name: "Device B has conversations from both devices"
     verify:
-      - element_exists: { label_contains: "Device A Convo" }
-      - element_exists: { label_contains: "Device B Convo" }
-      - element_count_exact: { pattern: "conversation-list-item", count: 2 }
-    criteria: device_b_both_convos
+      - element_count_gte: { pattern: "conversation-list-item", min: "{{device_b_count}}" }
+      - element_exists: { label_contains: "Seed" }
+    note: "Device B should have its own conversations plus Device A's seed conversations"
+    criteria: device_b_synced
 
-  - id: verify_lists_match
-    name: "Conversation lists match exactly on both devices"
+  - id: verify_counts_match
+    name: "Conversation counts match on both devices"
     verify:
-      - values_equal: { a: "{{device_a_convo_count}}", b: "{{device_b_convo_count}}" }
-    note: "No unconsumed unused conversations should leak across devices during pairing"
-    criteria: convo_lists_match
+      - values_equal: { a: "{{device_a_post_pairing_count}}", b: "{{device_b_post_pairing_count}}" }
+    criteria: convo_counts_match
 
-  # --- Phase 8: Verify pre-pairing messages synced ---
+  # --- Phase 8: Verify synced conversation content ---
 
-  - id: verify_messages_a
+  - id: verify_content_a
     device: device_a
-    name: "Device A shows pre-pairing messages from Device B Convo"
+    name: "Open a synced seed conversation on Device A and verify messages"
     actions:
-      - tap: { label_contains: "Device B Convo" }
+      - tap: { label_contains: "Seed" }
       - wait: 5
     verify:
-      - element_exists: { label_contains: "Hello from B" }
-    criteria: pre_pairing_messages_on_a
+      - element_exists: { id: "message-text-field" }
+    note: "Look for QA Bot messages — text, reactions, replies, photos, or links"
+    criteria: synced_content_on_a
 
   - id: navigate_back_a
     device: device_a
@@ -280,15 +388,16 @@ steps:
     verify:
       - element_exists: { id: "compose-button" }
 
-  - id: verify_messages_b
+  - id: verify_content_b
     device: device_b
-    name: "Device B shows pre-pairing messages from Device A Convo"
+    name: "Open a synced seed conversation on Device B and verify messages"
     actions:
-      - tap: { label_contains: "Device A Convo" }
+      - tap: { label_contains: "Seed" }
       - wait: 5
     verify:
-      - element_exists: { label_contains: "Hello from A" }
-    criteria: pre_pairing_messages_on_b
+      - element_exists: { id: "message-text-field" }
+    note: "Look for QA Bot messages from Device A's seed conversations"
+    criteria: synced_content_on_b
 
   - id: navigate_back_b
     device: device_b
@@ -302,10 +411,14 @@ steps:
 teardown: []
 
 criteria:
-  setup_convo_a:
-    description: "Conversation 'Device A Convo' created on Device A"
-  setup_convo_b:
-    description: "Conversation 'Device B Convo' created on Device B"
+  seed_a_completed:
+    description: "5 seed conversations created on Device A (checkmark shown)"
+  seed_a_populated:
+    description: "CLI QA Bot joined Device A's seed conversations and sent varied message types (text, reaction, reply, URL, photo)"
+  seed_b_completed:
+    description: "3 seed conversations created on Device B (checkmark shown)"
+  seed_b_populated:
+    description: "CLI QA Bot joined Device B's seed conversations and sent messages"
   single_device_before_pairing:
     description: "Device A shows single-device state before pairing"
   pairing_sheet_qr_code:
@@ -328,13 +441,13 @@ criteria:
     description: "Pairing completes — Device A shows 'Device added' with checkmark"
   devices_list_both:
     description: "Devices list shows both devices (one marked 'This device')"
-  device_a_both_convos:
-    description: "Device A's conversations list contains exactly 'Device A Convo' and 'Device B Convo' (no extras)"
-  device_b_both_convos:
-    description: "Device B's conversations list contains exactly 'Device A Convo' and 'Device B Convo' (no extras)"
-  convo_lists_match:
-    description: "Both devices have the same number of conversations — no unconsumed unused conversations leaked during pairing"
-  pre_pairing_messages_on_a:
-    description: "Device A shows 'Hello from B' inside 'Device B Convo' — pre-pairing messages synced via device sync"
-  pre_pairing_messages_on_b:
-    description: "Device B shows 'Hello from A' inside 'Device A Convo' — pre-pairing messages synced via device sync"
+  device_a_synced:
+    description: "Device A's conversations list contains conversations from both devices including seed conversations"
+  device_b_synced:
+    description: "Device B's conversations list contains conversations from both devices including seed conversations"
+  convo_counts_match:
+    description: "Both devices have the same conversation count — no unconsumed unused conversations leaked during pairing"
+  synced_content_on_a:
+    description: "Synced conversation on Device A contains messages (from CLI QA Bot)"
+  synced_content_on_b:
+    description: "Synced conversation on Device B contains messages (from CLI QA Bot)"
