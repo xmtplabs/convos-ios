@@ -94,7 +94,8 @@ final class MessagesViewController: UIViewController {
                 return
             }
 
-            let animated = oldValue?.conversation.id == state.conversation.id
+            let statusJustCleared = previousAssistantJoinStatus != nil && state.conversation.assistantJoinStatus == nil
+            let animated = oldValue?.conversation.id == state.conversation.id && !statusJustCleared
             processUpdates(
                 for: state.conversation,
                 with: state.messages,
@@ -512,7 +513,11 @@ extension MessagesViewController {
             }
         }
 
-        if let joinStatus = state?.conversation.assistantJoinStatus {
+        let hasAgentJoinedUpdate = messages.contains { item in
+            if case .update(_, let update, _) = item, update.addedAgent { return true }
+            return false
+        }
+        if let joinStatus = state?.conversation.assistantJoinStatus, !hasAgentJoinedUpdate {
             let requesterName: String? = {
                 guard let requestedBy = state?.conversation.assistantJoinRequestedBy else { return nil }
                 if requestedBy == state?.conversation.inboxId { return nil }
