@@ -1,6 +1,7 @@
-# ADR 005: Profile Storage in Conversation Metadata
+# ADR 005: Member Profile System
 
-> **Status**: Accepted
+> **Status**: Accepted (revised 2026-03)
+> **Supersedes**: Original ADR 005 (profile storage in appData)
 
 ## Context
 
@@ -13,58 +14,125 @@ Convos uses a per-conversation identity model where each conversation has its ow
 - Works within XMTP's infrastructure constraints
 - Provides good UX for users who want to reuse profiles
 
+The original design stored profiles in the group's `appData` field as compressed protobuf. The biggest problem was that appData is not permissioned — any member could overwrite any other member's profile. This became especially problematic with agents, which could inadvertently clobber human profiles during concurrent metadata writes. Beyond that, the approach caused write contention (concurrent profile and tag updates clobbering each other), wasted bandwidth (changing one name rebroadcast every profile), and coupled profiles with unrelated metadata (invite tags, encryption keys). The system was migrated to dedicated XMTP messages in 2026-03.
+
 ## Decision
 
-We implemented **profile storage in XMTP conversation metadata** using the group's `appData` field. Each conversation stores member profiles in a compressed protobuf format, enabling serverless profile sharing while maintaining complete conversation isolation. A complementary **Quickname** feature provides local-only profile presets that users can quickly apply to new conversations without compromising privacy.
+Member profiles are stored and transmitted as **XMTP group messages** using two custom content types. A complementary **Quickname** feature provides local-only profile presets for convenient reuse across conversations.
 
-### 1. XMTP Custom Metadata Storage
+### 1. Profile Messages
 
-Member profiles are stored directly in XMTP's group metadata using a custom protobuf schema.
+Two custom XMTP content types carry profile data:
 
-**Protobuf Schema:**
+**ProfileUpdate** (`convos.org/profile_update` v1.0) — sent by a member when they change their own profile. The sender's inbox ID is implicit from the XMTP message envelope, preventing spoofing. Sending a ProfileUpdate with no fields set clears the profile.
+
+**ProfileSnapshot** (`convos.org/profile_snapshot` v1.0) — sent after adding members to a group. Contains all current member profiles so new joiners have everyone's data immediately, solving the MLS forward secrecy gap where older messages (including prior ProfileUpdates) may be undecryptable.
+
+Both are silent (`shouldPush = false`), use protobuf encoding, and are not displayed in chat.
+
+**Protobuf Schema** (`ConvosProfiles/Proto/profile_messages.proto`):
 
 ```protobuf
-message ConversationCustomMetadata {
-    string tag = 1;                           // Invite verification tag (see ADR 001)
-    repeated ConversationProfile profiles = 2; // Member profiles array
-    optional sfixed64 expiresAtUnix = 3;      // Expiration timestamp (see ADR 004)
+enum MemberKind {
+    MEMBER_KIND_UNSPECIFIED = 0;
+    MEMBER_KIND_AGENT = 1;
 }
 
-message ConversationProfile {
-    bytes inboxId = 1;      // XMTP inbox ID as raw bytes (32 bytes)
+message MetadataValue {
+    oneof value {
+        string string_value = 1;
+        double number_value = 2;
+        bool bool_value = 3;
+    }
+}
+
+message ProfileUpdate {
+    optional string name = 1;
+    optional EncryptedProfileImageRef encrypted_image = 2;
+    MemberKind member_kind = 3;
+    map<string, MetadataValue> metadata = 4;
+}
+
+message ProfileSnapshot {
+    repeated MemberProfile profiles = 1;
+}
+
+message MemberProfile {
+    bytes inbox_id = 1;  // hex-decoded bytes (32 bytes)
     optional string name = 2;
-    optional string image = 3;  // URL to uploaded avatar image
+    optional EncryptedProfileImageRef encrypted_image = 3;
+    MemberKind member_kind = 4;
+    map<string, MetadataValue> metadata = 5;
 }
-```
 
-**Storage Format:**
-
-```
-Profile Data → ConversationProfile Protobuf →
-ConversationCustomMetadata Array →
-Protobuf Serialize →
-DEFLATE Compress (if >100 bytes) →
-Base64URL Encode →
-XMTP appData (max 8KB)
+message EncryptedProfileImageRef {
+    string url = 1;   // URL to encrypted ciphertext
+    bytes salt = 2;   // 32-byte HKDF salt
+    bytes nonce = 3;  // 12-byte AES-GCM nonce
+}
 ```
 
 **Key Design Decisions:**
 
-1. **Binary Inbox IDs**: Stored as 32 raw bytes instead of 64-character hex strings, saving ~32 bytes per member
-2. **URL-Based Avatars**: Store image URLs (80-100 chars) rather than image data to stay within 8KB limit
-3. **DEFLATE Compression**: Applied when serialized data exceeds 100 bytes, achieving 20-40% size reduction
-4. **Base64URL Encoding**: Safe storage in the string-based `appData` field
+1. **Self-authored updates**: Only the member can send their own ProfileUpdate. The sender's inbox ID comes from the XMTP message, not the payload, preventing impersonation.
+2. **Encrypted avatar references**: Images are encrypted with AES-256-GCM (see ADR 009). Only the `{url, salt, nonce}` tuple is stored in the message; the encryption key lives in the group's encrypted metadata.
+3. **MemberKind enum**: Identifies agents vs regular members. Defaults to `UNSPECIFIED` for backward compatibility.
+4. **Typed metadata**: Arbitrary key-value pairs with string, number (double), and boolean values. Carried in both ProfileUpdate and ProfileSnapshot.
 
-**Capacity:**
+### 2. Profile Resolution Precedence
 
-Based on testing:
-- Each profile: ~142 bytes uncompressed (inbox ID + 25 char name + 80 char URL + overhead)
-- With compression: 150+ profiles fit within 8KB limit
-- Typical conversation (5-10 members): <1KB of metadata
+When building the current profile for a member:
 
-**Location:** `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/proto/conversation_custom_metadata.proto`, `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift`
+1. **Latest ProfileUpdate from that member** — highest priority, self-authored
+2. **Most recent ProfileSnapshot containing that member** — fallback when no individual update exists
+3. **appData profiles** — legacy fallback for backward compatibility with older clients
+4. **No profile** — member has no name/avatar set
 
-### 2. Per-Conversation Profiles
+`ProfileSnapshotBuilder` scans up to 500 messages (descending) to resolve profiles for all current members, using this precedence.
+
+### 3. When Snapshots Are Sent
+
+ProfileSnapshots are sent at three points:
+
+- **Group creation**: `StreamProcessor` sends a snapshot after discovering a new group, ensuring the creator's profile is available to future joiners.
+- **Member added directly**: `ConversationMetadataWriter` sends a snapshot after `addMembers`, giving the new member all existing profiles.
+- **Invite accepted**: `InviteJoinRequestsManager` sends a snapshot after processing a join request.
+
+### 4. Profile Write Flow
+
+```
+User changes name/avatar in UI
+    ↓
+MyProfileWriter
+    ↓
+1. Upload encrypted avatar to S3 (if changed)
+2. Save to GRDB (local DB)
+3. Send ProfileUpdate message to group
+4. Write to appData (best-effort, for backward compat)
+    ↓
+Other members receive ProfileUpdate via stream
+    ↓
+StreamProcessor.processProfileUpdate
+    ↓
+Upsert DBMemberProfile in GRDB
+    ↓
+UI observes GRDB changes
+```
+
+The appData write is best-effort — failures are logged but don't block the update. This maintains backward compatibility with older clients that still read from appData.
+
+### 5. Profile Read Flow (Message-Primary)
+
+`ConversationWriter` uses gap-fill semantics when syncing conversations:
+
+- For each member, check if GRDB already has a profile with name or avatar data (from a ProfileUpdate or ProfileSnapshot message).
+- If yes, skip — message-sourced data takes precedence.
+- If no, fill the gap from appData profiles (legacy fallback).
+- Remove profiles for members no longer in the group.
+
+On initial sync, `ConversationWriter` also scans message history for ProfileUpdate and ProfileSnapshot messages to populate profiles for members who sent updates before the current client joined.
+
+### 6. Per-Conversation Profiles
 
 Each user can have a different profile in each conversation, enforced by the database schema.
 
@@ -72,266 +140,149 @@ Each user can have a different profile in each conversation, enforced by the dat
 
 ```swift
 struct DBMemberProfile {
-    let conversationId: String  // Part of composite primary key
-    let inboxId: String         // Part of composite primary key
+    let conversationId: String    // Composite primary key
+    let inboxId: String           // Composite primary key
     let name: String?
-    let avatar: String?         // URL to uploaded image
+    let avatar: String?           // Encrypted image URL
+    let avatarSalt: Data?         // 32-byte HKDF salt
+    let avatarNonce: Data?        // 12-byte AES-GCM nonce
+    let avatarKey: Data?          // Group encryption key (local only)
+    let avatarLastRenewed: Date?
+    let memberKind: DBMemberKind? // .agent or nil
+    let metadata: ProfileMetadata? // [String: ProfileMetadataValue]
 }
 ```
 
-The composite primary key `(conversationId, inboxId)` ensures:
-- Each user has exactly one profile per conversation
-- No global identity exists across conversations
-- Profiles are completely isolated from each other
+The `avatarKey` is populated from the conversation's `imageEncryptionKey` during profile writes — it's never transmitted in ProfileUpdate or ProfileSnapshot messages.
 
-**Example:**
+### 7. Quickname: Local Profile Presets
 
-A user might be:
-- "Alice Smith" with a professional headshot in their work group
-- "CryptoFan99" with an anonymous avatar in a hobby group
-- "Mom" with a family photo in a family chat
+Quickname solves the UX problem of repeatedly entering profile information without compromising privacy.
 
-These three profiles share nothing except that they're controlled by the same person's device. No external observer can link them.
-
-**Location:** `ConvosCore/Sources/ConvosCore/Storage/Database Models/DBMemberProfile.swift`
-
-### 3. Quickname: Local Profile Presets
-
-Quickname solves the UX problem of repeatedly entering profile information without compromising the privacy model.
-
-**How It Works:**
-
-1. User creates a "Quickname" profile locally (display name + optional avatar)
+1. User creates a Quickname profile locally (display name + optional avatar)
 2. When joining/creating a new conversation, the app prompts: "Tap to chat as [Quickname]"
-3. If tapped within countdown, Quickname profile is copied to the new conversation's per-conversation profile
+3. If accepted, the Quickname profile is copied to the new conversation's per-conversation profile
 4. User can modify the per-conversation profile independently afterward
 
-**Storage:**
+**Storage**: Quickname data is stored locally only (UserDefaults + filesystem) and never transmitted. Other participants cannot detect whether a profile was applied via Quickname or entered manually.
 
-Quickname data is stored **locally only** and never transmitted:
+### 8. Profile Photo Storage
 
-- **UserDefaults**: Display name and randomizer settings as JSON (`QuicknameSettings` key)
-- **Local filesystem**: Profile image as JPEG at `<Documents>/default-profile-image.jpg`
-- **No cloud sync**: Quickname is device-specific
+Profile photos use AES-256-GCM encryption (see ADR 009):
 
-**Privacy Guarantee:**
+1. **Resize and compress**: Image resized and compressed to JPEG
+2. **Encrypt**: AES-256-GCM with key derived from group `imageEncryptionKey` + per-image salt via HKDF
+3. **Upload**: Encrypted ciphertext uploaded to S3
+4. **Store reference**: `{url, salt, nonce}` stored in the ProfileUpdate message
 
-When you use a Quickname in a conversation:
-1. The display name and avatar are copied to that conversation's XMTP metadata
-2. Other members see your profile for that conversation
-3. They have **no way to know** you used a Quickname vs. manually entering the same information
-4. Nothing on the network indicates profile reuse
+Images are cached using a three-tier system (memory → disk → network) with SHA256-based filenames for deduplication.
 
-**Location:** `Convos/Profile/QuicknameSettings.swift`, `Convos/Profile/QuicknameSettingsViewModel.swift`
+### 9. Typed Metadata
 
-### 4. Profile Photo Storage
+Profiles carry arbitrary key-value metadata via `map<string, MetadataValue>`:
 
-Profile photos use a hybrid approach: images are uploaded to cloud storage, and only URLs are stored in metadata.
-
-**Upload Flow:**
-
-1. **Resize and Compress**: Images resized to max dimension and compressed to JPEG at 0.8 quality
-2. **Upload to S3**: Uploaded via Convos API to S3-compatible storage with `public-read` ACL
-3. **Store URL**: Only the URL (80-100 characters) is stored in XMTP metadata
-
-**Image Caching:**
-
-Three-tier cache ensures performance:
-- **Memory**: NSCache with 600 item / 300MB limit
-- **Disk**: 500MB limit with LRU eviction
-- **Network**: Fetched from URL if not cached
-
-Images are cached using SHA256-based filenames for automatic deduplication.
-
-**Location:** `ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift`, `ConvosCore/Sources/ConvosCore/Image Cache/ImageCache.swift`
-
-### 5. Profile Update Flow
-
-**Setting Your Profile:**
-
-```
-User updates name/avatar in UI
-    ↓
-MyProfileWriter.updateProfile()
-    ↓
-1. Upload avatar to S3 (if changed)
-2. Get current XMTP metadata
-3. Upsert profile in metadata array
-4. Compress and encode metadata
-5. Validate size < 8KB
-6. Push to XMTP: group.updateAppData()
-    ↓
-XMTP syncs to all members
-```
-
-**Receiving Profile Updates:**
-
-```
-XMTP syncs group metadata
-    ↓
-ConversationWriter.syncConversation()
-    ↓
-1. Parse appData as ConversationCustomMetadata
-2. Extract memberProfiles array
-3. Save to DBMemberProfile table
-    ↓
-UI observes DBMemberProfile changes
-    ↓
-Display updated profile
-```
-
-**Location:** `ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift`, `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationWriter.swift`
-
-### 6. Privacy Model
-
-The architecture ensures **no linkability** across conversations:
-
-**Privacy Properties:**
-
-1. **Different XMTP Identities**: Each conversation uses a separate XMTP inbox (ADR 002), so even identical profiles have different cryptographic identities
-
-2. **No Central Profile Server**: No backend service stores or correlates profiles across conversations
-
-3. **Local-Only Quickname**: Profile reuse happens entirely on-device; other participants can't detect it
-
-4. **Scoped Storage**: Profiles stored in `appData` are scoped to the specific XMTP group
-
-5. **Optional Profiles**: Users can participate anonymously (no name/avatar set)
-
-**What's Shared:**
-
-- Your profile in a specific conversation is visible to all members of that conversation
-- Your avatar image URL is visible (but the hosting service doesn't know which conversations use it)
-
-**What's NOT Shared:**
-
-- Your profiles in other conversations
-- The fact that you used Quickname
-- Any connection between your profiles across conversations
-
-**Location:** Design is inherent to the per-conversation storage model
-
-### 7. Metadata Limits and Error Handling
-
-**Hard Limit:** 8KB per XMTP group's `appData` field
-
-**Capacity Planning:**
-
-| Scenario | Estimated Size | Fits in 8KB? |
-|----------|----------------|--------------|
-| 10 members, full profiles | ~1.4 KB uncompressed, ~1 KB compressed | ✓ Yes |
-| 50 members, full profiles | ~7.1 KB uncompressed, ~5 KB compressed | ✓ Yes |
-| 150 members, full profiles | ~21.3 KB uncompressed, ~8 KB compressed | ✓ Just barely |
-| 200+ members | Exceeds limit | ✗ No |
-
-**Error Handling:**
-
-If metadata exceeds 8KB:
 ```swift
-throw ConversationCustomMetadataError.appDataLimitExceeded(
-    currentSize: byteCount,
-    limit: Self.appDataByteLimit
-)
+public enum ProfileMetadataValue: Codable, Hashable, Sendable {
+    case string(String)
+    case number(Double)
+    case bool(Bool)
+}
+
+public typealias ProfileMetadata = [String: ProfileMetadataValue]
 ```
 
-The app prevents the update and notifies the user.
+Metadata is stored as JSON in the `memberProfile` database table. It round-trips through ProfileUpdate and ProfileSnapshot messages. Use cases include agent credits, user preferences, and extensible profile fields without schema changes.
 
-**Decompression Bomb Protection:**
+### 10. Join Request Content Type
 
-When reading compressed metadata:
-- Maximum decompressed size: 10MB
-- Maximum compression ratio: 100:1
-- Prevents malicious metadata from consuming excessive memory
+A related content type carries profile data during the invite flow:
 
-**Location:** `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift`, `ConvosCore/Sources/ConvosCore/Utilities/Data+Compression.swift`
+**JoinRequest** (`convos.org/join_request` v1.0) — sent as a DM to the conversation creator when joining via invite. Contains the invite slug (required), joiner's profile (optional: name, image URL, member kind), and extensible metadata (optional string map). Uses JSON encoding. The codec's `fallback` returns the invite slug as plain text for backward compatibility with older clients.
+
+### 11. Push Notification Handling
+
+Profile messages received via push notifications are processed silently in the Notification Service Extension. `MessagingService` intercepts ProfileUpdate and ProfileSnapshot content types, updates GRDB, and returns `droppedMessage` to suppress user notifications.
+
+### 12. Migration Strategy
+
+- **Phase 1 (complete)**: Dual-write — ProfileUpdate messages sent alongside appData writes
+- **Phase 2 (complete)**: Message-primary reads — GRDB profiles are no longer overwritten from appData on sync; gap-fill only for members without message-sourced data
+- **Phase 3 (future)**: Stop appData writes entirely after forced update or sufficient adoption
 
 ## Consequences
 
 ### Positive
 
-- **No Profile Server**: Eliminates centralized infrastructure and associated privacy risks
-- **Complete Privacy Isolation**: Profiles in different conversations cannot be linked
-- **User Control**: Users choose their profile per-conversation
-- **Serverless**: Profile sync handled entirely by XMTP infrastructure
-- **Offline Capable**: Profiles stored in XMTP metadata work offline
-- **Good UX**: Quickname makes profile reuse easy while preserving privacy
-- **Efficient Storage**: Compression and binary encoding minimize metadata size
-- **Anonymous Participation**: Profiles are optional, users can remain fully anonymous
+- **No write contention**: Profile updates are independent messages, not read-modify-write on shared appData
+- **No size ceiling**: Messages are not constrained by the 8KB appData limit
+- **Efficient updates**: Changing one name sends one small message, not every profile
+- **Decoupled from metadata**: Profile bugs cannot corrupt invite tags or encryption keys
+- **No profile server**: Entirely serverless, handled by XMTP infrastructure
+- **Complete privacy isolation**: Profiles in different conversations cannot be linked
+- **Forward secrecy solved**: ProfileSnapshots give new joiners immediate access to all profiles
+- **Agent identification**: MemberKind enum enables agent-specific UI
+- **Extensible**: Typed metadata allows arbitrary key-value data without schema changes
 
 ### Negative
 
-- **8KB Limit**: Very large conversations (200+ members) may hit metadata limits
-- **No Global Identity**: Users must set up profiles per-conversation (mitigated by Quickname)
-- **Avatar URL Dependency**: If image hosting goes down, avatars break
-- **No Profile Sync**: Quickname settings don't sync across user's devices
-- **Upload Complexity**: Requires image upload infrastructure (S3)
-- **Metadata Parsing Overhead**: Protobuf decompression/parsing on every conversation sync
+- **Message scan on snapshot build**: Building a snapshot scans up to 500 messages (bounded)
+- **No global identity**: Users must set up profiles per-conversation (mitigated by Quickname)
+- **Avatar URL dependency**: If image hosting goes down, avatars break
+- **Dual-write overhead**: During Phase 2, both messages and appData are written (temporary)
+- **Brief stale data on initial sync**: appData profiles may briefly show before message-sourced profiles are processed
 
-### Mitigations
+### Privacy Model
 
-1. **Compression**: DEFLATE compression keeps metadata under 8KB for realistic conversation sizes
-2. **Quickname**: Provides convenient profile reuse without server-side correlation
-3. **Error Handling**: Clear error messages if metadata limit is exceeded
-4. **Decompression Limits**: Protection against compression bombs
-5. **Image Caching**: Three-tier cache minimizes network requests for avatars
-
-### Privacy vs. Convenience Trade-offs
-
-| Approach | Privacy | Convenience |
-|----------|---------|-------------|
-| **Per-conversation profiles (chosen)** | Complete isolation, no linkability | Must set profile per conversation (Quickname helps) |
-| Global profile server | Profiles linked across all conversations | Set once, use everywhere |
-| No profiles | Maximum anonymity | No personalization |
-| Blockchain-based DIDs | Decentralized but linkable | Complex UX, gas fees |
-
-### Security Model
-
-| Threat | Mitigation |
-|--------|------------|
-| Cross-conversation correlation via profiles | Different profiles per conversation, different XMTP identities |
-| Profile server compromise | No profile server exists |
-| Avatar URL tracking | User controls reuse; hosting service doesn't know conversation context |
-| Quickname leakage | Stored locally only; never transmitted |
-| Metadata snooping | XMTP provides E2EE for group metadata |
-| Decompression attacks | Size and ratio limits prevent resource exhaustion |
+| Property | Guarantee |
+|----------|-----------|
+| Cross-conversation linkability | Different XMTP identities per conversation (ADR 002) |
+| Profile server correlation | No profile server exists |
+| Quickname detection | Local-only; other participants cannot detect reuse |
+| Profile scope | Visible only to members of that conversation |
+| Anonymity | Profiles are optional; users can participate without name/avatar |
+| Message-level encryption | ProfileUpdate/ProfileSnapshot messages are E2E encrypted by XMTP |
 
 ## Related Files
 
-### ConvosAppData package (reusable, shared foundation)
+### ConvosProfiles package
 
-- `ConvosAppData/Sources/ConvosAppData/Proto/conversation_custom_metadata.pb.swift` - Protobuf schema (ConversationCustomMetadata, ConversationProfile, EncryptedImageRef)
-- `ConvosAppData/Sources/ConvosAppData/AppDataSerialization.swift` - Base64URL encoding, DEFLATE compression, compact serialization
-- `ConvosAppData/Sources/ConvosAppData/ProfileHelpers.swift` - Profile collection helpers (upsert, find, remove)
+- `Proto/profile_messages.proto` — protobuf schema
+- `Proto/profile_messages.pb.swift` — generated Swift types
+- `ProfileMessages/ProfileUpdateCodec.swift` — XMTP content codec for ProfileUpdate
+- `ProfileMessages/ProfileSnapshotCodec.swift` — XMTP content codec for ProfileSnapshot
+- `ProfileMessages/ProfileSnapshotBuilder.swift` — builds snapshots from message history
+- `ProfileMessages/ProfileMessageHelpers.swift` — MemberProfile init, metadata helpers, image ref conversion
 
-### ConvosProfiles package (reusable, image encryption)
+### ConvosInvites package
 
-- `ConvosProfiles/Sources/ConvosProfiles/Crypto/ImageEncryption.swift` - AES-256-GCM image encryption/decryption
-- `ConvosProfiles/Sources/ConvosProfiles/Crypto/EncryptedImageLoader.swift` - Encrypted image loading protocol
+- `ContentTypes/JoinRequestCodec.swift` — XMTP content codec for JoinRequest (carries joiner profile)
 
-### ConvosCore (app-specific integration)
+### ConvosAppData package
 
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/XMTPGroup+CustomMetadata.swift` - XMTP metadata interface
-- `ConvosCore/Sources/ConvosCore/Invites & Custom Metadata/ConversationCustomMetadata+Profiles.swift` - Profile management
-- `ConvosCore/Sources/ConvosCore/Storage/Database Models/DBMemberProfile.swift` - Profile database model
-- `ConvosCore/Sources/ConvosCore/Storage/Models/Profile.swift` - Domain model
-- `ConvosCore/Sources/ConvosCore/Storage/Writers/MyProfileWriter.swift` - Profile updates
-- `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationWriter.swift` - Profile sync
-- `ConvosCore/Sources/ConvosCore/Storage/Repositories/MyProfileRepository.swift` - Profile queries
-- `ConvosCore/Sources/ConvosCore/Image Cache/ImageCache.swift` - Three-tier caching
+- `Proto/conversation_custom_metadata.pb.swift` — legacy appData protobuf (ConversationProfile, EncryptedImageRef)
+- `AppDataSerialization.swift` — Base64URL encoding, DEFLATE compression for legacy appData
+- `ProfileHelpers.swift` — legacy profile collection helpers
 
-**Quickname:**
-- `Convos/Profile/QuicknameSettings.swift` - Local profile storage
-- `Convos/Profile/QuicknameSettingsViewModel.swift` - Quickname UI logic
+### ConvosCore
+
+- `Storage/Database Models/DBMemberProfile.swift` — GRDB profile model with metadata
+- `Storage/Writers/MyProfileWriter.swift` — sends ProfileUpdate + best-effort appData write
+- `Storage/Writers/ConversationWriter.swift` — message-primary reads with gap-fill from appData
+- `Storage/Writers/ConversationMetadataWriter.swift` — sends ProfileSnapshot after addMembers
+- `Syncing/StreamProcessor.swift` — intercepts profile messages, writes to GRDB, sends initial snapshots
+- `Syncing/InviteJoinRequestsManager.swift` — sends ProfileSnapshot after accepting join request
+- `Inboxes/InboxStateMachine.swift` — registers profile codecs with XMTP client
+- `Inboxes/MessagingService+PushNotifications.swift` — silent push handling for profile messages
+- `Image Cache/ImageCache.swift` — three-tier image caching
+
+### Main App
+
+- `Profile/QuicknameSettings.swift` — local Quickname storage
+- `Profile/QuicknameSettingsViewModel.swift` — Quickname UI logic
 
 ## Related ADRs
 
-- ADR 001: Invite System (also uses conversation custom metadata for invite tags)
-- ADR 002: Per-Conversation Identity Model (explains why each conversation has a separate XMTP inbox)
-- ADR 004: Explode Feature (also uses conversation custom metadata for expiration timestamps)
-
-## References
-
-- XMTP Group Metadata: https://xmtp.org/docs/build/group-chat#group-metadata
-- Protocol Buffers: https://protobuf.dev
-- DEFLATE Compression: RFC 1951
-- Base64URL Encoding: RFC 4648 Section 5
+- ADR 001: Invite System (invite tags still stored in appData; profiles no longer compete for 8KB space)
+- ADR 002: Per-Conversation Identity Model (each conversation has a separate XMTP inbox)
+- ADR 004: Explode Feature (expiration timestamps in appData)
+- ADR 009: Encrypted Conversation Images (AES-256-GCM encryption for profile avatars)
