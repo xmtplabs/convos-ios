@@ -1010,6 +1010,8 @@ extension ConversationViewModel {
         guard hasAgentUpdate else { return }
         assistantJoinStatus = nil
         Self.assistantJoinStatuses.removeValue(forKey: conversation.id)
+        assistantJoinTask?.cancel()
+        assistantJoinTask = nil
         assistantJoinDismissTask?.cancel()
     }
 
