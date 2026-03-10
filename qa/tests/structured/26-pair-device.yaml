@@ -408,6 +408,161 @@ steps:
     verify:
       - element_exists: { id: "compose-button" }
 
+  # --- Phase 9: Post-pairing conversation creation ---
+
+  - id: create_convo_a
+    device: device_a
+    name: "Create a new conversation on Device A"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - type_in_field: { id: "message-text-field", text: "Post-pair from A" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - log_events: { event_filter: "message.sent" }
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+    criteria: create_convo_a
+
+  - id: verify_create_a_syncs_to_b
+    device: device_b
+    name: "Verify conversation created on A appears on Device B"
+    actions:
+      - wait: 60
+      - find_elements: { pattern: "Post-pair from A" }
+    verify:
+      - element_exists: { label_contains: "Post-pair from A" }
+    criteria: create_a_syncs_to_b
+    note: "The conversation should appear within 60s via vault key sharing + drainer"
+
+  - id: open_synced_convo_on_b
+    device: device_b
+    name: "Open the synced conversation on Device B and verify content"
+    actions:
+      - tap: { label_contains: "Post-pair from A" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Post-pair from A" }
+    criteria: create_a_content_on_b
+
+  - id: navigate_back_b_2
+    device: device_b
+    name: "Navigate back to conversations list on Device B"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+
+  - id: create_convo_b
+    device: device_b
+    name: "Create a new conversation on Device B"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - type_in_field: { id: "message-text-field", text: "Post-pair from B" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+    criteria: create_convo_b
+
+  - id: verify_create_b_syncs_to_a
+    device: device_a
+    name: "Verify conversation created on B appears on Device A"
+    actions:
+      - wait: 60
+      - find_elements: { pattern: "Post-pair from B" }
+    verify:
+      - element_exists: { label_contains: "Post-pair from B" }
+    criteria: create_b_syncs_to_a
+
+  - id: open_synced_convo_on_a
+    device: device_a
+    name: "Open the synced conversation on Device A and verify content"
+    actions:
+      - tap: { label_contains: "Post-pair from B" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Post-pair from B" }
+    criteria: create_b_content_on_a
+
+  - id: navigate_back_a_2
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+
+  # --- Phase 10: Post-pairing conversation deletion ---
+
+  - id: record_count_before_delete
+    device: device_a
+    name: "Record conversation count before deletion"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      pre_delete_count: "count of conversation-list-item elements"
+
+  - id: delete_convo_on_a
+    device: device_a
+    name: "Delete the 'Post-pair from A' conversation on Device A"
+    actions:
+      - long_press: { label_contains: "Post-pair from A" }
+      - wait: 1
+      - tap: { id: "context-menu-delete" }
+      - wait: 1
+      - tap: { label: "Delete" }
+      - wait: 2
+    verify:
+      - element_not_exists: { label_contains: "Post-pair from A" }
+    criteria: delete_on_a
+
+  - id: verify_delete_a_syncs_to_b
+    device: device_b
+    name: "Verify deleted conversation disappears from Device B"
+    actions:
+      - wait: 60
+    verify:
+      - element_not_exists: { label_contains: "Post-pair from A" }
+    criteria: delete_a_syncs_to_b
+
+  - id: delete_convo_on_b
+    device: device_b
+    name: "Delete the 'Post-pair from B' conversation on Device B"
+    actions:
+      - long_press: { label_contains: "Post-pair from B" }
+      - wait: 1
+      - tap: { id: "context-menu-delete" }
+      - wait: 1
+      - tap: { label: "Delete" }
+      - wait: 2
+    verify:
+      - element_not_exists: { label_contains: "Post-pair from B" }
+    criteria: delete_on_b
+
+  - id: verify_delete_b_syncs_to_a
+    device: device_a
+    name: "Verify deleted conversation disappears from Device A"
+    actions:
+      - wait: 60
+    verify:
+      - element_not_exists: { label_contains: "Post-pair from B" }
+    criteria: delete_b_syncs_to_a
+
+  - id: verify_final_counts
+    name: "Verify final conversation counts match on both devices"
+    note: "Both devices should have the same count, equal to pre-delete count minus 2"
+    criteria: final_counts_match
+
+  - id: verify_seeds_unaffected
+    name: "Verify seed conversations are still present on both devices"
+    verify:
+      - element_exists: { label_contains: "Seed" }
+    criteria: seeds_unaffected
+
 teardown: []
 
 criteria:
@@ -451,3 +606,27 @@ criteria:
     description: "Synced conversation on Device A contains messages (from CLI QA Bot)"
   synced_content_on_b:
     description: "Synced conversation on Device B contains messages (from CLI QA Bot)"
+  create_convo_a:
+    description: "New conversation created on Device A after pairing"
+  create_a_syncs_to_b:
+    description: "Conversation created on Device A appears on Device B within 60 seconds"
+  create_a_content_on_b:
+    description: "Message 'Post-pair from A' is visible when opening the synced conversation on Device B"
+  create_convo_b:
+    description: "New conversation created on Device B after pairing"
+  create_b_syncs_to_a:
+    description: "Conversation created on Device B appears on Device A within 60 seconds"
+  create_b_content_on_a:
+    description: "Message 'Post-pair from B' is visible when opening the synced conversation on Device A"
+  delete_on_a:
+    description: "Deleting a conversation on Device A removes it from Device A's list"
+  delete_a_syncs_to_b:
+    description: "The deleted conversation disappears from Device B within 60 seconds"
+  delete_on_b:
+    description: "Deleting a conversation on Device B removes it from Device B's list"
+  delete_b_syncs_to_a:
+    description: "The deleted conversation disappears from Device A within 60 seconds"
+  final_counts_match:
+    description: "After both deletions, both devices have the same conversation count"
+  seeds_unaffected:
+    description: "Seed conversations are unaffected by the deletions"

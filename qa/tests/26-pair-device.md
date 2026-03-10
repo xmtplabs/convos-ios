@@ -153,12 +153,61 @@ Verify that two devices can pair via the Vault pairing flow with pin + emoji ver
 
 72. Neither device should show any extra "New Convo" entries or other conversations that weren't explicitly created by the user or the seed process. Unconsumed unused conversations (pre-created by the app for quick-start) must not be shared during pairing.
 
+### Post-pairing: Create conversation on Device A, verify sync to Device B
+
+73. On **Device A** (conversations list), tap the compose button (`compose-button`) to start a new conversation.
+74. Wait for the conversation view to load (`message-text-field` should appear).
+75. Type "Post-pair from A" in the message input field and send it (`send-message-button`).
+76. Verify the `message.sent` event fires on Device A using `sim_log_events(event_filter="message.sent")`.
+77. Navigate back to the conversations list on **Device A**. The new conversation should appear.
+
+78. On **Device B**, check the conversations list. The new conversation should appear within 60 seconds. Watch for it by checking `sim_find_elements` or taking screenshots periodically.
+79. Once the conversation appears on **Device B**, tap it to open it.
+80. Verify "Post-pair from A" is visible in the messages.
+81. Navigate back to the conversations list on **Device B**.
+
+### Post-pairing: Create conversation on Device B, verify sync to Device A
+
+82. On **Device B**, tap the compose button to start a new conversation.
+83. Type "Post-pair from B" in the message input field and send it.
+84. Navigate back to the conversations list on **Device B**.
+
+85. On **Device A**, check the conversations list. The new conversation from Device B should appear within 60 seconds.
+86. Once it appears, tap it to open it and verify "Post-pair from B" is visible in the messages.
+87. Navigate back to the conversations list on **Device A**.
+
+### Post-pairing: Delete conversation on Device A, verify removal from Device B
+
+88. Record the total conversation count on **Device A** before deletion.
+89. On **Device A**, long-press on the conversation that was just created from A ("Post-pair from A" or its "New Convo" list entry) to open the context menu.
+90. Tap "Delete" (`context-menu-delete`) in the context menu.
+91. A confirmation action sheet should appear. Tap "Delete" to confirm.
+92. Verify the conversation is removed from Device A's conversations list.
+
+93. On **Device B**, check the conversations list. The deleted conversation should disappear within 60 seconds — "Delete for me" propagates to all paired devices via the Vault.
+94. Verify the conversation is no longer in Device B's conversations list.
+
+### Post-pairing: Delete conversation on Device B, verify removal from Device A
+
+95. On **Device B**, long-press on the conversation created from B ("Post-pair from B") to open the context menu.
+96. Tap "Delete", then confirm deletion in the action sheet.
+97. Verify the conversation is removed from Device B's conversations list.
+
+98. On **Device A**, check the conversations list. The deleted conversation should disappear within 60 seconds.
+99. Verify the conversation is no longer in Device A's conversations list.
+
+### Final state verification
+
+100. Both devices should have the same conversation count, equal to the post-pairing total minus the 2 deleted conversations.
+101. All seed conversations from both devices should still be present and unaffected by the deletions.
+
 ## Teardown
 
 No specific cleanup needed — the simulators were started fresh for this test and can be erased for the next test.
 
 ## Pass/Fail Criteria
 
+### Pairing
 - [ ] Seed conversations created successfully on Device A (5 conversations with checkmark)
 - [ ] CLI QA Bot joined seed conversations and sent varied message types
 - [ ] Seed conversations created successfully on Device B (3 conversations with checkmark)
@@ -176,6 +225,20 @@ No specific cleanup needed — the simulators were started fresh for this test a
 - [ ] Both devices have the same conversation count — no unconsumed unused conversations leaked
 - [ ] Synced conversations contain messages (text, reactions, replies, photos from CLI QA Bot)
 
+### Post-pairing: Create
+- [ ] Conversation created on Device A appears on Device B within 60 seconds
+- [ ] Message "Post-pair from A" is visible when opening the synced conversation on Device B
+- [ ] Conversation created on Device B appears on Device A within 60 seconds
+- [ ] Message "Post-pair from B" is visible when opening the synced conversation on Device A
+
+### Post-pairing: Delete
+- [ ] Deleting a conversation on Device A removes it from Device A's list
+- [ ] The deleted conversation disappears from Device B within 60 seconds
+- [ ] Deleting a conversation on Device B removes it from Device B's list
+- [ ] The deleted conversation disappears from Device A within 60 seconds
+- [ ] After both deletions, both devices have the same conversation count
+- [ ] Seed conversations are unaffected by the deletions
+
 ## Notes
 
 - The seed conversations feature is in Debug settings (non-production only). It creates real conversations using the app's normal flow, generates invites, and emits QA events.
@@ -183,8 +246,9 @@ No specific cleanup needed — the simulators were started fresh for this test a
 - The CLI `convos conversation send-attachment` command handles inline photos under 1MB. Use `curl -L -o /tmp/qa-photo.jpg https://picsum.photos/400/300` to download a random photo.
 - The `InviteJoinRequestsManager` automatically processes join requests via streaming — no manual processing step needed after CLI joins.
 - The VaultImportSyncDrainer processes imported inboxes one at a time in the foreground. With ~8 conversations to import, this may take 60-90 seconds after pairing completes. The conversations list updates reactively as each inbox is synced.
-- The pairing timeout is 120 seconds. All steps from URL extraction through emoji confirmation must complete within this window.
 - The pairing URL is extracted from the `vault.pairing_url_created` QA event in the app log. Do not use the share sheet "Copy" button — it is unreliable due to iOS share sheet accessibility limitations.
 - The emoji fingerprint is derived from `SHA256(sorted(inboxA, inboxB) + pin)` — both devices compute it independently, so matching emoji proves both devices are talking to each other (not an attacker).
 - Each simulator generates its own unique vault identity on first launch, so cloned simulators must be erased first to avoid "memberCannotBeSelf" errors from XMTP.
 - Pre-pairing message sync depends on XMTP history sync completing its 3-step roundtrip, which may take longer than the test window. The test focuses on conversation metadata sync (names, counts) rather than asserting specific pre-pairing message content.
+- "Delete for me" propagates to all paired devices via a `ConversationDeletedContent` message sent through the Vault group. The other device receives it via vault streaming and deletes the conversation locally.
+- Post-pairing conversation sync relies on the GRDB inbox observation detecting unshared inboxes and the VaultImportSyncDrainer waking imported inboxes one at a time.
