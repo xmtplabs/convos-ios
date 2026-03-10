@@ -24,7 +24,6 @@ final class MessagesViewController: UIViewController {
         let messages: [MessagesListItemType]
         let invite: Invite
         let hasLoadedAllMessages: Bool
-        let assistantJoinStatus: AssistantJoinStatus?
     }
 
     private enum ReactionTypes {
@@ -124,8 +123,8 @@ final class MessagesViewController: UIViewController {
                     }
 
                     let prevJoinStatus = self.previousAssistantJoinStatus
-                    self.previousAssistantJoinStatus = state.assistantJoinStatus
-                    if !isInitialLoad && prevJoinStatus == nil && state.assistantJoinStatus != nil {
+                    self.previousAssistantJoinStatus = state.conversation.assistantJoinStatus
+                    if !isInitialLoad && prevJoinStatus == nil && state.conversation.assistantJoinStatus != nil {
                         self.scrollToBottom()
                     }
                 }
@@ -505,7 +504,7 @@ extension MessagesViewController {
             }
         }
 
-        if let joinStatus = state?.assistantJoinStatus {
+        if let joinStatus = state?.conversation.assistantJoinStatus {
             cells.append(.assistantJoinStatus(joinStatus))
         }
 

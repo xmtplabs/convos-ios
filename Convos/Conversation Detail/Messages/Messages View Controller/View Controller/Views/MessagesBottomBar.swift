@@ -192,7 +192,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onAboutAssistants: {},
             onAgentOutOfCredits: {},
             onRetryAssistantJoin: {},
-            assistantJoinStatus: nil,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             scrollToBottomTrigger: { _ in }

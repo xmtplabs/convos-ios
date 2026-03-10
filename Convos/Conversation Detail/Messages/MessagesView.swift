@@ -48,7 +48,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onRetryAssistantJoin: () -> Void
-    let assistantJoinStatus: AssistantJoinStatus?
     let onBottomOverscrollChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
@@ -79,7 +78,6 @@ struct MessagesView<BottomBarContent: View>: View {
             onAboutAssistants: onAboutAssistants,
             onAgentOutOfCredits: onAgentOutOfCredits,
             onRetryAssistantJoin: onRetryAssistantJoin,
-            assistantJoinStatus: assistantJoinStatus,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: onBottomOverscrollChanged,
             scrollToBottomTrigger: { scrollFn in
