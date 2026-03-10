@@ -244,7 +244,8 @@ private extension AssetRenewalURLCollectorTests {
             imageEncryptionKey: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            assistantJoinRequestedBy: nil
         )
     }
 }

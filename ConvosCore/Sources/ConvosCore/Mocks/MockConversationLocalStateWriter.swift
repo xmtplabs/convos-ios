@@ -20,5 +20,5 @@ public final class MockConversationLocalStateWriter: ConversationLocalStateWrite
         mutedStates[conversationId] = isMuted
     }
 
-    public func updateAssistantJoinStatus(_ status: AssistantJoinStatus?, for conversationId: String) async throws {}
+    public func updateAssistantJoinStatus(_ status: AssistantJoinStatus?, requestedBy: String?, for conversationId: String) async throws {}
 }

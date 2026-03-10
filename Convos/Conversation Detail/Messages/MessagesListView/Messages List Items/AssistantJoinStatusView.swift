@@ -3,6 +3,7 @@ import SwiftUI
 
 struct AssistantJoinStatusView: View {
     let status: AssistantJoinStatus
+    var requesterName: String?
     var onRetry: (() -> Void)?
 
     var body: some View {
@@ -25,11 +26,20 @@ struct AssistantJoinStatusView: View {
     }
 
     private var pendingView: some View {
-        Text("Assistant is joining…")
-            .lineLimit(1)
-            .font(.caption)
-            .foregroundStyle(.colorTextTertiary)
-            .frame(maxWidth: .infinity, alignment: .center)
+        VStack(spacing: DesignConstants.Spacing.stepX) {
+            if let requesterName {
+                Text("\(requesterName) requested an assistant")
+                    .lineLimit(1)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextTertiary)
+                    .frame(maxWidth: .infinity, alignment: .center)
+            }
+            Text("Assistant is joining…")
+                .lineLimit(1)
+                .font(.caption)
+                .foregroundStyle(.colorTextTertiary)
+                .frame(maxWidth: .infinity, alignment: .center)
+        }
     }
 
     @ViewBuilder
@@ -62,8 +72,12 @@ struct AssistantJoinStatusView: View {
     }
 }
 
-#Preview("Pending") {
+#Preview("Pending - Self") {
     AssistantJoinStatusView(status: .pending)
+}
+
+#Preview("Pending - Other") {
+    AssistantJoinStatusView(status: .pending, requesterName: "Louis")
 }
 
 #Preview("No Agents") {

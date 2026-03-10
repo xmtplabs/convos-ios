@@ -689,7 +689,8 @@ private extension LightweightConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: conversation.assistantJoinStatus
+            assistantJoinStatus: conversation.assistantJoinStatus,
+            assistantJoinRequestedBy: conversation.assistantJoinRequestedBy
         )
     }
 }

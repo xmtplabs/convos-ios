@@ -155,7 +155,8 @@ struct InboxActivityRepositoryTests {
             imageEncryptionKey: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            assistantJoinRequestedBy: nil
         )
     }
 
