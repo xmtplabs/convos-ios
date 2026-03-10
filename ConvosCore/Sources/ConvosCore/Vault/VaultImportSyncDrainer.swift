@@ -129,6 +129,7 @@ public actor VaultImportSyncDrainer {
         pendingInboxIds.removeAll()
         syncedInboxIds.removeAll()
         sortedQueue = []
+        drainTask = nil
     }
 
     private struct InboxRow {
