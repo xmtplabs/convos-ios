@@ -197,7 +197,6 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    // Store conversation before handling ExplodeSettings so the record exists
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
                         inboxId: params.client.inboxId
@@ -251,9 +250,12 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     private func decodeAssistantJoinRequest(from message: DecodedMessage) -> AssistantJoinRequest? {
         guard let encodedContentType = try? message.encodedContent.type,
-              encodedContentType == ContentTypeAssistantJoinRequest,
-              let content = try? message.content() as Any,
+              encodedContentType == ContentTypeAssistantJoinRequest else {
+            return nil
+        }
+        guard let content = try? message.content() as Any,
               let request = content as? AssistantJoinRequest else {
+            Log.error("Failed to decode AssistantJoinRequest content")
             return nil
         }
         return request

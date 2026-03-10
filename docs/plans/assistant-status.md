@@ -1,124 +1,140 @@
-# Assistant Join Status — Persistent State & Group-Broadcasted Updates
+# Assistant Join Status — Persistent State with Pending Broadcast
 
 ## Context
 
 When a user adds an assistant to a conversation via the "+" menu, the app calls `POST /api/v2/agents/join`. This call can take up to ~30 seconds. The initial implementation used transient ViewModel state (with a static dictionary for navigation survival) to show inline feedback. This worked but had limitations:
 
-- **Local-only state**: other members couldn't see that an assistant was being requested, leading to potential duplicate requests
+- **Lost on navigation**: the state lived in the ViewModel, which is deallocated when navigating away
 - **Lost on app kill**: the pending state disappeared if the app was terminated mid-request
-- **Race conditions between members**: two users could tap "Instant assistant" simultaneously with no coordination
+- **Local-only state**: other members had no visibility into whether an assistant was being requested
 
-This v2 plan moves the assistant join status into GRDB and broadcasts state changes as XMTP group update messages, solving all three problems.
+This v2 plan moves the assistant join status into GRDB (persists across navigation and app restarts) and broadcasts the pending state via XMTP so all group members can see it.
 
 ## Goal
 
 1. **Persist** assistant join status in GRDB at the conversation level so it survives app kills and navigation
-2. **Broadcast** status changes as XMTP group messages so all members see the same state and can't double-request
-3. **Render** status transitions as updatable message rows in the chat (insert on request, update on resolution)
+2. **Broadcast** the pending state via XMTP so all members see "Louis invited an assistant to join"
+3. **Keep errors local** — only the requester sees error/retry states
+
+## Design Decisions
+
+### Broadcast pending, not errors
+
+When a user requests an assistant, an XMTP message is sent to the group so all members see "Louis invited an assistant to join." Error states (503, 502/504) are **not** broadcast — they're only visible to the requester as local GRDB state. Rationale:
+
+- **Errors are the requester's concern** — retry is only actionable by the requester
+- **Other members can request independently** — if they want an assistant and have permission
+- **Edge case accepted**: if the request fails, other members see a dangling "Louis invited an assistant to join" with no resolution. This is slightly weird but rare, and not worth the complexity of broadcasting error/clear states. The status clears if an assistant is eventually added by anyone.
+
+### Status cleared by agent join, not API success
+
+The API returning 200 means the request was accepted, not that the agent has joined. The status stays `.pending` until the XMTP group update with `addedAgent == true` arrives, confirming the agent actually joined the group.
+
+### Error states persist until retry or auto-dismiss
+
+Error rows ("No assistants available", "Could not join") persist in the messages list. They are not dismissed by sending a message or navigating away. They are cleared by:
+- User tapping retry (resets to `.pending`)
+- 45-second auto-dismiss timer
+- Agent successfully joining (clears any status)
+
+### Not stored as a message
+
+The XMTP broadcast message updates conversation-level GRDB state, following the same pattern as `ExplodeSettings`. It is **not** stored as a `DBMessage` row. The status renders as a synthetic cell in the messages list (like date separators), derived from `conversation.assistantJoinStatus`.
 
 ## Design Spec
 
 ### States & Visual Treatment
 
-Same visual treatment as v1 — inline centered rows in the messages list:
+Inline centered rows at the bottom of the messages list (synthetic cells, not real messages):
 
-#### 1. "Louis requested an assistant" → "Assistant is joining…" (Pending)
-- Shown immediately when **any member** requests an assistant
-- Text: **"[Name] requested an assistant"** for other members, **"Assistant is joining…"** for the requester
+#### 1. Pending — requester's view
+- Text: **"Assistant is joining…"**
 - Color: `color/text/tertiary`
 - Not tappable
 
-#### 2. "No assistants are available" (503 — `noAgentsAvailable`)
-- **Replaces** the pending row (same message row, updated in-place)
-- Text: **"No assistants are available"**
+#### 2. Pending — other members' view
+- Text: **"Louis invited an assistant to join"**
+- Color: `color/text/tertiary`
+- Not tappable
+
+#### 3. "No assistants are available" (503 — requester only)
+- **Replaces** the pending row
 - Prepended with gray circle + SF Symbol `xmark`
 - Not tappable
 
-#### 3. "Assistant could not join" (502/504)
-- **Replaces** the pending row (same message row, updated in-place)
-- Text: **"Assistant could not join"**
+#### 4. "Assistant could not join" (502/504 — requester only)
+- **Replaces** the pending row
 - Prepended with gray circle + SF Symbol `arrow.clockwise`
 - **Tappable** — retries the join
 
-#### 4. Success (real XMTP group update)
+#### 5. Success (all members)
 - The existing `ConversationUpdate` with `addedAgent == true` arrives via XMTP
-- The pending/error message row is **removed** from the DB
+- The pending/error status is **cleared** from the conversation
 - The real "joined by invitation" update + `AssistantJoinedInfoView` display as today
 
 ### State Transitions
 
+#### Requester's device
 ```
 User taps "Instant assistant"
   │
-  ├─ 1. Write assistantJoinStatus = .pending to DBConversation
-  ├─ 2. Insert a local "assistant_join_request" message into GRDB
-  ├─ 3. Send XMTP group message (custom content type) broadcasting the request
-  ├─ 4. Fire POST /api/v2/agents/join
+  ├─ 1. Write assistantJoinStatus = .pending to GRDB conversation
+  ├─ 2. Broadcast AssistantJoinRequest(status: .pending) via XMTP
+  ├─ 3. Fire POST /api/v2/agents/join
   │
   ▼
-[Pending] "Assistant is joining…" (visible to all members via XMTP message)
+[Pending] "Assistant is joining…"
   │
   ├─ API returns 200 ──► Keep .pending, wait for XMTP group update
   │
-  ├─ API returns 503 ──► Update DB status to .noAgentsAvailable
-  │                       Update the existing message row in GRDB
-  │                       Send XMTP update message with failure status
+  ├─ API returns 503 ──► Update local GRDB to .noAgentsAvailable (no broadcast)
   │
-  ├─ API returns 502/504 ► Update DB status to .failed
-  │                         Update the existing message row in GRDB
-  │                         Send XMTP update message with failure status
+  ├─ API returns 502/504 ► Update local GRDB to .failed (no broadcast)
   │                              │
-  │                              └─ User taps retry ──► Reset to .pending (new cycle)
+  │                              └─ User taps retry ──► Reset to .pending + broadcast again
   │
-  └─ XMTP member-added update ──► Clear DB status
-      (agent joined the group)     Delete the status message row
+  ├─ 45s auto-dismiss ──► Clear local status
+  │
+  └─ XMTP member-added (agent) ──► Clear status
 ```
 
-### Multi-User Coordination
-
-When Member A taps "Instant assistant":
-1. An XMTP message is sent to the group: `AssistantJoinRequest(status: .pending, requestedBy: inboxId)`
-2. All members receive this and see "Louis requested an assistant"
-3. The "Instant assistant" button is disabled for all members (because `conversation.assistantJoinStatus != nil`)
-4. When the API resolves, a follow-up XMTP message updates the status
-
-**Race condition window**: There's still a small window where two members could tap simultaneously before receiving each other's XMTP message. This is dramatically smaller than the current window (seconds of XMTP propagation vs. 30+ seconds of API call). The backend should also reject duplicate join requests for the same conversation as additional protection.
+#### Other members' devices
+```
+Receive XMTP AssistantJoinRequest message
+  │
+  ├─ StreamProcessor decodes it
+  ├─ Writes .pending + requestedBy to GRDB conversation
+  │
+  ▼
+[Pending] "Louis invited an assistant to join"
+  │
+  ├─ XMTP member-added (agent) ──► Clear status
+  │
+  └─ (Error on requester's side) ──► Status stays as .pending (accepted edge case)
+```
 
 ---
 
-## Data Model Changes
+## Data Model
 
-### 1. Add `assistantJoinStatus` column to `conversation` table
-
-New GRDB migration:
+### GRDB migration
 
 ```swift
-migrator.registerMigration("addAssistantJoinStatus") { db in
+migrator.registerMigration("addAssistantJoinStatusToConversation") { db in
     try db.alter(table: "conversation") { t in
-        t.add(column: "assistantJoinStatus", .text) // nil, "pending", "noAgentsAvailable", "failed"
+        t.add(column: "assistantJoinStatus", .text)
+        t.add(column: "assistantJoinRequestedBy", .text)
     }
 }
 ```
 
-This column stores the current join status at the conversation level. It's `nil` when no join is in progress.
+- `assistantJoinStatus`: nullable TEXT — nil, "pending", "noAgentsAvailable", "failed"
+- `assistantJoinRequestedBy`: the inboxId of the user who initiated the request
 
-### 2. Update `DBConversation`
+### `AssistantJoinStatus` enum
 
-Add the column:
-```swift
-let assistantJoinStatus: String? // nil | "pending" | "noAgentsAvailable" | "failed"
-```
+`String`-backed `Codable` for GRDB column storage:
 
-Add a `with(assistantJoinStatus:)` method following the existing pattern.
-
-### 3. Update `Conversation` model
-
-Add to the public model:
-```swift
-public let assistantJoinStatus: AssistantJoinStatus?
-```
-
-Where `AssistantJoinStatus` remains the existing enum in `ConvosCore/Storage/Models/`:
 ```swift
 public enum AssistantJoinStatus: String, Equatable, Hashable, Sendable, Codable {
     case pending
@@ -127,286 +143,150 @@ public enum AssistantJoinStatus: String, Equatable, Hashable, Sendable, Codable 
 }
 ```
 
-(Changed from plain enum to `String`-backed for GRDB column storage.)
+### `DBConversation` additions
 
-### 4. New custom content type: `AssistantJoinRequestCodec`
+```swift
+let assistantJoinStatus: AssistantJoinStatus?
+let assistantJoinRequestedBy: String?
+```
 
-A new XMTP custom content type for broadcasting assistant join status to the group:
+Plus `with(assistantJoinStatus:assistantJoinRequestedBy:)` method. All existing `with()` methods pass through both fields. Values preserved during conversation re-stores from XMTP metadata (same pattern as `imageLastRenewed`).
+
+### XMTP custom content type: `AssistantJoinRequestCodec`
+
+Follows the `ExplodeSettingsCodec` pattern — JSON-encoded, silent (no push), registered in `InboxStateMachine`.
 
 ```swift
 public struct AssistantJoinRequest: Codable, Sendable {
-    public enum Status: String, Codable, Sendable {
-        case pending
-        case noAgentsAvailable
-        case failed
-    }
-
-    public let status: Status
+    public let status: AssistantJoinStatus
     public let requestedByInboxId: String
-    public let requestId: String // UUID to correlate request → resolution
-}
-
-public let ContentTypeAssistantJoinRequest = ContentTypeID(
-    authorityID: "convos.org",
-    typeID: "assistant_join_request",
-    versionMajor: 1,
-    versionMinor: 0
-)
-```
-
-The `requestId` is a UUID generated when the user taps "Instant assistant". It's used to:
-- Match the resolution message to the original request
-- Identify which message row in GRDB to update when the status changes
-
-### 5. Store as a message in GRDB
-
-The assistant join request is stored as a `DBMessage` with:
-- `contentType`: new `.assistantJoinRequest` case added to `MessageContentType`
-- `messageType`: `.original`
-- `text`: the `requestId` (used for correlation)
-- `update`: a `DBMessage.Update` encoding the status and requester info
-
-This means:
-- It appears in the messages list automatically via the existing `MessagesRepository` observation
-- It can be **updated in place** when the status changes (same message ID, new update payload)
-- It's deleted when the agent successfully joins
-
-### 6. Update `MessageContentType`
-
-```swift
-public enum MessageContentType: String, Codable, Sendable {
-    case text, emoji, attachments, update, invite, assistantJoinRequest
-
-    var marksConversationAsUnread: Bool {
-        switch self {
-        case .update, .assistantJoinRequest:
-            false
-        default:
-            true
-        }
-    }
+    public let requestId: String
 }
 ```
 
-### 7. Update `MessagesListItemType`
-
-Replace the current `.assistantJoinStatus(AssistantJoinStatus)` case with a richer type that includes the requester profile:
+### `MessagesListItemType`
 
 ```swift
-case assistantJoinStatus(id: String, status: AssistantJoinStatus, requester: ConversationMember?)
+case assistantJoinStatus(AssistantJoinStatus, requesterName: String?)
 ```
 
-The `id` is the message ID for stable identity in the collection view. The `requester` enables showing "Louis requested an assistant" to other members.
+`requesterName` is nil for the requester (self), populated for other members.
 
 ---
 
-## Flow: Requesting an Assistant Join
+## Implementation
 
-### Step-by-step (requester's device)
-
-1. **User taps "Instant assistant"**
-2. **Write to GRDB**: Set `conversation.assistantJoinStatus = .pending`
-3. **Insert local message**: Create a `DBMessage` with `contentType = .assistantJoinRequest`, `status = .pending`, a new `requestId`
-4. **Send XMTP message**: Broadcast `AssistantJoinRequest(status: .pending, requestedByInboxId: myInboxId, requestId: requestId)` to the group
-5. **Fire API call**: `POST /api/v2/agents/join`
-6. **On API success (200)**: Keep `.pending` — wait for the XMTP group update showing the agent joined
-7. **On API error**: Update GRDB conversation status + update the message row + send XMTP resolution message
-8. **On XMTP member-added (agent)**: Clear conversation status + delete the status message row
-
-### Step-by-step (other members' devices)
-
-1. **Receive XMTP message** with `ContentTypeAssistantJoinRequest`
-2. **StreamProcessor** handles it:
-   - Decode the `AssistantJoinRequest`
-   - If `status == .pending`: write `conversation.assistantJoinStatus = .pending`, insert/update the message row
-   - If `status == .failed/.noAgentsAvailable`: update the conversation and message row
-3. **UI updates automatically** via GRDB observation (conversation publisher + messages publisher)
-
----
-
-## Implementation Details
-
-### New file: `ConvosCore/Custom Content Types/AssistantJoinRequestCodec.swift`
-
-Follow the exact pattern of `ExplodeSettingsCodec`:
-- JSON-encoded content
-- Register in the XMTP client codec list
-- `shouldPush` returns `false` (silent, no notification needed)
-
-### Update: `StreamProcessor.swift`
-
-Add handling for the new content type in `processMessage()`, similar to how `ExplodeSettings` is handled:
+### ConversationLocalStateWriter
 
 ```swift
-if contentType == ContentTypeAssistantJoinRequest {
-    await processAssistantJoinRequest(message, conversationId: conversation.id)
-    return // don't store as a regular message
-}
+func updateAssistantJoinStatus(_ status: AssistantJoinStatus?, requestedBy: String?, for conversationId: String) async throws
 ```
 
-The processor:
-1. Decodes the `AssistantJoinRequest`
-2. Updates `DBConversation.assistantJoinStatus` via the conversation writer
-3. Inserts or updates a `DBMessage` for the status row
+Updates the conversation-level columns. Conceptually local state (not synced via XMTP group metadata), even though it writes to the `conversation` table.
 
-### Update: `ConversationWriter.swift`
+### ConversationWriter
 
-Add a method:
-```swift
-func updateAssistantJoinStatus(_ status: AssistantJoinStatus?, for conversationId: String) async throws
-```
+Preserves `assistantJoinStatus` and `assistantJoinRequestedBy` during conversation re-stores from XMTP metadata, preventing metadata syncs from clearing pending/error status.
 
-### Update: `ConversationViewModel.swift`
+### StreamProcessor
 
-Remove:
-- `private static var assistantJoinStatuses: [String: AssistantJoinStatus]` (no longer needed — GRDB is the source of truth)
-- `restoreAssistantJoinStatusIfNeeded()` (no longer needed — conversation publisher delivers the status)
-- `var assistantJoinStatus: AssistantJoinStatus?` as a standalone property (read from `conversation.assistantJoinStatus` instead)
+Handles incoming `AssistantJoinRequest` XMTP messages:
+1. Decodes the `AssistantJoinRequest` payload
+2. Writes `assistantJoinStatus` and `assistantJoinRequestedBy` to the conversation in GRDB
+3. Does **not** store it as a `DBMessage`
+4. Returns early (message is consumed, not passed to normal message processing)
 
-The `requestAssistantJoin()` method becomes:
+### ConversationViewModel
+
+`requestAssistantJoin()` flow:
 1. Write `.pending` to GRDB
-2. Insert local message
-3. Send XMTP message
-4. Fire API call
-5. On error: update GRDB + send XMTP resolution
-6. On XMTP agent-joined: clear GRDB + delete message (handled by the stream processor / conversation observer)
+2. Broadcast `AssistantJoinRequest(status: .pending)` via XMTP
+3. Fire API call
+4. On error: update local GRDB status (no broadcast), schedule 45s auto-dismiss
 
-### Update: `MessagesViewController.swift`
+Agent join detection:
+- Observes `conversationPublisher` for conversation changes
+- `clearAssistantJoinStatusIfAgentJoined()` checks if `conversation.hasAssistant` became true while status is non-nil
+- Clears status from GRDB, cancels tasks
 
-Remove the synthetic injection of `.assistantJoinStatus` in `processUpdates`. The status row is now a real message in the DB, delivered through the normal messages pipeline. The scroll-to-bottom logic for new messages will handle it automatically.
+Removed from v1:
+- `private static var assistantJoinStatuses` static dictionary
+- `restoreAssistantJoinStatusIfNeeded()` — GRDB observation handles this
+- `dismissAssistantJoinErrorIfNeeded()` — errors no longer dismissed on send
 
-### Update: `DecodedMessage+DBRepresentation.swift`
+### MessagesViewController
 
-Add a case for `ContentTypeAssistantJoinRequest` in the switch statement, producing a `DBMessage` with `contentType = .assistantJoinRequest`.
+Reads `state.conversation.assistantJoinStatus` and appends a synthetic `.assistantJoinStatus(joinStatus, requesterName:)` cell at the end of the messages list.
 
-### Update: `AssistantJoinStatusView.swift`
+Requester name resolution:
+- Reads `conversation.assistantJoinRequestedBy`
+- If it matches `conversation.inboxId` (self): `requesterName = nil` → shows "Assistant is joining…"
+- If it's another member: resolves display name → shows "Louis invited an assistant to join"
 
-Add support for showing the requester's name:
-```swift
-struct AssistantJoinStatusView: View {
-    let status: AssistantJoinStatus
-    let requesterName: String? // nil = current user
-    var onRetry: (() -> Void)?
-}
-```
-
-When `status == .pending` and `requesterName != nil`: show "[Name] requested an assistant"
-When `status == .pending` and `requesterName == nil`: show "Assistant is joining…"
+Scroll-to-bottom on status appearance: tracks `previousAssistantJoinStatus` and scrolls when transitioning from nil to non-nil.
 
 ---
 
-## Auto-Dismiss & Cleanup
+## Rendering Pipeline
 
-### Error auto-dismiss (45s timer)
+```
+localStateWriter.updateAssistantJoinStatus(.pending, requestedBy: inboxId, for: conversationId)
+  → GRDB write to conversation table
+  → ValueObservation on DBConversation detects row change
+  → conversationPublisher emits
+  → ConversationViewModel.conversation = conversation
+  → @Observable triggers SwiftUI re-render
+  → ConversationView → MessagesView → MessagesViewRepresentable
+  → updateUIViewController → MessagesViewController.state
+  → processUpdates: cells.append(.assistantJoinStatus(joinStatus, requesterName:))
+  → CellFactory → AssistantJoinStatusView rendered in collection view
+```
 
-Keep the 45s auto-dismiss timer for error states. When it fires:
-1. Clear `conversation.assistantJoinStatus` in GRDB
-2. Delete the status message row from GRDB
-3. UI updates automatically via observation
+---
 
-### Dismiss on message send
+## Files Modified
 
-When the user sends a message while an error status is showing:
-1. Clear the status and delete the message row (same as auto-dismiss)
-
-### Dismiss on agent join (success)
-
-When the stream processor sees a `ConversationUpdate` with `addedAgent == true`:
-1. Clear `conversation.assistantJoinStatus` in GRDB
-2. Delete any `.assistantJoinRequest` messages for the conversation
-3. The real "joined by invitation" update renders normally
+| File | Change |
+|------|--------|
+| `ConvosCore/.../SharedDatabaseMigrator.swift` | Migration for columns |
+| `ConvosCore/.../DBConversation.swift` | Added columns, `with()` methods |
+| `ConvosCore/.../Conversation.swift` | Added properties |
+| `ConvosCore/.../AssistantJoinStatus.swift` | `String`-backed `Codable` enum |
+| `ConvosCore/.../MessageContentType.swift` | Added `.assistantJoinRequest` case |
+| `ConvosCore/.../AssistantJoinRequestCodec.swift` | **New** — XMTP codec |
+| `ConvosCore/.../XMTPClientProvider.swift` | `sendAssistantJoinRequest()` extension |
+| `ConvosCore/.../StreamProcessor.swift` | Handle incoming broadcasts, update GRDB |
+| `ConvosCore/.../ConversationLocalStateWriter.swift` | `updateAssistantJoinStatus` method |
+| `ConvosCore/.../ConversationWriter.swift` | Preserve status during re-stores |
+| `ConvosCore/.../DBConversationDetails+Conversation.swift` | Hydration |
+| `ConvosCore/.../MessagesRepository.swift` | Hydration, content type switches |
+| `ConvosCore/.../DecodedMessage+DBRepresentation.swift` | Handle new content type |
+| `ConvosCore/.../IncomingMessageWriter.swift` | Handle new content type |
+| `ConvosCore/.../OutgoingMessageWriter.swift` | Handle new content type |
+| `Convos/.../ConversationViewModel.swift` | GRDB-based flow, pending broadcast |
+| `Convos/.../ConversationView.swift` | Read status from conversation |
+| `Convos/.../MessagesViewController.swift` | Synthetic cell injection |
+| `Convos/.../AssistantJoinStatusView.swift` | Requester name display |
+| `Convos/.../MessagesListItemType.swift` | Updated case signature |
+| `Convos/.../MessagesViewRepresentable.swift` | Removed status parameter |
+| `Convos/.../MessagesView.swift` | Removed status parameter |
 
 ---
 
 ## Backend Requirements
 
-The backend already supports the required error responses. No backend changes are needed for the core feature.
+No backend changes needed. Current endpoint behavior:
 
-### Current endpoint behavior (no changes needed)
-
-`POST /api/v2/agents/join`
-- **200** `{ success: true, joined: true }` → agent is joining
-- **502** `AGENT_PROVISION_FAILED` → provisioning failed
-- **503** `NO_AGENTS_AVAILABLE` → no idle agents
-- **504** `AGENT_POOL_TIMEOUT` → 30s timeout
-
-### Recommended backend enhancement: duplicate request rejection
-
-The backend should reject `POST /api/v2/agents/join` if an agent join is already in progress for the given conversation (identified by the invite slug). Return a `409 Conflict` or similar. This provides server-side protection against the remaining race window.
-
----
-
-## Migration from v1
-
-The v1 implementation has:
-- `assistantJoinStatus` as a ViewModel property
-- `assistantJoinStatuses` static dictionary
-- Synthetic injection in `MessagesViewController.processUpdates`
-- `AssistantJoinStatusView` (keep and extend)
-- `AssistantJoinStatus` enum (keep, make `String`-backed)
-- `MessagesListItemType.assistantJoinStatus` case (update signature)
-
-The migration:
-1. Add the GRDB migration for the new column
-2. Add the custom content type codec
-3. Update StreamProcessor to handle the new content type
-4. Update ConversationWriter with the new method
-5. Update the ViewModel to write to GRDB instead of static state
-6. Update MessagesViewController to stop injecting synthetic rows
-7. Update the view to support requester name
-8. Remove the static dictionary and restore logic
-
----
-
-## Files to Modify
-
-| File | Change |
-|------|--------|
-| `ConvosCore/Sources/ConvosCore/Storage/SharedDatabaseMigrator.swift` | Add migration for `assistantJoinStatus` column |
-| `ConvosCore/Sources/ConvosCore/Storage/Database Models/DBConversation.swift` | Add column + `with(assistantJoinStatus:)` |
-| `ConvosCore/Sources/ConvosCore/Storage/Models/Conversation.swift` | Add `assistantJoinStatus` property |
-| `ConvosCore/Sources/ConvosCore/Storage/Models/AssistantJoinStatus.swift` | Make `String`-backed, add `Codable` |
-| `ConvosCore/Sources/ConvosCore/Storage/Models/MessageContentType.swift` | Add `.assistantJoinRequest` case |
-| `ConvosCore/Sources/ConvosCore/Custom Content Types/AssistantJoinRequestCodec.swift` | **New file** |
-| `ConvosCore/Sources/ConvosCore/Messaging/XMTPClientProvider.swift` | Add `sendAssistantJoinRequest()` extension |
-| `ConvosCore/Sources/ConvosCore/Syncing/StreamProcessor.swift` | Handle incoming `AssistantJoinRequest` messages |
-| `ConvosCore/Sources/ConvosCore/Storage/Writers/ConversationWriter.swift` | Add `updateAssistantJoinStatus()` |
-| `ConvosCore/Sources/ConvosCore/Storage/XMTP DB Representations/DecodedMessage+DBRepresentation.swift` | Handle new content type |
-| `Convos/Conversation Detail/ConversationViewModel.swift` | Rewrite to use GRDB, remove static dict |
-| `Convos/Conversation Detail/Messages/Messages View Controller/View Controller/MessagesViewController.swift` | Remove synthetic injection |
-| `Convos/Conversation Detail/Messages/MessagesListView/Messages List Items/AssistantJoinStatusView.swift` | Add requester name support |
-| `Convos/Conversation Detail/Messages/MessagesListView/MessagesListItemType.swift` | Update case signature |
-| `Convos/Conversation Detail/AddToConversationMenu.swift` | Read status from `conversation.assistantJoinStatus` |
-
-## Testing
-
-### Unit Tests
-
-| Test | Asserts |
-|------|---------|
-| Requesting join writes `.pending` to GRDB | `conversation.assistantJoinStatus == .pending` |
-| API error updates GRDB status | Status reflects the error |
-| API error updates the message row in GRDB | Message content changes |
-| Agent joins → status cleared from GRDB | `conversation.assistantJoinStatus == nil` |
-| Agent joins → status message deleted from GRDB | No `.assistantJoinRequest` messages remain |
-| Receiving XMTP join request from other member | Status set to `.pending`, message inserted |
-| Receiving XMTP failure update from other member | Status and message updated |
-| Menu disabled when `conversation.assistantJoinStatus != nil` | Button disabled for all members |
-| Auto-dismiss fires after 45s | Status and message cleared |
-| Retry resets to `.pending` | New request cycle starts |
-| Duplicate request blocked when status is non-nil | Second tap is no-op |
-
-### Integration Tests
-
-| Test | Asserts |
-|------|---------|
-| Full flow: request → pending → agent joins → cleared | End-to-end with mock XMTP |
-| Full flow: request → pending → error → retry → success | Error recovery path |
-| Multi-member: A requests, B sees pending, agent joins, both cleared | Cross-member coordination |
+- `POST /api/v2/agents/join`
+  - **200** → agent is joining
+  - **502** → provisioning failed
+  - **503** → no idle agents
+  - **504** → 30s timeout
 
 ## Out of Scope
 
+- Broadcasting error states to other members
 - Pre-checking agent availability before showing the menu
-- Showing status in the conversations list (home view)
-- Retry with exponential backoff (simple single retry is sufficient)
-- Server-side duplicate rejection (recommended but separate backend work)
+- Showing status in the conversations list
+- Retry with exponential backoff
+- Server-side duplicate rejection
