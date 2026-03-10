@@ -968,7 +968,6 @@ extension ConversationViewModel {
 
     private func setAssistantJoinError(_ status: AssistantJoinStatus) {
         assistantJoinStatus = status
-        Self.assistantJoinStatuses.removeValue(forKey: conversation.id)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         scheduleAssistantJoinDismiss()
     }
@@ -978,7 +977,9 @@ extension ConversationViewModel {
         assistantJoinDismissTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(45))
             guard !Task.isCancelled else { return }
-            self?.assistantJoinStatus = nil
+            guard let self else { return }
+            self.assistantJoinStatus = nil
+            Self.assistantJoinStatuses.removeValue(forKey: self.conversation.id)
         }
     }
 
@@ -996,6 +997,7 @@ extension ConversationViewModel {
     private func dismissAssistantJoinErrorIfNeeded() {
         guard assistantJoinStatus == .noAgentsAvailable || assistantJoinStatus == .failed else { return }
         assistantJoinStatus = nil
+        Self.assistantJoinStatuses.removeValue(forKey: conversation.id)
         assistantJoinDismissTask?.cancel()
     }
 
