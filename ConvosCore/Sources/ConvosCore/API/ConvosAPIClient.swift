@@ -541,6 +541,8 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
     func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
         var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Backend pool timeout is 30s; give 5s buffer so backend returns a proper 504 before iOS times out
+        request.timeoutInterval = 35
 
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(
@@ -589,7 +591,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
 // MARK: - Error Handling
 
-enum APIError: Error {
+public enum APIError: Error {
     case invalidURL
     case authenticationFailed
     case notAuthenticated
@@ -607,7 +609,7 @@ enum APIError: Error {
 }
 
 extension APIError: DisplayError {
-    var title: String {
+    public var title: String {
         switch self {
         case .invalidURL:
             return "Invalid URL"
@@ -640,7 +642,7 @@ extension APIError: DisplayError {
         }
     }
 
-    var description: String {
+    public var description: String {
         switch self {
         case .invalidURL:
             return "The URL is not valid."

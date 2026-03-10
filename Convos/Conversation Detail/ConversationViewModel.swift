@@ -235,8 +235,12 @@ class ConversationViewModel {
     var presentingPhotosInfoSheet: Bool = false
     var activeToast: IndicatorToastStyle?
 
+    var assistantJoinStatus: AssistantJoinStatus?
+
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var assistantJoinDismissTask: Task<Void, Never>?
 
     var autoRevealPhotos: Bool = false
 
@@ -302,6 +306,7 @@ class ConversationViewModel {
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
         assistantJoinTask?.cancel()
+        assistantJoinDismissTask?.cancel()
     }
 
     // MARK: - Init
@@ -482,7 +487,9 @@ class ConversationViewModel {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
-                self?.messages = messages
+                guard let self else { return }
+                self.messages = messages
+                self.clearAssistantJoinStatusIfNeeded(for: messages)
             }
             .store(in: &cancellables)
         conversationRepository.conversationPublisher
@@ -691,6 +698,7 @@ extension ConversationViewModel {
 
         guard hasText || hasAttachment || hasInvite else { return }
 
+        dismissAssistantJoinErrorIfNeeded()
         onboardingCoordinator.skipAddQuickname()
 
         let prevMessageText = messageText
@@ -919,17 +927,68 @@ extension ConversationViewModel {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
 
+        assistantJoinStatus = .pending
+        assistantJoinDismissTask?.cancel()
+
         assistantJoinTask?.cancel()
-        assistantJoinTask = Task { [session] in
+        assistantJoinTask = Task { [weak self, session] in
             do {
                 _ = try await session.requestAgentJoin(
                     slug: slug,
                     instructions: "You're a Convos Assistant"
                 )
+            } catch is CancellationError {
+                return
+            } catch let error as APIError {
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    guard let self else { return }
+                    switch error {
+                    case .noAgentsAvailable:
+                        self.setAssistantJoinError(.noAgentsAvailable)
+                    default:
+                        self.setAssistantJoinError(.failed)
+                    }
+                }
             } catch {
-                Log.error("Failed to request assistant join: \(error.localizedDescription)")
+                guard !Task.isCancelled else { return }
+                await MainActor.run {
+                    self?.setAssistantJoinError(.failed)
+                }
             }
         }
+    }
+
+    private func setAssistantJoinError(_ status: AssistantJoinStatus) {
+        assistantJoinStatus = status
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+        scheduleAssistantJoinDismiss()
+    }
+
+    private func scheduleAssistantJoinDismiss() {
+        assistantJoinDismissTask?.cancel()
+        assistantJoinDismissTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(45))
+            guard !Task.isCancelled else { return }
+            self?.assistantJoinStatus = nil
+        }
+    }
+
+    private func dismissAssistantJoinErrorIfNeeded() {
+        guard assistantJoinStatus == .noAgentsAvailable || assistantJoinStatus == .failed else { return }
+        assistantJoinStatus = nil
+        assistantJoinDismissTask?.cancel()
+    }
+
+    func clearAssistantJoinStatusIfNeeded(for messages: [MessagesListItemType]) {
+        guard assistantJoinStatus != nil else { return }
+        let hasAgentUpdate = messages.contains { item in
+            if case .update(_, let update, _) = item { return update.addedAgent }
+            return false
+        }
+        guard hasAgentUpdate else { return }
+        assistantJoinStatus = nil
+        assistantJoinDismissTask?.cancel()
     }
 
     func leaveConvo() {
