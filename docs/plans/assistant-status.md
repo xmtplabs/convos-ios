@@ -79,7 +79,7 @@ User taps "Instant assistant"
 - **Network / non-HTTP errors**: `URLSession` can throw `URLError` (no network, DNS failure, iOS-side timeout, etc.) which won't be an `APIError`. The `requestAssistantJoin()` catch block must handle **all** errors — map any unknown error to `.failed` so the status never gets stuck on `.pending`.
 - **iOS-side timeout**: The backend's pool timeout is 30 seconds. `URLSession.default` has a 60-second timeout. Set an explicit `timeoutIntervalForRequest` of 35 seconds on the agent join request so the backend's 504 fires first and returns a proper error code, rather than iOS timing out with a generic `URLError.timedOut`.
 - **Race condition — clearing status on XMTP update**: The plan clears status when a `ConversationUpdate` with `addedAgent == true` arrives. This checks `addedMembers.contains(where: \.isAgent)`, so a regular human member being added won't trigger it. Multiple simultaneous agent joins to the same conversation aren't possible (the menu is disabled once `hasAssistant` is true or `assistantJoinStatus != nil`).
-- **Auto-dismiss error states**: Error rows (`.noAgentsAvailable` and `.failed`) auto-dismiss after 45 seconds or when the user sends a new message — whichever comes first. This prevents stale errors from cluttering the chat.
+- **Auto-dismiss error states**: Error rows (`.noAgentsAvailable` and `.failed`) auto-dismiss after 45 seconds or when the user sends a new message — whichever comes first. This prevents stale errors from cluttering the chat. The timer must be cancelled when the user taps retry from `.failed` — otherwise the old timer could fire and dismiss the new `.pending` state.
 - **Haptic feedback on error**: Play a light impact haptic (`UIImpactFeedbackGenerator(style: .light)`) when the status transitions to an error state, since the user initiated the action and deserves tactile feedback that something went wrong.
 
 ---
@@ -112,7 +112,7 @@ enum AssistantJoinStatus: Equatable {
 
 ### 2b. Set explicit timeout on agent join request
 
-In `ConvosAPIClient.requestAgentJoin()`, set `request.timeoutInterval = 35` before firing the request. This ensures the backend's 30-second pool timeout fires first and returns a proper 504, rather than iOS timing out with a generic `URLError.timedOut`.
+In `ConvosAPIClient.requestAgentJoin()`, set `request.timeoutInterval = 35` before firing the request. This ensures the backend's 30-second pool timeout fires first and returns a proper 504, rather than iOS timing out with a generic `URLError.timedOut`. Add a comment noting the 5-second buffer over the backend's 30-second pool timeout so the values stay in sync if the backend changes.
 
 ### 3. Add `AssistantJoinStatusView`
 
