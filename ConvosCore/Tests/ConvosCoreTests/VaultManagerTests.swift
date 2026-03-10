@@ -131,4 +131,37 @@ struct VaultManagerTests {
             try await manager.shareAllKeys()
         }
     }
+
+    @Test("Bootstrap state starts as notStarted")
+    func bootstrapStateInitial() async throws {
+        let (manager, _, _) = try makeManager()
+        let state = await manager.bootstrapState
+        #expect(state == .notStarted)
+    }
+
+    @Test("Has multiple devices returns false when empty")
+    func hasMultipleDevicesEmpty() async throws {
+        let (manager, _, _) = try makeManager()
+        let result = await manager.hasMultipleDevices
+        #expect(result == false)
+    }
+
+    @Test("List devices returns self when DB has vault table but no rows")
+    func listDevicesFallback() async throws {
+        let store = MockKeychainIdentityStore()
+        let dbQueue = try DatabaseQueue()
+        try await dbQueue.write { db in
+            try db.create(table: "vaultDevice") { table in
+                table.column("inboxId", .text).primaryKey()
+                table.column("name", .text).notNull()
+                table.column("isCurrentDevice", .boolean).notNull()
+                table.column("addedAt", .datetime).notNull()
+            }
+        }
+        let manager = VaultManager(identityStore: store, databaseReader: dbQueue, deviceName: "Test iPhone")
+        let devices = try await manager.listDevices()
+        #expect(devices.count == 1)
+        #expect(devices[0].name == "Test iPhone")
+        #expect(devices[0].isCurrentDevice == true)
+    }
 }

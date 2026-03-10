@@ -29,7 +29,7 @@ enum SessionManagerError: Error {
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var leftConversationObserver: Any?
     private var vaultImportTask: Task<Void, Never>?
-    private var vaultDeleteTask: Task<Void, Never>?
+    private var vaultLifecycleTask: Task<Void, Never>?
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
 
@@ -44,6 +44,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let platformProviders: PlatformProviders
     private let lifecycleManager: any InboxLifecycleManagerProtocol
     private let sleepingInboxChecker: SleepingInboxMessageChecker
+    private let importSyncDrainer: VaultImportSyncDrainer
     private let apiClient: any ConvosAPIClientProtocol
     public let vaultService: (any VaultServiceProtocol)?
 
@@ -78,13 +79,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         self.lifecycleManager = resolvedLifecycleManager
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
 
-        // Initialize sleeping inbox checker
         let activityRepository = InboxActivityRepository(databaseReader: databaseReader)
         self.sleepingInboxChecker = sleepingInboxChecker ?? SleepingInboxMessageChecker(
             environment: environment,
             activityRepository: activityRepository,
             lifecycleManager: resolvedLifecycleManager,
             appLifecycle: platformProviders.appLifecycle
+        )
+        self.importSyncDrainer = VaultImportSyncDrainer(
+            lifecycleManager: resolvedLifecycleManager,
+            databaseReader: databaseReader,
+            environment: environment
         )
 
         observe()
@@ -143,7 +148,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
         vaultImportTask?.cancel()
-        vaultDeleteTask?.cancel()
+        vaultLifecycleTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -467,46 +472,86 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     private func observeVaultNotifications() {
         vaultImportTask = Task { [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: .vaultDidImportInbox
-            )
-            for await notification in notifications {
-                guard let self else { return }
-                guard let inboxId = notification.userInfo?["inboxId"] as? String,
-                      let clientId = notification.userInfo?["clientId"] as? String else {
-                    continue
+            await withTaskGroup(of: Void.self) { taskGroup in
+                taskGroup.addTask { [weak self] in
+                    let notifications = NotificationCenter.default.notifications(
+                        named: .vaultDidImportInbox
+                    )
+                    for await notification in notifications {
+                        guard let self else { return }
+                        guard let inboxId = notification.userInfo?["inboxId"] as? String,
+                              let clientId = notification.userInfo?["clientId"] as? String else {
+                            continue
+                        }
+                        await self.wakeImportedInbox(inboxId: inboxId, clientId: clientId)
+                    }
                 }
-                await self.wakeImportedInbox(inboxId: inboxId, clientId: clientId)
+
+                taskGroup.addTask { [weak self] in
+                    let notifications = NotificationCenter.default.notifications(
+                        named: .vaultDidReceiveKeyBundle
+                    )
+                    for await notification in notifications {
+                        guard let self else { return }
+                        let count = notification.userInfo?["importedCount"] as? Int ?? 0
+                        let importedInboxIds = notification.userInfo?["importedInboxIds"] as? Set<String> ?? []
+                        Log.info("Vault key bundle imported (\(count) keys), rebalancing then draining")
+                        await self.lifecycleManager.rebalance()
+                        await self.importSyncDrainer.startDraining(importedInboxIds: importedInboxIds)
+                    }
+                }
+
+                await taskGroup.waitForAll()
             }
         }
 
-        vaultDeleteTask = Task { [weak self] in
-            let notifications = NotificationCenter.default.notifications(
-                named: .vaultDidDeleteConversation
-            )
-            for await notification in notifications {
-                guard let self else { return }
-                guard let clientId = notification.userInfo?["clientId"] as? String else {
-                    continue
+        vaultLifecycleTask = Task { [weak self, platformProviders] in
+            await withTaskGroup(of: Void.self) { taskGroup in
+                taskGroup.addTask { [weak self] in
+                    let notifications = NotificationCenter.default.notifications(
+                        named: .vaultDidDeleteConversation
+                    )
+                    for await notification in notifications {
+                        guard let self else { return }
+                        guard let clientId = notification.userInfo?["clientId"] as? String else {
+                            continue
+                        }
+                        do {
+                            try await self.deleteInboxLocally(clientId: clientId)
+                            Log.info("Deleted conversation from vault sync: clientId=\(clientId)")
+                        } catch {
+                            Log.error("Failed to delete conversation from vault sync: \(error)")
+                        }
+                    }
                 }
-                do {
-                    try await self.deleteInboxLocally(clientId: clientId)
-                    Log.info("Deleted conversation from vault sync: clientId=\(clientId)")
-                } catch {
-                    Log.error("Failed to delete conversation from vault sync: \(error)")
+
+                taskGroup.addTask { [weak self] in
+                    let notifications = NotificationCenter.default.notifications(
+                        named: platformProviders.appLifecycle.willEnterForegroundNotification
+                    )
+                    for await _ in notifications {
+                        await self?.importSyncDrainer.resume()
+                    }
                 }
+
+                taskGroup.addTask { [weak self] in
+                    let notifications = NotificationCenter.default.notifications(
+                        named: platformProviders.appLifecycle.didEnterBackgroundNotification
+                    )
+                    for await _ in notifications {
+                        await self?.importSyncDrainer.pause()
+                    }
+                }
+
+                await taskGroup.waitForAll()
             }
         }
     }
 
     private func wakeImportedInbox(inboxId: String, clientId: String) async {
         do {
-            let service = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .userInteraction)
+            _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .userInteraction)
             Log.info("Woke imported vault inbox: \(inboxId), clientId: \(clientId)")
-
-            let result = try await service.inboxStateManager.waitForInboxReadyResult()
-            try await result.client.requestDeviceSync()
-            Log.info("Requested device sync for vault-imported inbox: \(inboxId)")
         } catch {
             Log.error("Failed to wake imported vault inbox \(inboxId): \(error)")
         }

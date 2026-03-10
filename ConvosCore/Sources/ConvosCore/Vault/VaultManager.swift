@@ -29,6 +29,12 @@ public protocol VaultManagerDelegate: AnyObject, Sendable {
     func vaultManager(_ manager: VaultManager, didReceivePinEcho pin: String, from joinerInboxId: String)
 }
 
+public enum VaultBootstrapState: Sendable, Equatable {
+    case notStarted
+    case ready
+    case failed(String)
+}
+
 public actor VaultManager {
     let vaultClient: VaultClient
     let identityStore: any KeychainIdentityStoreProtocol
@@ -45,6 +51,8 @@ public actor VaultManager {
     var activePairingSlug: String?
     var joinerDmStreamTask: Task<Void, Never>?
     var inboxesBeingShared: Set<String> = []
+
+    public private(set) var bootstrapState: VaultBootstrapState = .notStarted
 
     public var isConnected: Bool {
         get async {
@@ -96,47 +104,30 @@ public actor VaultManager {
             return
         }
 
-        let identity: KeychainIdentity
-        if let existing = try? await vaultKeyStore.loadAny() {
-            identity = existing
-        } else {
-            guard let newKeys = try? KeychainIdentityKeys.generate() else {
-                Log.error("Failed to generate vault identity keys")
-                return
-            }
-            guard let saved = try? await vaultKeyStore.save(
-                inboxId: "vault-pending",
-                clientId: "vault-pending",
-                keys: newKeys
-            ) else {
-                Log.error("Failed to save vault identity to keychain")
-                return
-            }
-            identity = saved
-        }
-
-        let signingKey = identity.keys.signingKey
-        let api = XMTPAPIOptionsBuilder.build(environment: environment)
-        let options = ClientOptions(
-            api: api,
-            codecs: [
-                ConversationDeletedCodec(),
-                DeviceKeyBundleCodec(),
-                DeviceKeyShareCodec(),
-                DeviceRemovedCodec(),
-                JoinRequestCodec(),
-                TextCodec(),
-            ],
-            dbEncryptionKey: identity.keys.databaseKey
-        )
-
         do {
+            let identity = try await loadOrCreateVaultIdentity(vaultKeyStore: vaultKeyStore)
+
+            let signingKey = identity.keys.signingKey
+            let api = XMTPAPIOptionsBuilder.build(environment: environment)
+            let options = ClientOptions(
+                api: api,
+                codecs: [
+                    ConversationDeletedCodec(),
+                    DeviceKeyBundleCodec(),
+                    DeviceKeyShareCodec(),
+                    DeviceRemovedCodec(),
+                    JoinRequestCodec(),
+                    PairingMessageCodec(),
+                    TextCodec(),
+                ],
+                dbEncryptionKey: identity.keys.databaseKey
+            )
+
             try await connect(signingKey: signingKey, options: options)
 
             guard let inboxId = await vaultInboxId,
                   let installationId = await vaultClient.installationId else {
-                Log.error("Vault connected but missing inboxId or installationId")
-                return
+                throw VaultClientError.notConnected
             }
 
             if identity.inboxId == "vault-pending" {
@@ -149,12 +140,27 @@ public actor VaultManager {
             }
 
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
-            try? await inboxWriter.save(inboxId: inboxId, clientId: installationId, isVault: true)
+            try await inboxWriter.save(inboxId: inboxId, clientId: installationId, isVault: true)
+            bootstrapState = .ready
             Log.info("Vault bootstrapped: inboxId=\(inboxId)")
             startObservingInboxes()
         } catch {
-            Log.error("Failed to bootstrap vault: \(error)")
+            let message = "Failed to bootstrap vault: \(error)"
+            bootstrapState = .failed(message)
+            Log.error(message)
         }
+    }
+
+    private func loadOrCreateVaultIdentity(vaultKeyStore: VaultKeyStore) async throws -> KeychainIdentity {
+        if let existing = try? await vaultKeyStore.loadAny() {
+            return existing
+        }
+        let newKeys = try KeychainIdentityKeys.generate()
+        return try await vaultKeyStore.save(
+            inboxId: "vault-pending",
+            clientId: "vault-pending",
+            keys: newKeys
+        )
     }
 
     // MARK: - Lifecycle
@@ -286,7 +292,30 @@ public actor VaultManager {
         )
 
         try await vaultClient.send(removal, codec: DeviceRemovedCodec())
+        await cleanupLocalVaultState(inboxId: selfInboxId)
+    }
+
+    private func cleanupLocalVaultState(inboxId: String?) async {
         await vaultClient.disconnect()
+
+        if let inboxId {
+            try? await vaultKeyStore?.delete(inboxId: inboxId)
+        }
+
+        if let databaseWriter {
+            let writer = VaultDeviceWriter(dbWriter: databaseWriter)
+            try? await writer.replaceAll([])
+        }
+
+        inboxObservationCancellable?.cancel()
+        inboxObservationCancellable = nil
+        bootstrapState = .notStarted
+    }
+
+    func handleSelfRemoved() async {
+        Log.info("This device was removed from the vault by another device")
+        let selfInboxId = await vaultInboxId
+        await cleanupLocalVaultState(inboxId: selfInboxId)
     }
 
     func syncDevicesToDatabase() async {
@@ -295,7 +324,22 @@ public actor VaultManager {
 
         do {
             let members = try await vaultClient.members()
-            let deviceNames = try await loadDeviceNames()
+
+            let existingNames = try VaultDeviceRepository(dbReader: databaseReader)
+                .fetchAll()
+                .reduce(into: [String: String]()) { $0[$1.inboxId] = $1.name }
+
+            let unknownMembers = members.filter { member in
+                member.inboxId != selfInboxId
+                    && pendingPeerDeviceNames[member.inboxId] == nil
+                    && existingNames[member.inboxId] == nil
+            }
+
+            var messageNames: [String: String] = [:]
+            if !unknownMembers.isEmpty {
+                messageNames = try await loadDeviceNames()
+            }
+
             let writer = VaultDeviceWriter(dbWriter: databaseWriter)
 
             let devices = members.map { member in
@@ -305,7 +349,8 @@ public actor VaultManager {
                     name = deviceName
                 } else {
                     name = pendingPeerDeviceNames[member.inboxId]
-                        ?? deviceNames[member.inboxId]
+                        ?? existingNames[member.inboxId]
+                        ?? messageNames[member.inboxId]
                         ?? "Unknown device"
                 }
                 return DBVaultDevice(
@@ -377,6 +422,14 @@ extension VaultManager: VaultClientDelegate {
 
     nonisolated public func vaultClient(_ client: VaultClient, didReceiveDeviceRemoved removal: DeviceRemovedContent, from senderInboxId: String) {
         Log.info("Device removed from vault: \(removal.removedInboxId), reason: \(removal.reason)")
+        Task {
+            let selfInboxId = await self.vaultInboxId
+            if removal.removedInboxId == selfInboxId {
+                await self.handleSelfRemoved()
+            } else {
+                await self.syncDevicesToDatabase()
+            }
+        }
     }
 
     nonisolated public func vaultClient(_ client: VaultClient, didReceiveConversationDeleted deletion: ConversationDeletedContent, from senderInboxId: String) {
