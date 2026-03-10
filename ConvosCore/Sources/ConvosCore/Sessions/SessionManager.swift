@@ -479,11 +479,11 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                     )
                     for await notification in notifications {
                         guard let self else { return }
-                        guard let inboxId = notification.userInfo?["inboxId"] as? String,
-                              let clientId = notification.userInfo?["clientId"] as? String else {
+                        guard let inboxId = notification.userInfo?["inboxId"] as? String else {
                             continue
                         }
-                        await self.wakeImportedInbox(inboxId: inboxId, clientId: clientId)
+                        Log.info("Vault key imported for inbox \(inboxId), queuing for drainer")
+                        await self.importSyncDrainer.startDraining(importedInboxIds: [inboxId])
                     }
                 }
 
@@ -544,15 +544,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
                 await taskGroup.waitForAll()
             }
-        }
-    }
-
-    private func wakeImportedInbox(inboxId: String, clientId: String) async {
-        do {
-            _ = try await lifecycleManager.wake(clientId: clientId, inboxId: inboxId, reason: .userInteraction)
-            Log.info("Woke imported vault inbox: \(inboxId), clientId: \(clientId)")
-        } catch {
-            Log.error("Failed to wake imported vault inbox \(inboxId): \(error)")
         }
     }
 
