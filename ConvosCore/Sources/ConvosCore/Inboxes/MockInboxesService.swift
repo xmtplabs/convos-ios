@@ -82,7 +82,15 @@ public final class MockInboxesService: SessionManagerProtocol {
     }
 
     public func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
-        .init(success: true, joined: true)
+        if let forceErrorCode {
+            switch forceErrorCode {
+            case 502: throw APIError.agentProvisionFailed
+            case 503: throw APIError.noAgentsAvailable
+            case 504: throw APIError.agentPoolTimeout
+            default: throw APIError.serverError("Mock forced error \(forceErrorCode)")
+            }
+        }
+        return .init(success: true, joined: true)
     }
 
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
