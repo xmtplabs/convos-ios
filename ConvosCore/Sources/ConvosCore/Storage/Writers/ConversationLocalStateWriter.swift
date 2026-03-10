@@ -5,6 +5,7 @@ public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setUnread(_ isUnread: Bool, for conversationId: String) async throws
     func setPinned(_ isPinned: Bool, for conversationId: String) async throws
     func setMuted(_ isMuted: Bool, for conversationId: String) async throws
+    func updateAssistantJoinStatus(_ status: AssistantJoinStatus?, for conversationId: String) async throws
 }
 
 /// @unchecked Sendable: GRDB's DatabaseWriter provides thread-safe access via write{}
@@ -77,6 +78,16 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
             state.with(isMuted: isMuted)
         }
         QAEvent.emit(.conversation, isMuted ? "muted" : "unmuted", ["id": conversationId])
+    }
+
+    func updateAssistantJoinStatus(_ status: AssistantJoinStatus?, for conversationId: String) async throws {
+        try await databaseWriter.write { db in
+            guard var conversation = try DBConversation.fetchOne(db, id: conversationId) else {
+                throw ConversationLocalStateWriterError.conversationNotFound
+            }
+            conversation = conversation.with(assistantJoinStatus: status)
+            try conversation.update(db)
+        }
     }
 
     private func updateLocalState(
