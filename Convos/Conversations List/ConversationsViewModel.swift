@@ -262,6 +262,12 @@ final class ConversationsViewModel {
     }
 
     private func startJoinerPairing(pairingId: String, expiresAt: Date?, initiatorName: String?) {
+        if showJoinerPairingSheet {
+            joinerPairingViewModel?.cancel()
+            joinerPairingViewModel = nil
+            showJoinerPairingSheet = false
+        }
+
         let vaultManager = (session.vaultService as? VaultManager) ?? .preview
         let vm = JoinerPairingSheetViewModel(
             pairingId: pairingId,
@@ -269,8 +275,12 @@ final class ConversationsViewModel {
             initiatorName: initiatorName,
             vaultManager: vaultManager
         )
-        joinerPairingViewModel = vm
-        showJoinerPairingSheet = true
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(300))
+            joinerPairingViewModel = vm
+            showJoinerPairingSheet = true
+        }
     }
 
     func onStartConvo() {
