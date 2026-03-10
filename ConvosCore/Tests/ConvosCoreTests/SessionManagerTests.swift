@@ -47,7 +47,8 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                assistantJoinStatus: nil
             ).insert(db)
         }
 
@@ -120,7 +121,8 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                assistantJoinStatus: nil
             ).insert(db)
         }
 
@@ -161,7 +163,8 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                assistantJoinStatus: nil
             ).insert(db)
         }
 
@@ -210,7 +213,8 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                assistantJoinStatus: nil
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -237,7 +241,8 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                assistantJoinStatus: nil
             ).insert(db)
         }
 
@@ -290,7 +295,8 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                assistantJoinStatus: nil
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -317,7 +323,8 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                assistantJoinStatus: nil
             ).insert(db)
         }
 

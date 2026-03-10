@@ -31,6 +31,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let expiresAt: Date?
     public let debugInfo: ConversationDebugInfo
     public let isLocked: Bool
+    public let assistantJoinStatus: AssistantJoinStatus?
 }
 
 public extension Conversation {

@@ -151,7 +151,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                assistantJoinStatus: nil
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -337,7 +338,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageNonce: metadata.imageNonce,
             imageEncryptionKey: metadata.imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: false
+            isUnused: false,
+                assistantJoinStatus: nil
         )
     }
 
