@@ -266,6 +266,16 @@ extension XMTPiOS.Conversation: MessageSender {
         Log.info("InviteJoinError message sent successfully")
     }
 
+    public func sendAssistantJoinRequest(_ request: AssistantJoinRequest) async throws {
+        Log.info("Sending AssistantJoinRequest with status: \(request.status.rawValue), requestId: \(request.requestId)")
+        let codec = AssistantJoinRequestCodec()
+        try await send(
+            content: request,
+            options: .init(contentType: codec.contentType)
+        )
+        Log.info("AssistantJoinRequest message sent successfully")
+    }
+
     public func prepare(text: String) async throws -> String {
         return try await prepareMessage(content: text)
     }

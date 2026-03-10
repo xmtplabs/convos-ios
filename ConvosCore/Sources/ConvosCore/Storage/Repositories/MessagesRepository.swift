@@ -392,6 +392,8 @@ extension Array where Element == DBMessage {
                             metadataChanges: metadataChanges
                         )
                     )
+                case .assistantJoinRequest:
+                    return nil
                 }
 
                 let message = Message(
@@ -456,7 +458,7 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update:
+        case .update, .assistantJoinRequest:
             return nil
         }
 
@@ -494,7 +496,7 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text("[Invite]")
             }
-        case .update:
+        case .update, .assistantJoinRequest:
             parentContent = .text("[Update]")
         }
 
