@@ -952,6 +952,7 @@ extension ConversationViewModel {
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {
+                try? await localStateWriter.updateAssistantJoinStatus(nil, requestedBy: nil, for: conversationId)
                 return
             } catch let error as APIError {
                 let status: AssistantJoinStatus
