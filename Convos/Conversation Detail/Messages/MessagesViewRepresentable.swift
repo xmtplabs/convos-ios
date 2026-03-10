@@ -25,7 +25,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAssistantJoin: () -> Void
-    let assistantJoinStatus: AssistantJoinStatus?
     let bottomBarHeight: CGFloat
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
@@ -96,8 +95,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             conversation: conversation,
             messages: messages,
             invite: invite,
-            hasLoadedAllMessages: hasLoadedAllMessages,
-            assistantJoinStatus: assistantJoinStatus
+            hasLoadedAllMessages: hasLoadedAllMessages
         )
     }
 }
@@ -130,7 +128,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onRetryMessage: { _ in },
         onDeleteMessage: { _ in },
         onRetryAssistantJoin: {},
-        assistantJoinStatus: nil,
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
         scrollToBottomTrigger: { _ in }

@@ -194,7 +194,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onRetryMessage: { _ in },
             onDeleteMessage: { _ in },
             onRetryAssistantJoin: {},
-            assistantJoinStatus: nil,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             scrollToBottomTrigger: { _ in }
