@@ -191,6 +191,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onPhotoDimensionsLoaded: { _, _, _ in },
             onAboutAssistants: {},
             onAgentOutOfCredits: {},
+            onRetryAssistantJoin: {},
+            assistantJoinStatus: nil,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             scrollToBottomTrigger: { _ in }

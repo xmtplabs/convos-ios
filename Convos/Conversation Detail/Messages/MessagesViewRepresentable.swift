@@ -22,6 +22,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
+    let onRetryAssistantJoin: () -> Void
+    let assistantJoinStatus: AssistantJoinStatus?
     let bottomBarHeight: CGFloat
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
@@ -71,6 +73,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         }
         messagesViewController.onAboutAssistants = onAboutAssistants
         messagesViewController.onAgentOutOfCredits = onAgentOutOfCredits
+        messagesViewController.onRetryAssistantJoin = onRetryAssistantJoin
         let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
@@ -85,7 +88,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             conversation: conversation,
             messages: messages,
             invite: invite,
-            hasLoadedAllMessages: hasLoadedAllMessages
+            hasLoadedAllMessages: hasLoadedAllMessages,
+            assistantJoinStatus: assistantJoinStatus
         )
     }
 }
@@ -115,6 +119,8 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onPhotoDimensionsLoaded: { _, _, _ in },
         onAboutAssistants: {},
         onAgentOutOfCredits: {},
+        onRetryAssistantJoin: {},
+        assistantJoinStatus: nil,
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
         scrollToBottomTrigger: { _ in }

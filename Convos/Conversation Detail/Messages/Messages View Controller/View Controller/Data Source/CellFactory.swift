@@ -13,6 +13,7 @@ struct CellConfig {
     let onPhotoHidden: (String) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
+    let onRetryAssistantJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
 }
 
