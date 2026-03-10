@@ -79,6 +79,7 @@ struct SeedConversationsView: View {
                     } else if viewModel.completed {
                         Image(systemName: "checkmark.circle.fill")
                             .foregroundStyle(.green)
+                            .accessibilityIdentifier("seed-completed-checkmark")
                     }
                 }
             }
