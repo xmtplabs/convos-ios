@@ -356,7 +356,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageEncryptionKey: metadata.imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-                assistantJoinStatus: nil
+            assistantJoinStatus: nil
         )
     }
 
