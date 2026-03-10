@@ -236,11 +236,14 @@ class ConversationViewModel {
     var activeToast: IndicatorToastStyle?
 
     var assistantJoinStatus: AssistantJoinStatus?
+    var assistantJoinForceErrorCode: Int?
 
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
     @ObservationIgnored
     private var assistantJoinDismissTask: Task<Void, Never>?
+
+    private static var assistantJoinStatuses: [String: AssistantJoinStatus] = [:]
 
     var autoRevealPhotos: Bool = false
 
@@ -305,7 +308,6 @@ class ConversationViewModel {
     deinit {
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
-        assistantJoinTask?.cancel()
         assistantJoinDismissTask?.cancel()
     }
 
@@ -407,6 +409,7 @@ class ConversationViewModel {
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
         }
+        restoreAssistantJoinStatusIfNeeded()
         startOnboarding()
     }
 
@@ -461,6 +464,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
+        restoreAssistantJoinStatusIfNeeded()
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -928,31 +932,33 @@ extension ConversationViewModel {
         guard !slug.isEmpty else { return }
 
         assistantJoinStatus = .pending
+        Self.assistantJoinStatuses[conversation.id] = .pending
         assistantJoinDismissTask?.cancel()
 
-        assistantJoinTask?.cancel()
+        let forceErrorCode = assistantJoinForceErrorCode
+        let conversationId = conversation.id
         assistantJoinTask = Task { [weak self, session] in
             do {
                 _ = try await session.requestAgentJoin(
                     slug: slug,
-                    instructions: "You're a Convos Assistant"
+                    instructions: "You're a Convos Assistant",
+                    forceErrorCode: forceErrorCode
                 )
+                await MainActor.run {
+                    Self.assistantJoinStatuses.removeValue(forKey: conversationId)
+                }
             } catch is CancellationError {
                 return
             } catch let error as APIError {
-                guard !Task.isCancelled else { return }
+                let status: AssistantJoinStatus
+                if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
                 await MainActor.run {
-                    guard let self else { return }
-                    switch error {
-                    case .noAgentsAvailable:
-                        self.setAssistantJoinError(.noAgentsAvailable)
-                    default:
-                        self.setAssistantJoinError(.failed)
-                    }
+                    Self.assistantJoinStatuses[conversationId] = status
+                    self?.setAssistantJoinError(status)
                 }
             } catch {
-                guard !Task.isCancelled else { return }
                 await MainActor.run {
+                    Self.assistantJoinStatuses[conversationId] = .failed
                     self?.setAssistantJoinError(.failed)
                 }
             }
@@ -961,6 +967,7 @@ extension ConversationViewModel {
 
     private func setAssistantJoinError(_ status: AssistantJoinStatus) {
         assistantJoinStatus = status
+        Self.assistantJoinStatuses.removeValue(forKey: conversation.id)
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
         scheduleAssistantJoinDismiss()
     }
@@ -974,6 +981,17 @@ extension ConversationViewModel {
         }
     }
 
+    private func restoreAssistantJoinStatusIfNeeded() {
+        guard let storedStatus = Self.assistantJoinStatuses[conversation.id], !conversation.hasAssistant else {
+            if conversation.hasAssistant { Self.assistantJoinStatuses.removeValue(forKey: conversation.id) }
+            return
+        }
+        assistantJoinStatus = storedStatus
+        if storedStatus != .pending {
+            scheduleAssistantJoinDismiss()
+        }
+    }
+
     private func dismissAssistantJoinErrorIfNeeded() {
         guard assistantJoinStatus == .noAgentsAvailable || assistantJoinStatus == .failed else { return }
         assistantJoinStatus = nil
@@ -981,13 +999,14 @@ extension ConversationViewModel {
     }
 
     func clearAssistantJoinStatusIfNeeded(for messages: [MessagesListItemType]) {
-        guard assistantJoinStatus != nil else { return }
+        guard assistantJoinStatus != nil || Self.assistantJoinStatuses[conversation.id] != nil else { return }
         let hasAgentUpdate = messages.contains { item in
             if case .update(_, let update, _) = item { return update.addedAgent }
             return false
         }
         guard hasAgentUpdate else { return }
         assistantJoinStatus = nil
+        Self.assistantJoinStatuses.removeValue(forKey: conversation.id)
         assistantJoinDismissTask?.cancel()
     }
 
