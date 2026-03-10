@@ -345,6 +345,104 @@ struct DeviceRemovedCodecTests {
     }
 }
 
+@Suite("PairingMessage Codec Tests")
+struct PairingMessageCodecTests {
+    let codec: PairingMessageCodec = PairingMessageCodec()
+
+    @Test("Content type matches expected value")
+    func contentType() {
+        let expectedType = ContentTypeID(
+            authorityID: "convos.org",
+            typeID: "pairing_message",
+            versionMajor: 1,
+            versionMinor: 0
+        )
+        #expect(codec.contentType == expectedType)
+        #expect(codec.contentType == ContentTypePairingMessage)
+    }
+
+    @Test("Should not push")
+    func shouldNotPush() throws {
+        let content = PairingMessageContent.pin("123456")
+        #expect(try codec.shouldPush(content: content) == false)
+    }
+
+    @Test("Fallback returns nil")
+    func fallbackIsNil() throws {
+        let content = PairingMessageContent.pin("123456")
+        #expect(try codec.fallback(content: content) == nil)
+    }
+
+    @Test("Encode and decode pin message")
+    func encodeDecodePin() throws {
+        let original = PairingMessageContent.pin("987654")
+        let encoded = try codec.encode(content: original)
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded.type == .pin)
+        #expect(decoded.payload == "987654")
+        #expect(decoded == original)
+    }
+
+    @Test("Encode and decode pin echo message")
+    func encodeDecodePinEcho() throws {
+        let original = PairingMessageContent.pinEcho("123456")
+        let encoded = try codec.encode(content: original)
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded.type == .pinEcho)
+        #expect(decoded.payload == "123456")
+    }
+
+    @Test("Encode and decode error message")
+    func encodeDecodeError() throws {
+        let original = PairingMessageContent.error("Pairing timed out")
+        let encoded = try codec.encode(content: original)
+        let decoded = try codec.decode(content: encoded)
+        #expect(decoded.type == .error)
+        #expect(decoded.payload == "Pairing timed out")
+    }
+
+    @Test("Equatable conformance")
+    func equatable() {
+        let a = PairingMessageContent.pin("111111")
+        let b = PairingMessageContent.pin("111111")
+        let c = PairingMessageContent.pin("222222")
+        let d = PairingMessageContent.pinEcho("111111")
+        #expect(a == b)
+        #expect(a != c)
+        #expect(a != d)
+    }
+
+    @Test("JSON raw value for pinEcho")
+    func pinEchoRawValue() throws {
+        let content = PairingMessageContent.pinEcho("123")
+        let data = try JSONEncoder().encode(content)
+        let json = String(data: data, encoding: .utf8)
+        #expect(json?.contains("pin_echo") == true)
+    }
+
+    @Test("Empty content throws")
+    func emptyContentThrows() {
+        var encodedContent = EncodedContent()
+        encodedContent.type = ContentTypePairingMessage
+        encodedContent.content = Data()
+
+        #expect(throws: PairingMessageCodecError.emptyContent) {
+            try codec.decode(content: encodedContent)
+        }
+    }
+
+    @Test("Malformed JSON throws")
+    func malformedJSON() {
+        var encodedContent = EncodedContent()
+        encodedContent.type = ContentTypePairingMessage
+        encodedContent.content = Data("not json".utf8)
+
+        #expect(throws: PairingMessageCodecError.invalidJSONFormat) {
+            try codec.decode(content: encodedContent)
+        }
+    }
+}
+
 @Suite("ConversationDeleted Codec Tests")
 struct ConversationDeletedCodecTests {
     let codec: ConversationDeletedCodec = ConversationDeletedCodec()
