@@ -509,11 +509,11 @@ extension MessagesViewController {
             if case .update(_, let update, _) = item, update.addedAgent { return true }
             return false
         }
-        if let joinStatus = state?.conversation.assistantJoinStatus, !hasAgentJoinedUpdate {
+        if let joinStatus = conversation.assistantJoinStatus, !hasAgentJoinedUpdate {
             let requesterName: String? = {
-                guard let requestedBy = state?.conversation.assistantJoinRequestedBy else { return nil }
-                if requestedBy == state?.conversation.inboxId { return nil }
-                return state?.conversation.members
+                guard let requestedBy = conversation.assistantJoinRequestedBy else { return nil }
+                if requestedBy == conversation.inboxId { return nil }
+                return conversation.members
                     .first { $0.profile.inboxId == requestedBy }?
                     .profile.displayName
             }()
