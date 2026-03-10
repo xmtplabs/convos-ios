@@ -116,9 +116,10 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
-                case .assistantJoinStatus(let status):
+                case let .assistantJoinStatus(status, requesterName):
                     AssistantJoinStatusView(
                         status: status,
+                        requesterName: requesterName,
                         onRetry: config.onRetryAssistantJoin
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)

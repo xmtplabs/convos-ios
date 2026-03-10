@@ -502,6 +502,7 @@ class ConversationViewModel {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
                 }
+                self.clearAssistantJoinStatusIfAgentJoined(conversation)
             }
             .store(in: &cancellables)
         ImageCache.shared.cacheUpdates
@@ -696,7 +697,6 @@ extension ConversationViewModel {
 
         guard hasText || hasAttachment || hasInvite else { return }
 
-        dismissAssistantJoinErrorIfNeeded()
         onboardingCoordinator.skipAddQuickname()
 
         let prevMessageText = messageText
@@ -930,9 +930,10 @@ extension ConversationViewModel {
 
         let forceErrorCode = assistantJoinForceErrorCode
         let conversationId = conversation.id
+        let inboxId = conversation.inboxId
         assistantJoinTask = Task { [weak self, session, localStateWriter] in
             do {
-                try await localStateWriter.updateAssistantJoinStatus(.pending, for: conversationId)
+                try await localStateWriter.updateAssistantJoinStatus(.pending, requestedBy: inboxId, for: conversationId)
             } catch {
                 Log.error("Failed to set pending assistant join status: \(error.localizedDescription)")
             }
@@ -943,18 +944,17 @@ extension ConversationViewModel {
                     instructions: "You're a Convos Assistant",
                     forceErrorCode: forceErrorCode
                 )
-                try? await localStateWriter.updateAssistantJoinStatus(nil, for: conversationId)
             } catch is CancellationError {
                 return
             } catch let error as APIError {
                 let status: AssistantJoinStatus
                 if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
-                try? await localStateWriter.updateAssistantJoinStatus(status, for: conversationId)
+                try? await localStateWriter.updateAssistantJoinStatus(status, requestedBy: inboxId, for: conversationId)
                 await MainActor.run {
                     self?.onAssistantJoinError(conversationId: conversationId)
                 }
             } catch {
-                try? await localStateWriter.updateAssistantJoinStatus(.failed, for: conversationId)
+                try? await localStateWriter.updateAssistantJoinStatus(.failed, requestedBy: inboxId, for: conversationId)
                 await MainActor.run {
                     self?.onAssistantJoinError(conversationId: conversationId)
                 }
@@ -972,17 +972,18 @@ extension ConversationViewModel {
         assistantJoinDismissTask = Task { [localStateWriter] in
             try? await Task.sleep(for: .seconds(45))
             guard !Task.isCancelled else { return }
-            try? await localStateWriter.updateAssistantJoinStatus(nil, for: conversationId)
+            try? await localStateWriter.updateAssistantJoinStatus(nil, requestedBy: nil, for: conversationId)
         }
     }
 
-    private func dismissAssistantJoinErrorIfNeeded() {
-        let status = conversation.assistantJoinStatus
-        guard status == .noAgentsAvailable || status == .failed else { return }
+    private func clearAssistantJoinStatusIfAgentJoined(_ conversation: Conversation) {
+        guard conversation.assistantJoinStatus != nil, conversation.hasAssistant else { return }
+        assistantJoinTask?.cancel()
+        assistantJoinTask = nil
         assistantJoinDismissTask?.cancel()
         let conversationId = conversation.id
         Task { [localStateWriter] in
-            try? await localStateWriter.updateAssistantJoinStatus(nil, for: conversationId)
+            try? await localStateWriter.updateAssistantJoinStatus(nil, requestedBy: nil, for: conversationId)
         }
     }
 

@@ -513,7 +513,14 @@ extension MessagesViewController {
         }
 
         if let joinStatus = state?.conversation.assistantJoinStatus {
-            cells.append(.assistantJoinStatus(joinStatus))
+            let requesterName: String? = {
+                guard let requestedBy = state?.conversation.assistantJoinRequestedBy else { return nil }
+                if requestedBy == state?.conversation.inboxId { return nil }
+                return state?.conversation.members
+                    .first { $0.profile.inboxId == requestedBy }?
+                    .profile.displayName
+            }()
+            cells.append(.assistantJoinStatus(joinStatus, requesterName: requesterName))
         }
 
         let sections: [MessagesCollectionSection] = [

@@ -147,7 +147,7 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
     case agentOutOfCredits(Profile)
 
     /// Shows the current assistant join status (pending, error, etc.)
-    case assistantJoinStatus(AssistantJoinStatus)
+    case assistantJoinStatus(AssistantJoinStatus, requesterName: String?)
 
     var id: String {
         switch self {
@@ -163,7 +163,7 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "conversation-info-\(conversation.id)"
         case .agentOutOfCredits(let profile):
             return "agent-out-of-credits-\(profile.inboxId)"
-        case .assistantJoinStatus(let status):
+        case .assistantJoinStatus(let status, _):
             return "assistant-join-status-\(status)"
         }
     }
