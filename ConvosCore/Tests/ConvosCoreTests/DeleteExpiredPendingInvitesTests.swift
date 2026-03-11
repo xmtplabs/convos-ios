@@ -52,8 +52,6 @@ struct DeleteExpiredPendingInvitesTests {
             imageEncryptionKey: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            assistantJoinStatus: nil,
-            assistantJoinRequestedBy: nil
         )
     }
 

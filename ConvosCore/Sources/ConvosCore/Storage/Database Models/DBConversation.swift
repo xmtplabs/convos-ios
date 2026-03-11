@@ -49,8 +49,6 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageEncryptionKey: Column = Column(CodingKeys.imageEncryptionKey)
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
-        static let assistantJoinStatus: Column = Column(CodingKeys.assistantJoinStatus)
-        static let assistantJoinRequestedBy: Column = Column(CodingKeys.assistantJoinRequestedBy)
     }
 
     let id: String
@@ -75,8 +73,6 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageEncryptionKey: Data?
     let imageLastRenewed: Date?
     let isUnused: Bool
-    let assistantJoinStatus: AssistantJoinStatus?
-    let assistantJoinRequestedBy: String?
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
         [Columns.creatorId, Columns.id],
@@ -171,15 +167,40 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                     src.text as sourceMessageText
                 FROM message m
                 LEFT JOIN message src ON m.sourceMessageId = src.id
-                WHERE m.contentType != ?
+                WHERE m.contentType NOT IN (?, ?)
                 AND m.dateNs = (
                     SELECT MAX(m2.dateNs)
                     FROM message m2
                     WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType != ?
+                    AND m2.contentType NOT IN (?, ?)
                 )
                 """,
-            arguments: [MessageContentType.update.rawValue, MessageContentType.update.rawValue]
+            arguments: [
+                MessageContentType.update.rawValue,
+                MessageContentType.assistantJoinRequest.rawValue,
+                MessageContentType.update.rawValue,
+                MessageContentType.assistantJoinRequest.rawValue,
+            ]
+        )
+
+    nonisolated(unsafe) static let latestAssistantJoinRequestCTE: CommonTableExpression<DBAssistantJoinRequest> =
+        CommonTableExpression<DBAssistantJoinRequest>(
+            named: "conversationAssistantJoinRequest",
+            sql: """
+                SELECT m.conversationId, m.text AS status, m.date
+                FROM message m
+                WHERE m.contentType = ?
+                AND m.dateNs = (
+                    SELECT MAX(m2.dateNs)
+                    FROM message m2
+                    WHERE m2.conversationId = m.conversationId
+                    AND m2.contentType = ?
+                )
+                """,
+            arguments: [
+                MessageContentType.assistantJoinRequest.rawValue,
+                MessageContentType.assistantJoinRequest.rawValue,
+            ]
         )
 
     static let localState: HasOneAssociation<DBConversation, ConversationLocalState> = hasOne(
@@ -234,9 +255,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -263,9 +282,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -292,9 +309,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -321,9 +336,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -350,9 +363,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -381,9 +392,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -410,9 +419,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -439,9 +446,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -468,9 +473,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -497,9 +500,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -526,9 +527,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -555,9 +554,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -584,9 +581,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -613,9 +608,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -642,9 +635,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -671,9 +662,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 
@@ -700,38 +689,7 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
-        )
-    }
-
-    func with(assistantJoinStatus: AssistantJoinStatus?, assistantJoinRequestedBy: String?) -> Self {
-        .init(
-            id: id,
-            inboxId: inboxId,
-            clientId: clientId,
-            clientConversationId: clientConversationId,
-            inviteTag: inviteTag,
-            creatorId: creatorId,
-            kind: kind,
-            consent: consent,
-            createdAt: createdAt,
-            name: name,
-            description: description,
-            imageURLString: imageURLString,
-            publicImageURLString: publicImageURLString,
-            includeInfoInPublicPreview: includeInfoInPublicPreview,
-            expiresAt: expiresAt,
-            debugInfo: debugInfo,
-            isLocked: isLocked,
-            imageSalt: imageSalt,
-            imageNonce: imageNonce,
-            imageEncryptionKey: imageEncryptionKey,
-            imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused,
-            assistantJoinStatus: assistantJoinStatus,
-            assistantJoinRequestedBy: assistantJoinRequestedBy
+            isUnused: isUnused
         )
     }
 

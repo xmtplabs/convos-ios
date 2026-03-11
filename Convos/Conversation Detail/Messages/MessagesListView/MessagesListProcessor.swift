@@ -14,28 +14,7 @@ final class MessagesListProcessor {
     /// - Returns: Array of items ready for display in the messages list
     static func process(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         let visibleMessages = messages.filter { $0.base.content.showsInMessagesList }
-
-        var items = processMessages(visibleMessages)
-
-        removeAssistantJoinStatusIfAgentJoined(&items)
-
-        return items
-    }
-
-    private static func removeAssistantJoinStatusIfAgentJoined(_ items: inout [MessagesListItemType]) {
-        guard let joinIndex = items.lastIndex(where: {
-            if case .assistantJoinStatus = $0 { return true }
-            return false
-        }) else { return }
-
-        let agentJoinedAfter = items[joinIndex...].contains(where: {
-            if case .update(_, let update, _) = $0 { return update.addedAgent }
-            return false
-        })
-
-        if agentJoinedAfter {
-            items.remove(at: joinIndex)
-        }
+        return processMessages(visibleMessages)
     }
 
     /// Processes messages for pagination scenarios
@@ -69,7 +48,14 @@ final class MessagesListProcessor {
     private static func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
-        let lastAssistantJoinIndex = messages.lastIndex(where: { $0.base.content.isAssistantJoinRequest })
+        let lastAssistantJoinIndex: Int? = {
+            guard let index = messages.lastIndex(where: { $0.base.content.isAssistantJoinRequest }) else { return nil }
+            let agentJoinedAfter = messages[index...].contains(where: {
+                if case .update(let update) = $0.base.content { return update.addedAgent }
+                return false
+            })
+            return agentJoinedAfter ? nil : index
+        }()
 
         var items: [MessagesListItemType] = []
         var currentGroup: [AnyMessage] = []

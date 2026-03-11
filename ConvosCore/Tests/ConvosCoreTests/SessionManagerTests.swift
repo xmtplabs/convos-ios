@@ -48,8 +48,6 @@ struct SessionManagerTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
         }
 
@@ -123,8 +121,6 @@ struct SessionManagerTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
         }
 
@@ -166,8 +162,6 @@ struct SessionManagerTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
         }
 
@@ -217,8 +211,6 @@ struct SessionManagerTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -246,8 +238,6 @@ struct SessionManagerTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
         }
 
@@ -301,8 +291,6 @@ struct SessionManagerTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -330,8 +318,6 @@ struct SessionManagerTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
         }
 

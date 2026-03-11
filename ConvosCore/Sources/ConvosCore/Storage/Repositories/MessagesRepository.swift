@@ -393,7 +393,8 @@ extension Array where Element == DBMessage {
                         )
                     )
                 case .assistantJoinRequest:
-                    return nil
+                    let status = AssistantJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
+                    messageContent = .assistantJoinRequest(status: status, requestedByInboxId: dbMessage.senderId)
                 }
 
                 let message = Message(
@@ -689,8 +690,7 @@ private extension LightweightConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: conversation.assistantJoinStatus,
-            assistantJoinRequestedBy: conversation.assistantJoinRequestedBy
+            assistantJoinStatus: nil
         )
     }
 }

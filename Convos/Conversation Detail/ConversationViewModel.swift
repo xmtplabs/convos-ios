@@ -237,10 +237,12 @@ class ConversationViewModel {
 
     var assistantJoinForceErrorCode: Int?
 
+    var isAssistantJoinPending: Bool {
+        assistantJoinTask != nil || conversation.assistantJoinStatus == .pending
+    }
+
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
-    @ObservationIgnored
-    private var assistantJoinDismissTask: Task<Void, Never>?
 
     var autoRevealPhotos: Bool = false
 
@@ -306,7 +308,6 @@ class ConversationViewModel {
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
         assistantJoinTask?.cancel()
-        assistantJoinDismissTask?.cancel()
     }
 
     // MARK: - Init
@@ -502,7 +503,6 @@ class ConversationViewModel {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
                 }
-                self.clearAssistantJoinStatusIfAgentJoined(conversation)
             }
             .store(in: &cancellables)
         ImageCache.shared.cacheUpdates
@@ -901,7 +901,6 @@ extension ConversationViewModel {
         let slug = invite.urlSlug
         guard !slug.isEmpty else { return }
 
-        assistantJoinDismissTask?.cancel()
         assistantJoinTask?.cancel()
 
         let forceErrorCode = assistantJoinForceErrorCode
@@ -909,13 +908,7 @@ extension ConversationViewModel {
         let clientId = conversation.clientId
         let inboxId = conversation.inboxId
         let requestId = UUID().uuidString
-        assistantJoinTask = Task { [weak self, session, localStateWriter] in
-            do {
-                try await localStateWriter.updateAssistantJoinStatus(.pending, requestedBy: inboxId, for: conversationId)
-            } catch {
-                Log.error("Failed to set pending assistant join status: \(error.localizedDescription)")
-            }
-
+        assistantJoinTask = Task { [weak self, session] in
             await Self.broadcastAssistantJoinRequest(
                 status: .pending, requestedBy: inboxId, requestId: requestId,
                 conversationId: conversationId, clientId: clientId, session: session
@@ -928,21 +921,32 @@ extension ConversationViewModel {
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {
-                try? await localStateWriter.updateAssistantJoinStatus(nil, requestedBy: nil, for: conversationId)
+                await MainActor.run { self?.assistantJoinTask = nil }
                 return
             } catch let error as APIError {
                 let status: AssistantJoinStatus
                 if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
-                try? await localStateWriter.updateAssistantJoinStatus(status, requestedBy: inboxId, for: conversationId)
+                await Self.broadcastAssistantJoinRequest(
+                    status: status, requestedBy: inboxId, requestId: requestId,
+                    conversationId: conversationId, clientId: clientId, session: session
+                )
                 await MainActor.run {
-                    self?.onAssistantJoinError(conversationId: conversationId)
+                    self?.assistantJoinTask = nil
+                    self?.onAssistantJoinError()
                 }
+                return
             } catch {
-                try? await localStateWriter.updateAssistantJoinStatus(.failed, requestedBy: inboxId, for: conversationId)
+                await Self.broadcastAssistantJoinRequest(
+                    status: .failed, requestedBy: inboxId, requestId: requestId,
+                    conversationId: conversationId, clientId: clientId, session: session
+                )
                 await MainActor.run {
-                    self?.onAssistantJoinError(conversationId: conversationId)
+                    self?.assistantJoinTask = nil
+                    self?.onAssistantJoinError()
                 }
+                return
             }
+            await MainActor.run { self?.assistantJoinTask = nil }
         }
     }
 
@@ -968,29 +972,8 @@ extension ConversationViewModel {
         }
     }
 
-    private func onAssistantJoinError(conversationId: String) {
+    private func onAssistantJoinError() {
         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-        scheduleAssistantJoinDismiss(for: conversationId)
-    }
-
-    private func scheduleAssistantJoinDismiss(for conversationId: String) {
-        assistantJoinDismissTask?.cancel()
-        assistantJoinDismissTask = Task { [localStateWriter] in
-            try? await Task.sleep(for: .seconds(45))
-            guard !Task.isCancelled else { return }
-            try? await localStateWriter.updateAssistantJoinStatus(nil, requestedBy: nil, for: conversationId)
-        }
-    }
-
-    private func clearAssistantJoinStatusIfAgentJoined(_ conversation: Conversation) {
-        guard conversation.assistantJoinStatus != nil, conversation.hasAssistant else { return }
-        assistantJoinTask?.cancel()
-        assistantJoinTask = nil
-        assistantJoinDismissTask?.cancel()
-        let conversationId = conversation.id
-        Task { [localStateWriter] in
-            try? await localStateWriter.updateAssistantJoinStatus(nil, requestedBy: nil, for: conversationId)
-        }
     }
 
     func leaveConvo() {
