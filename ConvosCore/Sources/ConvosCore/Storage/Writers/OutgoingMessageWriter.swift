@@ -926,7 +926,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         let queued = QueuedTextMessage(
-            clientMessageId: message.id,
+            clientMessageId: message.clientMessageId,
             text: text,
             dependsOnPhotoKey: nil,
             replyContext: replyContext
@@ -936,21 +936,33 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     private func retryFailedPhoto(message: DBMessage, replyContext: ReplyContext?) async throws {
-        guard let localURLString = message.attachmentUrls.first,
-              let localURL = URL(string: localURLString) else {
-            Log.error("Cannot retry photo: no local attachment URL")
+        guard let attachmentRef = message.attachmentUrls.first, !attachmentRef.isEmpty else {
+            Log.error("Cannot retry photo: no attachment reference")
             return
         }
 
-        let fileURL = localURL.scheme == "file" ? localURL : URL(fileURLWithPath: localURL.path)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            Log.error("Cannot retry photo: local file no longer exists at \(fileURL.path)")
+        let localFileURL: URL
+        if attachmentRef.hasPrefix("{") {
+            guard let localURL = resolveLocalCacheURL(from: attachmentRef) else {
+                Log.error("Cannot retry photo: uploaded attachment has no local cache")
+                return
+            }
+            localFileURL = localURL
+        } else if let parsed = URL(string: attachmentRef) {
+            localFileURL = parsed.scheme == "file" ? parsed : URL(fileURLWithPath: parsed.path)
+        } else {
+            Log.error("Cannot retry photo: invalid attachment reference")
             return
         }
 
-        guard let imageData = try? Data(contentsOf: fileURL),
+        guard FileManager.default.fileExists(atPath: localFileURL.path) else {
+            Log.error("Cannot retry photo: local file no longer exists at \(localFileURL.path)")
+            return
+        }
+
+        guard let imageData = try? Data(contentsOf: localFileURL),
               let image = ImageType(data: imageData) else {
-            Log.error("Cannot retry photo: failed to load image from \(fileURL.path)")
+            Log.error("Cannot retry photo: failed to load image from \(localFileURL.path)")
             return
         }
 
@@ -958,16 +970,28 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             try message.with(status: .unpublished).save(db)
         }
 
-        let filename = fileURL.lastPathComponent
+        let filename = localFileURL.lastPathComponent
         let queued = QueuedPhotoMessage(
-            clientMessageId: message.id,
+            clientMessageId: message.clientMessageId,
             image: image,
-            localCacheURL: fileURL,
+            localCacheURL: localFileURL,
             filename: filename,
             replyContext: replyContext
         )
         messageQueue.append(.photo(queued))
         startProcessingIfNeeded()
+    }
+
+    private func resolveLocalCacheURL(from storedJSON: String) -> URL? {
+        guard let stored = try? StoredRemoteAttachment.fromJSON(storedJSON),
+              let filename = stored.filename else {
+            return nil
+        }
+        guard let url = try? photoService.localCacheURL(for: filename),
+              FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return url
     }
 
     func deleteFailedMessage(id clientMessageId: String) async throws {
