@@ -5,7 +5,7 @@ struct AssistantPresentInfoView: View {
 
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step3x) {
-            Text("An assistant is in this convo. It learns by listening — in this convo only.\nIt can browse, call, text, email, pay and more.")
+            Text("An assistant is in this convo. It learns by listening — in this convo only. It can browse, call, text, email, pay and more.")
                 .font(.footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.center)
