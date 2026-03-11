@@ -30,6 +30,11 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
 
     /// Send text after a photo reply (both replying to the same parent).
     func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws
+
+    // MARK: - Failed Messages
+
+    func retryFailedMessage(id: String) async throws
+    func deleteFailedMessage(id: String) async throws
 }
 
 enum OutgoingMessageWriterError: Error {
@@ -56,6 +61,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let image: ImageType
         let localCacheURL: URL
         let filename: String
+        var replyContext: ReplyContext?
     }
 
     private struct EagerUploadState {
@@ -696,7 +702,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             queued: queued,
             prepared: prepared,
             trackingKey: trackingKey,
-            inboxReady: inboxReady
+            inboxReady: inboxReady,
+            replyContext: queued.replyContext
         )
     }
 
@@ -884,6 +891,118 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         for text in orphaned {
             Log.error("Marking dependent text \(text.clientMessageId) as failed after photo \(trackingKey) failed")
             try? await markMessageFailed(clientMessageId: text.clientMessageId)
+        }
+    }
+
+    // MARK: - Failed Messages
+
+    func retryFailedMessage(id clientMessageId: String) async throws {
+        let message = try await databaseWriter.read { db in
+            try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == clientMessageId)
+                .fetchOne(db)
+        }
+        guard let message, message.status == .failed else { return }
+
+        let replyContext: ReplyContext? = if let parentId = message.sourceMessageId {
+            ReplyContext(parentDbId: parentId)
+        } else {
+            nil
+        }
+
+        if message.contentType == .attachments {
+            try await retryFailedPhoto(message: message, replyContext: replyContext)
+        } else {
+            try await retryFailedText(message: message, replyContext: replyContext)
+        }
+    }
+
+    private func retryFailedText(message: DBMessage, replyContext: ReplyContext?) async throws {
+        let text = message.text ?? message.emoji ?? ""
+        guard !text.isEmpty else { return }
+
+        try await databaseWriter.write { db in
+            try message.with(status: .unpublished).save(db)
+        }
+
+        let queued = QueuedTextMessage(
+            clientMessageId: message.clientMessageId,
+            text: text,
+            dependsOnPhotoKey: nil,
+            replyContext: replyContext
+        )
+        messageQueue.append(.text(queued))
+        startProcessingIfNeeded()
+    }
+
+    private func retryFailedPhoto(message: DBMessage, replyContext: ReplyContext?) async throws {
+        guard let attachmentRef = message.attachmentUrls.first, !attachmentRef.isEmpty else {
+            Log.error("Cannot retry photo: no attachment reference")
+            return
+        }
+
+        let localFileURL: URL
+        if attachmentRef.hasPrefix("{") {
+            guard let localURL = resolveLocalCacheURL(from: attachmentRef) else {
+                Log.error("Cannot retry photo: uploaded attachment has no local cache")
+                return
+            }
+            localFileURL = localURL
+        } else if let parsed = URL(string: attachmentRef) {
+            localFileURL = parsed.scheme == "file" ? parsed : URL(fileURLWithPath: parsed.path)
+        } else {
+            Log.error("Cannot retry photo: invalid attachment reference")
+            return
+        }
+
+        guard FileManager.default.fileExists(atPath: localFileURL.path) else {
+            Log.error("Cannot retry photo: local file no longer exists at \(localFileURL.path)")
+            return
+        }
+
+        guard let imageData = try? Data(contentsOf: localFileURL),
+              let image = ImageType(data: imageData) else {
+            Log.error("Cannot retry photo: failed to load image from \(localFileURL.path)")
+            return
+        }
+
+        try await databaseWriter.write { db in
+            try message.with(status: .unpublished).save(db)
+        }
+
+        let filename = localFileURL.lastPathComponent
+        let queued = QueuedPhotoMessage(
+            clientMessageId: message.clientMessageId,
+            image: image,
+            localCacheURL: localFileURL,
+            filename: filename,
+            replyContext: replyContext
+        )
+        messageQueue.append(.photo(queued))
+        startProcessingIfNeeded()
+    }
+
+    private func resolveLocalCacheURL(from storedJSON: String) -> URL? {
+        guard let stored = try? StoredRemoteAttachment.fromJSON(storedJSON),
+              let filename = stored.filename else {
+            return nil
+        }
+        guard let url = try? photoService.localCacheURL(for: filename),
+              FileManager.default.fileExists(atPath: url.path) else {
+            return nil
+        }
+        return url
+    }
+
+    func deleteFailedMessage(id clientMessageId: String) async throws {
+        try await databaseWriter.write { db in
+            let deleted = try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == clientMessageId)
+                .filter(DBMessage.Columns.status == MessageStatus.failed.rawValue)
+                .deleteAll(db)
+            if deleted == 0 {
+                Log.warning("No failed message found to delete for clientMessageId: \(clientMessageId)")
+            }
         }
     }
 }

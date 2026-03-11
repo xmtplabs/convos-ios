@@ -771,6 +771,30 @@ extension ConversationViewModel {
         replyingToMessage = nil
     }
 
+    func retryMessage(_ message: AnyMessage) {
+        let messageWriter = cachedMessageWriter
+        let messageId = message.base.id
+        Task {
+            do {
+                try await messageWriter.retryFailedMessage(id: messageId)
+            } catch {
+                Log.error("Failed to retry message: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    func deleteMessage(_ message: AnyMessage) {
+        let messageWriter = cachedMessageWriter
+        let messageId = message.base.id
+        Task {
+            do {
+                try await messageWriter.deleteFailedMessage(id: messageId)
+            } catch {
+                Log.error("Failed to delete message: \(error.localizedDescription)")
+            }
+        }
+    }
+
     func onPhotoSelected(_ image: UIImage) {
         let messageWriter = cachedMessageWriter
         if let existingKey = currentEagerUploadKey {

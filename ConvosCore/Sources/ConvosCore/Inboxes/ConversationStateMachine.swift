@@ -289,6 +289,16 @@ public actor ConversationStateMachine {
         try await writer.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
     }
 
+    func retryFailedMessage(id: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.retryFailedMessage(id: id)
+    }
+
+    func deleteFailedMessage(id: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.deleteFailedMessage(id: id)
+    }
+
     func delete() {
         // Cancel current task immediately to unblock the action queue
         currentTask?.cancel()

@@ -221,6 +221,14 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.sendReply(text: text, afterPhoto: trackingKey, toMessageWithClientId: parentClientMessageId)
     }
 
+    public func retryFailedMessage(id: String) async throws {
+        try await stateMachine.retryFailedMessage(id: id)
+    }
+
+    public func deleteFailedMessage(id: String) async throws {
+        try await stateMachine.deleteFailedMessage(id: id)
+    }
+
     public func delete() async throws {
         try await inboxStateManager.deleteInbox()
         await stateMachine.delete()
