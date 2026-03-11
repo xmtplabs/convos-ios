@@ -1,3 +1,4 @@
+import AVKit
 import ConvosCore
 import ConvosLogging
 import SwiftUI
@@ -257,7 +258,7 @@ private struct AttachmentPlaceholder: View {
     @State private var loadError: Error?
     @State private var videoLocalURL: URL?
     @State private var isDownloadingVideo: Bool = false
-    @State private var showFullScreenPlayer: Bool = false
+    @State private var inlinePlayer: AVPlayer?
     @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
@@ -295,7 +296,14 @@ private struct AttachmentPlaceholder: View {
 
     var body: some View {
         Group {
-            if let image = loadedImage {
+            if let player = inlinePlayer {
+                InlineVideoPlayerView(player: player)
+                    .aspectRatio(placeholderAspectRatio, contentMode: .fit)
+                    .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
+                    .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
+                    .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
+                    .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+            } else if let image = loadedImage {
                 ZStack {
                     photoContent(image: image)
 
@@ -317,11 +325,6 @@ private struct AttachmentPlaceholder: View {
         .accessibilityLabel(isVideo ? "Video message" : "Photo message")
         .onChange(of: videoPlayTrigger) {
             handleVideoPlayTap()
-        }
-        .fullScreenCover(isPresented: $showFullScreenPlayer) {
-            if let url = videoLocalURL {
-                FullScreenVideoPlayer(url: url, isPresented: $showFullScreenPlayer)
-            }
         }
         .task {
             await loadAttachment()
@@ -371,8 +374,8 @@ private struct AttachmentPlaceholder: View {
     func handleVideoPlayTap() {
         guard isVideo, !shouldBlur else { return }
 
-        if videoLocalURL != nil {
-            showFullScreenPlayer = true
+        if let url = videoLocalURL {
+            startInlinePlayback(url: url)
             return
         }
 
@@ -385,12 +388,18 @@ private struct AttachmentPlaceholder: View {
                 try loaded.data.write(to: tempURL)
                 videoLocalURL = tempURL
                 isDownloadingVideo = false
-                showFullScreenPlayer = true
+                startInlinePlayback(url: tempURL)
             } catch {
                 isDownloadingVideo = false
                 Log.error("Failed to download video: \(error)")
             }
         }
+    }
+
+    private func startInlinePlayback(url: URL) {
+        let player = AVPlayer(url: url)
+        inlinePlayer = player
+        player.play()
     }
 
     @ViewBuilder

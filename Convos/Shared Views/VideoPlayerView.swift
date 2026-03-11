@@ -1,40 +1,24 @@
-import AVKit
+import AVFoundation
 import SwiftUI
+import UIKit
 
-struct FullScreenVideoPlayer: View {
-    let url: URL
-    @Binding var isPresented: Bool
+struct InlineVideoPlayerView: UIViewRepresentable {
+    let player: AVPlayer
 
-    @State private var player: AVPlayer?
+    func makeUIView(context: Context) -> PlayerLayerView {
+        let view = PlayerLayerView()
+        view.playerLayer.player = player
+        view.playerLayer.videoGravity = .resizeAspectFill
+        return view
+    }
 
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            Color.black.ignoresSafeArea()
+    func updateUIView(_ uiView: PlayerLayerView, context: Context) {
+        uiView.playerLayer.player = player
+    }
 
-            if let player {
-                VideoPlayer(player: player)
-                    .ignoresSafeArea()
-            }
-
-            Button {
-                player?.pause()
-                isPresented = false
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title)
-                    .foregroundStyle(.white.opacity(0.8))
-                    .padding()
-            }
-        }
-        .onAppear {
-            let newPlayer = AVPlayer(url: url)
-            player = newPlayer
-            newPlayer.play()
-        }
-        .onDisappear {
-            player?.pause()
-            player = nil
-        }
-        .statusBarHidden()
+    final class PlayerLayerView: UIView {
+        override static var layerClass: AnyClass { AVPlayerLayer.self }
+        // swiftlint:disable:next force_cast
+        var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
     }
 }
