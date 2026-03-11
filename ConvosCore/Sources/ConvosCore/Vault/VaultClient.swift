@@ -253,23 +253,58 @@ public actor VaultClient {
         return vaultGroups[bestIndex]
     }
 
+    private var lastStreamDate: Date?
+
     private func startStreaming(client: Client, group: XMTPiOS.Group) {
         streamTask?.cancel()
         let clientInboxId = client.inboxID
         streamTask = Task { [weak self] in
             guard let self else { return }
-            do {
-                for try await message in group.streamMessages() {
-                    guard !Task.isCancelled else { break }
-                    guard message.senderInboxId != clientInboxId else { continue }
-                    await self.handleMessage(message)
+            var reconnectDelay: UInt64 = 1_000_000_000
+            let maxDelay: UInt64 = 30_000_000_000
+
+            while !Task.isCancelled {
+                do {
+                    try? await group.sync()
+                    await self.processMissedMessages(group: group, clientInboxId: clientInboxId)
+                    await self.updateLastStreamDate(Date())
+
+                    for try await message in group.streamMessages() {
+                        guard !Task.isCancelled else { return }
+                        guard message.senderInboxId != clientInboxId else { continue }
+                        await self.handleMessage(message)
+                        await self.updateLastStreamDate(message.sentAt)
+                        reconnectDelay = 1_000_000_000
+                    }
+                    guard !Task.isCancelled else { return }
+                    Log.warning("Vault: stream ended naturally, reconnecting in \(reconnectDelay / 1_000_000_000)s")
+                } catch {
+                    guard !Task.isCancelled else { return }
+                    Log.warning("Vault: stream error, reconnecting in \(reconnectDelay / 1_000_000_000)s: \(error)")
                 }
-            } catch {
-                if !Task.isCancelled {
-                    await self.delegate?.vaultClient(self, didEncounterError: error)
-                    await self.updateState(.error(error))
-                }
+
+                try? await Task.sleep(nanoseconds: reconnectDelay)
+                reconnectDelay = min(reconnectDelay * 2, maxDelay)
             }
+        }
+    }
+
+    private func updateLastStreamDate(_ date: Date) {
+        lastStreamDate = date
+    }
+
+    private func processMissedMessages(group: XMTPiOS.Group, clientInboxId: String) async {
+        guard let cutoff = lastStreamDate else { return }
+        let cutoffNs = Int64(cutoff.timeIntervalSince1970 * 1_000_000_000)
+        guard let messages = try? await group.messages(
+            afterNs: cutoffNs,
+            direction: .ascending
+        ) else { return }
+        let missed = messages.filter { $0.senderInboxId != clientInboxId }
+        guard !missed.isEmpty else { return }
+        Log.info("Vault: processing \(missed.count) missed message(s) after reconnect")
+        for message in missed {
+            handleMessage(message)
         }
     }
 
