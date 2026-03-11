@@ -490,6 +490,9 @@ extension MessagesViewController {
                 cells.insert(.invite(invite), at: 0)
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)
+                if conversation.hasAssistant {
+                    cells.insert(.assistantPresentInfo, at: 1)
+                }
             }
         }
 
