@@ -16,7 +16,7 @@ struct MessagesMediaInputView: View {
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Photo library")
+        .accessibilityLabel("Photo and video library")
         .accessibilityIdentifier("photo-picker-button")
     }
 }

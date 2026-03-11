@@ -544,7 +544,11 @@ struct MessageContextMenuOverlay: View {
 
                 if let attachment = photoAttachment {
                     let saveAction = {
-                        saveAttachmentToPhotoLibrary(key: attachment.key)
+                        if attachment.mediaType == .video {
+                            saveVideoToPhotoLibrary(key: attachment.key)
+                        } else {
+                            saveAttachmentToPhotoLibrary(key: attachment.key)
+                        }
                         dismissMenu()
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
@@ -728,7 +732,7 @@ private struct ContextMenuPhotoPreview: View {
     }
 }
 
-// MARK: - Save Photo Helper
+// MARK: - Save Attachment Helper
 
 private func saveAttachmentToPhotoLibrary(key: String) {
     guard let image = ImageCache.shared.image(for: key) else { return }
@@ -736,6 +740,27 @@ private func saveAttachmentToPhotoLibrary(key: String) {
         guard status == .authorized || status == .limited else { return }
         PHPhotoLibrary.shared().performChanges {
             PHAssetChangeRequest.creationRequestForAsset(from: image)
+        }
+    }
+}
+
+private func saveVideoToPhotoLibrary(key: String) {
+    Task {
+        do {
+            let loader = RemoteAttachmentLoader()
+            let loaded = try await loader.loadAttachmentData(from: key)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
+            try loaded.data.write(to: tempURL)
+
+            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                guard status == .authorized || status == .limited else { return }
+                PHPhotoLibrary.shared().performChanges {
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: tempURL)
+                }
+            }
+        } catch {
+            Log.error("Failed to save video to photo library: \(error)")
         }
     }
 }

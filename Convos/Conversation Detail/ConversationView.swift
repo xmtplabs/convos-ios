@@ -73,6 +73,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
+            onVideoSelected: viewModel.onVideoSelected(_:),
             onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
             onRetryMessage: viewModel.retryMessage(_:),

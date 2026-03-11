@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import ConvosCore
 import ConvosCoreiOS
@@ -167,6 +168,8 @@ class ConversationViewModel {
             }
         }
     }
+    var selectedVideoURL: URL?
+    var selectedVideoThumbnail: UIImage?
     private(set) var currentEagerUploadKey: String?
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
@@ -692,6 +695,24 @@ extension ConversationViewModel {
         onDisplayNameEndedEditing(focusCoordinator: focusCoordinator, context: .editProfile)
     }
 
+    func onVideoSelected(_ url: URL) {
+        selectedVideoURL = url
+        let service = VideoCompressionService()
+        Task {
+            do {
+                let asset = AVURLAsset(url: url)
+                let thumbnailData = try await service.generateThumbnail(for: asset)
+                await MainActor.run {
+                    self.selectedVideoThumbnail = UIImage(data: thumbnailData)
+                    self.selectedAttachmentImage = self.selectedVideoThumbnail
+                    self.onPhotoAttached()
+                }
+            } catch {
+                Log.error("Failed to generate video thumbnail: \(error)")
+            }
+        }
+    }
+
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         let hasText = !messageText.isEmpty
         let hasAttachment = selectedAttachmentImage != nil
@@ -706,10 +727,13 @@ extension ConversationViewModel {
         let prevAttachmentImage = selectedAttachmentImage
         let eagerUploadKey = currentEagerUploadKey
         let prevInviteURL = pendingInvite?.fullURL
+        let prevVideoURL = selectedVideoURL
 
         messageText = ""
         replyingToMessage = nil
         selectedAttachmentImage = nil
+        selectedVideoURL = nil
+        selectedVideoThumbnail = nil
         currentEagerUploadKey = nil
         pendingInvite = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
@@ -722,7 +746,11 @@ extension ConversationViewModel {
             do {
                 let photoTrackingKey: String?
 
-                if prevAttachmentImage != nil {
+                if let videoURL = prevVideoURL {
+                    isSendingPhoto = true
+                    let key = try await messageWriter.sendVideo(at: videoURL)
+                    photoTrackingKey = key
+                } else if prevAttachmentImage != nil {
                     isSendingPhoto = true
                     if let trackingKey = eagerUploadKey {
                         photoTrackingKey = trackingKey

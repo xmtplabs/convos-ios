@@ -274,6 +274,11 @@ public actor ConversationStateMachine {
         await writer.cancelEagerUpload(trackingKey: trackingKey)
     }
 
+    func sendVideo(at fileURL: URL) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.sendVideo(at: fileURL)
+    }
+
     func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
         let writer = try await getOrCreateMessageWriter()
         try await writer.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
