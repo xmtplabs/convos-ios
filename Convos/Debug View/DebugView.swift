@@ -220,6 +220,12 @@ struct DebugViewSection: View {
                     Text("Show Photos Info Sheet")
                         .foregroundStyle(.colorTextPrimary)
                 }
+                NavigationLink {
+                    PairingFlowDebugView()
+                } label: {
+                    Text("Pairing Flow Stepper")
+                        .foregroundStyle(.colorTextPrimary)
+                }
             }
             .selfSizingSheet(isPresented: $presentingPhotosInfoSheet) {
                 PhotosInfoSheet()
