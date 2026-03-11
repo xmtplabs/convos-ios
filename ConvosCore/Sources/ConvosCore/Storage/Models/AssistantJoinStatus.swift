@@ -7,7 +7,7 @@ public enum AssistantJoinStatus: String, Equatable, Hashable, Sendable, Codable 
 
     public var displayDuration: TimeInterval {
         switch self {
-        case .pending: 15
+        case .pending: 35
         case .noAgentsAvailable, .failed: 3
         }
     }

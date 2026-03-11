@@ -43,7 +43,7 @@ Rather than imperatively clearing status when an agent joins, the hydration laye
 ### Time-based auto-dismiss
 
 Status messages have a `displayDuration` that controls how long they appear:
-- `.pending`: 15 seconds
+- `.pending`: 35 seconds (matches backend pool timeout)
 - `.noAgentsAvailable`, `.failed`: 3 seconds
 
 The `MessagesListProcessor` filters out expired status messages at process time. `MessagesListRepository` schedules a timer to reprocess messages when the display window expires, causing the status row to disappear without any DB writes.
