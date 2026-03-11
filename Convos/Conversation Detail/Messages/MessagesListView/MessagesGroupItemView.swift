@@ -13,12 +13,17 @@ struct MessagesGroupItemView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    var omitTrailingPadding: Bool = false
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
     private var animates: Bool {
         message.origin == .inserted
+    }
+
+    private var trailingPadding: CGFloat {
+        omitTrailingPadding ? 0 : DesignConstants.Spacing.step4x
     }
 
     var body: some View {
@@ -93,7 +98,7 @@ struct MessagesGroupItemView: View {
                 : 0,
                 y: isAppearing ? 40 : 0
             )
-            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .padding(.trailing, trailingPadding)
 
         case .emoji(let text):
             EmojiBubble(
@@ -123,7 +128,7 @@ struct MessagesGroupItemView: View {
                 : 0,
                 y: isAppearing ? 40 : 0
             )
-            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .padding(.trailing, trailingPadding)
 
         case .invite(let invite):
             MessageInviteContainerView(
@@ -155,7 +160,7 @@ struct MessagesGroupItemView: View {
                 : 0,
                 y: isAppearing ? 40 : 0
             )
-            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .padding(.trailing, trailingPadding)
 
         case .attachment(let attachment):
             attachmentView(for: attachment)

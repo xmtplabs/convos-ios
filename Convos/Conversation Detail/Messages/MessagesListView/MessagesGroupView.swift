@@ -69,7 +69,6 @@ struct MessagesGroupView: View {
                 let isFailed = message.base.sender.isCurrentUser && message.base.status == .failed
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
-                    // Show avatar spacer for incoming non-attachment messages only
                     if !group.sender.isCurrentUser && !isFullWidthAttachment {
                         Color.clear
                             .frame(width: avatarSize, height: avatarSize)
@@ -84,7 +83,8 @@ struct MessagesGroupView: View {
                         onReply: onReply,
                         onPhotoRevealed: onPhotoRevealed,
                         onPhotoHidden: onPhotoHidden,
-                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
+                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                        omitTrailingPadding: isFailed
                     )
                     .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
@@ -119,6 +119,8 @@ struct MessagesGroupView: View {
                             onRetry: onRetryMessage,
                             onDelete: onDeleteMessage
                         )
+                        .padding(.leading, DesignConstants.Spacing.step3x - avatarSpacing)
+                        .padding(.trailing, DesignConstants.Spacing.step4x)
                     }
                 }
                 .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
