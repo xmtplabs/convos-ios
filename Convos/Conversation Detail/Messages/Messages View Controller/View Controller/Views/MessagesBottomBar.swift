@@ -1,6 +1,7 @@
 import ConvosCore
 import PhotosUI
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum MessagesViewInputFocus: Hashable {
     case message, displayName, conversationName
@@ -26,6 +27,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
     let onDisplayNameEndedEditing: () -> Void
+    let onVideoSelected: (URL) -> Void
     let onProfileSettings: () -> Void
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
@@ -92,12 +94,19 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 }
             }
         }
-        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .images)
+        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .any(of: [.images, .videos]))
         .onChange(of: selectedPhoto) { _, newValue in
             Task {
-                if let newValue,
-                   let data = try? await newValue.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
+                guard let newValue else { return }
+
+                if let videoFile = try? await newValue.loadTransferable(type: VideoFile.self) {
+                    onVideoSelected(videoFile.url)
+                    selectedPhoto = nil
+                    didSelectPhotoThisSession = true
+                    isPhotoPickerPresented = false
+                    focusCoordinator.moveFocus(to: .message)
+                } else if let data = try? await newValue.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) {
                     selectedAttachmentImage = image
                     selectedPhoto = nil
                     didSelectPhotoThisSession = true
@@ -213,6 +222,21 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     }
 }
 
+struct VideoFile: Transferable {
+    let url: URL
+
+    static var transferRepresentation: some TransferRepresentation {
+        FileRepresentation(contentType: .movie) { video in
+            SentTransferredFile(video.url)
+        } importing: { received in
+            let tempDir = FileManager.default.temporaryDirectory
+            let outputURL = tempDir.appendingPathComponent("video_\(UUID().uuidString).mov")
+            try FileManager.default.copyItem(at: received.file, to: outputURL)
+            return VideoFile(url: outputURL)
+        }
+    }
+}
+
 #Preview {
     @Previewable @State var profile: Profile = .mock()
     @Previewable @State var profileName: String = ""
@@ -287,6 +311,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onDisplayNameEndedEditing: {
                 focusCoordinator.endEditing(for: .displayName)
             },
+            onVideoSelected: { _ in },
             onProfileSettings: {},
             onBaseHeightChanged: { height in
                 bottomBarHeight = height

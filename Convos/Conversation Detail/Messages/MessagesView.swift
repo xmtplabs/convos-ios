@@ -47,6 +47,8 @@ struct MessagesView<BottomBarContent: View>: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onVideoSelected: (URL) -> Void
+    let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
@@ -128,6 +130,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 onClearInvite: onClearInvite,
                 onClearLinkPreview: onClearLinkPreview,
                 onDisplayNameEndedEditing: onDisplayNameEndedEditing,
+                onVideoSelected: onVideoSelected,
                 onProfileSettings: onProfileSettings,
                 onBaseHeightChanged: { height in
                     bottomBarHeight = height

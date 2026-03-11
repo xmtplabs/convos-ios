@@ -50,11 +50,17 @@ struct MessagesMediaButtonsView: View {
             // .accessibilityLabel("Convos")
             // .accessibilityIdentifier("convos-action-button")
         }
+<<<<<<< HEAD
         .padding(.horizontal, DesignConstants.Spacing.step2x)
     }
 
     private enum Constant {
         static let buttonSize: CGFloat = 32.0
+=======
+        .buttonStyle(.plain)
+        .accessibilityLabel("Photo and video library")
+        .accessibilityIdentifier("photo-picker-button")
+>>>>>>> 0555dd80 (Implement video message sending and playback)
     }
 }
 

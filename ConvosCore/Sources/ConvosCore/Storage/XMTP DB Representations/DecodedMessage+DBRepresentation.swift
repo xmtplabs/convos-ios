@@ -186,9 +186,6 @@ extension XMTPiOS.DecodedMessage {
             guard let attachment = contentReply.content as? Attachment else {
                 throw DecodedMessageDBRepresentationError.mismatchedContentType
             }
-            guard attachment.mimeType.hasPrefix("image/") else {
-                throw DecodedMessageDBRepresentationError.unsupportedContentType
-            }
             let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
             return DBMessageComponents(
                 messageType: .reply,
@@ -255,9 +252,6 @@ extension XMTPiOS.DecodedMessage {
         let content = try content() as Any
         guard let attachment = content as? Attachment else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
-        }
-        guard attachment.mimeType.hasPrefix("image/") else {
-            throw DecodedMessageDBRepresentationError.unsupportedContentType
         }
         let fileURL = try Self.saveInlineAttachment(data: attachment.data, messageId: id, filename: attachment.filename)
         return DBMessageComponents(

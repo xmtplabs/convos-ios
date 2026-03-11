@@ -343,14 +343,7 @@ extension Array where Element == DBMessage {
                     messageContent = .linkPreview(preview)
                 case .attachments:
                     let hydratedAttachments = dbMessage.attachmentUrls.map { key in
-                        let localState = attachmentLocalStates[key]
-                        return HydratedAttachment(
-                            key: key,
-                            isRevealed: localState?.isRevealed ?? false,
-                            isHiddenByOwner: localState?.isHiddenByOwner ?? false,
-                            width: localState?.width,
-                            height: localState?.height
-                        )
+                        hydrateAttachment(key: key, localState: attachmentLocalStates[key])
                     }
                     messageContent = .attachments(hydratedAttachments)
                 case .emoji:
@@ -447,14 +440,7 @@ extension Array where Element == DBMessage {
             replyContent = .emoji(dbMessage.emoji ?? "")
         case .attachments:
             replyContent = .attachments(dbMessage.attachmentUrls.map { key in
-                let localState = attachmentLocalStates[key]
-                return HydratedAttachment(
-                    key: key,
-                    isRevealed: localState?.isRevealed ?? false,
-                    isHiddenByOwner: localState?.isHiddenByOwner ?? false,
-                    width: localState?.width,
-                    height: localState?.height
-                )
+                hydrateAttachment(key: key, localState: attachmentLocalStates[key])
             })
         case .invite:
             if let invite = dbMessage.invite {
@@ -491,14 +477,7 @@ extension Array where Element == DBMessage {
             parentContent = .emoji(sourceDBMessage.emoji ?? "")
         case .attachments:
             parentContent = .attachments(sourceDBMessage.attachmentUrls.map { key in
-                let localState = attachmentLocalStates[key]
-                return HydratedAttachment(
-                    key: key,
-                    isRevealed: localState?.isRevealed ?? false,
-                    isHiddenByOwner: localState?.isHiddenByOwner ?? false,
-                    width: localState?.width,
-                    height: localState?.height
-                )
+                hydrateAttachment(key: key, localState: attachmentLocalStates[key])
             })
         case .invite:
             if let invite = sourceDBMessage.invite {
@@ -812,4 +791,31 @@ fileprivate extension Database {
         )
         return result
     }
+}
+
+private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -> HydratedAttachment {
+    var mimeType: String? = localState?.mimeType
+    var duration: Double?
+    var thumbnailDataBase64: String?
+    var width: Int? = localState?.width
+    var height: Int? = localState?.height
+
+    if let stored = try? StoredRemoteAttachment.fromJSON(key) {
+        if mimeType == nil { mimeType = stored.mimeType }
+        if width == nil { width = stored.mediaWidth }
+        if height == nil { height = stored.mediaHeight }
+        duration = stored.mediaDuration
+        thumbnailDataBase64 = stored.thumbnailDataBase64
+    }
+
+    return HydratedAttachment(
+        key: key,
+        isRevealed: localState?.isRevealed ?? false,
+        isHiddenByOwner: localState?.isHiddenByOwner ?? false,
+        width: width,
+        height: height,
+        mimeType: mimeType,
+        duration: duration,
+        thumbnailDataBase64: thumbnailDataBase64
+    )
 }

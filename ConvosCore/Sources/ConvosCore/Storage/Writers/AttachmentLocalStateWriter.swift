@@ -10,6 +10,13 @@ public protocol AttachmentLocalStateWriterProtocol: Sendable {
         width: Int,
         height: Int
     ) async throws
+    func saveWithDimensions(
+        attachmentKey: String,
+        conversationId: String,
+        width: Int,
+        height: Int,
+        mimeType: String?
+    ) async throws
     func migrateKey(from oldKey: String, to newKey: String) async throws
 }
 
@@ -33,7 +40,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 revealedAt: Date(),
                 width: existing?.width,
                 height: existing?.height,
-                isHiddenByOwner: false
+                isHiddenByOwner: false,
+                mimeType: existing?.mimeType
             )
             try record.save(db)
         }
@@ -52,7 +60,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 revealedAt: nil,
                 width: existing?.width,
                 height: existing?.height,
-                isHiddenByOwner: true
+                isHiddenByOwner: true,
+                mimeType: existing?.mimeType
             )
             try record.save(db)
         }
@@ -63,6 +72,22 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
         conversationId: String,
         width: Int,
         height: Int
+    ) async throws {
+        try await saveWithDimensions(
+            attachmentKey: attachmentKey,
+            conversationId: conversationId,
+            width: width,
+            height: height,
+            mimeType: nil
+        )
+    }
+
+    public func saveWithDimensions(
+        attachmentKey: String,
+        conversationId: String,
+        width: Int,
+        height: Int,
+        mimeType: String?
     ) async throws {
         try await databaseWriter.write { db in
             if let existing = try AttachmentLocalState
@@ -75,7 +100,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                     revealedAt: existing.revealedAt,
                     width: width,
                     height: height,
-                    isHiddenByOwner: existing.isHiddenByOwner
+                    isHiddenByOwner: existing.isHiddenByOwner,
+                    mimeType: mimeType ?? existing.mimeType
                 )
                 try updated.update(db)
             } else {
@@ -86,7 +112,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                     revealedAt: nil,
                     width: width,
                     height: height,
-                    isHiddenByOwner: false
+                    isHiddenByOwner: false,
+                    mimeType: mimeType
                 )
                 try record.insert(db)
             }
@@ -109,7 +136,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 revealedAt: existing.revealedAt,
                 width: existing.width,
                 height: existing.height,
-                isHiddenByOwner: existing.isHiddenByOwner
+                isHiddenByOwner: existing.isHiddenByOwner,
+                mimeType: existing.mimeType
             )
             try migrated.save(db)
 

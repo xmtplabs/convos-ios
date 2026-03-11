@@ -393,6 +393,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addMimeTypeToAttachmentLocalState") { db in
+            try db.alter(table: "attachmentLocalState") { t in
+                t.add(column: "mimeType", .text)
+            }
+        }
+
         return migrator
     }
 }

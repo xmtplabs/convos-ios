@@ -12,6 +12,7 @@ struct AttachmentLocalState: FetchableRecord, PersistableRecord, Codable, Hashab
         static let width: Column = Column(CodingKeys.width)
         static let height: Column = Column(CodingKeys.height)
         static let isHiddenByOwner: Column = Column(CodingKeys.isHiddenByOwner)
+        static let mimeType: Column = Column(CodingKeys.mimeType)
     }
 
     let attachmentKey: String
@@ -21,6 +22,7 @@ struct AttachmentLocalState: FetchableRecord, PersistableRecord, Codable, Hashab
     let width: Int?
     let height: Int?
     let isHiddenByOwner: Bool
+    let mimeType: String?
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
     static let conversation: BelongsToAssociation<AttachmentLocalState, DBConversation> = belongsTo(DBConversation.self, using: conversationForeignKey)
@@ -32,7 +34,8 @@ struct AttachmentLocalState: FetchableRecord, PersistableRecord, Codable, Hashab
         revealedAt: Date? = nil,
         width: Int? = nil,
         height: Int? = nil,
-        isHiddenByOwner: Bool = false
+        isHiddenByOwner: Bool = false,
+        mimeType: String? = nil
     ) {
         self.attachmentKey = attachmentKey
         self.conversationId = conversationId
@@ -41,5 +44,6 @@ struct AttachmentLocalState: FetchableRecord, PersistableRecord, Codable, Hashab
         self.width = width
         self.height = height
         self.isHiddenByOwner = isHiddenByOwner
+        self.mimeType = mimeType
     }
 }

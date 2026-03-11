@@ -82,6 +82,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
+<<<<<<< HEAD
+=======
+            onVideoSelected: viewModel.onVideoSelected(_:),
+            onAboutAssistants: { showingAssistantsInfo = true },
+>>>>>>> 0555dd80 (Implement video message sending and playback)
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onRetryMessage: viewModel.retryMessage(_:),

@@ -1,3 +1,4 @@
+import AVFoundation
 import Combine
 import Foundation
 import GRDB
@@ -21,6 +22,10 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     func cancelEagerUpload(trackingKey: String) async
 
     // MARK: - Replies
+
+    /// Send a video from a local file URL.
+    /// Returns a tracking key for dependency management.
+    func sendVideo(at fileURL: URL) async throws -> String
 
     /// Send a text reply to an existing message.
     func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws
@@ -398,6 +403,165 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         await markPhotoFailed(trackingKey: trackingKey)
         eagerUploads.removeValue(forKey: trackingKey)
+    }
+
+    // MARK: - Video
+
+    func sendVideo(at fileURL: URL) async throws -> String {
+        let compressionService = VideoCompressionService()
+        let compressed = try await compressionService.compressVideo(at: fileURL)
+
+        let clientMessageId = UUID().uuidString
+        let filename = "video_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).mp4"
+        let localCacheURL = try photoService.localCacheURL(for: filename)
+
+        try FileManager.default.createDirectory(
+            at: localCacheURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: compressed.fileURL, to: localCacheURL)
+
+        let trackingKey = localCacheURL.absoluteString
+
+        if let thumbnailImage = ImageType(data: compressed.thumbnail) {
+            ImageCacheContainer.shared.cacheImage(thumbnailImage, for: trackingKey, storageTier: .persistent)
+        }
+
+        try await attachmentLocalStateWriter.saveWithDimensions(
+            attachmentKey: trackingKey,
+            conversationId: conversationId,
+            width: compressed.width,
+            height: compressed.height,
+            mimeType: compressed.mimeType
+        )
+
+        try await savePhotoToDatabase(clientMessageId: clientMessageId, localCacheURL: localCacheURL)
+
+        let tracker = PhotoUploadProgressTracker.shared
+        tracker.setStage(.preparing, for: trackingKey)
+
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+
+        let videoData = try Data(contentsOf: compressed.fileURL)
+        let attachment = Attachment(
+            filename: filename,
+            mimeType: "video/mp4",
+            data: videoData
+        )
+
+        let encrypted = try RemoteAttachment.encodeEncrypted(
+            content: attachment,
+            codec: AttachmentCodec()
+        )
+
+        let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
+            filename: filename,
+            contentType: "application/octet-stream"
+        )
+
+        guard let uploadURL = URL(string: presignedURLs.uploadURL) else {
+            throw PhotoAttachmentError.invalidURL
+        }
+
+        let taskId = UUID().uuidString
+        let encryptedFileURL = try saveToTemp(data: encrypted.payload, taskId: taskId)
+
+        tracker.setProgress(stage: .uploading, percentage: 0, for: trackingKey)
+
+        try await backgroundUploadManager.startUpload(
+            fileURL: encryptedFileURL,
+            uploadURL: uploadURL,
+            contentType: "application/octet-stream",
+            taskId: taskId
+        )
+
+        let result = await backgroundUploadManager.waitForCompletion(taskId: taskId)
+
+        guard result.success else {
+            tracker.setStage(.failed, for: trackingKey)
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw result.error ?? PhotoAttachmentError.uploadFailed("Video upload failed")
+        }
+
+        tracker.setStage(.publishing, for: trackingKey)
+
+        let thumbnailBase64 = compressed.thumbnail.base64EncodedString()
+
+        var remoteAttachment = try RemoteAttachment(
+            url: presignedURLs.assetURL,
+            contentDigest: encrypted.digest,
+            secret: encrypted.secret,
+            salt: encrypted.salt,
+            nonce: encrypted.nonce,
+            scheme: .https,
+            contentLength: nil,
+            filename: filename
+        )
+
+        guard let sender = try await inboxReady.client.messageSender(for: conversationId) else {
+            tracker.setStage(.failed, for: trackingKey)
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw OutgoingMessageWriterError.missingClientProvider
+        }
+
+        let messageId = try await sender.prepare(remoteAttachment: remoteAttachment)
+
+        let storedAttachment = StoredRemoteAttachment(
+            url: presignedURLs.assetURL,
+            contentDigest: encrypted.digest,
+            secret: encrypted.secret,
+            salt: encrypted.salt,
+            nonce: encrypted.nonce,
+            filename: filename,
+            mimeType: "video/mp4",
+            mediaWidth: compressed.width,
+            mediaHeight: compressed.height,
+            mediaDuration: compressed.duration,
+            thumbnailDataBase64: thumbnailBase64
+        )
+        guard let json = try? storedAttachment.toJSON() else {
+            tracker.setStage(.failed, for: trackingKey)
+            throw PhotoAttachmentError.encryptionFailed
+        }
+
+        if let thumbnailImage = ImageType(data: compressed.thumbnail) {
+            ImageCacheContainer.shared.cacheImage(thumbnailImage, for: json, storageTier: .persistent)
+        }
+
+        let attachmentUrlsJSON = try JSONEncoder().encode([json])
+        let attachmentUrlsString = String(data: attachmentUrlsJSON, encoding: .utf8) ?? "[]"
+
+        try await databaseWriter.write { db in
+            try db.execute(
+                sql: "UPDATE message SET id = ?, attachmentUrls = ? WHERE id = ?",
+                arguments: [messageId, attachmentUrlsString, clientMessageId]
+            )
+        }
+
+        try await attachmentLocalStateWriter.migrateKey(from: trackingKey, to: json)
+
+        try await sender.publish()
+
+        ImageCacheContainer.shared.removeImage(for: trackingKey)
+
+        try? await markMessagePublished(messageId: messageId)
+        tracker.setStage(.completed, for: trackingKey)
+        sentMessageSubject.send(json)
+        markPhotoPublished(trackingKey: trackingKey)
+
+        try? FileManager.default.removeItem(at: encryptedFileURL)
+        try? FileManager.default.removeItem(at: compressed.fileURL)
+
+        QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": "video"])
+
+        return trackingKey
+    }
+
+    private func saveToTemp(data: Data, taskId: String) throws -> URL {
+        let tempDir = FileManager.default.temporaryDirectory
+        let fileURL = tempDir.appendingPathComponent("\(taskId).enc")
+        try data.write(to: fileURL)
+        return fileURL
     }
 
     // MARK: - Replies
