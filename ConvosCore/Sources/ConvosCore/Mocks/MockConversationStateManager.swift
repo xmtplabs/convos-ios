@@ -104,6 +104,8 @@ public final class MockConversationStateManager: ConversationStateManagerProtoco
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {}
     public func sendEagerPhotoReply(trackingKey: String, toMessageWithClientId parentClientMessageId: String) async throws {}
     public func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {}
+    public func retryFailedMessage(id: String) async throws {}
+    public func deleteFailedMessage(id: String) async throws {}
 
     public func delete() async {
         setState(.deleting)

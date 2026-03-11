@@ -52,4 +52,7 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
     public func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws {
         try await send(text: text, afterPhoto: trackingKey)
     }
+
+    public func retryFailedMessage(id: String) async throws {}
+    public func deleteFailedMessage(id: String) async throws {}
 }

@@ -14,6 +14,8 @@ struct CellConfig {
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onRetryMessage: (AnyMessage) -> Void
+    let onDeleteMessage: (AnyMessage) -> Void
 }
 
 // swiftlint:disable force_cast

@@ -30,6 +30,11 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
 
     /// Send text after a photo reply (both replying to the same parent).
     func sendReply(text: String, afterPhoto trackingKey: String?, toMessageWithClientId parentClientMessageId: String) async throws
+
+    // MARK: - Failed Messages
+
+    func retryFailedMessage(id: String) async throws
+    func deleteFailedMessage(id: String) async throws
 }
 
 enum OutgoingMessageWriterError: Error {
@@ -884,6 +889,43 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         for text in orphaned {
             Log.error("Marking dependent text \(text.clientMessageId) as failed after photo \(trackingKey) failed")
             try? await markMessageFailed(clientMessageId: text.clientMessageId)
+        }
+    }
+
+    // MARK: - Failed Messages
+
+    func retryFailedMessage(id messageId: String) async throws {
+        let message = try await databaseWriter.read { db in
+            try DBMessage.fetchOne(db, key: messageId)
+        }
+        guard let message, message.status == .failed else { return }
+
+        try await databaseWriter.write { db in
+            try message.with(status: .unpublished).save(db)
+        }
+
+        let text = message.text ?? message.emoji ?? ""
+        guard !text.isEmpty else { return }
+
+        let replyContext: ReplyContext? = if let parentId = message.sourceMessageId {
+            ReplyContext(parentDbId: parentId)
+        } else {
+            nil
+        }
+
+        let queued = QueuedTextMessage(
+            clientMessageId: messageId,
+            text: text,
+            dependsOnPhotoKey: nil,
+            replyContext: replyContext
+        )
+        messageQueue.append(.text(queued))
+        startProcessingIfNeeded()
+    }
+
+    func deleteFailedMessage(id messageId: String) async throws {
+        try await databaseWriter.write { db in
+            _ = try DBMessage.deleteOne(db, key: messageId)
         }
     }
 }
