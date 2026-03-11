@@ -117,6 +117,7 @@ class NewConversationViewModel: Identifiable {
         }
 
         self.isCreatingConversation = mode.isNewConversation
+        createPlaceholderConversationViewModel()
         acquireInbox(mode: mode)
     }
 
@@ -180,6 +181,27 @@ class NewConversationViewModel: Identifiable {
                 joinConversation(inviteCode: code)
             }
         }
+    }
+
+    private func createPlaceholderConversationViewModel() {
+        let draftId: String = "draft-\(UUID().uuidString)"
+        let draftConversation: Conversation = .empty(id: draftId)
+        let messagesRepo = MockMessagesRepository(conversationId: draftId)
+        let draftRepo = MockDraftConversationRepository(conversation: draftConversation, messagesRepository: messagesRepo)
+        let stateManager = MockConversationStateManager(
+            conversationId: draftId,
+            draftConversationRepository: draftRepo
+        )
+        let mockService = MockMessagingService(conversationStateManager: stateManager)
+        let convoVM = ConversationViewModel(
+            conversation: draftConversation,
+            session: session,
+            messagingService: mockService,
+            conversationStateManager: stateManager,
+            applyGlobalDefaultsForNewConversation: false
+        )
+        convoVM.showsInfoView = !startedWithFullscreenScanner
+        self.conversationViewModel = convoVM
     }
 
     private func configureWithMessagingService(
