@@ -7,15 +7,13 @@ struct FailedMessageButton: View {
     var onDelete: ((AnyMessage) -> Void)?
 
     var body: some View {
+        let retryAction: () -> Void = { onRetry?(message) }
+        let deleteAction: () -> Void = { onDelete?(message) }
         Menu {
-            Button {
-                onRetry?(message)
-            } label: {
+            Button(action: retryAction) {
                 Label("Try Again", systemImage: "arrow.clockwise")
             }
-            Button(role: .destructive) {
-                onDelete?(message)
-            } label: {
+            Button(role: .destructive, action: deleteAction) {
                 Label("Delete", systemImage: "trash")
             }
         } label: {

@@ -902,12 +902,12 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         guard let message, message.status == .failed else { return }
 
+        let text = message.text ?? message.emoji ?? ""
+        guard !text.isEmpty else { return }
+
         try await databaseWriter.write { db in
             try message.with(status: .unpublished).save(db)
         }
-
-        let text = message.text ?? message.emoji ?? ""
-        guard !text.isEmpty else { return }
 
         let replyContext: ReplyContext? = if let parentId = message.sourceMessageId {
             ReplyContext(parentDbId: parentId)
@@ -927,9 +927,13 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     func deleteFailedMessage(id clientMessageId: String) async throws {
         try await databaseWriter.write { db in
-            _ = try DBMessage
+            let deleted = try DBMessage
                 .filter(DBMessage.Columns.clientMessageId == clientMessageId)
+                .filter(DBMessage.Columns.status == MessageStatus.failed.rawValue)
                 .deleteAll(db)
+            if deleted == 0 {
+                Log.warning("No failed message found to delete for clientMessageId: \(clientMessageId)")
+            }
         }
     }
 }
