@@ -282,6 +282,7 @@ private struct VideoTapAttachmentView: View {
 
 private struct AttachmentPlaceholder: View {
     static let maxPhotoWidth: CGFloat = 430
+    static let videoPlaybackStarted: Notification.Name = Notification.Name("AttachmentPlaceholder.videoPlaybackStarted")
 
     let attachment: HydratedAttachment
     let isOutgoing: Bool
@@ -298,6 +299,7 @@ private struct AttachmentPlaceholder: View {
     @State private var loadError: Error?
     @State private var inlinePlayer: AVPlayer?
     @State private var isPlaying: Bool = false
+    @State private var instanceID: UUID = UUID()
     @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
@@ -403,6 +405,14 @@ private struct AttachmentPlaceholder: View {
             else { return }
             isPlaying = false
         }
+        .onReceive(NotificationCenter.default.publisher(for: Self.videoPlaybackStarted)) { notification in
+            guard let senderID = notification.object as? UUID,
+                  senderID != instanceID,
+                  isPlaying
+            else { return }
+            inlinePlayer?.pause()
+            isPlaying = false
+        }
         .task {
             await loadAttachment()
         }
@@ -470,6 +480,7 @@ private struct AttachmentPlaceholder: View {
                     player.play()
                 }
                 isPlaying = true
+                NotificationCenter.default.post(name: Self.videoPlaybackStarted, object: instanceID)
             }
             return
         }
