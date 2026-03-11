@@ -36,6 +36,7 @@ extension XMTPiOS.DecodedMessage {
         var sourceMessageId: String?
         var emoji: String?
         var invite: MessageInvite?
+        var linkPreview: LinkPreview? = nil
         var attachmentUrls: [String]
         var text: String?
         var update: DBMessage.Update?
@@ -83,6 +84,7 @@ extension XMTPiOS.DecodedMessage {
             text: components.text,
             emoji: components.emoji,
             invite: components.invite,
+            linkPreview: components.linkPreview,
             sourceMessageId: components.sourceMessageId,
             attachmentUrls: components.attachmentUrls,
             update: components.update
@@ -96,7 +98,6 @@ extension XMTPiOS.DecodedMessage {
         }
 
         let isContentEmoji = contentString.allCharactersEmoji
-        // try and decode the text as an invite
         if !isContentEmoji, let invite = MessageInvite.from(text: contentString) {
             return DBMessageComponents(
                 messageType: .original,
@@ -104,6 +105,18 @@ extension XMTPiOS.DecodedMessage {
                 sourceMessageId: nil,
                 emoji: nil,
                 invite: invite,
+                attachmentUrls: [],
+                text: contentString,
+                update: nil
+            )
+        } else if !isContentEmoji, let preview = LinkPreview.from(text: contentString) {
+            return DBMessageComponents(
+                messageType: .original,
+                contentType: .linkPreview,
+                sourceMessageId: nil,
+                emoji: nil,
+                invite: nil,
+                linkPreview: preview,
                 attachmentUrls: [],
                 text: contentString,
                 update: nil
@@ -141,6 +154,19 @@ extension XMTPiOS.DecodedMessage {
                     sourceMessageId: sourceMessageId,
                     emoji: nil,
                     invite: invite,
+                    attachmentUrls: [],
+                    text: contentString,
+                    update: nil
+                )
+            }
+            if !isContentEmoji, let preview = LinkPreview.from(text: contentString) {
+                return DBMessageComponents(
+                    messageType: .reply,
+                    contentType: .linkPreview,
+                    sourceMessageId: sourceMessageId,
+                    emoji: nil,
+                    invite: nil,
+                    linkPreview: preview,
                     attachmentUrls: [],
                     text: contentString,
                     update: nil

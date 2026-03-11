@@ -152,6 +152,7 @@ final class ReactionWriter: ReactionWriterProtocol, Sendable {
                 text: nil,
                 emoji: emoji,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: dbMessageId,
                 attachmentUrls: [],
                 update: nil

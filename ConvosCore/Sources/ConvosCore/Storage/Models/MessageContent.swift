@@ -9,6 +9,7 @@ public enum MessageContent: Hashable, Codable, Sendable {
          attachment(HydratedAttachment),
          attachments([HydratedAttachment]),
          update(ConversationUpdate),
+         linkPreview(LinkPreview),
          assistantJoinRequest(status: AssistantJoinStatus, requestedByInboxId: String)
 
     public var showsInMessagesList: Bool {

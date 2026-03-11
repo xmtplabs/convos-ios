@@ -67,6 +67,7 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
                 text: isContentEmoji ? nil : text,
                 emoji: isContentEmoji ? trimmedText : nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: parentMessage.id,
                 attachmentUrls: [],
                 update: nil

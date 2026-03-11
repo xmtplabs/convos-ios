@@ -381,6 +381,12 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("addLinkPreviewToMessage") { db in
+            try db.alter(table: "message") { t in
+                t.add(column: "linkPreview", .jsonText)
+            }
+        }
+
         return migrator
     }
 }

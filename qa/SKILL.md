@@ -19,7 +19,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | Test | File | Description |
 |------|------|-------------|
 | 01 | `qa/tests/01-onboarding.md` | Fresh onboarding flow (requires simulator erase) |
-| 02 | `qa/tests/02-send-receive-messages.md` | Send and receive text, emoji, and attachment messages |
+| 02 | `qa/tests/02-send-receive-messages.md` | Send and receive text, emoji, attachment, and link preview messages |
 | 03 | `qa/tests/03-invite-join-deep-link.md` | Join a conversation via deep link URL |
 | 04 | `qa/tests/04-invite-join-paste.md` | Join a conversation by pasting invite URL in scan view |
 | 05 | `qa/tests/05-reactions.md` | React to all message content types |
