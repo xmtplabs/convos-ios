@@ -14,6 +14,7 @@ struct DebugViewSection: View {
     @State private var renewalAlertMessage: String?
     @State private var showingRenewalAlert: Bool = false
     @State private var presentingPhotosInfoSheet: Bool = false
+    @State private var logStorageInfo: DebugLogExporter.LogStorageInfo?
 
     var body: some View {
         Group {
@@ -89,6 +90,17 @@ struct DebugViewSection: View {
                     Spacer()
                     Text(ConfigManager.shared.currentEnvironment.name.capitalized)
                         .foregroundStyle(.colorTextSecondary)
+                }
+
+                HStack {
+                    Text("Log storage")
+                    Spacer()
+                    if let info = logStorageInfo {
+                        Text(info.formattedTotalSize)
+                            .foregroundStyle(.colorTextSecondary)
+                    } else {
+                        ProgressView()
+                    }
                 }
             }
 
@@ -184,6 +196,7 @@ struct DebugViewSection: View {
         }
         .task {
             await refreshNotificationStatus()
+            logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
         }
         .alert("Asset Renewal", isPresented: $showingRenewalAlert, presenting: renewalAlertMessage) { _ in
             Button("OK", role: .cancel) {}
