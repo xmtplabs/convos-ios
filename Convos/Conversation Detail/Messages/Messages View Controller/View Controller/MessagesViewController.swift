@@ -481,7 +481,7 @@ extension MessagesViewController {
         var cells: [MessagesListItemType] = messages
 
         // Add invite or conversation info at the beginning if all messages are loaded
-        if hasLoadedAllMessages {
+        if hasLoadedAllMessages, !conversation.isDraft {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
             } else {
