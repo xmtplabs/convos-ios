@@ -148,6 +148,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
 
     static let lastMessageRequest: QueryInterfaceRequest<DBMessage> = DBMessage
         .filter(DBMessage.Columns.contentType != MessageContentType.update.rawValue)
+        .filter(DBMessage.Columns.contentType != MessageContentType.assistantJoinRequest.rawValue)
         .annotated { max($0.dateNs) }
         .group(\.conversationId)
 

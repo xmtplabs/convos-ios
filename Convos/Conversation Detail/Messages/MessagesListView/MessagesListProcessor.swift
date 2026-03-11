@@ -76,6 +76,7 @@ final class MessagesListProcessor {
             }
 
             if case .assistantJoinRequest(let status, _) = message.base.content {
+                lastMessageDate = message.base.date
                 guard index == lastAssistantJoinIndex else { continue }
                 let age = Date().timeIntervalSince(message.base.date)
                 guard age <= status.displayDuration else { continue }
