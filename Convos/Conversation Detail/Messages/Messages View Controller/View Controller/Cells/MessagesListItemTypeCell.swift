@@ -122,6 +122,10 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case .assistantPresentInfo:
+                    AssistantPresentInfoView(onAboutAssistants: config.onAboutAssistants)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

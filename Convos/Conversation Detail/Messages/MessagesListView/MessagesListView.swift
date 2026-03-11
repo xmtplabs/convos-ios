@@ -94,6 +94,9 @@ struct MessagesListView: View {
                                     onRetry: onRetryAssistantJoin
                                 )
                                 .padding(.vertical, DesignConstants.Spacing.step2x)
+
+                            case .assistantPresentInfo:
+                                AssistantPresentInfoView(onAboutAssistants: onAboutAssistants)
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in
