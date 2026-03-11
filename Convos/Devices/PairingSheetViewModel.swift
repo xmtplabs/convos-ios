@@ -35,7 +35,7 @@ final class PairingSheetViewModel {
     }
 
     func startPairing() async {
-        let coordinator = PairingCoordinator(vaultManager: vaultManager)
+        let coordinator = PairingCoordinator(vaultManager: vaultManager, timeoutInterval: timeoutInterval)
         self.coordinator = coordinator
 
         expiresAt = Date().addingTimeInterval(timeoutInterval)
@@ -55,6 +55,7 @@ final class PairingSheetViewModel {
             flowState = .qrCode(url: inviteURL)
             startCountdown()
         } catch {
+            Log.error("Pairing start failed: \(error)")
             flowState = .failed(error.localizedDescription)
         }
     }
@@ -91,6 +92,7 @@ final class PairingSheetViewModel {
                 flowState = .showingPin(pin: pin, deviceName: deviceName)
             }
         } catch {
+            Log.error("Pairing join request failed: \(error)")
             flowState = .failed(error.localizedDescription)
         }
     }
@@ -106,6 +108,7 @@ final class PairingSheetViewModel {
                 flowState = .emojiConfirmation(emojis: emojis, deviceName: joinerDeviceName)
             }
         } catch {
+            Log.error("Pairing pin echo failed: \(error)")
             flowState = .failed(error.localizedDescription)
         }
     }
@@ -132,6 +135,7 @@ final class PairingSheetViewModel {
                 canDismiss = true
             }
         } catch {
+            Log.error("Pairing emoji confirm failed: \(error)")
             await vaultManager.stopPairing()
             flowState = .failed(error.localizedDescription)
             canDismiss = true
