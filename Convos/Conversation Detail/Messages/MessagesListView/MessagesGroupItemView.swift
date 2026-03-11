@@ -304,6 +304,7 @@ private struct AttachmentPlaceholder: View {
     @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
+    private static var videoURLCache: [String: URL] = [:]
 
     private var shouldBlur: Bool {
         if attachment.isHiddenByOwner { return true }
@@ -468,6 +469,9 @@ private struct AttachmentPlaceholder: View {
                 player.pause()
                 isPlaying = false
             } else {
+                try? AVAudioSession.sharedInstance().setCategory(.playback)
+                try? AVAudioSession.sharedInstance().setActive(true)
+
                 let atEnd: Bool = {
                     guard let item = player.currentItem,
                           item.duration.seconds.isFinite
@@ -537,11 +541,14 @@ private struct AttachmentPlaceholder: View {
                 if attachment.key.hasPrefix("file://") {
                     let path = String(attachment.key.dropFirst("file://".count))
                     videoURL = URL(fileURLWithPath: path)
+                } else if let cached = Self.videoURLCache[attachment.key] {
+                    videoURL = cached
                 } else {
                     let loaded = try await Self.loader.loadAttachmentData(from: attachment.key)
                     let tempURL = FileManager.default.temporaryDirectory
                         .appendingPathComponent("video_\(UUID().uuidString).mp4")
                     try loaded.data.write(to: tempURL)
+                    Self.videoURLCache[attachment.key] = tempURL
                     videoURL = tempURL
                 }
                 let player = AVPlayer(url: videoURL)
