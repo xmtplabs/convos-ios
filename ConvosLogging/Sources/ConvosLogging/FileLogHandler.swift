@@ -47,7 +47,7 @@ public struct FileLogHandler: LogHandler {
     private let label: String
     private let fileURL: URL?
     private static let queue: DispatchQueue = DispatchQueue(label: "com.convos.logging.file", qos: .utility)
-    private static let maxFileSize: Int64 = 50 * 1024 * 1024 // 50MB
+    private static let maxFileSize: Int64 = 10 * 1024 * 1024 // 10MB
 
     public init(label: String, appGroupIdentifier: String) {
         self.label = label
