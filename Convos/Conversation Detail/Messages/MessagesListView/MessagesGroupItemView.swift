@@ -259,6 +259,7 @@ private struct AttachmentPlaceholder: View {
     @State private var loadError: Error?
     @State private var inlinePlayer: AVPlayer?
     @State private var isPlaying: Bool = false
+    @State private var isLoadingVideo: Bool = false
     @State private var instanceID: UUID = UUID()
     @Environment(\.messagePressed) private var isPressed: Bool
 
@@ -335,7 +336,12 @@ private struct AttachmentPlaceholder: View {
                     photoContent(image: image)
 
                     if isVideo, !shouldBlur {
-                        videoOverlay
+                        if isLoadingVideo {
+                            ProgressView()
+                                .tint(.white)
+                        } else {
+                            videoOverlay
+                        }
                     }
                 }
                 .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
@@ -483,6 +489,7 @@ private struct AttachmentPlaceholder: View {
             if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
                 loadedImage = thumb
                 isLoading = false
+                isLoadingVideo = true
             }
 
             do {
@@ -501,9 +508,11 @@ private struct AttachmentPlaceholder: View {
                 await player.seek(to: .zero)
                 inlinePlayer = player
                 isLoading = false
+                isLoadingVideo = false
             } catch {
                 loadError = error
                 isLoading = false
+                isLoadingVideo = false
                 Log.error("Failed to load video: \(error)")
             }
             return
