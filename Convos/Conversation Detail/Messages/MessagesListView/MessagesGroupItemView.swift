@@ -351,7 +351,7 @@ private struct AttachmentPlaceholder: View {
                         videoOverlay
                     }
 
-                    if !isPlaying, !showBlurOverlay {
+                    if !isPlaying {
                         PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
                     }
                 }
