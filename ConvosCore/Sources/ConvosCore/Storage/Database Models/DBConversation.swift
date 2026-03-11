@@ -16,6 +16,7 @@ struct DBLastMessageWithSource: Codable, FetchableRecord, Hashable {
     let text: String?
     let emoji: String?
     let invite: MessageInvite?
+    let linkPreview: LinkPreview?
     let sourceMessageId: String?
     let attachmentUrls: [String]
     let sourceMessageText: String?
@@ -164,7 +165,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                 SELECT
                     m.id, m.clientMessageId, m.conversationId, m.senderId,
                     m.dateNs, m.date, m.status, m.messageType, m.contentType,
-                    m.text, m.emoji, m.invite, m.sourceMessageId, m.attachmentUrls,
+                    m.text, m.emoji, m.invite, m.linkPreview, m.sourceMessageId, m.attachmentUrls,
                     src.text as sourceMessageText
                 FROM message m
                 LEFT JOIN message src ON m.sourceMessageId = src.id

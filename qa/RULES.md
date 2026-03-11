@@ -646,7 +646,10 @@ The app supports these message content types:
 - **text** — plain text messages
 - **emoji** — single emoji messages (displayed larger)
 - **attachments** — images and files
+- **linkPreview** — standalone URL messages displayed as a rich card with OpenGraph metadata (image, title, domain)
 - **reply** — messages that reference another message
 - **reaction** — emoji reactions on existing messages
 
-When a test requires reacting to "all content types," this means reacting to text messages, emoji messages, and attachment messages at minimum.
+A **linkPreview** is detected automatically when the entire message is a single HTTP/HTTPS URL with no surrounding text. The app fetches OpenGraph metadata (og:title, og:image, og:site_name) from the linked page and displays a card with an image area, title, and domain. Tapping the card opens the URL in Safari. Messages that contain a URL mixed with other text render as normal text bubbles with tappable links.
+
+When a test requires reacting to "all content types," this means reacting to text messages, emoji messages, attachment messages, and link preview messages at minimum.

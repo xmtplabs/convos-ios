@@ -49,6 +49,12 @@ extension DBLastMessageWithSource {
                 } else {
                     text = "sent an invite"
                 }
+            case .linkPreview:
+                if shouldShowSenderName {
+                    text = "\(senderName) sent a link"
+                } else {
+                    text = "sent a link"
+                }
             case .assistantJoinRequest:
                 text = ""
             }
@@ -75,6 +81,12 @@ extension DBLastMessageWithSource {
                     text = "\(senderName) replied with an invite"
                 } else {
                     text = "replied with an invite"
+                }
+            case .linkPreview:
+                if shouldShowSenderName {
+                    text = "\(senderName) replied with a link"
+                } else {
+                    text = "replied with a link"
                 }
             case .assistantJoinRequest:
                 text = ""

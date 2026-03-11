@@ -34,6 +34,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
         static let text: Column = Column(CodingKeys.text)
         static let emoji: Column = Column(CodingKeys.emoji)
         static let invite: Column = Column(CodingKeys.invite)
+        static let linkPreview: Column = Column(CodingKeys.linkPreview)
         static let sourceMessageId: Column = Column(CodingKeys.sourceMessageId)
         static let attachmentUrls: Column = Column(CodingKeys.attachmentUrls)
     }
@@ -54,6 +55,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
     let text: String?
     let emoji: String?
     let invite: MessageInvite?
+    let linkPreview: LinkPreview?
     let sourceMessageId: String? // replies and reactions
     let attachmentUrls: [String]
     let update: Update?
@@ -128,6 +130,7 @@ extension DBMessage {
             text: text,
             emoji: emoji,
             invite: invite,
+            linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -149,6 +152,7 @@ extension DBMessage {
             text: text,
             emoji: emoji,
             invite: invite,
+            linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -170,6 +174,7 @@ extension DBMessage {
             text: text,
             emoji: emoji,
             invite: invite,
+            linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -191,6 +196,7 @@ extension DBMessage {
             text: text,
             emoji: emoji,
             invite: invite,
+            linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -212,6 +218,7 @@ extension DBMessage {
             text: text,
             emoji: emoji,
             invite: invite,
+            linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -233,6 +240,7 @@ extension DBMessage {
             text: text,
             emoji: emoji,
             invite: invite,
+            linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -254,6 +262,7 @@ extension DBMessage {
             text: text,
             emoji: emoji,
             invite: invite,
+            linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
@@ -275,6 +284,7 @@ extension DBMessage {
             text: text,
             emoji: emoji,
             invite: invite,
+            linkPreview: linkPreview,
             sourceMessageId: sourceMessageId,
             attachmentUrls: attachmentUrls,
             update: update
