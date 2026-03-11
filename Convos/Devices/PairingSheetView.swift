@@ -15,9 +15,11 @@ struct PairingSheetView: View {
 
             centerContent
                 .frame(maxWidth: .infinity)
+                .animation(.easeInOut(duration: 0.35), value: viewModel.flowState)
 
             buttons
                 .padding(.top, DesignConstants.Spacing.step4x)
+                .animation(.easeInOut(duration: 0.35), value: viewModel.flowState)
         }
         .padding([.leading, .trailing], DesignConstants.Spacing.step10x)
         .padding(.top, DesignConstants.Spacing.step8x)
