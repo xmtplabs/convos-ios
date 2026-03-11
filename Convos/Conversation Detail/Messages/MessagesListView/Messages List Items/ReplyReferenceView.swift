@@ -23,7 +23,7 @@ struct ReplyReferenceView: View {
             return "photo"
         case .invite:
             return "invite"
-        case .update:
+        case .update, .assistantJoinRequest:
             return ""
         }
     }

@@ -24,6 +24,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onAgentOutOfCredits: () -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
+    let onRetryAssistantJoin: () -> Void
     let bottomBarHeight: CGFloat
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
@@ -79,6 +80,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onDeleteMessage = { message in
             self.onDeleteMessage(message)
         }
+        messagesViewController.onRetryAssistantJoin = onRetryAssistantJoin
         let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
@@ -125,6 +127,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onAgentOutOfCredits: {},
         onRetryMessage: { _ in },
         onDeleteMessage: { _ in },
+        onRetryAssistantJoin: {},
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
         scrollToBottomTrigger: { _ in }

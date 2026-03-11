@@ -16,6 +16,7 @@ struct MessagesListView: View {
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
+    let onRetryAssistantJoin: () -> Void
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -85,6 +86,17 @@ struct MessagesListView: View {
                                     onTap: onAgentOutOfCredits
                                 )
                                 .padding(.vertical, DesignConstants.Spacing.step2x)
+
+                            case let .assistantJoinStatus(status, requesterName, _):
+                                AssistantJoinStatusView(
+                                    status: status,
+                                    requesterName: requesterName,
+                                    onRetry: onRetryAssistantJoin
+                                )
+                                .padding(.vertical, DesignConstants.Spacing.step2x)
+
+                            case .assistantPresentInfo:
+                                AssistantPresentInfoView(onAboutAssistants: onAboutAssistants)
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in

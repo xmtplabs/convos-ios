@@ -186,6 +186,7 @@ final class MessagesViewController: UIViewController {
     var onAgentOutOfCredits: (() -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
+    var onRetryAssistantJoin: (() -> Void)?
     var shouldBlurPhotos: Bool = true {
         didSet {
             guard oldValue != shouldBlurPhotos else { return }
@@ -345,6 +346,9 @@ final class MessagesViewController: UIViewController {
         dataSource.onDeleteMessage = { [weak self] message in
             self?.onDeleteMessage?(message)
         }
+        dataSource.onRetryAssistantJoin = { [weak self] in
+            self?.onRetryAssistantJoin?()
+        }
 
         setupImmediateTouchGesture()
         setupHorizontalBlockerGesture()
@@ -486,6 +490,9 @@ extension MessagesViewController {
                 cells.insert(.invite(invite), at: 0)
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)
+                if conversation.hasAssistant {
+                    cells.insert(.assistantPresentInfo, at: 1)
+                }
             }
         }
 

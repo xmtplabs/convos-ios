@@ -18,4 +18,5 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onAgentOutOfCredits: (() -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
+    var onRetryAssistantJoin: (() -> Void)? { get set }
 }

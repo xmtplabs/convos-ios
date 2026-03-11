@@ -992,7 +992,7 @@ extension UnusedConversationCache {
                     imageNonce: nil,
                     imageEncryptionKey: nil,
                     imageLastRenewed: nil,
-                    isUnused: true
+                    isUnused: true,
                 )
                 try dbConversation.save(db)
             }

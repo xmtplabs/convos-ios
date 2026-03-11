@@ -77,6 +77,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
+            onRetryAssistantJoin: { viewModel.requestAssistantJoin() },
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
             },
@@ -151,6 +152,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
                             hasAssistant: viewModel.conversation.hasAssistant,
+                            isAssistantJoinPending: viewModel.isAssistantJoinPending,
                             isEnabled: messagesTopBarTrailingItemEnabled,
                             onConvoCode: {
                                 if viewModel.isFull {

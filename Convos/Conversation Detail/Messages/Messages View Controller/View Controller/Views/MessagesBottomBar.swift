@@ -193,6 +193,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onAgentOutOfCredits: {},
             onRetryMessage: { _ in },
             onDeleteMessage: { _ in },
+            onRetryAssistantJoin: {},
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             scrollToBottomTrigger: { _ in }

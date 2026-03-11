@@ -235,8 +235,16 @@ class ConversationViewModel {
     var presentingPhotosInfoSheet: Bool = false
     var activeToast: IndicatorToastStyle?
 
+    var assistantJoinForceErrorCode: Int?
+
+    var isAssistantJoinPending: Bool {
+        assistantJoinTask != nil || conversation.assistantJoinStatus == .pending
+    }
+
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var assistantJoinTaskId: String?
 
     var autoRevealPhotos: Bool = false
 
@@ -920,16 +928,86 @@ extension ConversationViewModel {
         guard !slug.isEmpty else { return }
 
         assistantJoinTask?.cancel()
-        assistantJoinTask = Task { [session] in
+
+        let forceErrorCode = assistantJoinForceErrorCode
+        let conversationId = conversation.id
+        let clientId = conversation.clientId
+        let inboxId = conversation.inboxId
+        let requestId = UUID().uuidString
+        let taskId = requestId
+        assistantJoinTask = Task { [weak self, session] in
+            await Self.broadcastAssistantJoinRequest(
+                status: .pending, requestedBy: inboxId, requestId: requestId,
+                conversationId: conversationId, clientId: clientId, session: session
+            )
+
             do {
                 _ = try await session.requestAgentJoin(
                     slug: slug,
-                    instructions: "You're a Convos Assistant"
+                    instructions: "You're a Convos Assistant",
+                    forceErrorCode: forceErrorCode
                 )
+            } catch is CancellationError {
+                await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
+                return
+            } catch let error as APIError {
+                let status: AssistantJoinStatus
+                if case .noAgentsAvailable = error { status = .noAgentsAvailable } else { status = .failed }
+                await Self.broadcastAssistantJoinRequest(
+                    status: status, requestedBy: inboxId, requestId: requestId,
+                    conversationId: conversationId, clientId: clientId, session: session
+                )
+                await MainActor.run {
+                    self?.clearAssistantJoinTask(id: taskId)
+                    self?.onAssistantJoinError()
+                }
+                return
             } catch {
-                Log.error("Failed to request assistant join: \(error.localizedDescription)")
+                await Self.broadcastAssistantJoinRequest(
+                    status: .failed, requestedBy: inboxId, requestId: requestId,
+                    conversationId: conversationId, clientId: clientId, session: session
+                )
+                await MainActor.run {
+                    self?.clearAssistantJoinTask(id: taskId)
+                    self?.onAssistantJoinError()
+                }
+                return
             }
+            await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
         }
+        assistantJoinTaskId = taskId
+    }
+
+    private static func broadcastAssistantJoinRequest(
+        status: AssistantJoinStatus,
+        requestedBy: String,
+        requestId: String,
+        conversationId: String,
+        clientId: String,
+        session: any SessionManagerProtocol
+    ) async {
+        do {
+            let messagingService = try await session.messagingService(for: clientId, inboxId: requestedBy)
+            let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            guard let xmtpConversation = try await inboxResult.client.conversation(with: conversationId) else {
+                Log.warning("Could not find XMTP conversation to broadcast assistant join request")
+                return
+            }
+            let request = AssistantJoinRequest(status: status, requestedByInboxId: requestedBy, requestId: requestId)
+            try await xmtpConversation.sendAssistantJoinRequest(request)
+        } catch {
+            Log.warning("Failed to broadcast assistant join request: \(error.localizedDescription)")
+        }
+    }
+
+    private func clearAssistantJoinTask(id: String) {
+        guard assistantJoinTaskId == id else { return }
+        assistantJoinTask = nil
+        assistantJoinTaskId = nil
+    }
+
+    private func onAssistantJoinError() {
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
     }
 
     func leaveConvo() {

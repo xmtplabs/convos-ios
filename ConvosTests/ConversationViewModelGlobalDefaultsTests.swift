@@ -244,8 +244,8 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         await base.inboxId(for: conversationId)
     }
 
-    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
-        try await base.requestAgentJoin(slug: slug, instructions: instructions)
+    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+        try await base.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
     }
 
     func pendingInviteDetails() throws -> [PendingInviteDetail] {
