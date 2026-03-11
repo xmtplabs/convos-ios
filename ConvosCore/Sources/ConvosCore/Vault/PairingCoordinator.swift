@@ -192,6 +192,7 @@ public actor PairingCoordinator {
     }
 
     private func updateState(_ newState: PairingState) {
+        Log.info("PairingCoordinator state: \(state) -> \(newState)")
         state = newState
         delegate?.pairingCoordinator(self, didChangeState: newState)
     }
@@ -209,6 +210,7 @@ public actor PairingCoordinator {
     private func handleExpiration() {
         switch state {
         case .waitingForScan, .showingPin, .waitingForEmojiConfirmation:
+            Log.warning("PairingCoordinator expired in state: \(state)")
             updateState(.expired)
         default:
             break
