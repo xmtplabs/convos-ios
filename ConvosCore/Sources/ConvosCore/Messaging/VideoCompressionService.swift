@@ -49,7 +49,7 @@ public protocol VideoCompressionServiceProtocol: Sendable {
 
 public final class VideoCompressionService: VideoCompressionServiceProtocol, Sendable {
     public static let maxFileSizeBytes: Int64 = 25 * 1024 * 1024
-    private static let thumbnailMaxDimension: CGFloat = 200
+    private static let thumbnailMaxDimension: CGFloat = 400
 
     public init() {}
 
