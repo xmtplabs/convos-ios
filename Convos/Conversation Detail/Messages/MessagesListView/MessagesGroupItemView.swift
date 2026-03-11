@@ -344,11 +344,13 @@ private struct AttachmentPlaceholder: View {
 
                     if showBlurOverlay, !isOutgoing {
                         PhotoBlurOverlayContent()
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                             .transition(.opacity)
                     }
 
                     if !isPlaying, !shouldBlur {
                         videoOverlay
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
 
                     if !isPlaying {
