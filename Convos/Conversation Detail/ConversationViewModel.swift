@@ -243,6 +243,8 @@ class ConversationViewModel {
 
     @ObservationIgnored
     private var assistantJoinTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var assistantJoinTaskId: String?
 
     var autoRevealPhotos: Bool = false
 
@@ -932,6 +934,7 @@ extension ConversationViewModel {
         let clientId = conversation.clientId
         let inboxId = conversation.inboxId
         let requestId = UUID().uuidString
+        let taskId = requestId
         assistantJoinTask = Task { [weak self, session] in
             await Self.broadcastAssistantJoinRequest(
                 status: .pending, requestedBy: inboxId, requestId: requestId,
@@ -945,7 +948,7 @@ extension ConversationViewModel {
                     forceErrorCode: forceErrorCode
                 )
             } catch is CancellationError {
-                await MainActor.run { self?.assistantJoinTask = nil }
+                await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
                 return
             } catch let error as APIError {
                 let status: AssistantJoinStatus
@@ -955,7 +958,7 @@ extension ConversationViewModel {
                     conversationId: conversationId, clientId: clientId, session: session
                 )
                 await MainActor.run {
-                    self?.assistantJoinTask = nil
+                    self?.clearAssistantJoinTask(id: taskId)
                     self?.onAssistantJoinError()
                 }
                 return
@@ -965,13 +968,14 @@ extension ConversationViewModel {
                     conversationId: conversationId, clientId: clientId, session: session
                 )
                 await MainActor.run {
-                    self?.assistantJoinTask = nil
+                    self?.clearAssistantJoinTask(id: taskId)
                     self?.onAssistantJoinError()
                 }
                 return
             }
-            await MainActor.run { self?.assistantJoinTask = nil }
+            await MainActor.run { self?.clearAssistantJoinTask(id: taskId) }
         }
+        assistantJoinTaskId = taskId
     }
 
     private static func broadcastAssistantJoinRequest(
@@ -994,6 +998,12 @@ extension ConversationViewModel {
         } catch {
             Log.warning("Failed to broadcast assistant join request: \(error.localizedDescription)")
         }
+    }
+
+    private func clearAssistantJoinTask(id: String) {
+        guard assistantJoinTaskId == id else { return }
+        assistantJoinTask = nil
+        assistantJoinTaskId = nil
     }
 
     private func onAssistantJoinError() {
