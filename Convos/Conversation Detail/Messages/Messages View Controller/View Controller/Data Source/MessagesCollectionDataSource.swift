@@ -16,4 +16,6 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }
     var onAboutAssistants: (() -> Void)? { get set }
     var onAgentOutOfCredits: (() -> Void)? { get set }
+    var onRetryMessage: ((AnyMessage) -> Void)? { get set }
+    var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
 }

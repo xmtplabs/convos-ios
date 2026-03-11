@@ -75,6 +75,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
             onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
+            onRetryMessage: viewModel.retryMessage(_:),
+            onDeleteMessage: viewModel.deleteMessage(_:),
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
             },

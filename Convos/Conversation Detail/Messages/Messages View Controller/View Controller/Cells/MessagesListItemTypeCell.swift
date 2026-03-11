@@ -86,7 +86,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onReply: config.onReply,
                         onPhotoRevealed: config.onPhotoRevealed,
                         onPhotoHidden: config.onPhotoHidden,
-                        onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded
+                        onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
+                        onRetryMessage: config.onRetryMessage,
+                        onDeleteMessage: config.onDeleteMessage
                     )
 
                 case .invite(let invite):

@@ -191,6 +191,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onPhotoDimensionsLoaded: { _, _, _ in },
             onAboutAssistants: {},
             onAgentOutOfCredits: {},
+            onRetryMessage: { _ in },
+            onDeleteMessage: { _ in },
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
             scrollToBottomTrigger: { _ in }

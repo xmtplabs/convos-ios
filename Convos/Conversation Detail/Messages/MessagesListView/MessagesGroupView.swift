@@ -12,6 +12,8 @@ struct MessagesGroupView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    var onRetryMessage: ((AnyMessage) -> Void)?
+    var onDeleteMessage: ((AnyMessage) -> Void)?
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
@@ -63,12 +65,10 @@ struct MessagesGroupView: View {
                 let isLast = message == lastMessage
                 let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
                 let isLastInGroup = message == group.messages.last
-                // Show "Sent" status for the last message in the last group sent by current user,
-                // but only if it's published (not still sending)
                 let showsSentStatus = isLastInGroup && group.isLastGroupSentByCurrentUser && message.base.status == .published
+                let isFailed = message.base.sender.isCurrentUser && message.base.status == .failed
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
-                    // Show avatar spacer for incoming non-attachment messages only
                     if !group.sender.isCurrentUser && !isFullWidthAttachment {
                         Color.clear
                             .frame(width: avatarSize, height: avatarSize)
@@ -83,7 +83,8 @@ struct MessagesGroupView: View {
                         onReply: onReply,
                         onPhotoRevealed: onPhotoRevealed,
                         onPhotoHidden: onPhotoHidden,
-                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
+                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                        omitTrailingPadding: isFailed
                     )
                     .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
@@ -111,6 +112,16 @@ struct MessagesGroupView: View {
                                 .accessibilityAddTraits(.isButton)
                         }
                     }
+
+                    if isFailed {
+                        FailedMessageButton(
+                            message: message,
+                            onRetry: onRetryMessage,
+                            onDelete: onDeleteMessage
+                        )
+                        .padding(.leading, DesignConstants.Spacing.step3x - avatarSpacing)
+                        .padding(.trailing, DesignConstants.Spacing.step4x)
+                    }
                 }
                 .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
 
@@ -128,7 +139,21 @@ struct MessagesGroupView: View {
                     .id("reactions-\(message.differenceIdentifier)")
                 }
 
-                if showsSentStatus {
+                if isFailed {
+                    HStack(spacing: DesignConstants.Spacing.stepHalf) {
+                        Spacer()
+                        Text("Not Delivered")
+                    }
+                    .transition(.blurReplace)
+                    .padding(.vertical, DesignConstants.Spacing.stepX)
+                    .padding(.leading, DesignConstants.Spacing.step2x)
+                    .padding(.trailing, DesignConstants.Spacing.step4x)
+                    .font(.caption)
+                    .foregroundStyle(.colorCaution)
+                    .zIndex(-1)
+                    .id("failed-status-\(message.differenceIdentifier)")
+                    .accessibilityLabel("Message not delivered")
+                } else if showsSentStatus {
                     HStack(spacing: DesignConstants.Spacing.stepHalf) {
                         Spacer()
                         Text("Sent")
@@ -519,6 +544,17 @@ struct MessagesGroupView: View {
             ],
             isLastGroup: true,
             isLastGroupSentByCurrentUser: true
+        ),
+
+        // -- Failed message --
+        MessagesGroup(
+            id: "failed-message",
+            sender: me,
+            messages: [
+                .message(Message.mock(text: "This message failed to send", sender: me, status: .failed), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
         ),
     ]
 
