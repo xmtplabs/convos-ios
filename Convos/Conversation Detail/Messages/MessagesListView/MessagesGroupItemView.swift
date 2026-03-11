@@ -336,24 +336,36 @@ private struct AttachmentPlaceholder: View {
     var body: some View {
         Group {
             if let player = inlinePlayer {
-                ZStack {
+                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
                     InlineVideoPlayerView(player: player)
+                        .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
+                        .blur(radius: showBlurOverlay ? blurRadius : 0)
+                        .opacity(showBlurOverlay ? blurOpacity : 1.0)
+
+                    if showBlurOverlay, !isOutgoing {
+                        PhotoBlurOverlayContent()
+                            .transition(.opacity)
+                    }
 
                     if !isPlaying, !shouldBlur {
                         videoOverlay
                     }
 
-                    if !isPlaying {
+                    if !isPlaying, !showBlurOverlay {
                         PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isOutgoing ? .bottomTrailing : .topLeading)
                     }
                 }
                 .aspectRatio(placeholderAspectRatio, contentMode: .fit)
                 .clipped()
+                .overlay(alignment: isOutgoing ? .bottom : .top) {
+                    PhotoEdgeGradient(isOutgoing: isOutgoing)
+                }
+                .compositingGroup()
                 .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
                 .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
                 .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
                 .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+                .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
             } else if let image = loadedImage {
                 ZStack {
                     photoContent(image: image)
@@ -376,6 +388,12 @@ private struct AttachmentPlaceholder: View {
         .accessibilityLabel(isVideo ? "Video message" : "Photo message")
         .onChange(of: videoPlayTrigger) {
             handleVideoPlayTap()
+        }
+        .onChange(of: shouldBlur) {
+            if shouldBlur, isPlaying {
+                inlinePlayer?.pause()
+                isPlaying = false
+            }
         }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
             guard let finishedItem = notification.object as? AVPlayerItem,
