@@ -337,6 +337,12 @@ private struct AttachmentPlaceholder: View {
         .onChange(of: videoPlayTrigger) {
             handleVideoPlayTap()
         }
+        .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
+            guard let finishedItem = notification.object as? AVPlayerItem,
+                  finishedItem === inlinePlayer?.currentItem
+            else { return }
+            isPlaying = false
+        }
         .task {
             await loadAttachment()
         }
@@ -386,7 +392,23 @@ private struct AttachmentPlaceholder: View {
                 player.pause()
                 isPlaying = false
             } else {
-                player.play()
+                let atEnd: Bool = {
+                    guard let item = player.currentItem,
+                          item.duration.seconds.isFinite
+                    else { return false }
+                    return CMTimeGetSeconds(player.currentTime()) >= item.duration.seconds - 0.1
+                }()
+
+                if atEnd {
+                    player.seek(to: .zero) { [weak player] finished in
+                        guard finished else { return }
+                        DispatchQueue.main.async {
+                            player?.play()
+                        }
+                    }
+                } else {
+                    player.play()
+                }
                 isPlaying = true
             }
             return
