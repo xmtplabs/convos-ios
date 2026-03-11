@@ -296,9 +296,8 @@ private struct AttachmentPlaceholder: View {
     @State private var loadedImage: UIImage?
     @State private var isLoading: Bool = true
     @State private var loadError: Error?
-    @State private var videoLocalURL: URL?
-    @State private var isDownloadingVideo: Bool = false
     @State private var inlinePlayer: AVPlayer?
+    @State private var isPlaying: Bool = false
     @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
@@ -337,12 +336,24 @@ private struct AttachmentPlaceholder: View {
     var body: some View {
         Group {
             if let player = inlinePlayer {
-                InlineVideoPlayerView(player: player)
-                    .aspectRatio(placeholderAspectRatio, contentMode: .fit)
-                    .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
-                    .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
-                    .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
-                    .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
+                ZStack {
+                    InlineVideoPlayerView(player: player)
+
+                    if !isPlaying, !shouldBlur {
+                        videoOverlay
+                    }
+
+                    if !isPlaying {
+                        PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: isOutgoing ? .bottomTrailing : .topLeading)
+                    }
+                }
+                .aspectRatio(placeholderAspectRatio, contentMode: .fit)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
+                .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
+                .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
+                .padding(isRegularWidth ? (isOutgoing ? .trailing : .leading) : [], DesignConstants.Spacing.step4x)
             } else if let image = loadedImage {
                 ZStack {
                     photoContent(image: image)
@@ -374,23 +385,18 @@ private struct AttachmentPlaceholder: View {
     @ViewBuilder
     private var videoOverlay: some View {
         ZStack {
-            if isDownloadingVideo {
-                ProgressView()
-                    .tint(.white)
-            } else {
-                Image(systemName: "play.fill")
-                    .font(.system(size: 36))
-                    .foregroundStyle(.white)
-                    .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                    .accessibilityIdentifier("video-play-button")
-            }
+            Image(systemName: "play.fill")
+                .font(.system(size: 36))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                .accessibilityIdentifier("video-play-button")
         }
 
         if let duration = attachment.duration {
             VStack {
                 Spacer()
                 HStack {
-                    Spacer()
+                    if !isOutgoing { Spacer() }
                     Text(formatDuration(duration))
                         .font(.caption2.weight(.medium))
                         .foregroundStyle(.white)
@@ -398,9 +404,10 @@ private struct AttachmentPlaceholder: View {
                         .padding(.vertical, 2)
                         .background(.black.opacity(0.6))
                         .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .padding(8)
                         .accessibilityIdentifier("video-duration-badge")
+                    if isOutgoing { Spacer() }
                 }
+                .padding(DesignConstants.Spacing.step4x)
             }
         }
     }
@@ -414,32 +421,16 @@ private struct AttachmentPlaceholder: View {
     func handleVideoPlayTap() {
         guard isVideo, !shouldBlur else { return }
 
-        if let url = videoLocalURL {
-            startInlinePlayback(url: url)
+        if let player = inlinePlayer {
+            if isPlaying {
+                player.pause()
+                isPlaying = false
+            } else {
+                player.play()
+                isPlaying = true
+            }
             return
         }
-
-        isDownloadingVideo = true
-        Task {
-            do {
-                let loaded = try await Self.loader.loadAttachmentData(from: attachment.key)
-                let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("video_\(UUID().uuidString).mp4")
-                try loaded.data.write(to: tempURL)
-                videoLocalURL = tempURL
-                isDownloadingVideo = false
-                startInlinePlayback(url: tempURL)
-            } catch {
-                isDownloadingVideo = false
-                Log.error("Failed to download video: \(error)")
-            }
-        }
-    }
-
-    private func startInlinePlayback(url: URL) {
-        let player = AVPlayer(url: url)
-        inlinePlayer = player
-        player.play()
     }
 
     @ViewBuilder
@@ -475,19 +466,35 @@ private struct AttachmentPlaceholder: View {
 
         let cacheKey = attachment.key
 
+        if isVideo {
+            if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
+                loadedImage = thumb
+                isLoading = false
+            }
+
+            do {
+                let loaded = try await Self.loader.loadAttachmentData(from: attachment.key)
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("video_\(UUID().uuidString).mp4")
+                try loaded.data.write(to: tempURL)
+                let player = AVPlayer(url: tempURL)
+                await player.seek(to: .zero)
+                inlinePlayer = player
+                isLoading = false
+            } catch {
+                loadError = error
+                isLoading = false
+                Log.error("Failed to load video: \(error)")
+            }
+            return
+        }
+
         if let cachedImage = await ImageCache.shared.imageAsync(for: cacheKey) {
             loadedImage = cachedImage
             isLoading = false
             if attachment.width == nil {
                 onDimensionsLoaded(Int(cachedImage.size.width), Int(cachedImage.size.height))
             }
-            return
-        }
-
-        if isVideo, let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
-            loadedImage = thumb
-            ImageCache.shared.cacheImage(thumb, for: cacheKey, storageTier: .persistent)
-            isLoading = false
             return
         }
 
@@ -499,10 +506,6 @@ private struct AttachmentPlaceholder: View {
                 let url = URL(fileURLWithPath: path)
                 imageData = try Data(contentsOf: url)
             } else if attachment.key.hasPrefix("{") {
-                if isVideo {
-                    isLoading = false
-                    return
-                }
                 imageData = try await Self.loader.loadImageData(from: attachment.key)
             } else if let url = URL(string: attachment.key) {
                 let (data, _) = try await URLSession.shared.data(from: url)
