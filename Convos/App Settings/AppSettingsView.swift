@@ -187,6 +187,7 @@ struct AppSettingsView: View {
                         } label: {
                             Text("Debug")
                         }
+                        .accessibilityIdentifier("debug-row")
                         .foregroundStyle(.colorTextPrimary)
                     }
                 } footer: {

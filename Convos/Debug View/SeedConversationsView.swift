@@ -60,6 +60,7 @@ struct SeedConversationsView: View {
                     Text("\(count)").tag(count)
                 }
             }
+            .accessibilityIdentifier("seed-conversations-count-picker")
             .disabled(viewModel.isSeeding)
 
             Button {
@@ -83,6 +84,7 @@ struct SeedConversationsView: View {
                     }
                 }
             }
+            .accessibilityIdentifier("seed-conversations-button")
             .disabled(viewModel.isSeeding)
 
             if let error = viewModel.errorMessage {
