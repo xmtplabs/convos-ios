@@ -28,6 +28,16 @@ extension DBConversationDetails {
             imageURL = nil
         }
 
+        let assistantJoinStatus: AssistantJoinStatus?
+        if let joinRequest = conversationAssistantJoinRequest,
+           let status = AssistantJoinStatus(rawValue: joinRequest.status),
+           !members.contains(where: { $0.isAgent }) {
+            let age = Date().timeIntervalSince(joinRequest.date)
+            assistantJoinStatus = age <= status.displayDuration ? status : nil
+        } else {
+            assistantJoinStatus = nil
+        }
+
         return Conversation(
             id: conversation.id,
             clientConversationId: conversation.clientConversationId,
@@ -57,8 +67,7 @@ extension DBConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: conversation.assistantJoinStatus,
-            assistantJoinRequestedBy: conversation.assistantJoinRequestedBy
+            assistantJoinStatus: assistantJoinStatus
         )
     }
 }

@@ -13,12 +13,29 @@ final class MessagesListProcessor {
     /// - Parameter messages: Array of messages from the repository (already sorted by sortId)
     /// - Returns: Array of items ready for display in the messages list
     static func process(_ messages: [AnyMessage]) -> [MessagesListItemType] {
-        // 1. Filter out messages that shouldn't be shown
         let visibleMessages = messages.filter { $0.base.content.showsInMessagesList }
 
-        // 2. Messages are already sorted by sortId from the repository
-        // Do NOT re-sort by date, as this would undo the stable sortId ordering
-        return processMessages(visibleMessages)
+        var items = processMessages(visibleMessages)
+
+        removeAssistantJoinStatusIfAgentJoined(&items)
+
+        return items
+    }
+
+    private static func removeAssistantJoinStatusIfAgentJoined(_ items: inout [MessagesListItemType]) {
+        guard let joinIndex = items.lastIndex(where: {
+            if case .assistantJoinStatus = $0 { return true }
+            return false
+        }) else { return }
+
+        let agentJoinedAfter = items[joinIndex...].contains(where: {
+            if case .update(_, let update, _) = $0 { return update.addedAgent }
+            return false
+        })
+
+        if agentJoinedAfter {
+            items.remove(at: joinIndex)
+        }
     }
 
     /// Processes messages for pagination scenarios
@@ -52,6 +69,8 @@ final class MessagesListProcessor {
     private static func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
+        let lastAssistantJoinIndex = messages.lastIndex(where: { $0.base.content.isAssistantJoinRequest })
+
         var items: [MessagesListItemType] = []
         var currentGroup: [AnyMessage] = []
         var currentSenderId: String?
@@ -66,6 +85,24 @@ final class MessagesListProcessor {
                     currentSenderId = nil
                 }
                 items.append(.update(id: message.base.id, update: update, origin: message.origin))
+                lastMessageDate = message.base.date
+                continue
+            }
+
+            if case .assistantJoinRequest(let status, _) = message.base.content {
+                guard index == lastAssistantJoinIndex else { continue }
+                let age = Date().timeIntervalSince(message.base.date)
+                guard age <= status.displayDuration else { continue }
+
+                if !currentGroup.isEmpty, let senderId = currentSenderId {
+                    flushGroup(currentGroup, senderId: senderId, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
+                    currentGroup = []
+                    currentSenderId = nil
+                }
+                let requesterName: String? = message.base.sender.isCurrentUser
+                    ? nil
+                    : message.base.sender.profile.displayName
+                items.append(.assistantJoinStatus(status, requesterName: requesterName, date: message.base.date))
                 lastMessageDate = message.base.date
                 continue
             }
