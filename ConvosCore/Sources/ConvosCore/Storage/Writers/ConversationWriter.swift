@@ -9,11 +9,6 @@ extension DecodedMessage {
         guard let contentType = try? encodedContent.type else { return false }
         return contentType == ContentTypeProfileUpdate || contentType == ContentTypeProfileSnapshot
     }
-
-    var isAssistantJoinRequestMessage: Bool {
-        guard let contentType = try? encodedContent.type else { return false }
-        return contentType == ContentTypeAssistantJoinRequest
-    }
 }
 
 enum ConversationWriterError: Error {
@@ -40,11 +35,6 @@ protocol ConversationWriterProtocol: Sendable {
         for signedInvite: SignedInvite,
         inboxId: String
     ) async throws -> String
-    func updateAssistantJoinStatus(
-        _ status: AssistantJoinStatus?,
-        requestedBy: String?,
-        for conversationId: String
-    ) async throws
 }
 
 extension ConversationWriterProtocol {
@@ -161,9 +151,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
+                isUnused: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -259,9 +247,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             try await fetchAndStoreLatestMessages(for: conversation, dbConversation: dbConversation)
         }
 
-        // Store last message (skip profile and assistant join request messages which aren't stored as DB messages)
+        // Store last message (skip profile messages which aren't stored as DB messages)
         let lastMessage = try await conversation.lastMessage()
-        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isAssistantJoinRequestMessage {
+        if let lastMessage, !lastMessage.isProfileMessage {
             let result = try await messageWriter.store(
                 message: lastMessage,
                 for: dbConversation
@@ -273,20 +261,6 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         await processProfileMessagesFromHistory(conversation: conversation)
 
         return dbConversation
-    }
-
-    func updateAssistantJoinStatus(
-        _ status: AssistantJoinStatus?,
-        requestedBy: String?,
-        for conversationId: String
-    ) async throws {
-        try await databaseWriter.write { db in
-            guard var conversation = try DBConversation.fetchOne(db, id: conversationId) else {
-                return
-            }
-            conversation = conversation.with(assistantJoinStatus: status, assistantJoinRequestedBy: requestedBy)
-            try conversation.update(db)
-        }
     }
 
     // MARK: - Helper Methods
@@ -363,9 +337,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageNonce: metadata.imageNonce,
             imageEncryptionKey: metadata.imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: false,
-            assistantJoinStatus: nil,
-            assistantJoinRequestedBy: nil
+            isUnused: false
         )
     }
 
@@ -451,14 +423,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageLastRenewed = nil
         }
 
-        // Preserve assistant join fields (managed locally, not from XMTP metadata)
-        let assistantJoinStatus = existingConversation?.assistantJoinStatus
-        let assistantJoinRequestedBy = existingConversation?.assistantJoinRequestedBy
-
-        // Apply preserved local fields
-        var conversationToSave = dbConversation
-            .with(imageLastRenewed: imageLastRenewed)
-            .with(assistantJoinStatus: assistantJoinStatus, assistantJoinRequestedBy: assistantJoinRequestedBy)
+        // Apply the preserved timestamp
+        var conversationToSave = dbConversation.with(imageLastRenewed: imageLastRenewed)
 
         if !dbConversation.inviteTag.isEmpty,
            let localConversation = try DBConversation
@@ -554,7 +520,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Store messages and track if conversation should be marked unread
         var marksConversationAsUnread = false
         for message in messages {
-            guard !message.isProfileMessage, !message.isAssistantJoinRequestMessage else { continue }
+            guard !message.isProfileMessage else { continue }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread {

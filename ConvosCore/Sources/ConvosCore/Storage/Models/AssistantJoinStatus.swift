@@ -2,6 +2,13 @@ import Foundation
 
 public enum AssistantJoinStatus: String, Equatable, Hashable, Sendable, Codable {
     case pending
-    case noAgentsAvailable // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
+    case noAgentsAvailable = "no_agents_available"
     case failed
+
+    public var displayDuration: TimeInterval {
+        switch self {
+        case .pending: 15
+        case .noAgentsAvailable, .failed: 3
+        }
+    }
 }

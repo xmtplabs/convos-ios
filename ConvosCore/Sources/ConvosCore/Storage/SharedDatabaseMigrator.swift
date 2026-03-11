@@ -372,11 +372,13 @@ extension SharedDatabaseMigrator {
             }
         }
 
-        migrator.registerMigration("addAssistantJoinStatusToConversation") { db in
-            try db.alter(table: "conversation") { t in
-                t.add(column: "assistantJoinStatus", .text)
-                t.add(column: "assistantJoinRequestedBy", .text)
-            }
+        migrator.registerMigration("addAssistantJoinRequestIndex") { db in
+            try db.create(
+                index: "message_assistantJoinRequest_conversationId",
+                on: "message",
+                columns: ["conversationId", "contentType", "dateNs"],
+                condition: Column("contentType") == MessageContentType.assistantJoinRequest.rawValue
+            )
         }
 
         return migrator

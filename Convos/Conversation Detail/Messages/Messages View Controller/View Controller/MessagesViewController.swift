@@ -66,7 +66,6 @@ final class MessagesViewController: UIViewController {
     private var isFirstStateUpdate: Bool = true
     private var hasPendingInterrupt: Bool = false
     private var previousLastMessageId: String?
-    private var previousAssistantJoinStatus: AssistantJoinStatus?
     private var previousFocusState: MessagesViewInputFocus?
 
     /// Whether the user is near the bottom of the scroll view (within one screen height)
@@ -94,8 +93,7 @@ final class MessagesViewController: UIViewController {
                 return
             }
 
-            let statusJustCleared = previousAssistantJoinStatus != nil && state.conversation.assistantJoinStatus == nil
-            let animated = oldValue?.conversation.id == state.conversation.id && !statusJustCleared
+            let animated = oldValue?.conversation.id == state.conversation.id
             processUpdates(
                 for: state.conversation,
                 with: state.messages,
@@ -121,12 +119,6 @@ final class MessagesViewController: UIViewController {
                         } else if nearBottom && !userScrolling {
                             self.scrollToBottom()
                         }
-                    }
-
-                    let prevJoinStatus = self.previousAssistantJoinStatus
-                    self.previousAssistantJoinStatus = state.conversation.assistantJoinStatus
-                    if !isInitialLoad && prevJoinStatus == nil && state.conversation.assistantJoinStatus != nil {
-                        self.scrollToBottom()
                     }
                 }
             isFirstStateUpdate = false
@@ -511,21 +503,6 @@ extension MessagesViewController {
             } else {
                 cells.append(.agentOutOfCredits(agentMember.profile))
             }
-        }
-
-        let hasAgentJoinedUpdate = messages.contains { item in
-            if case .update(_, let update, _) = item, update.addedAgent { return true }
-            return false
-        }
-        if let joinStatus = conversation.assistantJoinStatus, !hasAgentJoinedUpdate {
-            let requesterName: String? = {
-                guard let requestedBy = conversation.assistantJoinRequestedBy else { return nil }
-                if requestedBy == conversation.inboxId { return nil }
-                return conversation.members
-                    .first { $0.profile.inboxId == requestedBy }?
-                    .profile.displayName
-            }()
-            cells.append(.assistantJoinStatus(joinStatus, requesterName: requesterName))
         }
 
         let sections: [MessagesCollectionSection] = [

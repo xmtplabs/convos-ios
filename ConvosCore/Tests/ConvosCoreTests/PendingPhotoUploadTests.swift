@@ -167,8 +167,6 @@ struct PendingPhotoUploadTests {
             imageEncryptionKey: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            assistantJoinStatus: nil,
-            assistantJoinRequestedBy: nil
         )
     }
 }

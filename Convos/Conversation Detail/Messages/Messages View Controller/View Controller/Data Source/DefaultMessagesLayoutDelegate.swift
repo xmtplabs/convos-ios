@@ -102,7 +102,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 40.0
         case .invite:
             height = 240.0
-        case .update:
+        case .update, .assistantJoinRequest:
             height = 30.0
         }
 

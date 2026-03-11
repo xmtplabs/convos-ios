@@ -152,7 +152,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
                             hasAssistant: viewModel.conversation.hasAssistant,
-                            assistantJoinStatus: viewModel.conversation.assistantJoinStatus,
+                            isAssistantJoinPending: viewModel.isAssistantJoinPending,
                             isEnabled: messagesTopBarTrailingItemEnabled,
                             onConvoCode: {
                                 if viewModel.isFull {

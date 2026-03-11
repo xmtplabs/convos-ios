@@ -336,7 +336,8 @@ extension MessagingService {
             return .droppedMessage
         }
 
-        if decodedMessage.isAssistantJoinRequestMessage {
+        if let contentType = try? decodedMessage.encodedContent.type,
+           contentType == ContentTypeAssistantJoinRequest {
             return .droppedMessage
         }
 
