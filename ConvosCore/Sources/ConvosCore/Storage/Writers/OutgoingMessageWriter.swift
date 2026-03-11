@@ -61,6 +61,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let image: ImageType
         let localCacheURL: URL
         let filename: String
+        var replyContext: ReplyContext?
     }
 
     private struct EagerUploadState {
@@ -701,7 +702,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             queued: queued,
             prepared: prepared,
             trackingKey: trackingKey,
-            inboxReady: inboxReady
+            inboxReady: inboxReady,
+            replyContext: queued.replyContext
         )
     }
 
@@ -902,17 +904,25 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         guard let message, message.status == .failed else { return }
 
+        let replyContext: ReplyContext? = if let parentId = message.sourceMessageId {
+            ReplyContext(parentDbId: parentId)
+        } else {
+            nil
+        }
+
+        if message.contentType == .attachments {
+            try await retryFailedPhoto(message: message, replyContext: replyContext)
+        } else {
+            try await retryFailedText(message: message, replyContext: replyContext)
+        }
+    }
+
+    private func retryFailedText(message: DBMessage, replyContext: ReplyContext?) async throws {
         let text = message.text ?? message.emoji ?? ""
         guard !text.isEmpty else { return }
 
         try await databaseWriter.write { db in
             try message.with(status: .unpublished).save(db)
-        }
-
-        let replyContext: ReplyContext? = if let parentId = message.sourceMessageId {
-            ReplyContext(parentDbId: parentId)
-        } else {
-            nil
         }
 
         let queued = QueuedTextMessage(
@@ -922,6 +932,41 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             replyContext: replyContext
         )
         messageQueue.append(.text(queued))
+        startProcessingIfNeeded()
+    }
+
+    private func retryFailedPhoto(message: DBMessage, replyContext: ReplyContext?) async throws {
+        guard let localURLString = message.attachmentUrls.first,
+              let localURL = URL(string: localURLString) else {
+            Log.error("Cannot retry photo: no local attachment URL")
+            return
+        }
+
+        let fileURL = localURL.scheme == "file" ? localURL : URL(fileURLWithPath: localURL.path)
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            Log.error("Cannot retry photo: local file no longer exists at \(fileURL.path)")
+            return
+        }
+
+        guard let imageData = try? Data(contentsOf: fileURL),
+              let image = ImageType(data: imageData) else {
+            Log.error("Cannot retry photo: failed to load image from \(fileURL.path)")
+            return
+        }
+
+        try await databaseWriter.write { db in
+            try message.with(status: .unpublished).save(db)
+        }
+
+        let filename = fileURL.lastPathComponent
+        let queued = QueuedPhotoMessage(
+            clientMessageId: message.id,
+            image: image,
+            localCacheURL: fileURL,
+            filename: filename,
+            replyContext: replyContext
+        )
+        messageQueue.append(.photo(queued))
         startProcessingIfNeeded()
     }
 
