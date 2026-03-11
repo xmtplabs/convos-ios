@@ -16,8 +16,10 @@ struct ReplyComposerBar: View {
             return String(text.prefix(50))
         case .emoji(let emoji):
             return emoji
-        case .attachment, .attachments:
-            return "Photo"
+        case .attachment(let attachment):
+            return attachment.mediaType == .video ? "Video" : "Photo"
+        case .attachments(let attachments):
+            return attachments.first?.mediaType == .video ? "Video" : "Photo"
         case .invite:
             return "Invite"
         case .linkPreview(let preview):
@@ -46,10 +48,14 @@ struct ReplyComposerBar: View {
         return shouldBlurPhotos && !attachment.isRevealed
     }
 
+    private var isVideo: Bool {
+        attachment?.mediaType == .video
+    }
+
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             if let attachment {
-                ReplyPhotoThumbnail(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment)
+                ReplyPhotoThumbnail(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment, isVideo: isVideo)
             }
 
             VStack(alignment: .leading, spacing: 2.0) {
@@ -97,15 +103,17 @@ struct ReplyComposerBar: View {
 private struct ReplyPhotoThumbnail: View {
     let attachmentKey: String
     let shouldBlur: Bool
+    var isVideo: Bool = false
 
     @State private var loadedImage: UIImage?
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
     private static let thumbnailSize: CGFloat = 40.0
 
-    init(attachmentKey: String, shouldBlur: Bool) {
+    init(attachmentKey: String, shouldBlur: Bool, isVideo: Bool = false) {
         self.attachmentKey = attachmentKey
         self.shouldBlur = shouldBlur
+        self.isVideo = isVideo
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
     }
 
@@ -119,6 +127,14 @@ private struct ReplyPhotoThumbnail: View {
                     .blur(radius: shouldBlur ? 8 : 0)
                     .opacity(shouldBlur ? 0.5 : 1.0)
                     .clipShape(RoundedRectangle(cornerRadius: 8.0))
+                    .overlay {
+                        if isVideo, !shouldBlur {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                        }
+                    }
             } else {
                 RoundedRectangle(cornerRadius: 8.0)
                     .fill(.quaternary)
