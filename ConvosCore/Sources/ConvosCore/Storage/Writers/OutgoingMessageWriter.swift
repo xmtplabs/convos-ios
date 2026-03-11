@@ -894,9 +894,11 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     // MARK: - Failed Messages
 
-    func retryFailedMessage(id messageId: String) async throws {
+    func retryFailedMessage(id clientMessageId: String) async throws {
         let message = try await databaseWriter.read { db in
-            try DBMessage.fetchOne(db, key: messageId)
+            try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == clientMessageId)
+                .fetchOne(db)
         }
         guard let message, message.status == .failed else { return }
 
@@ -914,7 +916,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         let queued = QueuedTextMessage(
-            clientMessageId: messageId,
+            clientMessageId: message.id,
             text: text,
             dependsOnPhotoKey: nil,
             replyContext: replyContext
@@ -923,9 +925,11 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         startProcessingIfNeeded()
     }
 
-    func deleteFailedMessage(id messageId: String) async throws {
+    func deleteFailedMessage(id clientMessageId: String) async throws {
         try await databaseWriter.write { db in
-            _ = try DBMessage.deleteOne(db, key: messageId)
+            _ = try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == clientMessageId)
+                .deleteAll(db)
         }
     }
 }
