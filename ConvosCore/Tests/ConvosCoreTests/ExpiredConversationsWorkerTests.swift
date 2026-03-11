@@ -216,7 +216,7 @@ private class ExpiredWorkerTestFixtures {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
             )
             try conversation.upsert(db)
         }

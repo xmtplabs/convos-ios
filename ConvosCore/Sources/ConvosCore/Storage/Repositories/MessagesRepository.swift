@@ -392,6 +392,9 @@ extension Array where Element == DBMessage {
                             metadataChanges: metadataChanges
                         )
                     )
+                case .assistantJoinRequest:
+                    let status = AssistantJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
+                    messageContent = .assistantJoinRequest(status: status, requestedByInboxId: dbMessage.senderId)
                 }
 
                 let message = Message(
@@ -456,7 +459,7 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update:
+        case .update, .assistantJoinRequest:
             return nil
         }
 
@@ -494,7 +497,7 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text("[Invite]")
             }
-        case .update:
+        case .update, .assistantJoinRequest:
             parentContent = .text("[Update]")
         }
 
@@ -686,7 +689,8 @@ private extension LightweightConversationDetails {
             invite: nil,
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
-            isLocked: conversation.isLocked
+            isLocked: conversation.isLocked,
+            assistantJoinStatus: nil
         )
     }
 }

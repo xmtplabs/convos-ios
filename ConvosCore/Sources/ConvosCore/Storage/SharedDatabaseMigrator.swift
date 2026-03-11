@@ -372,6 +372,15 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addAssistantJoinRequestIndex") { db in
+            try db.create(
+                index: "message_assistantJoinRequest_conversationId",
+                on: "message",
+                columns: ["conversationId", "contentType", "dateNs"],
+                condition: Column("contentType") == MessageContentType.assistantJoinRequest.rawValue
+            )
+        }
+
         return migrator
     }
 }

@@ -348,7 +348,7 @@ final class TestableMockAPIClient: ConvosAPIClientProtocol, @unchecked Sendable 
         ("https://mock-api.example.com/upload/\(filename)", "https://mock-api.example.com/assets/\(filename)")
     }
 
-    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
 }

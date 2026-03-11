@@ -26,7 +26,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Factory methods for repositories
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
-    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse
+    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
 
     func conversationRepository(
         for conversationId: String,
@@ -76,4 +76,10 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     // MARK: Asset Renewal
 
     func makeAssetRenewalManager() async -> AssetRenewalManager
+}
+
+extension SessionManagerProtocol {
+    public func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: nil)
+    }
 }

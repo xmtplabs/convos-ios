@@ -1,14 +1,23 @@
+import ConvosCore
 import SwiftUI
 
 struct AddToConversationMenu: View {
     let isFull: Bool
     var hasAssistant: Bool = false
+    var isAssistantJoinPending: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
     let onCopyLink: () -> Void
     let onInviteAssistant: () -> Void
 
     private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled }
+    private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
+
+    private var assistantSubtitle: String {
+        if hasAssistant { return "Already in conversation" }
+        if isAssistantJoinPending { return "Joining…" }
+        return "Helps the group do things"
+    }
 
     private var labelColor: Color {
         if !isEnabled {
@@ -36,10 +45,10 @@ struct AddToConversationMenu: View {
             if isAssistantEnabled {
                 Button(action: onInviteAssistant) {
                     Text("Instant assistant")
-                    Text(hasAssistant ? "Already in conversation" : "Helps the group do things")
+                    Text(assistantSubtitle)
                     Image(systemName: "a.circle")
                 }
-                .disabled(hasAssistant)
+                .disabled(isAssistantActionDisabled)
                 .accessibilityIdentifier("context-menu-add-assistant")
             }
         } label: {

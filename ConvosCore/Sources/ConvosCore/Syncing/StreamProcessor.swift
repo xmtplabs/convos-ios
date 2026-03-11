@@ -197,7 +197,6 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    // Store conversation before handling ExplodeSettings so the record exists
                     let dbConversation = try await conversationWriter.store(
                         conversation: conversation,
                         inboxId: params.client.inboxId

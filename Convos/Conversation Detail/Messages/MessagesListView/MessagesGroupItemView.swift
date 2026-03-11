@@ -170,7 +170,7 @@ struct MessagesGroupItemView: View {
                 attachmentView(for: attachment)
             }
 
-        case .update:
+        case .update, .assistantJoinRequest:
             EmptyView()
         }
     }

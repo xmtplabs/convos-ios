@@ -55,7 +55,13 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
 
     // Agents
-    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse
+    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
+}
+
+extension ConvosAPIClientProtocol {
+    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+        try await requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: nil)
+    }
 }
 
 /// HTTP client for Convos backend API
@@ -538,9 +544,15 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Agents
 
-    func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
+    func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         var request = try authenticatedRequest(for: "v2/agents/join", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        // Backend pool timeout is 30s; give 5s buffer so backend returns a proper 504 before iOS times out
+        request.timeoutInterval = 35
+
+        if let forceErrorCode {
+            request.setValue("\(forceErrorCode)", forHTTPHeaderField: "X-Force-Error")
+        }
 
         request.httpBody = try JSONEncoder().encode(
             ConvosAPI.AgentJoinRequest(
@@ -589,7 +601,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
 // MARK: - Error Handling
 
-enum APIError: Error {
+public enum APIError: Error {
     case invalidURL
     case authenticationFailed
     case notAuthenticated
@@ -607,7 +619,7 @@ enum APIError: Error {
 }
 
 extension APIError: DisplayError {
-    var title: String {
+    public var title: String {
         switch self {
         case .invalidURL:
             return "Invalid URL"
@@ -640,7 +652,7 @@ extension APIError: DisplayError {
         }
     }
 
-    var description: String {
+    public var description: String {
         switch self {
         case .invalidURL:
             return "The URL is not valid."
