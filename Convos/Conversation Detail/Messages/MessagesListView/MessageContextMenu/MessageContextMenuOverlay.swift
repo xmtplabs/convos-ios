@@ -747,20 +747,34 @@ private func saveAttachmentToPhotoLibrary(key: String) {
 private func saveVideoToPhotoLibrary(key: String) {
     Task {
         do {
-            let loader = RemoteAttachmentLoader()
-            let loaded = try await loader.loadAttachmentData(from: key)
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
-            try loaded.data.write(to: tempURL)
+            let videoURL: URL
+            if key.hasPrefix("file://") {
+                let path = String(key.dropFirst("file://".count))
+                videoURL = URL(fileURLWithPath: path)
+            } else {
+                let loader = RemoteAttachmentLoader()
+                let loaded = try await loader.loadAttachmentData(from: key)
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
+                try loaded.data.write(to: tempURL)
+                videoURL = tempURL
+            }
 
             PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
                 guard status == .authorized || status == .limited else { return }
                 PHPhotoLibrary.shared().performChanges {
-                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: tempURL)
+                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+                } completionHandler: { _, error in
+                    if let error {
+                        Log.error("Failed to save video to photo library: \(error)")
+                    }
+                    if !key.hasPrefix("file://") {
+                        try? FileManager.default.removeItem(at: videoURL)
+                    }
                 }
             }
         } catch {
-            Log.error("Failed to save video to photo library: \(error)")
+            Log.error("Failed to load video for save: \(error)")
         }
     }
 }

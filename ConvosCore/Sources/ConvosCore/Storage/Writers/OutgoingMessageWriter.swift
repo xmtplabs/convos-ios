@@ -487,7 +487,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
         let thumbnailBase64 = compressed.thumbnail.base64EncodedString()
 
-        var remoteAttachment = try RemoteAttachment(
+        let remoteAttachment = try RemoteAttachment(
             url: presignedURLs.assetURL,
             contentDigest: encrypted.digest,
             secret: encrypted.secret,
