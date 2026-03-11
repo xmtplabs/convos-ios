@@ -495,11 +495,18 @@ private struct AttachmentPlaceholder: View {
             }
 
             do {
-                let loaded = try await Self.loader.loadAttachmentData(from: attachment.key)
-                let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("video_\(UUID().uuidString).mp4")
-                try loaded.data.write(to: tempURL)
-                let player = AVPlayer(url: tempURL)
+                let videoURL: URL
+                if attachment.key.hasPrefix("file://") {
+                    let path = String(attachment.key.dropFirst("file://".count))
+                    videoURL = URL(fileURLWithPath: path)
+                } else {
+                    let loaded = try await Self.loader.loadAttachmentData(from: attachment.key)
+                    let tempURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("video_\(UUID().uuidString).mp4")
+                    try loaded.data.write(to: tempURL)
+                    videoURL = tempURL
+                }
+                let player = AVPlayer(url: videoURL)
                 await player.seek(to: .zero)
                 inlinePlayer = player
                 isLoading = false
