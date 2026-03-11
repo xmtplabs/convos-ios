@@ -446,8 +446,6 @@ private extension AssetRenewalManagerTests {
             imageEncryptionKey: nil,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
-            assistantJoinStatus: nil,
-            assistantJoinRequestedBy: nil
         )
     }
 }

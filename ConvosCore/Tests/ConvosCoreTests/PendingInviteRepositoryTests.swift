@@ -197,8 +197,6 @@ struct PendingInviteRepositoryTests {
             imageEncryptionKey: nil,
             imageLastRenewed: nil,
             isUnused: false,
-            assistantJoinStatus: nil,
-            assistantJoinRequestedBy: nil
         )
     }
 }

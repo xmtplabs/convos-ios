@@ -194,8 +194,6 @@ struct LockConversationTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
         }
 
@@ -291,8 +289,6 @@ struct LockConversationTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
         }
 
@@ -465,8 +461,6 @@ struct LockConversationTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
         }
 
@@ -593,8 +587,6 @@ struct LockConversationTests {
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
                 isUnused: false,
-                assistantJoinStatus: nil,
-                assistantJoinRequestedBy: nil
             ).insert(db)
 
             // Create the member record with superAdmin role (this is what the UI reads)

@@ -28,6 +28,8 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private let messagesRepository: any MessagesRepositoryProtocol
     private let messagesListSubject: CurrentValueSubject<[MessagesListItemType], Never> = .init([])
     private var cancellables: Set<AnyCancellable> = .init()
+    private var dismissCancellable: AnyCancellable?
+    private var lastRawMessages: [AnyMessage] = []
 
     // MARK: - Public Properties
 
@@ -87,6 +89,29 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     // MARK: - Private Methods
 
     private func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
-        return MessagesListProcessor.process(messages)
+        lastRawMessages = messages
+        let items = MessagesListProcessor.process(messages)
+        scheduleAssistantJoinDismissIfNeeded(items)
+        return items
+    }
+
+    private func scheduleAssistantJoinDismissIfNeeded(_ items: [MessagesListItemType]) {
+        dismissCancellable?.cancel()
+        dismissCancellable = nil
+
+        guard let remaining = items.lazy.compactMap({ item -> TimeInterval? in
+            guard case .assistantJoinStatus(let status, _, let date) = item else { return nil }
+            let value = status.displayDuration - Date().timeIntervalSince(date)
+            return value > 0 ? value : nil
+        }).min() else { return }
+
+        dismissCancellable = Just(())
+            .delay(for: .seconds(remaining), scheduler: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let reprocessed = MessagesListProcessor.process(self.lastRawMessages)
+                self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
+                self.messagesListSubject.send(reprocessed)
+            }
     }
 }

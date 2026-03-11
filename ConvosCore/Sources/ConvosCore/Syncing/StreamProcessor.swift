@@ -214,14 +214,6 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
                     guard explodeSettings == nil else { return }
 
-                    if let assistantJoinRequest = decodeAssistantJoinRequest(from: message) {
-                        await processAssistantJoinRequest(
-                            assistantJoinRequest,
-                            conversationId: conversation.id
-                        )
-                        return
-                    }
-
                     if await processProfileMessage(message, conversationId: conversation.id) {
                         return
                     }
@@ -247,31 +239,6 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Private Helpers
-
-    private func decodeAssistantJoinRequest(from message: DecodedMessage) -> AssistantJoinRequest? {
-        guard let encodedContentType = try? message.encodedContent.type,
-              encodedContentType == ContentTypeAssistantJoinRequest else {
-            return nil
-        }
-        guard let content = try? message.content() as Any,
-              let request = content as? AssistantJoinRequest else {
-            Log.error("Failed to decode AssistantJoinRequest content")
-            return nil
-        }
-        return request
-    }
-
-    private func processAssistantJoinRequest(
-        _ request: AssistantJoinRequest,
-        conversationId: String
-    ) async {
-        Log.info("Received AssistantJoinRequest status=\(request.status.rawValue) requestId=\(request.requestId) for conversation=\(conversationId)")
-        do {
-            try await conversationWriter.updateAssistantJoinStatus(request.status, requestedBy: request.requestedByInboxId, for: conversationId)
-        } catch {
-            Log.error("Failed to update assistant join status: \(error.localizedDescription)")
-        }
-    }
 
     private func decodeInviteJoinError(from message: DecodedMessage) -> InviteJoinError? {
         guard let encodedContentType = try? message.encodedContent.type,
@@ -357,12 +324,6 @@ actor StreamProcessor: StreamProcessorProtocol {
                 profile = profile.with(metadata: profileMetadata.isEmpty ? nil : profileMetadata)
 
                 try profile.save(db)
-
-                if profile.isAgent, var conv = try DBConversation.fetchOne(db, id: conversationId),
-                   conv.assistantJoinStatus != nil {
-                    conv = conv.with(assistantJoinStatus: nil, assistantJoinRequestedBy: nil)
-                    try conv.update(db)
-                }
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -421,16 +382,6 @@ actor StreamProcessor: StreamProcessorProtocol {
                     profile = profile.with(metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata)
 
                     try profile.save(db)
-                }
-
-                let hasAgent = try DBMemberProfile
-                    .filter(DBMemberProfile.Columns.conversationId == conversationId)
-                    .filter(DBMemberProfile.Columns.memberKind == DBMemberKind.agent.rawValue)
-                    .fetchCount(db) > 0
-                if hasAgent, var conv = try DBConversation.fetchOne(db, id: conversationId),
-                   conv.assistantJoinStatus != nil {
-                    conv = conv.with(assistantJoinStatus: nil, assistantJoinRequestedBy: nil)
-                    try conv.update(db)
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")

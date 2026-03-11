@@ -10,6 +10,7 @@ struct DBConversationDetails: Codable, FetchableRecord, PersistableRecord, Hasha
     let conversationLastMessageWithSource: DBLastMessageWithSource?
     let conversationLocalState: ConversationLocalState
     let conversationInvite: DBInvite?
+    let conversationAssistantJoinRequest: DBAssistantJoinRequest?
 }
 
 extension DBConversationDetails {

@@ -4,18 +4,18 @@ import SwiftUI
 struct AddToConversationMenu: View {
     let isFull: Bool
     var hasAssistant: Bool = false
-    var assistantJoinStatus: AssistantJoinStatus?
+    var isAssistantJoinPending: Bool = false
     let isEnabled: Bool
     let onConvoCode: () -> Void
     let onCopyLink: () -> Void
     let onInviteAssistant: () -> Void
 
     private var isAssistantEnabled: Bool { FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled }
-    private var isAssistantActionDisabled: Bool { hasAssistant || assistantJoinStatus == .pending }
+    private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
 
     private var assistantSubtitle: String {
         if hasAssistant { return "Already in conversation" }
-        if assistantJoinStatus == .pending { return "Joining…" }
+        if isAssistantJoinPending { return "Joining…" }
         return "Helps the group do things"
     }
 
