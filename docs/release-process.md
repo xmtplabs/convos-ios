@@ -19,6 +19,10 @@ make release
                                 └── No promotion to main (tag-based dev distribution optional)
 ```
 
+Legend:
+- `X.Y.Z` is a production release and includes automatic promotion to `main`.
+- `X.Y.Z-dev.N` is a prerelease and never promotes to `main` automatically.
+
 ## Version Scheme
 
 | Format | Purpose | Example |
