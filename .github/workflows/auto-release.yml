@@ -195,10 +195,4 @@ jobs:
           echo "  - GitHub Release available for Bitrise"
           echo "  - Release notes will be used by Bitrise for App Store submission"
           echo ""
-          # Check if this is a prerelease (contains a hyphen, e.g., 1.0.0-dev.123)
-          if [[ "$VERSION" == *-* ]]; then
-            echo "Prerelease detected — skipping automatic promotion to main"
-            echo "To promote manually, merge dev into main"
-          else
-            echo "Production release — promote-to-main workflow will create a PR to merge dev into main"
-          fi
+          echo "Bitrise will build from tag $VERSION and deploy to TestFlight"

@@ -4,6 +4,7 @@ on:
   workflow_dispatch: # ← optional, to run manually
   pull_request:
     branches: ['main', 'dev']
+    paths: ['**/*.swift']
   push:
     branches: ['main', 'dev']
 
