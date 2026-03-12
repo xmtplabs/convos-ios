@@ -38,6 +38,12 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
             } else {
                 return nil
             }
+        } else if !removedMembers.isEmpty {
+            if removedMembers.count == 1, let member = removedMembers.first {
+                return member
+            } else {
+                return nil
+            }
         } else if metadataChanges.first != nil {
             return creator
         } else {
