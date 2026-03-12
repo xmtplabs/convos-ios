@@ -140,6 +140,27 @@ public actor VaultClient {
         return try await group.messages()
     }
 
+    public func createArchive(path: String, encryptionKey: Data, opts: XMTPiOS.ArchiveOptions = ArchiveOptions()) async throws {
+        guard let client else {
+            throw VaultClientError.notConnected
+        }
+        try await client.createArchive(path: path, encryptionKey: encryptionKey, opts: opts)
+    }
+
+    public func importArchive(path: String, encryptionKey: Data) async throws {
+        guard let client else {
+            throw VaultClientError.notConnected
+        }
+        try await client.importArchive(path: path, encryptionKey: encryptionKey)
+    }
+
+    public func archiveMetadata(path: String, encryptionKey: Data) async throws -> XMTPiOS.ArchiveMetadata {
+        guard let client else {
+            throw VaultClientError.notConnected
+        }
+        return try await client.archiveMetadata(path: path, encryptionKey: encryptionKey)
+    }
+
     public func resyncVaultGroup() async throws {
         guard let client else {
             throw VaultClientError.notConnected
