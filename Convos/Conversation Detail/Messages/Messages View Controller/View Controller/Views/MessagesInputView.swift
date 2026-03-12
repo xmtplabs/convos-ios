@@ -10,6 +10,7 @@ struct MessagesInputView: View {
     let emptyDisplayNamePlaceholder: String
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
+    var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
     let sendButtonEnabled: Bool
@@ -156,8 +157,18 @@ struct MessagesInputView: View {
                 .scaleEffect(isPoofing ? 1.3 : 1.0)
                 .blur(radius: isPoofing ? 12.0 : 0.0)
                 .opacity(isPoofing ? 0.0 : 1.0)
-                .accessibilityLabel("Attachment preview")
+                .accessibilityLabel(isVideoAttachment ? "Video attachment preview" : "Attachment preview")
                 .accessibilityIdentifier("attachment-preview-image")
+                .overlay(alignment: .bottomLeading) {
+                    if isVideoAttachment {
+                        Image(systemName: "video.fill")
+                            .font(.system(size: 16.0, weight: .bold))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
+                            .padding(.bottom, DesignConstants.Spacing.step2x)
+                            .padding(.leading, DesignConstants.Spacing.step2x)
+                    }
+                }
 
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
