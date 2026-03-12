@@ -52,7 +52,7 @@ Both methods added to the protocol so the backup orchestrator can call them thro
 The caller receives the key entries and decides how to save them to the keychain.
 
 ### Post-import state
-After import, the vault group is inactive (MLS constraint). This is fine — we only read imported message history, we don't send. The vault group reactivates when another device comes online.
+After importing the archive, the vault group's message history is available in the local database. The key extraction reads from this local data — it never needs to send to the vault group. A fresh vault can be bootstrapped separately after restore.
 
 ## Key extraction logic
 
