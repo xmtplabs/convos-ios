@@ -18,6 +18,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      pull-requests: write
     steps:
       - name: Extract tag and check if production release
         id: version
@@ -64,21 +65,53 @@ jobs:
             exit 1
           fi
 
-      - name: Fast-forward main to dev
+      - name: Check for existing promotion PR
         if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'true'
+        id: existing
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
+          EXISTING_PR=$(gh pr list --base main --head dev --state open --json number -q '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING_PR" ]; then
+            echo "Promotion PR #$EXISTING_PR already exists"
+            echo "pr_url=https://github.com/${{ github.repository }}/pull/$EXISTING_PR" >> $GITHUB_OUTPUT
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
 
-          git checkout main
-          git merge --ff-only origin/dev
-          git push origin main
+      - name: Create promotion PR
+        if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'true' && steps.existing.outputs.exists == 'false'
+        id: create_pr
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
 
-          echo "## Release Promoted to Main" >> $GITHUB_STEP_SUMMARY
+          PR_URL=$(gh pr create \
+            --base main \
+            --head dev \
+            --title "Promote $TAG to main" \
+            --body "Promotes release **$TAG** from dev to main.
+
+          This was automatically created by the release pipeline after the GitHub Release was published.
+
+          Merge this PR to deploy to production via Bitrise.
+
+          <!-- promote-release: $TAG -->")
+
+          echo "pr_url=$PR_URL" >> $GITHUB_OUTPUT
+
+          echo "## Promotion PR Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** $TAG" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR:** $PR_URL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Merge the PR to deploy to production." >> $GITHUB_STEP_SUMMARY
+
+      - name: Existing PR found
+        if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'true' && steps.existing.outputs.exists == 'true'
+        run: |
+          echo "## Promotion PR Already Exists" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "- **Tag:** ${{ steps.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Action:** Fast-forward merged dev into main" >> $GITHUB_STEP_SUMMARY
-          echo "- **Result:** Bitrise will build and deploy to TestFlight" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR:** ${{ steps.existing.outputs.pr_url }}" >> $GITHUB_STEP_SUMMARY
 
       - name: Skipped (prerelease)
         if: steps.version.outputs.is_production == 'false'

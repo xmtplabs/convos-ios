@@ -200,5 +200,5 @@ jobs:
             echo "Prerelease detected — skipping automatic promotion to main"
             echo "To promote manually, merge dev into main"
           else
-            echo "Production release — promote-to-main workflow will run automatically"
+            echo "Production release — promote-to-main workflow will create a PR to merge dev into main"
           fi
