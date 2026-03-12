@@ -53,14 +53,16 @@ jobs:
           echo "version=$CURRENT" >> $GITHUB_OUTPUT
           echo "Current version: $CURRENT"
 
-      - name: Validate version bump
+      - name: Validate version
+        id: validate
         run: |
           CURRENT="${{ steps.current.outputs.version }}"
           NEW="${{ steps.version.outputs.base }}"
 
           if [ "$NEW" = "$CURRENT" ]; then
-            echo "::error::New version ($NEW) is the same as current ($CURRENT)"
-            exit 1
+            echo "Version already set to $NEW — will create release PR without version bump"
+            echo "needs_bump=false" >> $GITHUB_OUTPUT
+            exit 0
           fi
 
           IFS='.' read -r cur_major cur_minor cur_patch <<< "$CURRENT"
@@ -68,12 +70,13 @@ jobs:
 
           if [ "$new_major" -lt "$cur_major" ] || \
              ([ "$new_major" -eq "$cur_major" ] && [ "$new_minor" -lt "$cur_minor" ]) || \
-             ([ "$new_major" -eq "$cur_major" ] && [ "$new_minor" -eq "$cur_minor" ] && [ "$new_patch" -le "$cur_patch" ]); then
-            echo "::error::New version ($NEW) must be greater than current ($CURRENT)"
+             ([ "$new_major" -eq "$cur_major" ] && [ "$new_minor" -eq "$cur_minor" ] && [ "$new_patch" -lt "$cur_patch" ]); then
+            echo "::error::New version ($NEW) must be greater than or equal to current ($CURRENT)"
             exit 1
           fi
 
           echo "Version bump validated: $CURRENT -> $NEW"
+          echo "needs_bump=true" >> $GITHUB_OUTPUT
 
       - name: Check for existing release branch or PR
         run: |
@@ -95,29 +98,34 @@ jobs:
 
           echo "No conflicts found"
 
-      - name: Create release branch and bump version
+      - name: Create release branch
         run: |
           BASE="${{ steps.version.outputs.base }}"
           BRANCH="release/$BASE"
+          NEEDS_BUMP="${{ steps.validate.outputs.needs_bump }}"
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
           git checkout -b "$BRANCH"
 
-          # Update MARKETING_VERSION in Xcode project
-          sed -i "s/MARKETING_VERSION = [0-9]*\.[0-9]*\.[0-9]*;/MARKETING_VERSION = $BASE;/g" Convos.xcodeproj/project.pbxproj
+          if [ "$NEEDS_BUMP" = "true" ]; then
+            sed -i "s/MARKETING_VERSION = [0-9]*\.[0-9]*\.[0-9]*;/MARKETING_VERSION = $BASE;/g" Convos.xcodeproj/project.pbxproj
 
-          # Verify the update
-          UPDATED_COUNT=$(grep -c "MARKETING_VERSION = $BASE;" Convos.xcodeproj/project.pbxproj || echo "0")
-          if [ "$UPDATED_COUNT" -eq 0 ]; then
-            echo "::error::Failed to update MARKETING_VERSION"
-            exit 1
+            UPDATED_COUNT=$(grep -c "MARKETING_VERSION = $BASE;" Convos.xcodeproj/project.pbxproj || echo "0")
+            if [ "$UPDATED_COUNT" -eq 0 ]; then
+              echo "::error::Failed to update MARKETING_VERSION"
+              exit 1
+            fi
+            echo "Updated $UPDATED_COUNT MARKETING_VERSION entries to $BASE"
+
+            git add Convos.xcodeproj/project.pbxproj
+            git commit -m "chore: bump version to $BASE"
+          else
+            # Create an empty commit so the branch differs from dev
+            git commit --allow-empty -m "release: $BASE"
           fi
-          echo "Updated $UPDATED_COUNT MARKETING_VERSION entries to $BASE"
 
-          git add Convos.xcodeproj/project.pbxproj
-          git commit -m "chore: bump version to $BASE"
           git push -u origin "$BRANCH"
 
       - name: Create pull request
