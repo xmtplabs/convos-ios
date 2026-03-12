@@ -9,11 +9,14 @@ Releases are fully automated via GitHub Actions. A single `make release` command
 ```
 make release
   └── CI: create release branch, bump version, open PR
-        └── Merge PR
-              └── CI: create tag
+        └── Merge PR into dev
+              └── CI: create tag (X.Y.Z or X.Y.Z-dev.N)
                     └── CI: create GitHub Release (Claude-generated notes)
-                          └── CI: fast-forward main to tagged release commit  ← production only
-                                └── Bitrise: build from main → TestFlight
+                          ├── Production tag (X.Y.Z)
+                          │     └── CI: fast-forward main to tagged release commit
+                          │           └── Bitrise: build from main → TestFlight/App Store
+                          └── Prerelease tag (X.Y.Z-dev.N)
+                                └── No promotion to main (tag-based dev distribution optional)
 ```
 
 ## Version Scheme
