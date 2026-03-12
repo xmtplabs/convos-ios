@@ -1,6 +1,9 @@
 import SwiftUI
 
 struct AssistantsInfoView: View {
+    var isConfirmation: Bool = false
+    var onConfirm: (() -> Void)?
+
     @Environment(\.dismiss) private var dismiss: DismissAction
     @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -10,7 +13,7 @@ struct AssistantsInfoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             Group {
-                Text("Private chat for the AI world")
+                Text("Private chat for the AI era")
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
 
@@ -31,17 +34,28 @@ struct AssistantsInfoView: View {
             abilitiesScroller
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
-                let dismissAction = { dismiss() }
-                Button(action: dismissAction) {
-                    Text("Awesome")
+                if isConfirmation {
+                    let confirmAction = {
+                        onConfirm?()
+                        dismiss()
+                    }
+                    Button(action: confirmAction) {
+                        Text("Add an instant assistant")
+                    }
+                    .convosButtonStyle(.rounded(fullWidth: true))
+                } else {
+                    let dismissAction = { dismiss() }
+                    Button(action: dismissAction) {
+                        Text("Awesome")
+                    }
+                    .convosButtonStyle(.rounded(fullWidth: true))
                 }
-                .convosButtonStyle(.rounded(fullWidth: true))
 
-                let trustURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")
-                let trustAction = { if let trustURL { openURL(trustURL) } }
-                Button(action: trustAction) {
+                let learnMoreURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")
+                let learnMoreAction = { if let learnMoreURL { openURL(learnMoreURL) } }
+                Button(action: learnMoreAction) {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Text("Trust and Security")
+                        Text("Learn more")
                         Image(systemName: "chevron.right")
                             .font(.system(size: 13))
                             .foregroundStyle(.colorFillTertiary)
@@ -61,15 +75,19 @@ struct AssistantsInfoView: View {
     private var abilitiesScroller: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                abilityPill(icon: "message.fill", label: "Texting")
-                abilityPill(icon: "waveform", label: "Phone calls")
-                abilityPill(icon: "envelope.fill", label: "Email")
+                abilityPill(icon: "message.fill", label: "Texting", color: .colorTexting)
+                abilityPill(icon: "envelope.fill", label: "Email", color: .colorEmail)
+                abilityPill(icon: "pointer.arrow", label: "Internet", color: .colorInternet)
+                abilityPill(icon: "checklist", label: "Organize", color: .colorOrganize)
+                abilityPill(icon: "calendar", label: "Remind", color: .colorReminders)
+                abilityPill(icon: "photo.fill", label: "Photos", color: .colorPhotos)
+                abilityPill(icon: "cloud.fill", label: "AI", color: .colorAI)
             }
             .padding(.horizontal, horizontalPadding)
         }
     }
 
-    private func abilityPill(icon: String, label: String) -> some View {
+    private func abilityPill(icon: String, label: String, color: Color) -> some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             Image(systemName: icon)
                 .font(.body)
@@ -80,12 +98,20 @@ struct AssistantsInfoView: View {
         .foregroundStyle(.white)
         .padding(.horizontal, DesignConstants.Spacing.step5x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
-        .background(.colorLava, in: .capsule)
+        .background(color, in: .capsule)
     }
 }
 
-#Preview {
+#Preview("Info") {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
         .selfSizingSheet(isPresented: $isPresented) { AssistantsInfoView().padding(.top, 20) }
+}
+
+#Preview("Confirmation") {
+    @Previewable @State var isPresented: Bool = true
+    VStack { Button { isPresented.toggle() } label: { Text("Show") } }
+        .selfSizingSheet(isPresented: $isPresented) {
+            AssistantsInfoView(isConfirmation: true, onConfirm: { print("Confirmed!") }).padding(.top, 20)
+        }
 }
