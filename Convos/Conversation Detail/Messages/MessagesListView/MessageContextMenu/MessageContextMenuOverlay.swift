@@ -736,11 +736,8 @@ private struct ContextMenuPhotoPreview: View {
 
 private func saveAttachmentToPhotoLibrary(key: String) {
     guard let image = ImageCache.shared.image(for: key) else { return }
-    PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-        guard status == .authorized || status == .limited else { return }
-        PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAsset(from: image)
-        }
+    PHPhotoLibrary.shared().performChanges {
+        PHAssetChangeRequest.creationRequestForAsset(from: image)
     }
 }
 
@@ -760,21 +757,14 @@ private func saveVideoToPhotoLibrary(key: String) {
                 videoURL = tempURL
             }
 
-            PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-                guard status == .authorized || status == .limited else { return }
-                PHPhotoLibrary.shared().performChanges {
-                    PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
-                } completionHandler: { _, error in
-                    if let error {
-                        Log.error("Failed to save video to photo library: \(error)")
-                    }
-                    if !key.hasPrefix("file://") {
-                        try? FileManager.default.removeItem(at: videoURL)
-                    }
-                }
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+            }
+            if !key.hasPrefix("file://") {
+                try? FileManager.default.removeItem(at: videoURL)
             }
         } catch {
-            Log.error("Failed to load video for save: \(error)")
+            Log.error("Failed to save video to photo library: \(error)")
         }
     }
 }

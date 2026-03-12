@@ -92,7 +92,7 @@ extension DBLastMessageWithSource {
         return .init(text: text, createdAt: date)
     }
 
-    private static func attachmentsPreviewString(attachmentUrls: [String], count: Int) -> String {
+    static func attachmentsPreviewString(attachmentUrls: [String], count: Int) -> String {
         let hasVideo = attachmentUrls.contains { url in
             guard let stored = try? StoredRemoteAttachment.fromJSON(url) else { return false }
             return stored.mimeType?.hasPrefix("video/") == true
