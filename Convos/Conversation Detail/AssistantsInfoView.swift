@@ -80,14 +80,14 @@ struct AssistantsInfoView: View {
                 abilityPill(icon: "pointer.arrow", label: "Internet", color: .colorInternet)
                 abilityPill(icon: "checklist", label: "Organize", color: .colorOrganize)
                 abilityPill(icon: "calendar", label: "Remind", color: .colorReminders)
-                abilityPill(icon: "photo.fill", label: "Photos", color: .colorPhotos)
+                abilityPill(icon: "photo.fill", label: "Photos", color: .colorPhotos, foreground: .colorTextPrimaryInverted)
                 abilityPill(icon: "cloud.fill", label: "AI", color: .colorAI)
             }
             .padding(.horizontal, horizontalPadding)
         }
     }
 
-    private func abilityPill(icon: String, label: String, color: Color) -> some View {
+    private func abilityPill(icon: String, label: String, color: Color, foreground: Color = .white) -> some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             Image(systemName: icon)
                 .font(.body)
@@ -95,7 +95,7 @@ struct AssistantsInfoView: View {
                 .font(.body)
                 .fontWeight(.medium)
         }
-        .foregroundStyle(.white)
+        .foregroundStyle(foreground)
         .padding(.horizontal, DesignConstants.Spacing.step5x)
         .padding(.vertical, DesignConstants.Spacing.step3x)
         .background(color, in: .capsule)
