@@ -186,14 +186,19 @@ jobs:
 
       - name: Output summary
         run: |
+          VERSION="${{ steps.version.outputs.version }}"
           echo "Auto-release workflow completed!"
-          echo "Version: ${{ steps.version.outputs.version }}"
+          echo "Version: $VERSION"
           echo "GitHub Release: Created/updated with release notes"
           echo ""
-          echo "Release pipeline created:"
+          echo "Release pipeline:"
           echo "  - GitHub Release available for Bitrise"
           echo "  - Release notes will be used by Bitrise for App Store submission"
           echo ""
-          echo "Next steps:"
-          echo "1. Use 'make promote-release' to fast-forward merge dev to main"
-          echo "2. Bitrise will build and deploy automatically"
+          # Check if this is a prerelease (contains a hyphen, e.g., 1.0.0-dev.123)
+          if [[ "$VERSION" == *-* ]]; then
+            echo "Prerelease detected — skipping automatic promotion to main"
+            echo "To promote manually, merge dev into main"
+          else
+            echo "Production release — promote-to-main workflow will run automatically"
+          fi

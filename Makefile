@@ -17,10 +17,7 @@ help: ## Print comprehensive help for all commands
 	@echo ""
 	@echo "📱 Version Management:"
 	@echo "   make version         - Show current version from Xcode project"
-	@echo "   make dry-run-release - Test release workflow with confirmation"
-	@echo "   make dry-run-release-quick - Quick test without confirmation"
-	@echo "   make tag-release     - Create release branch and PR (tag created automatically on merge)"
-	@echo "   make promote-release - Fast-forward merge dev to main (after tag-release, triggers Bitrise build for prod)"
+	@echo "   make release         - Trigger release workflow (creates PR, tag, promotes to main automatically)"
 	@echo ""
 	@echo "🔧 Setup & Maintenance:"
 	@echo "   make setup           - Setup development environment"
@@ -40,9 +37,9 @@ help: ## Print comprehensive help for all commands
 	@echo ""
 	@echo "🔄 Release Process:"
 	@echo "   1. Feature branches → dev"
-	@echo "   2. Create release: make tag-release (creates PR, merge triggers tag + GitHub Release)"
-	@echo "   3. Promote release: make promote-release (dev → main, triggers Bitrise build for prod)"
-	@echo "   4. Main → App Store (after review and approval)"
+	@echo "   2. Create release: make release (triggers CI workflow, creates PR)"
+	@echo "   3. Merge the release PR (CI auto-creates tag, GitHub Release, and promotes to main)"
+	@echo "   4. Bitrise builds from main → App Store"
 
 .PHONY: setup
 setup: ## Setup dependencies and developer environment
@@ -103,56 +100,47 @@ protobuf: ## Generate Swift code from Protocol Buffer definitions
 	@echo "🔧 Generating Swift code from Protocol Buffer definitions..."
 	@ConvosCore/Sources/ConvosCore/Protobuf\ Models/proto/generate_swift.sh
 
-.PHONY: tag-release
-tag-release: ## Create release branch and PR (tag created automatically on merge)
-	./Scripts/create-release-tag.sh
-
-.PHONY: promote-release
-promote-release: ## Fast-forward merge dev to main (ensures tag exists on both branches)
-	@echo "🚀 Promote Release: dev → main"
-	@echo "================================"
-	@echo ""
-	@echo "This will:"
-	@echo "  1. Checkout main branch"
-	@echo "  2. Pull latest main from origin"
-	@echo "  3. Fast-forward merge dev into main"
-	@echo "  4. Push main to origin"
-	@echo "  5. Ensure the release tag exists on both branches"
-	@echo ""
-	@read -p "Continue? (y/N): " CONFIRM; \
-	if [[ ! "$$CONFIRM" =~ ^[Yy]$$ ]]; then \
-		echo "❌ Release promotion cancelled"; \
+.PHONY: release
+release: ## Trigger the Create Release workflow on GitHub Actions
+	@if ! command -v gh &> /dev/null; then \
+		echo "❌ GitHub CLI (gh) is not installed. Install with: brew install gh"; \
 		exit 1; \
 	fi
-	@echo ""
-	@echo "🚀 Starting release promotion..."
-	@# Checkout main branch
-	@git checkout main
-	@# Pull latest main
-	@git pull origin main
-	@# Fast-forward merge dev into main
-	@git merge --ff-only dev
-	@# Push main to origin
-	@git push origin main
-	@echo ""
-	@echo "✅ Release promotion completed successfully!"
-	@echo "   • dev has been merged into main"
-	@echo "   • Tag exists on both branches"
-	@echo "   • Bitrise will now build and deploy to TestFlight"
-
-.PHONY: dry-run-release
-dry-run-release: ## Test release workflow without making changes (dry run)
-	@echo "🔍 DRY RUN MODE: Testing release workflow..."
-	@echo "This will show what would happen without making actual changes."
-	@echo ""
-	@echo "To proceed with a real release, use: make tag-release"
-	@echo ""
-	@read -p "Press Enter to continue with dry run, or Ctrl+C to cancel... "
-	./Scripts/create-release-tag.sh --dry-run
-
-.PHONY: dry-run-release-quick
-dry-run-release-quick: ## Quick dry run without user interaction
-	@echo "🔍 QUICK DRY RUN: Testing release workflow..."
-	@echo "This will simulate the release process without making changes."
-	@echo ""
-	./Scripts/create-release-tag.sh --dry-run
+	@if ! gh auth status &> /dev/null 2>&1; then \
+		echo "❌ GitHub CLI is not authenticated. Run: gh auth login"; \
+		exit 1; \
+	fi
+	@CURRENT_VERSION=$$(./Scripts/get-version.sh 2>/dev/null || echo "unknown"); \
+	echo "📱 Create Release"; \
+	echo "=================="; \
+	echo ""; \
+	echo "Current version: $$CURRENT_VERSION"; \
+	echo ""; \
+	read -p "Enter new version (e.g., 1.2.0 or 1.2.0-dev.123): " NEW_VERSION; \
+	if [ -z "$$NEW_VERSION" ]; then \
+		echo "❌ No version provided"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "This will trigger the release workflow on GitHub Actions:"; \
+	echo "  1. Create release/$$NEW_VERSION branch from dev"; \
+	echo "  2. Bump MARKETING_VERSION in Xcode project"; \
+	echo "  3. Open a PR to dev"; \
+	echo ""; \
+	echo "After you merge the PR, CI will automatically:"; \
+	echo "  - Create the git tag"; \
+	echo "  - Generate release notes and create a GitHub Release"; \
+	echo "  - Fast-forward main to dev (production releases only)"; \
+	echo "  - Bitrise builds and deploys to TestFlight"; \
+	echo ""; \
+	read -p "Continue? (y/N): " CONFIRM; \
+	if [[ ! "$$CONFIRM" =~ ^[Yy]$$ ]]; then \
+		echo "❌ Release cancelled"; \
+		exit 1; \
+	fi; \
+	echo ""; \
+	echo "🚀 Triggering release workflow..."; \
+	gh workflow run "Create Release" --field version="$$NEW_VERSION"; \
+	echo ""; \
+	echo "✅ Workflow triggered! Watch progress at:"; \
+	echo "   https://github.com/$$(gh repo view --json nameWithOwner -q .nameWithOwner)/actions/workflows/create-release.yml"

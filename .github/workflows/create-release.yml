@@ -1,0 +1,155 @@
+name: Create Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version (e.g., 1.2.0 or 1.2.0-dev.123)'
+        required: true
+        type: string
+
+concurrency:
+  group: release-pipeline
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  create-release-pr:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout dev branch
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Validate version format
+        id: version
+        run: |
+          VERSION="${{ inputs.version }}"
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([-.].*)?$ ]]; then
+            echo "::error::Invalid version format '$VERSION'. Use semantic versioning (e.g., 1.2.0 or 1.2.0-dev.123)"
+            exit 1
+          fi
+
+          # Base version is X.Y.Z (strip prerelease suffix)
+          BASE_VERSION="${VERSION%%-*}"
+
+          echo "full=$VERSION" >> $GITHUB_OUTPUT
+          echo "base=$BASE_VERSION" >> $GITHUB_OUTPUT
+          echo "Version: $VERSION (base: $BASE_VERSION)"
+
+      - name: Check current version
+        id: current
+        run: |
+          CURRENT=$(grep -o 'MARKETING_VERSION = [0-9]*\.[0-9]*\.[0-9]*;' Convos.xcodeproj/project.pbxproj | head -1 | sed 's/MARKETING_VERSION = \(.*\);/\1/')
+          echo "version=$CURRENT" >> $GITHUB_OUTPUT
+          echo "Current version: $CURRENT"
+
+      - name: Validate version bump
+        run: |
+          CURRENT="${{ steps.current.outputs.version }}"
+          NEW="${{ steps.version.outputs.base }}"
+
+          if [ "$NEW" = "$CURRENT" ]; then
+            echo "::error::New version ($NEW) is the same as current ($CURRENT)"
+            exit 1
+          fi
+
+          IFS='.' read -r cur_major cur_minor cur_patch <<< "$CURRENT"
+          IFS='.' read -r new_major new_minor new_patch <<< "$NEW"
+
+          if [ "$new_major" -lt "$cur_major" ] || \
+             ([ "$new_major" -eq "$cur_major" ] && [ "$new_minor" -lt "$cur_minor" ]) || \
+             ([ "$new_major" -eq "$cur_major" ] && [ "$new_minor" -eq "$cur_minor" ] && [ "$new_patch" -le "$cur_patch" ]); then
+            echo "::error::New version ($NEW) must be greater than current ($CURRENT)"
+            exit 1
+          fi
+
+          echo "Version bump validated: $CURRENT -> $NEW"
+
+      - name: Check for existing release branch or PR
+        run: |
+          BASE="${{ steps.version.outputs.base }}"
+          BRANCH="release/$BASE"
+
+          # Check remote branch
+          if git ls-remote --exit-code --heads origin "$BRANCH" &>/dev/null; then
+            echo "::error::Branch $BRANCH already exists on remote. Delete it first or use a different version."
+            exit 1
+          fi
+
+          # Check for open release PRs
+          EXISTING_PR=$(gh pr list --base dev --head "$BRANCH" --state open --json number -q '.[0].number' 2>/dev/null || echo "")
+          if [ -n "$EXISTING_PR" ]; then
+            echo "::error::An open release PR (#$EXISTING_PR) already exists for $BRANCH"
+            exit 1
+          fi
+
+          echo "No conflicts found"
+
+      - name: Create release branch and bump version
+        run: |
+          BASE="${{ steps.version.outputs.base }}"
+          BRANCH="release/$BASE"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout -b "$BRANCH"
+
+          # Update MARKETING_VERSION in Xcode project
+          sed -i "s/MARKETING_VERSION = [0-9]*\.[0-9]*\.[0-9]*;/MARKETING_VERSION = $BASE;/g" Convos.xcodeproj/project.pbxproj
+
+          # Verify the update
+          UPDATED_COUNT=$(grep -c "MARKETING_VERSION = $BASE;" Convos.xcodeproj/project.pbxproj || echo "0")
+          if [ "$UPDATED_COUNT" -eq 0 ]; then
+            echo "::error::Failed to update MARKETING_VERSION"
+            exit 1
+          fi
+          echo "Updated $UPDATED_COUNT MARKETING_VERSION entries to $BASE"
+
+          git add Convos.xcodeproj/project.pbxproj
+          git commit -m "chore: bump version to $BASE"
+          git push -u origin "$BRANCH"
+
+      - name: Create pull request
+        run: |
+          BASE="${{ steps.version.outputs.base }}"
+          FULL="${{ steps.version.outputs.full }}"
+          BRANCH="release/$BASE"
+
+          PR_BODY="Bumps version to $FULL for release.
+
+          ## Changes
+          - Updates MARKETING_VERSION to $BASE in Xcode project
+
+          ## After Merge
+          When this PR is merged, GitHub Actions will automatically:
+          1. Create tag \`$FULL\`
+          2. Delete the release branch
+          3. Create a GitHub Release with AI-generated release notes
+          4. Fast-forward merge dev into main (triggers Bitrise build)
+
+          <!-- release-tag: $FULL -->"
+
+          PR_URL=$(gh pr create \
+            --base dev \
+            --head "$BRANCH" \
+            --title "Release $FULL" \
+            --body "$PR_BODY")
+
+          echo "## Release PR Created" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version:** $FULL" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch:** \`$BRANCH\`" >> $GITHUB_STEP_SUMMARY
+          echo "- **PR:** $PR_URL" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Merge the PR to trigger the release pipeline." >> $GITHUB_STEP_SUMMARY
