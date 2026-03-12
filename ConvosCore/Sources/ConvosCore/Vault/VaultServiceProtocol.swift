@@ -24,6 +24,9 @@ public protocol VaultServiceProtocol: Sendable {
     func resumeVault() async
     func unpairSelf() async throws
     func broadcastConversationDeleted(inboxId: String, clientId: String) async
+    func createArchive(at path: URL, encryptionKey: Data) async throws
+    @discardableResult
+    func importArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry]
 }
 
 public extension Notification.Name {
