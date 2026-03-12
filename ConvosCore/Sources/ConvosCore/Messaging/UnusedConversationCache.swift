@@ -1002,7 +1002,8 @@ extension UnusedConversationCache {
                 inboxId: inboxId,
                 role: .superAdmin,
                 consent: .allowed,
-                createdAt: Date()
+                createdAt: Date(),
+                invitedByInboxId: nil
             )
             try conversationMember.save(db)
 

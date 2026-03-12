@@ -420,6 +420,7 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         _ = try await group.addMembers(inboxIds: memberInboxIds)
 
+        let currentInboxId = inboxReady.client.inboxId
         try await databaseWriter.write { db in
             for memberInboxId in memberInboxIds {
                 let conversationMember = DBConversationMember(
@@ -427,7 +428,8 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
                     inboxId: memberInboxId,
                     role: .member,
                     consent: .allowed,
-                    createdAt: Date()
+                    createdAt: Date(),
+                    invitedByInboxId: currentInboxId
                 )
                 try conversationMember.save(db)
                 Log.debug("Added local conversation member \(memberInboxId) to \(conversationId)")
