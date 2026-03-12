@@ -52,7 +52,9 @@ Both methods added to the protocol so the backup orchestrator can call them thro
 The caller receives the key entries and decides how to save them to the keychain.
 
 ### Post-import state
-After importing the archive, the vault group's message history is available in the local database for key extraction. The restored device registers as a new installation under the same vault inbox (since it has the private key). The vault group reactivates once an existing member comes online and syncs, automatically adding the new installation. The user keeps their vault — new key shares will flow to this device going forward.
+After importing the archive, the vault group's message history is available in the local database. `extractKeys()` reads locally — no network access needed, no active group membership required.
+
+Vault group lifecycle after restore (reactivation, new group creation, etc.) is outside the scope of this work and will be handled by the restore orchestrator.
 
 ## Key extraction logic
 
