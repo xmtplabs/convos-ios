@@ -69,6 +69,8 @@ Review the version bump and merge. SwiftLint runs on all PRs, but exits cleanly 
 2. Verifies main is an ancestor of that commit (fast-forward is safe)
 3. Pushes that exact release commit to `main` directly — no merge commit
 
+This guarantees `main` advances to the exact commit that was released, even if new commits land on `dev` after tagging.
+
 This requires the GitHub Actions bot to be added to the main branch ruleset bypass list (see [Setup](#one-time-repo-setup) below).
 
 ### Step 7 — Bitrise builds and deploys
@@ -113,6 +115,10 @@ main has commits that are not ancestors of the tagged release commit. Investigat
 **Release PR shows SwiftLint but no lint output**
 
 This is expected when no `.swift` files changed. The workflow reports success with a skip message so required checks still pass.
+
+**`promote-to-main.yml` fails with "Could not resolve commit for tag"**
+
+The tag referenced by the Auto Release run is missing or not yet visible in the clone. Re-run the workflow after confirming the tag exists remotely.
 
 **Tag already exists**
 
