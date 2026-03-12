@@ -6,6 +6,8 @@ import GRDB
 struct DBConversationMemberProfileWithRole: Codable, FetchableRecord, Hashable {
     let memberProfile: DBMemberProfile
     let role: MemberRole
+    let createdAt: Date
+    let inviterProfile: DBMemberProfile?
 }
 
 extension DBConversationMemberProfileWithRole {
@@ -14,7 +16,9 @@ extension DBConversationMemberProfileWithRole {
             profile: memberProfile.hydrateProfile(),
             role: role,
             isCurrentUser: memberProfile.inboxId == currentInboxId,
-            isAgent: memberProfile.isAgent
+            isAgent: memberProfile.isAgent,
+            invitedBy: inviterProfile?.hydrateProfile(),
+            joinedAt: createdAt
         )
     }
 
@@ -26,8 +30,12 @@ extension DBConversationMemberProfileWithRole {
         try DBConversationMember
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .filter(DBConversationMember.Columns.inboxId == inboxId)
-            .select([DBConversationMember.Columns.role])
+            .select([
+                DBConversationMember.Columns.role,
+                DBConversationMember.Columns.createdAt,
+            ])
             .including(required: DBConversationMember.memberProfile)
+            .including(optional: DBConversationMember.inviterProfile)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchOne(db)
     }
@@ -40,8 +48,12 @@ extension DBConversationMemberProfileWithRole {
         try DBConversationMember
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .filter(inboxIds.contains(DBConversationMember.Columns.inboxId))
-            .select([DBConversationMember.Columns.role])
+            .select([
+                DBConversationMember.Columns.role,
+                DBConversationMember.Columns.createdAt,
+            ])
             .including(required: DBConversationMember.memberProfile)
+            .including(optional: DBConversationMember.inviterProfile)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(db)
     }

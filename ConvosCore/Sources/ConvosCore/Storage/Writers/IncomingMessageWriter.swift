@@ -148,6 +148,16 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 }
             }
 
+            if let update = message.update, !update.addedInboxIds.isEmpty {
+                for addedInboxId in update.addedInboxIds {
+                    try DBConversationMember
+                        .filter(DBConversationMember.Columns.conversationId == conversation.id)
+                        .filter(DBConversationMember.Columns.inboxId == addedInboxId)
+                        .filter(DBConversationMember.Columns.invitedByInboxId == nil)
+                        .updateAll(db, DBConversationMember.Columns.invitedByInboxId.set(to: update.initiatedByInboxId))
+                }
+            }
+
             return IncomingMessageWriterResult(
                 contentType: message.contentType,
                 wasRemovedFromConversation: wasRemovedFromConversation,

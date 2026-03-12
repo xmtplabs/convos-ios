@@ -179,7 +179,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 inboxId: creatorInboxId,
                 role: .member,
                 consent: .allowed,
-                createdAt: Date()
+                createdAt: Date(),
+                invitedByInboxId: nil
             )
             try conversationMember.save(db)
 
@@ -490,8 +491,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private func saveMembers(_ dbMembers: [DBConversationMember], in db: Database) throws {
         for member in dbMembers {
             try DBMember(inboxId: member.inboxId).save(db)
-            try member.save(db)
-            // fetch from description
+            let existing = try DBConversationMember
+                .filter(DBConversationMember.Columns.conversationId == member.conversationId)
+                .filter(DBConversationMember.Columns.inboxId == member.inboxId)
+                .fetchOne(db)
+            let memberToSave = DBConversationMember(
+                conversationId: member.conversationId,
+                inboxId: member.inboxId,
+                role: member.role,
+                consent: member.consent,
+                createdAt: existing?.createdAt ?? member.createdAt,
+                invitedByInboxId: existing?.invitedByInboxId ?? member.invitedByInboxId
+            )
+            try memberToSave.save(db)
             let memberProfile = DBMemberProfile(
                 conversationId: member.conversationId,
                 inboxId: member.inboxId,
@@ -716,7 +728,8 @@ fileprivate extension XMTPiOS.Member {
               inboxId: inboxId,
               role: permissionLevel.role,
               consent: consentState.memberConsent,
-              createdAt: Date())
+              createdAt: Date(),
+              invitedByInboxId: nil)
     }
 }
 

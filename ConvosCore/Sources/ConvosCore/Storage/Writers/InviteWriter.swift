@@ -66,7 +66,8 @@ class InviteWriter: InviteWriterProtocol {
                     inboxId: conversation.inboxId,
                     role: .member,
                     consent: .allowed,
-                    createdAt: Date()
+                    createdAt: Date(),
+                    invitedByInboxId: nil
                 )
                 .insert(db, onConflict: .ignore)
                 let memberProfile = DBMemberProfile(

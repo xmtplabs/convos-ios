@@ -27,6 +27,11 @@ struct ConversationMemberView: View {
                             Text("You")
                                 .font(.headline)
                                 .foregroundStyle(.colorTextSecondary)
+                        } else if let subtitle = memberSubtitle {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.colorTextSecondary)
+                                .multilineTextAlignment(.center)
                         }
                     }
                     Spacer()
@@ -190,6 +195,27 @@ struct ConversationMemberView: View {
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
+    }
+
+    private var memberSubtitle: String? {
+        var parts: [String] = []
+        if member.isAgent {
+            parts.append("IA")
+        }
+        if let joinedAt = member.joinedAt {
+            let formatter = RelativeDateTimeFormatter()
+            formatter.unitsStyle = .abbreviated
+            let relative = formatter.localizedString(for: joinedAt, relativeTo: Date())
+            if let invitedBy = member.invitedBy {
+                parts.append("Added \(relative) by \(invitedBy.displayName)")
+            } else {
+                parts.append("Added \(relative)")
+            }
+        } else if let invitedBy = member.invitedBy {
+            parts.append("Added by \(invitedBy.displayName)")
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " · ")
     }
 
     private func toolRow(

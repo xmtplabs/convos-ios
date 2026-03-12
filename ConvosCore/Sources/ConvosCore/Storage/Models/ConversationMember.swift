@@ -8,16 +8,27 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
     public let role: MemberRole
     public let isCurrentUser: Bool
     public let isAgent: Bool
+    public let invitedBy: Profile?
+    public let joinedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
-        case profile, role, isCurrentUser, isAgent
+        case profile, role, isCurrentUser, isAgent, invitedBy, joinedAt
     }
 
-    public init(profile: Profile, role: MemberRole, isCurrentUser: Bool, isAgent: Bool = false) {
+    public init(
+        profile: Profile,
+        role: MemberRole,
+        isCurrentUser: Bool,
+        isAgent: Bool = false,
+        invitedBy: Profile? = nil,
+        joinedAt: Date? = nil
+    ) {
         self.profile = profile
         self.role = role
         self.isCurrentUser = isCurrentUser
         self.isAgent = isAgent
+        self.invitedBy = invitedBy
+        self.joinedAt = joinedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -26,6 +37,8 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.role = try container.decode(MemberRole.self, forKey: .role)
         self.isCurrentUser = try container.decode(Bool.self, forKey: .isCurrentUser)
         self.isAgent = try container.decodeIfPresent(Bool.self, forKey: .isAgent) ?? false
+        self.invitedBy = try container.decodeIfPresent(Profile.self, forKey: .invitedBy)
+        self.joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
     }
 }
 
