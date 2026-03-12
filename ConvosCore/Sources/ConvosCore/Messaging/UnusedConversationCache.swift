@@ -916,7 +916,7 @@ extension UnusedConversationCache {
                 inboxId: inboxId,
                 clientId: clientId,
                 clientConversationId: conversationId,
-                inviteTag: "",
+                inviteTag: "pending-\(conversationId)",
                 creatorId: inboxId,
                 kind: .group,
                 consent: .allowed,
