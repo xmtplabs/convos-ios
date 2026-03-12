@@ -184,9 +184,22 @@ final class MessagesViewController: UIViewController {
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAboutAssistants: (() -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    var onTapUpdateMember: ((ConversationMember) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAssistantJoin: (() -> Void)?
+    var onCopyInviteLink: (() -> Void)?
+    var onConvoCode: (() -> Void)?
+    var onInviteAssistant: (() -> Void)?
+    var hasAssistant: Bool = false {
+        didSet { dataSource.hasAssistant = hasAssistant }
+    }
+    var isAssistantJoinPending: Bool = false {
+        didSet { dataSource.isAssistantJoinPending = isAssistantJoinPending }
+    }
+    var isAssistantEnabled: Bool = false {
+        didSet { dataSource.isAssistantEnabled = isAssistantEnabled }
+    }
     var shouldBlurPhotos: Bool = true {
         didSet {
             guard oldValue != shouldBlurPhotos else { return }
@@ -340,6 +353,9 @@ final class MessagesViewController: UIViewController {
         dataSource.onAgentOutOfCredits = { [weak self] in
             self?.onAgentOutOfCredits?()
         }
+        dataSource.onTapUpdateMember = { [weak self] member in
+            self?.onTapUpdateMember?(member)
+        }
         dataSource.onRetryMessage = { [weak self] message in
             self?.onRetryMessage?(message)
         }
@@ -348,6 +364,15 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onRetryAssistantJoin = { [weak self] in
             self?.onRetryAssistantJoin?()
+        }
+        dataSource.onCopyInviteLink = { [weak self] in
+            self?.onCopyInviteLink?()
+        }
+        dataSource.onConvoCode = { [weak self] in
+            self?.onConvoCode?()
+        }
+        dataSource.onInviteAssistant = { [weak self] in
+            self?.onInviteAssistant?()
         }
 
         setupImmediateTouchGesture()
@@ -490,9 +515,6 @@ extension MessagesViewController {
                 cells.insert(.invite(invite), at: 0)
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)
-                if conversation.hasAssistant {
-                    cells.insert(.assistantPresentInfo, at: 1)
-                }
             }
         }
 

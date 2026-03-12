@@ -15,8 +15,15 @@ struct CellConfig {
     let onAgentOutOfCredits: () -> Void
     let onRetryAssistantJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
+    let onCopyInviteLink: () -> Void
+    let onConvoCode: () -> Void
+    let onInviteAssistant: () -> Void
+    let hasAssistant: Bool
+    let isAssistantJoinPending: Bool
+    let isAssistantEnabled: Bool
 }
 
 // swiftlint:disable force_cast

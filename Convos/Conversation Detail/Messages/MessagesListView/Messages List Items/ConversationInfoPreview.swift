@@ -4,6 +4,8 @@ import SwiftUI
 struct ConversationInfoPreview: View {
     let conversation: Conversation
 
+    @State private var presentingInfoSheet: Bool = false
+
     var body: some View {
         VStack(spacing: DesignConstants.Spacing.step4x) {
             VStack {
@@ -37,20 +39,27 @@ struct ConversationInfoPreview: View {
             .background(.colorFillMinimal)
             .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.mediumLarger))
 
-            HStack(spacing: DesignConstants.Spacing.stepX) {
-                Image(systemName: "clock.fill")
-                    .accessibilityHidden(true)
+            let infoAction = { presentingInfoSheet = true }
+            Button(action: infoAction) {
+                HStack(spacing: DesignConstants.Spacing.stepX) {
+                    Image(systemName: "backward.circle.fill")
+                        .foregroundStyle(.colorFillTertiary)
+                        .accessibilityHidden(true)
 
-                Text("Earlier messages are hidden for privacy")
-                    .foregroundStyle(.colorTextSecondary)
-                    .padding(.vertical, DesignConstants.Spacing.step2x)
+                    Text("Earlier messages are hidden for privacy")
+                        .padding(.vertical, DesignConstants.Spacing.step2x)
+                }
+                .font(.caption)
+                .foregroundStyle(.colorTextSecondary)
             }
-            .font(.caption)
         }
         .accessibilityElement(children: .combine)
         .accessibilityLabel("\(conversation.displayName), \(conversation.membersCountString). Earlier messages are hidden for privacy")
         .accessibilityIdentifier("conversation-info-preview")
         .id("convo-info-\(conversation.id)")
+        .selfSizingSheet(isPresented: $presentingInfoSheet) {
+            BackwardsSecrecyInfoView()
+        }
     }
 }
 

@@ -44,9 +44,18 @@ final class MessagesListProcessor {
         }
     }
 
+    private static func firstNonCreatorJoinIndex(in messages: [AnyMessage]) -> Int? {
+        messages.firstIndex(where: {
+            guard case .update(let update) = $0.base.content else { return false }
+            return update.addedMembers.contains(where: { !$0.isAgent && !$0.isCurrentUser })
+        })
+    }
+
     // swiftlint:disable:next cyclomatic_complexity
     private static func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
+
+        let firstNonCreatorJoinIdx = firstNonCreatorJoinIndex(in: messages)
 
         let lastAssistantJoinIndex: Int? = {
             guard let index = messages.lastIndex(where: { $0.base.content.isAssistantJoinRequest }) else { return nil }
@@ -161,7 +170,43 @@ final class MessagesListProcessor {
             items[lastCurrentUserIndex] = .messages(updatedGroup)
         }
 
+        markOnlyVisibleToSender(&items, firstNonCreatorJoinIdx: firstNonCreatorJoinIdx, messages: messages)
+
         return items
+    }
+
+    private static func markOnlyVisibleToSender(
+        _ items: inout [MessagesListItemType],
+        firstNonCreatorJoinIdx: Int?,
+        messages: [AnyMessage]
+    ) {
+        let joinDate: Date? = firstNonCreatorJoinIdx.map { messages[$0].base.date }
+        var lastBeforeJoinIndex: Int?
+
+        for i in items.indices {
+            guard case .messages(let group) = items[i],
+                  group.sender.isCurrentUser else { continue }
+
+            let isBeforeJoin: Bool
+            if let joinDate, let lastMsg = group.messages.last {
+                isBeforeJoin = lastMsg.base.date < joinDate
+            } else if joinDate == nil {
+                isBeforeJoin = true
+            } else {
+                isBeforeJoin = false
+            }
+
+            guard isBeforeJoin else { continue }
+            var updatedGroup = group
+            updatedGroup.onlyVisibleToSender = true
+            items[i] = .messages(updatedGroup)
+            lastBeforeJoinIndex = i
+        }
+
+        if let idx = lastBeforeJoinIndex, case .messages(var group) = items[idx] {
+            group.isLastGroupBeforeOtherMembers = true
+            items[idx] = .messages(group)
+        }
     }
 
     private static func createMessageGroup(

@@ -75,9 +75,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
             onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
+            onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
             onRetryAssistantJoin: { viewModel.requestAssistantJoin() },
+            onCopyInviteLink: { viewModel.copyInviteLink() },
+            onConvoCode: {
+                if viewModel.isFull {
+                    showingFullInfo = true
+                } else {
+                    viewModel.presentingShareView = true
+                }
+            },
+            onInviteAssistant: { viewModel.requestAssistantJoin() },
+            hasAssistant: viewModel.conversation.hasAssistant,
+            isAssistantJoinPending: viewModel.isAssistantJoinPending,
+            isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
             },

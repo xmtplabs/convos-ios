@@ -42,10 +42,13 @@ struct MessagesGroupView: View {
                 let isFullWidthAttachment = message.base.content.isAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Text(group.sender.profile.displayName)
-                        if group.sender.isAgent && group.sender.profile.isOutOfCredits {
-                            Image(systemName: "battery.0percent")
+                    let tapNameAction = { onTapAvatar(message) }
+                    Button(action: tapNameAction) {
+                        HStack(spacing: DesignConstants.Spacing.stepX) {
+                            Text(group.sender.profile.displayName)
+                            if group.sender.isAgent && group.sender.profile.isOutOfCredits {
+                                Image(systemName: "battery.0percent")
+                            }
                         }
                     }
                     .scaleEffect(isAppearing ? 0.9 : 1.0)
@@ -65,7 +68,7 @@ struct MessagesGroupView: View {
                 let isLast = message == lastMessage
                 let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
                 let isLastInGroup = message == group.messages.last
-                let showsSentStatus = isLastInGroup && group.isLastGroupSentByCurrentUser && message.base.status == .published
+                let showsSentStatus = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.base.status == .published
                 let isFailed = message.base.sender.isCurrentUser && message.base.status == .failed
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
@@ -154,20 +157,33 @@ struct MessagesGroupView: View {
                     .id("failed-status-\(message.differenceIdentifier)")
                     .accessibilityLabel("Message not delivered")
                 } else if showsSentStatus {
-                    HStack(spacing: DesignConstants.Spacing.stepHalf) {
+                    HStack(spacing: DesignConstants.Spacing.stepX) {
                         Spacer()
-                        Text("Sent")
-                        Image(systemName: "checkmark")
+                        if group.onlyVisibleToSender {
+                            Text("Only visible to you")
+                                .font(.caption)
+                            ProfileAvatarView(
+                                profile: group.sender.profile,
+                                profileImage: nil,
+                                useSystemPlaceholder: false
+                            )
+                            .frame(width: 16, height: 16)
+                        } else {
+                            Text("Sent")
+                                .font(.caption)
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.colorFillTertiary)
+                                .frame(width: 16, height: 16)
+                        }
                     }
                     .transition(.blurReplace)
                     .padding(.vertical, DesignConstants.Spacing.stepX)
                     .padding(.leading, DesignConstants.Spacing.step2x)
                     .padding(.trailing, DesignConstants.Spacing.step4x)
-                    .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
                     .zIndex(-1)
                     .id("sent-status-\(message.differenceIdentifier)")
-                    .accessibilityLabel("Message sent")
+                    .accessibilityLabel(group.onlyVisibleToSender ? "Only visible to you" : "Message sent")
                 }
             }
         }

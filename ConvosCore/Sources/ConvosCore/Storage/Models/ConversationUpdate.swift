@@ -29,33 +29,24 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
     public let removedMembers: [ConversationMember]
     public let metadataChanges: [MetadataChange]
 
-    public var profile: Profile? {
+    public var profileMember: ConversationMember? {
         if !addedMembers.isEmpty && !removedMembers.isEmpty {
-            return creator.profile
+            return creator
         } else if !addedMembers.isEmpty {
             if addedMembers.count == 1, let member = addedMembers.first {
-                return member.profile
+                return member
             } else {
                 return nil
             }
-        } else if let metadataChange = metadataChanges.first,
-                  metadataChange.field == .name {
-            return creator.profile
-        } else if let metadataChange = metadataChanges.first,
-                  metadataChange.field == .image,
-                  metadataChange.newValue != nil {
-            return creator.profile
-        } else if let metadataChange = metadataChanges.first,
-                  metadataChange.field == .description {
-            return creator.profile
-        } else if let metadataChange = metadataChanges.first,
-                  metadataChange.field == .expiresAt {
-            return creator.profile
-        } else if !removedMembers.isEmpty {
-            return nil
+        } else if metadataChanges.first != nil {
+            return creator
         } else {
             return nil
         }
+    }
+
+    public var profile: Profile? {
+        profileMember?.profile
     }
 
     public var addedAgent: Bool {
