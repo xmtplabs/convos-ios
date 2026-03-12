@@ -1,0 +1,95 @@
+name: Promote to Main
+
+on:
+  workflow_run:
+    workflows: ["Auto Release"]
+    types: [completed]
+
+concurrency:
+  group: release-pipeline
+  cancel-in-progress: false
+
+env:
+  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+jobs:
+  promote:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Extract tag and check if production release
+        id: version
+        run: |
+          # workflow_run.head_branch contains the tag name (e.g., "1.2.0" or "1.2.0-dev.123")
+          # because Auto Release is triggered by tag pushes
+          TAG="${{ github.event.workflow_run.head_branch }}"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Release tag: $TAG"
+
+          if [[ "$TAG" == *-* ]]; then
+            echo "Prerelease detected ($TAG) — skipping promotion to main"
+            echo "is_production=false" >> $GITHUB_OUTPUT
+          else
+            echo "Production release ($TAG) — will promote to main"
+            echo "is_production=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Checkout repository
+        if: steps.version.outputs.is_production == 'true'
+        uses: actions/checkout@v4
+        with:
+          ref: dev
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check if promotion is needed
+        if: steps.version.outputs.is_production == 'true'
+        id: check
+        run: |
+          git fetch origin main dev
+
+          DEV_SHA=$(git rev-parse origin/dev)
+          MAIN_SHA=$(git rev-parse origin/main)
+
+          if [ "$DEV_SHA" = "$MAIN_SHA" ]; then
+            echo "main is already up to date with dev, skipping promotion"
+            echo "needed=false" >> $GITHUB_OUTPUT
+          elif git merge-base --is-ancestor origin/main origin/dev; then
+            echo "main is behind dev, promotion needed"
+            echo "needed=true" >> $GITHUB_OUTPUT
+          else
+            echo "::error::main has diverged from dev — cannot fast-forward. Manual intervention required."
+            exit 1
+          fi
+
+      - name: Fast-forward main to dev
+        if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git checkout main
+          git merge --ff-only origin/dev
+          git push origin main
+
+          echo "## Release Promoted to Main" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Tag:** ${{ steps.version.outputs.tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Action:** Fast-forward merged dev into main" >> $GITHUB_STEP_SUMMARY
+          echo "- **Result:** Bitrise will build and deploy to TestFlight" >> $GITHUB_STEP_SUMMARY
+
+      - name: Skipped (prerelease)
+        if: steps.version.outputs.is_production == 'false'
+        run: |
+          echo "## Promotion Skipped" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Prerelease **${{ steps.version.outputs.tag }}** — no promotion to main." >> $GITHUB_STEP_SUMMARY
+
+      - name: Already up to date
+        if: steps.version.outputs.is_production == 'true' && steps.check.outputs.needed == 'false'
+        run: |
+          echo "## No Promotion Needed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "main is already at the same commit as dev." >> $GITHUB_STEP_SUMMARY

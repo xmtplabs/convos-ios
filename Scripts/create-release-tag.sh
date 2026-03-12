@@ -1,8 +1,22 @@
 #!/bin/bash
 
-# Convos iOS Release Tag Creator
-# This script creates a release branch and PR for version bumping.
-# The tag is automatically created by GitHub Actions when the PR is merged.
+# DEPRECATED: This script has been replaced by the "Create Release" GitHub Actions workflow.
+# Use 'make release' or trigger the workflow directly:
+#   gh workflow run "Create Release" --field version=X.Y.Z
+#
+# The CI workflow handles everything this script did, plus automatic promotion
+# of dev to main after the release — no branch protection bypasses needed.
+
+echo "⚠️  This script is deprecated."
+echo ""
+echo "Use one of these instead:"
+echo "  make release"
+echo "  gh workflow run 'Create Release' --field version=X.Y.Z"
+echo ""
+echo "See .github/workflows/create-release.yml for details."
+exit 1
+
+# --- Original script below (kept for reference) ---
 
 set -e  # Exit on any error
 
