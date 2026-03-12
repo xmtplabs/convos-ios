@@ -22,9 +22,16 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
+    let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAssistantJoin: () -> Void
+    let onCopyInviteLink: () -> Void
+    let onConvoCode: () -> Void
+    let onInviteAssistant: () -> Void
+    let hasAssistant: Bool
+    let isAssistantJoinPending: Bool
+    let isAssistantEnabled: Bool
     let bottomBarHeight: CGFloat
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
@@ -74,6 +81,9 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         }
         messagesViewController.onAboutAssistants = onAboutAssistants
         messagesViewController.onAgentOutOfCredits = onAgentOutOfCredits
+        messagesViewController.onTapUpdateMember = { member in
+            self.onTapUpdateMember(member)
+        }
         messagesViewController.onRetryMessage = { message in
             self.onRetryMessage(message)
         }
@@ -81,6 +91,12 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             self.onDeleteMessage(message)
         }
         messagesViewController.onRetryAssistantJoin = onRetryAssistantJoin
+        messagesViewController.onCopyInviteLink = onCopyInviteLink
+        messagesViewController.onConvoCode = onConvoCode
+        messagesViewController.onInviteAssistant = onInviteAssistant
+        messagesViewController.hasAssistant = hasAssistant
+        messagesViewController.isAssistantJoinPending = isAssistantJoinPending
+        messagesViewController.isAssistantEnabled = isAssistantEnabled
         let menuPresented = contextMenuState.isPresented
         let wasMenuPresented = !messagesViewController.view.isUserInteractionEnabled
         messagesViewController.view.isUserInteractionEnabled = !menuPresented
@@ -125,9 +141,16 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onPhotoDimensionsLoaded: { _, _, _ in },
         onAboutAssistants: {},
         onAgentOutOfCredits: {},
+        onTapUpdateMember: { _ in },
         onRetryMessage: { _ in },
         onDeleteMessage: { _ in },
         onRetryAssistantJoin: {},
+        onCopyInviteLink: {},
+        onConvoCode: {},
+        onInviteAssistant: {},
+        hasAssistant: false,
+        isAssistantJoinPending: false,
+        isAssistantEnabled: true,
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
         scrollToBottomTrigger: { _ in }

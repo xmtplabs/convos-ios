@@ -14,7 +14,7 @@ struct AddToConversationMenu: View {
     private var isAssistantActionDisabled: Bool { hasAssistant || isAssistantJoinPending }
 
     private var assistantSubtitle: String {
-        if hasAssistant { return "Already in conversation" }
+        if hasAssistant { return "Already here" }
         if isAssistantJoinPending { return "Joining…" }
         return "Helps the group do things"
     }

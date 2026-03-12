@@ -16,7 +16,14 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)? { get set }
     var onAboutAssistants: (() -> Void)? { get set }
     var onAgentOutOfCredits: (() -> Void)? { get set }
+    var onTapUpdateMember: ((ConversationMember) -> Void)? { get set }
     var onRetryMessage: ((AnyMessage) -> Void)? { get set }
     var onDeleteMessage: ((AnyMessage) -> Void)? { get set }
     var onRetryAssistantJoin: (() -> Void)? { get set }
+    var onCopyInviteLink: (() -> Void)? { get set }
+    var onConvoCode: (() -> Void)? { get set }
+    var onInviteAssistant: (() -> Void)? { get set }
+    var hasAssistant: Bool { get set }
+    var isAssistantJoinPending: Bool { get set }
+    var isAssistantEnabled: Bool { get set }
 }

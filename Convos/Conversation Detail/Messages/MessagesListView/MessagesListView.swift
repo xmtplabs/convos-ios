@@ -14,9 +14,16 @@ struct MessagesListView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onTapUpdateMember: (ConversationMember) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onRetryAssistantJoin: () -> Void
+    let onCopyInviteLink: () -> Void
+    let onConvoCode: () -> Void
+    let onInviteAssistant: () -> Void
+    let hasAssistant: Bool
+    let isAssistantJoinPending: Bool
+    let isAssistantEnabled: Bool
     let loadPrevious: () -> Void
 
     @State private var scrollPosition: ScrollPosition = ScrollPosition(edge: .bottom)
@@ -30,13 +37,19 @@ struct MessagesListView: View {
                     if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                         VStack(spacing: DesignConstants.Spacing.step4x) {
                             InviteView(invite: invite)
-                            NewConvoIdentityView()
+                            NewConvoIdentityView(
+                                onCopyLink: onCopyInviteLink,
+                                onConvoCode: onConvoCode,
+                                onInviteAssistant: onInviteAssistant,
+                                hasAssistant: hasAssistant,
+                                isAssistantJoinPending: isAssistantJoinPending,
+                                isAssistantEnabled: isAssistantEnabled
+                            )
                         }
                         .id("invite")
                     } else {
                         VStack(spacing: DesignConstants.Spacing.step4x) {
                             ConversationInfoPreview(conversation: conversation)
-                            NewConvoIdentityView()
                         }
                         .id("conversation-info")
                     }
@@ -51,7 +64,13 @@ struct MessagesListView: View {
 
                             case .update(_, let update, _):
                                 VStack(spacing: 0) {
-                                    TextTitleContentView(title: update.summary, profile: update.profile)
+                                    TextTitleContentView(
+                                        title: update.summary,
+                                        profile: update.profile,
+                                        onTap: update.profileMember.map { member in
+                                            { onTapUpdateMember(member) }
+                                        }
+                                    )
                                         .padding(.vertical, DesignConstants.Spacing.stepX)
                                     if update.addedAgent {
                                         AssistantJoinedInfoView(onAboutAssistants: onAboutAssistants)
@@ -94,9 +113,6 @@ struct MessagesListView: View {
                                     onRetry: onRetryAssistantJoin
                                 )
                                 .padding(.vertical, DesignConstants.Spacing.step2x)
-
-                            case .assistantPresentInfo:
-                                AssistantPresentInfoView(onAboutAssistants: onAboutAssistants)
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in

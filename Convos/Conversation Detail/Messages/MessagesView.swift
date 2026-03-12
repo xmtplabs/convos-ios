@@ -47,9 +47,16 @@ struct MessagesView<BottomBarContent: View>: View {
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
+    let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
     let onRetryAssistantJoin: () -> Void
+    let onCopyInviteLink: () -> Void
+    let onConvoCode: () -> Void
+    let onInviteAssistant: () -> Void
+    let hasAssistant: Bool
+    let isAssistantJoinPending: Bool
+    let isAssistantEnabled: Bool
     let onBottomOverscrollChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
@@ -79,9 +86,16 @@ struct MessagesView<BottomBarContent: View>: View {
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
             onAboutAssistants: onAboutAssistants,
             onAgentOutOfCredits: onAgentOutOfCredits,
+            onTapUpdateMember: onTapUpdateMember,
             onRetryMessage: onRetryMessage,
             onDeleteMessage: onDeleteMessage,
             onRetryAssistantJoin: onRetryAssistantJoin,
+            onCopyInviteLink: onCopyInviteLink,
+            onConvoCode: onConvoCode,
+            onInviteAssistant: onInviteAssistant,
+            hasAssistant: hasAssistant,
+            isAssistantJoinPending: isAssistantJoinPending,
+            isAssistantEnabled: isAssistantEnabled,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: onBottomOverscrollChanged,
             scrollToBottomTrigger: { scrollFn in
