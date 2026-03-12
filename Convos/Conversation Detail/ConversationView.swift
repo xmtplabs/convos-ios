@@ -34,6 +34,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
             selectedAttachmentImage: $viewModel.selectedAttachmentImage,
+            isVideoAttachment: viewModel.selectedVideoURL != nil,
             pendingInviteCode: viewModel.pendingInvite?.code,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,

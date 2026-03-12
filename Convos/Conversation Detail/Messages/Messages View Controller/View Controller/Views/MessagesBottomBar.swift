@@ -13,6 +13,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
+    var isVideoAttachment: Bool = false
     var pendingInviteCode: String?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
@@ -123,6 +124,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
                 selectedAttachmentImage: $selectedAttachmentImage,
+                isVideoAttachment: isVideoAttachment,
                 pendingInviteCode: pendingInviteCode,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
