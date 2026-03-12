@@ -11,7 +11,7 @@ struct AssistantSettingsView: View {
                         .font(.convosTitle)
                         .tracking(Font.convosTitleTracking)
                         .foregroundStyle(.colorTextPrimary)
-                    Text("Help groups get things done")
+                    Text("Help groups do things")
                         .font(.subheadline)
                         .foregroundStyle(.colorTextPrimary)
                 }
