@@ -90,14 +90,22 @@ struct FeatureInfoSheet: View {
 // and Text(AttributedString(...)) ignores NSParagraphStyle.
 // UILabel with min/maxLineHeight is the only reliable way to
 // achieve 100% line height (40pt for a 40pt font).
-private class SelfSizingLabel: UILabel {
+class SelfSizingLabel: UILabel {
+    var descenderPadding: CGFloat = 0
+
+    override var intrinsicContentSize: CGSize {
+        var size = super.intrinsicContentSize
+        size.height += descenderPadding
+        return size
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
         preferredMaxLayoutWidth = bounds.width
     }
 }
 
-private struct TightLineHeightText: UIViewRepresentable {
+struct TightLineHeightText: UIViewRepresentable {
     let text: String
     let fontSize: CGFloat
     let lineHeight: CGFloat
@@ -117,8 +125,11 @@ private struct TightLineHeightText: UIViewRepresentable {
         configureLabel(label)
     }
 
-    private func configureLabel(_ label: UILabel) {
+    private func configureLabel(_ label: SelfSizingLabel) {
         let font: UIFont = .systemFont(ofSize: fontSize, weight: .bold)
+        let overflow: CGFloat = max(0, font.lineHeight - lineHeight)
+        label.clipsToBounds = false
+        label.descenderPadding = overflow
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.minimumLineHeight = lineHeight
         paragraphStyle.maximumLineHeight = lineHeight

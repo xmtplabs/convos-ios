@@ -37,20 +37,19 @@ struct AssistantSettingsView: View {
             Section {
                 if let learnURL = URL(string: "https://learn.convos.org/assistants") {
                     Link(destination: learnURL) {
-                        Text("Learn about Convos Assistants")
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        HStack {
+                            Text("Learn about assistants")
+                                .foregroundStyle(.colorTextPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(.colorTextTertiary)
+                        }
                     }
-                    .foregroundStyle(.colorTextPrimary)
                 }
-                if let privacyURL = URL(string: "https://learn.convos.org/assistants-trust-and-security") {
-                    Link(destination: privacyURL) {
-                        Text("Privacy & Security")
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-                }
+            } footer: {
+                Text("Capabilities, privacy and security")
             }
-            .listRowSeparatorTint(.colorBorderSubtle)
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)

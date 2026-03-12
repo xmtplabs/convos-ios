@@ -10,20 +10,18 @@ struct AssistantsInfoView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
             Group {
-                Text("Private chat for the AI world")
+                Text("Private chat for the AI era")
                     .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
 
-                Text("Assistants help groups do things")
-                    .font(.convosTitle)
-                    .tracking(Font.convosTitleTracking)
+                TightLineHeightText(text: "Assistants help groups do things", fontSize: 40, lineHeight: 40)
 
                 Text("Assistants learn by listening. They can only see and act in one convo.")
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
 
                 Text("They have tools to get things done in the real world.")
-                    .font(.body)
+                    .font(.subheadline)
                     .foregroundStyle(.colorTextSecondary)
             }
             .padding(.horizontal, horizontalPadding)
@@ -37,15 +35,10 @@ struct AssistantsInfoView: View {
                 }
                 .convosButtonStyle(.rounded(fullWidth: true))
 
-                let trustURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")
-                let trustAction = { if let trustURL { openURL(trustURL) } }
-                Button(action: trustAction) {
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Text("Trust and Security")
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 13))
-                            .foregroundStyle(.colorFillTertiary)
-                    }
+                let learnMoreURL = URL(string: "https://learn.convos.org/assistants")
+                let learnMoreAction = { if let learnMoreURL { openURL(learnMoreURL) } }
+                Button(action: learnMoreAction) {
+                    Text("Learn more")
                 }
                 .convosButtonStyle(.text)
                 .frame(maxWidth: .infinity)
