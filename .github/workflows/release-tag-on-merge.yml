@@ -89,4 +89,9 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### What happens next" >> $GITHUB_STEP_SUMMARY
           echo "1. \`auto-release.yml\` creates the GitHub Release with release notes" >> $GITHUB_STEP_SUMMARY
-          echo "2. Bitrise builds from the tag and deploys to TestFlight" >> $GITHUB_STEP_SUMMARY
+          if [[ "$TAG" != *-* ]]; then
+            echo "2. \`promote-to-main.yml\` fast-forwards main to the tagged release commit" >> $GITHUB_STEP_SUMMARY
+            echo "3. Bitrise builds from main and deploys to TestFlight" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "2. Prerelease — no promotion to main" >> $GITHUB_STEP_SUMMARY
+          fi

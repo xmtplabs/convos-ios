@@ -5,6 +5,10 @@ on:
     tags:
       - '*.*.**' # Triggers on semantic version tags incl. prereleases (e.g., 1.0.0, 1.0.0-dev.123456)
 
+concurrency:
+  group: release-pipeline
+  cancel-in-progress: false
+
 env:
   GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -195,4 +199,8 @@ jobs:
           echo "  - GitHub Release available for Bitrise"
           echo "  - Release notes will be used by Bitrise for App Store submission"
           echo ""
-          echo "Bitrise will build from tag $VERSION and deploy to TestFlight"
+          if [[ "$VERSION" == *-* ]]; then
+            echo "Prerelease detected — skipping promotion to main"
+          else
+            echo "Production release — promote-to-main workflow will fast-forward main to the tagged release commit"
+          fi

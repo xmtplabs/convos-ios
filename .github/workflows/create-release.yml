@@ -144,7 +144,8 @@ jobs:
           1. Create tag \`$FULL\`
           2. Delete the release branch
           3. Create a GitHub Release with AI-generated release notes
-          4. Bitrise builds from the tag and deploys to TestFlight
+          4. Fast-forward main to the tagged release commit
+          5. Bitrise builds from main and deploys to TestFlight
 
           <!-- release-tag: $FULL -->"
 
