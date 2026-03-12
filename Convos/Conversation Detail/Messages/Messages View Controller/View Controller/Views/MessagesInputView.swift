@@ -167,6 +167,7 @@ struct MessagesInputView: View {
                             .shadow(color: .black.opacity(0.5), radius: 2, x: 0, y: 1)
                             .padding(.bottom, DesignConstants.Spacing.step2x)
                             .padding(.leading, DesignConstants.Spacing.step2x)
+                            .accessibilityHidden(true)
                     }
                 }
 

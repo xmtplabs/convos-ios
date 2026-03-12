@@ -280,6 +280,19 @@ private struct VideoTapAttachmentView: View {
     }
 }
 
+private actor VideoURLCache {
+    static let shared: VideoURLCache = VideoURLCache()
+    private var cache: [String: URL] = [:]
+
+    func url(for key: String) -> URL? {
+        cache[key]
+    }
+
+    func set(_ url: URL, for key: String) {
+        cache[key] = url
+    }
+}
+
 private struct AttachmentPlaceholder: View {
     static let maxPhotoWidth: CGFloat = 430
     static let videoPlaybackStarted: Notification.Name = Notification.Name("AttachmentPlaceholder.videoPlaybackStarted")
@@ -304,7 +317,6 @@ private struct AttachmentPlaceholder: View {
     @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
-    private static var videoURLCache: [String: URL] = [:]
 
     private var shouldBlur: Bool {
         if attachment.isHiddenByOwner { return true }
@@ -325,10 +337,6 @@ private struct AttachmentPlaceholder: View {
         return isPressed ? 80 : 96
     }
 
-    private var blurOpacity: Double {
-        1.0
-    }
-
     private var placeholderAspectRatio: CGFloat {
         attachment.aspectRatio ?? (4.0 / 3.0)
     }
@@ -344,7 +352,6 @@ private struct AttachmentPlaceholder: View {
                     InlineVideoPlayerView(player: player)
                         .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
                         .blur(radius: showBlurOverlay ? blurRadius : 0)
-                        .opacity(showBlurOverlay ? blurOpacity : 1.0)
 
                     if showBlurOverlay, !isOutgoing {
                         PhotoBlurOverlayContent()
@@ -456,12 +463,17 @@ private struct AttachmentPlaceholder: View {
     }
 
     private func formatDuration(_ seconds: Double) -> String {
-        let mins = Int(seconds) / 60
-        let secs = Int(seconds) % 60
+        let totalSeconds = Int(seconds)
+        let hours = totalSeconds / 3600
+        let mins = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, mins, secs)
+        }
         return String(format: "%d:%02d", mins, secs)
     }
 
-    func handleVideoPlayTap() {
+    private func handleVideoPlayTap() {
         guard isVideo, !shouldBlur else { return }
 
         if let player = inlinePlayer {
@@ -504,7 +516,6 @@ private struct AttachmentPlaceholder: View {
                 .aspectRatio(contentMode: .fit)
                 .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
                 .blur(radius: showBlurOverlay ? blurRadius : 0)
-                .opacity(showBlurOverlay ? blurOpacity : 1.0)
 
             if showBlurOverlay, !isOutgoing {
                 PhotoBlurOverlayContent()
@@ -541,14 +552,14 @@ private struct AttachmentPlaceholder: View {
                 if attachment.key.hasPrefix("file://") {
                     let path = String(attachment.key.dropFirst("file://".count))
                     videoURL = URL(fileURLWithPath: path)
-                } else if let cached = Self.videoURLCache[attachment.key] {
+                } else if let cached = await VideoURLCache.shared.url(for: attachment.key) {
                     videoURL = cached
                 } else {
                     let loaded = try await Self.loader.loadAttachmentData(from: attachment.key)
                     let tempURL = FileManager.default.temporaryDirectory
                         .appendingPathComponent("video_\(UUID().uuidString).mp4")
                     try loaded.data.write(to: tempURL)
-                    Self.videoURLCache[attachment.key] = tempURL
+                    await VideoURLCache.shared.set(tempURL, for: attachment.key)
                     videoURL = tempURL
                 }
                 let player = AVPlayer(url: videoURL)

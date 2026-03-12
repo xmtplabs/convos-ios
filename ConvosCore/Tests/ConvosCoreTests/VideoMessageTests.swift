@@ -181,4 +181,66 @@ struct VideoMessageTests {
     func testMaxFileSize() {
         #expect(VideoCompressionService.maxFileSizeBytes == 25 * 1024 * 1024)
     }
+
+    // MARK: - Attachments Preview String
+
+    @Test("Single photo attachment shows 'a photo'")
+    func testPreviewStringSinglePhoto() {
+        let photoJSON = makePhotoJSON()
+        let result = DBLastMessageWithSource.attachmentsPreviewString(attachmentUrls: [photoJSON], count: 1)
+        #expect(result == "a photo")
+    }
+
+    @Test("Single video attachment shows 'a video'")
+    func testPreviewStringSingleVideo() {
+        let videoJSON = makeVideoJSON()
+        let result = DBLastMessageWithSource.attachmentsPreviewString(attachmentUrls: [videoJSON], count: 1)
+        #expect(result == "a video")
+    }
+
+    @Test("Multiple photos shows 'N photos'")
+    func testPreviewStringMultiplePhotos() {
+        let photoJSON = makePhotoJSON()
+        let result = DBLastMessageWithSource.attachmentsPreviewString(attachmentUrls: [photoJSON, photoJSON], count: 2)
+        #expect(result == "2 photos")
+    }
+
+    @Test("Mixed video and photo shows 'N attachments'")
+    func testPreviewStringMixedAttachments() {
+        let videoJSON = makeVideoJSON()
+        let photoJSON = makePhotoJSON()
+        let result = DBLastMessageWithSource.attachmentsPreviewString(attachmentUrls: [videoJSON, photoJSON], count: 2)
+        #expect(result == "2 attachments")
+    }
+
+    @Test("Non-JSON attachment key defaults to 'a photo'")
+    func testPreviewStringNonJSONKey() {
+        let result = DBLastMessageWithSource.attachmentsPreviewString(attachmentUrls: ["file://local/path"], count: 1)
+        #expect(result == "a photo")
+    }
+
+    private func makePhotoJSON() -> String {
+        let stored = StoredRemoteAttachment(
+            url: "https://example.com/photo.enc",
+            contentDigest: "abc",
+            secret: Data("s".utf8),
+            salt: Data("s".utf8),
+            nonce: Data("n".utf8),
+            filename: "photo.jpg"
+        )
+        return (try? stored.toJSON()) ?? ""
+    }
+
+    private func makeVideoJSON() -> String {
+        let stored = StoredRemoteAttachment(
+            url: "https://example.com/video.enc",
+            contentDigest: "abc",
+            secret: Data("s".utf8),
+            salt: Data("s".utf8),
+            nonce: Data("n".utf8),
+            filename: "video.mp4",
+            mimeType: "video/mp4"
+        )
+        return (try? stored.toJSON()) ?? ""
+    }
 }

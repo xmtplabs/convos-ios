@@ -734,16 +734,14 @@ extension ConversationViewModel {
 
     func onVideoSelected(_ url: URL) {
         selectedVideoURL = url
-        let service = VideoCompressionService()
         Task {
             do {
+                let service = VideoCompressionService()
                 let asset = AVURLAsset(url: url)
                 let thumbnailData = try await service.generateThumbnail(for: asset)
-                await MainActor.run {
-                    self.selectedVideoThumbnail = UIImage(data: thumbnailData)
-                    self.selectedAttachmentImage = self.selectedVideoThumbnail
-                    self.onPhotoAttached()
-                }
+                self.selectedVideoThumbnail = UIImage(data: thumbnailData)
+                self.selectedAttachmentImage = self.selectedVideoThumbnail
+                self.onPhotoAttached()
             } catch {
                 Log.error("Failed to generate video thumbnail: \(error)")
             }
