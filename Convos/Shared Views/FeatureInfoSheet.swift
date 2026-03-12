@@ -7,6 +7,7 @@ struct FeatureInfoSheet: View {
     let paragraphs: [FeatureInfoParagraph]
     let primaryButtonTitle: String
     let primaryButtonAction: () -> Void
+    let learnMoreTitle: String
     let learnMoreURL: URL?
     let showDragIndicator: Bool
 
@@ -19,6 +20,7 @@ struct FeatureInfoSheet: View {
         paragraphs: [FeatureInfoParagraph] = [],
         primaryButtonTitle: String = "Got it",
         primaryButtonAction: @escaping () -> Void,
+        learnMoreTitle: String = "Learn more",
         learnMoreURL: URL? = nil,
         showDragIndicator: Bool = false
     ) {
@@ -28,6 +30,7 @@ struct FeatureInfoSheet: View {
         self.paragraphs = paragraphs
         self.primaryButtonTitle = primaryButtonTitle
         self.primaryButtonAction = primaryButtonAction
+        self.learnMoreTitle = learnMoreTitle
         self.learnMoreURL = learnMoreURL
         self.showDragIndicator = showDragIndicator
     }
@@ -40,9 +43,7 @@ struct FeatureInfoSheet: View {
                     .foregroundStyle(.colorTextSecondary)
             }
 
-            Text(title)
-                .font(.convosTitle)
-                .tracking(Font.convosTitleTracking)
+            TightLineHeightText(text: title, fontSize: 40, lineHeight: 40)
 
             if let subtitle {
                 Text(subtitle)
@@ -66,7 +67,7 @@ struct FeatureInfoSheet: View {
                 if let learnMoreURL {
                     let learnMoreAction = { openURL(learnMoreURL) }
                     Button(action: learnMoreAction) {
-                        Text("Learn more")
+                        Text(learnMoreTitle)
                     }
                     .convosButtonStyle(.text)
                     .frame(maxWidth: .infinity)
@@ -81,6 +82,56 @@ struct FeatureInfoSheet: View {
     }
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+}
+
+// UIViewRepresentable approach for precise line height control.
+// SwiftUI's .lineSpacing() clamps to 0 (can't reduce below default),
+// .leading(.tight) on Font had no visible effect at 40pt,
+// and Text(AttributedString(...)) ignores NSParagraphStyle.
+// UILabel with min/maxLineHeight is the only reliable way to
+// achieve 100% line height (40pt for a 40pt font).
+private class SelfSizingLabel: UILabel {
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        preferredMaxLayoutWidth = bounds.width
+    }
+}
+
+private struct TightLineHeightText: UIViewRepresentable {
+    let text: String
+    let fontSize: CGFloat
+    let lineHeight: CGFloat
+
+    func makeUIView(context: Context) -> SelfSizingLabel {
+        let label = SelfSizingLabel()
+        label.numberOfLines = 0
+        label.lineBreakMode = .byWordWrapping
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setContentCompressionResistancePriority(.required, for: .vertical)
+        label.setContentHuggingPriority(.required, for: .vertical)
+        configureLabel(label)
+        return label
+    }
+
+    func updateUIView(_ label: SelfSizingLabel, context: Context) {
+        configureLabel(label)
+    }
+
+    private func configureLabel(_ label: UILabel) {
+        let font: UIFont = .systemFont(ofSize: fontSize, weight: .bold)
+        let paragraphStyle = NSMutableParagraphStyle()
+        paragraphStyle.minimumLineHeight = lineHeight
+        paragraphStyle.maximumLineHeight = lineHeight
+        label.attributedText = NSAttributedString(
+            string: text,
+            attributes: [
+                .font: font,
+                .paragraphStyle: paragraphStyle,
+                .baselineOffset: (lineHeight - font.lineHeight) / 2,
+                .kern: -1.0,
+            ]
+        )
+    }
 }
 
 struct FeatureInfoParagraph: Identifiable {
