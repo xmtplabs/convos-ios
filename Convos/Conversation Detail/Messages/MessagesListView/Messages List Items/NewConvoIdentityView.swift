@@ -25,7 +25,6 @@ struct NewConvoIdentityView: View {
         .frame(maxWidth: .infinity)
         .selfSizingSheet(isPresented: $presentingInfoSheet) {
             NewConvoIdentityInfoSheet()
-                .padding(.top, 20)
         }
     }
 }
@@ -35,14 +34,18 @@ struct NewConvoIdentityInfoSheet: View {
 
     var body: some View {
         FeatureInfoSheet(
-            tagline: "Real life is off the record.™",
-            title: "New convo, new everything",
+            tagline: "Private chat for the AI era",
+            title: "Every convo is a new world",
+            subtitle: "And you're a new you, too.",
             paragraphs: [
-                .init("Every convo gives you a fresh cryptographic identity. No one can link your conversations together."),
-                .init("New members can't see earlier messages, and leaving a convo destroys your identity in it.", size: .subheadline),
+                .init("You have Infinite Identities, so you control how you show up, every time.", style: .primary),
+                .init("No info is shared between convos, so there's nothing to leak, link or spam.", size: .subheadline),
             ],
+            primaryButtonTitle: "Awesome",
             primaryButtonAction: { dismiss() },
-            learnMoreURL: URL(string: "https://learn.convos.org/new-convo-new-identity")
+            learnMoreTitle: "About infinite identity",
+            learnMoreURL: URL(string: "https://learn.convos.org/infinite-identity"),
+            showDragIndicator: true
         )
     }
 }
@@ -59,6 +62,5 @@ struct NewConvoIdentityInfoSheet: View {
     }
     .selfSizingSheet(isPresented: $isPresented) {
         NewConvoIdentityInfoSheet()
-            .padding(.top, 20)
     }
 }
