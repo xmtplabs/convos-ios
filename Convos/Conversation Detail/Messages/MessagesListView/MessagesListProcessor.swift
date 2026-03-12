@@ -47,7 +47,7 @@ final class MessagesListProcessor {
     private static func firstNonCreatorJoinIndex(in messages: [AnyMessage]) -> Int? {
         messages.firstIndex(where: {
             guard case .update(let update) = $0.base.content else { return false }
-            return update.addedMembers.contains(where: { !$0.isAgent && !$0.isCurrentUser })
+            return update.addedMembers.contains(where: { !$0.isCurrentUser })
         })
     }
 
