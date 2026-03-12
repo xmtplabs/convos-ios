@@ -233,6 +233,7 @@ class ConversationViewModel {
     var presentingShareView: Bool = false
     var presentingRevealMediaInfoSheet: Bool = false
     var presentingPhotosInfoSheet: Bool = false
+    var presentingAssistantConfirmation: Bool = false
     var activeToast: IndicatorToastStyle?
 
     var assistantJoinForceErrorCode: Int?
@@ -254,6 +255,12 @@ class ConversationViewModel {
         set { UserDefaults.standard.set(newValue, forKey: Self.hasShownPhotosInfoSheetKey) }
     }
 
+    private static let hasShownAssistantConfirmationKey: String = "hasShownAssistantConfirmation"
+    private var hasShownAssistantConfirmation: Bool {
+        get { UserDefaults.standard.bool(forKey: Self.hasShownAssistantConfirmationKey) }
+        set { UserDefaults.standard.set(newValue, forKey: Self.hasShownAssistantConfirmationKey) }
+    }
+
     private static let hasShownRevealInfoSheetKey: String = "hasShownRevealInfoSheet"
     private var hasShownRevealInfoSheet: Bool {
         get { UserDefaults.standard.bool(forKey: Self.hasShownRevealInfoSheetKey) }
@@ -272,6 +279,7 @@ class ConversationViewModel {
     static func resetUserDefaults() {
         let defaults = UserDefaults.standard
         defaults.removeObject(forKey: hasShownPhotosInfoSheetKey)
+        defaults.removeObject(forKey: hasShownAssistantConfirmationKey)
         defaults.removeObject(forKey: hasShownRevealInfoSheetKey)
         for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(revealToastKeyPrefix) {
             defaults.removeObject(forKey: key)
@@ -282,6 +290,15 @@ class ConversationViewModel {
         guard !hasShownPhotosInfoSheet else { return }
         hasShownPhotosInfoSheet = true
         presentingPhotosInfoSheet = true
+    }
+
+    func onRequestAssistantJoin() {
+        guard !hasShownAssistantConfirmation else {
+            requestAssistantJoin()
+            return
+        }
+        hasShownAssistantConfirmation = true
+        presentingAssistantConfirmation = true
     }
 
     var shouldBlurPhotos: Bool {

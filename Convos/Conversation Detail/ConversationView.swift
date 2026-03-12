@@ -87,7 +87,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     viewModel.presentingShareView = true
                 }
             },
-            onInviteAssistant: { viewModel.requestAssistantJoin() },
+            onInviteAssistant: { viewModel.onRequestAssistantJoin() },
             hasAssistant: viewModel.conversation.hasAssistant,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
@@ -178,7 +178,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                 viewModel.copyInviteLink()
                             },
                             onInviteAssistant: {
-                                viewModel.requestAssistantJoin()
+                                viewModel.onRequestAssistantJoin()
                             }
                         )
                     case .scan:
@@ -205,6 +205,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $showingAssistantsInfo) {
             AssistantsInfoView()
                 .padding(.top, 20)
+        }
+        .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
+            AssistantsInfoView(
+                isConfirmation: true,
+                onConfirm: { viewModel.requestAssistantJoin() }
+            )
+            .padding(.top, 20)
         }
         .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
             AssistantProcessingPowerInfoView()
