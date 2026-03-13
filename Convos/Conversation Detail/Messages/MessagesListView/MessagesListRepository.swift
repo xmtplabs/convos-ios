@@ -112,7 +112,12 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .delay(for: .seconds(remaining), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let reprocessed = MessagesListProcessor.process(self.lastRawMessages, readReceipts: self.lastReadReceipts, memberProfiles: self.lastMemberProfiles, sendReadReceipts: self.sendReadReceipts)
+                let reprocessed = MessagesListProcessor.process(
+                    self.lastRawMessages,
+                    readReceipts: self.lastReadReceipts,
+                    memberProfiles: self.lastMemberProfiles,
+                    sendReadReceipts: self.sendReadReceipts
+                )
                 self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
                 self.messagesListSubject.send(reprocessed)
             }

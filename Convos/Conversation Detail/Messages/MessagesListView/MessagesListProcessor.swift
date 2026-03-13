@@ -12,13 +12,38 @@ final class MessagesListProcessor {
     /// Transforms messages into display items for the messages list
     /// - Parameter messages: Array of messages from the repository (already sorted by sortId)
     /// - Returns: Array of items ready for display in the messages list
-    static func process(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0, sendReadReceipts: Bool = true) -> [MessagesListItemType] {
+    static func process(
+        _ messages: [AnyMessage],
+        readReceipts: [ReadReceiptEntry] = [],
+        memberProfiles: [String: MemberProfileInfo] = [:],
+        currentOtherMemberCount: Int = 0,
+        sendReadReceipts: Bool = true
+    ) -> [MessagesListItemType] {
         let visibleMessages = messages.filter { $0.base.content.showsInMessagesList }
-        return processMessages(visibleMessages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: currentOtherMemberCount, sendReadReceipts: sendReadReceipts)
+        return processMessages(
+            visibleMessages,
+            readReceipts: readReceipts,
+            memberProfiles: memberProfiles,
+            currentOtherMemberCount: currentOtherMemberCount,
+            sendReadReceipts: sendReadReceipts
+        )
     }
 
-    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false, readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0, sendReadReceipts: Bool = true) -> [MessagesListItemType] {
-        return process(messages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: currentOtherMemberCount, sendReadReceipts: sendReadReceipts)
+    static func processWithPagination(
+        _ messages: [AnyMessage],
+        isLoadingPrevious: Bool = false,
+        readReceipts: [ReadReceiptEntry] = [],
+        memberProfiles: [String: MemberProfileInfo] = [:],
+        currentOtherMemberCount: Int = 0,
+        sendReadReceipts: Bool = true
+    ) -> [MessagesListItemType] {
+        return process(
+            messages,
+            readReceipts: readReceipts,
+            memberProfiles: memberProfiles,
+            currentOtherMemberCount: currentOtherMemberCount,
+            sendReadReceipts: sendReadReceipts
+        )
     }
 
     // MARK: - Private Methods
@@ -36,8 +61,14 @@ final class MessagesListProcessor {
         }
     }
 
-    // swiftlint:disable:next cyclomatic_complexity
-    private static func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0, sendReadReceipts: Bool = true) -> [MessagesListItemType] {
+    // swiftlint:disable:next function_body_length cyclomatic_complexity
+    private static func processMessages(
+        _ messages: [AnyMessage],
+        readReceipts: [ReadReceiptEntry] = [],
+        memberProfiles: [String: MemberProfileInfo] = [:],
+        currentOtherMemberCount: Int = 0,
+        sendReadReceipts: Bool = true
+    ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
         let lastAssistantJoinIndex: Int? = {
