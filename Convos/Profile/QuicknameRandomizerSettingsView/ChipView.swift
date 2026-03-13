@@ -70,16 +70,20 @@ struct ChipView: View {
             }
         )
         .zIndex(isSelected ? 100 : 0)
-        .background(
-            RoundedRectangle(cornerRadius: isSelected ? 0.0 : DesignConstants.CornerRadius.large)
-                .fill(isSelected ? Color.colorBorderSubtle2 : Color.colorBackgroundSurfaceless)
-                .overlay(
-                    RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
-                        .inset(by: 0.5)
-                        .stroke(Color.colorBorderSubtle2,
-                                lineWidth: isSelected ? 0.0 : 1.0)
-                )
-        )
+        .background(chipBackground)
+    }
+
+    private var chipBackground: some View {
+        let cornerRadius: CGFloat = isSelected ? 0.0 : DesignConstants.CornerRadius.large
+        let fillColor: Color = isSelected ? .colorBorderSubtle2 : .colorBackgroundSurfaceless
+        let strokeWidth: CGFloat = isSelected ? 0.0 : 1.0
+        return RoundedRectangle(cornerRadius: cornerRadius)
+            .fill(fillColor)
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.large)
+                    .inset(by: 0.5)
+                    .stroke(Color.colorBorderSubtle2, lineWidth: strokeWidth)
+            )
     }
 }
 

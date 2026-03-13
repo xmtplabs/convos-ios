@@ -16,7 +16,7 @@ final class ConversationsViewController: UIViewController {
         var hasCreatedMoreThanOneConvo: Bool
         var horizontalSizeClass: UserInterfaceSizeClass?
 
-        var shouldShowEmptyCTA: Bool {
+        @MainActor var shouldShowEmptyCTA: Bool {
             unpinnedConversations.count == 1 &&
             !hasCreatedMoreThanOneConvo &&
             UIDevice.current.userInterfaceIdiom == .phone
