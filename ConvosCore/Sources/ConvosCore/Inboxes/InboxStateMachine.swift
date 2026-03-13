@@ -1105,7 +1105,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 ProfileUpdateCodec(),
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
-                AssistantJoinRequestCodec()
+                AssistantJoinRequestCodec(),
+                TypingIndicatorCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,
