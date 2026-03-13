@@ -136,13 +136,13 @@ public final class MockMessagesRepository: MessagesRepositoryProtocol, @unchecke
     }
 
     public var conversationMessagesResultPublisher: AnyPublisher<ConversationMessagesResult, Never> {
-        Just(ConversationMessagesResult(conversationId: conversationId, messages: mockMessages, readReceipts: []))
+        Just(ConversationMessagesResult(conversationId: conversationId, messages: mockMessages, readReceipts: [], memberProfiles: [:]))
             .eraseToAnyPublisher()
     }
 
     public func fetchInitialResult() throws -> ConversationMessagesResult {
         let messages = try fetchInitial()
-        return ConversationMessagesResult(conversationId: conversationId, messages: messages, readReceipts: [])
+        return ConversationMessagesResult(conversationId: conversationId, messages: messages, readReceipts: [], memberProfiles: [:])
     }
 }
 

@@ -7,13 +7,15 @@ public final class MessagesListProcessor: Sendable {
         _ messages: [AnyMessage],
         otherMemberCount: Int = 0,
         voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:],
-        readReceipts: [ReadReceiptEntry] = []
+        readReceipts: [ReadReceiptEntry] = [],
+        memberProfiles: [String: MemberProfileInfo] = [:]
     ) -> [MessagesListItemType] {
         return processMessages(
             messages,
             otherMemberCount: otherMemberCount,
             voiceMemoTranscripts: voiceMemoTranscripts,
-            readReceipts: readReceipts
+            readReceipts: readReceipts,
+            memberProfiles: memberProfiles
         )
     }
 
@@ -22,7 +24,8 @@ public final class MessagesListProcessor: Sendable {
         _ messages: [AnyMessage],
         otherMemberCount: Int = 0,
         voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:],
-        readReceipts: [ReadReceiptEntry] = []
+        readReceipts: [ReadReceiptEntry] = [],
+        memberProfiles: [String: MemberProfileInfo] = [:]
     ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
@@ -209,7 +212,8 @@ public final class MessagesListProcessor: Sendable {
 
             if let lastMsg = group.messages.last,
                lastMsg.status == .published,
-               !readReceipts.isEmpty {
+               !readReceipts.isEmpty,
+               GlobalConvoDefaults.shared.sendReadReceipts {
                 let msgDateNs = Int64(lastMsg.date.timeIntervalSince1970 * 1_000_000_000)
                 let senderInboxId = group.sender.profile.inboxId
                 let readInboxIds = Set(
@@ -218,8 +222,11 @@ public final class MessagesListProcessor: Sendable {
                         .map(\.inboxId)
                 )
                 if !readInboxIds.isEmpty {
-                    let profiles = readInboxIds.compactMap { inboxId in
-                        messages.lazy
+                    let profiles: [Profile] = readInboxIds.compactMap { inboxId in
+                        if let info = memberProfiles[inboxId] {
+                            return Profile(inboxId: info.inboxId, name: info.name, avatar: info.avatar)
+                        }
+                        return messages.lazy
                             .compactMap { $0.sender.profile.inboxId == inboxId ? $0.sender.profile : nil }
                             .first
                     }
