@@ -54,6 +54,7 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
     ) async throws -> String
 
     func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws
+    func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws
 }
 
 public extension MessagingServiceProtocol {

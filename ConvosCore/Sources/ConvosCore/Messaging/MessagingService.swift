@@ -241,4 +241,12 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
 
         try await localStateWriter.setMuted(!enabled, for: conversationId)
     }
+
+    func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
+        let result = try await inboxStateManager.waitForInboxReadyResult()
+        guard let sender = try await result.client.messageSender(for: conversationId) else {
+            return
+        }
+        try await sender.sendTypingIndicator(isTyping: isTyping)
+    }
 }
