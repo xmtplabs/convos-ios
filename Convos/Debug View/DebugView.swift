@@ -146,6 +146,14 @@ struct DebugViewSection: View {
                         ProgressView()
                     }
                 }
+
+                NavigationLink {
+                    VaultKeySyncDebugView(environment: environment, session: session)
+                } label: {
+                    Text("Vault key sync")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .accessibilityIdentifier("vault-key-sync-debug-row")
             }
 
             Section("Sentry Testing") {
