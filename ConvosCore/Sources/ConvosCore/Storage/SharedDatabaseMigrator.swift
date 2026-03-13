@@ -446,6 +446,27 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addReadReceiptsCascadeDelete") { db in
+            try db.create(table: "conversation_read_receipts_new") { t in
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("inboxId", .text).notNull()
+                t.column("readAtNs", .integer).notNull()
+                t.primaryKey(["conversationId", "inboxId"])
+            }
+            try db.execute(sql: """
+                INSERT INTO conversation_read_receipts_new
+                SELECT * FROM conversation_read_receipts
+            """)
+            try db.drop(table: "conversation_read_receipts")
+            try db.rename(table: "conversation_read_receipts_new", to: "conversation_read_receipts")
+            try db.create(
+                index: "idx_read_receipts_conversation",
+                on: "conversation_read_receipts",
+                columns: ["conversationId"]
+            )
+        }
+
         return migrator
     }
 }
