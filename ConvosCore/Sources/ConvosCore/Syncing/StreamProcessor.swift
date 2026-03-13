@@ -27,6 +27,7 @@ protocol StreamProcessorProtocol: Actor {
     ) async
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void)
 }
 
 extension StreamProcessorProtocol {
@@ -72,6 +73,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let notificationCenter: any UserNotificationCenterProtocol
     private let consentStates: [ConsentState] = [.allowed, .unknown]
     private var inviteJoinErrorHandler: (any InviteJoinErrorHandler)?
+    private var onTypingIndicator: ((String, String, Bool) -> Void)?
 
     // MARK: - Initialization
 
@@ -106,6 +108,10 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) {
         self.inviteJoinErrorHandler = handler
+    }
+
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) {
+        self.onTypingIndicator = handler
     }
 
     func processConversation(
@@ -218,6 +224,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    if processTypingIndicator(message, conversationId: conversation.id, params: params) {
+                        return
+                    }
+
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
                     // Mark unread if needed
@@ -256,6 +266,29 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Profile Messages
+
+    private func processTypingIndicator(
+        _ message: DecodedMessage,
+        conversationId: String,
+        params: SyncClientParams
+    ) -> Bool {
+        guard let contentType = try? message.encodedContent.type,
+              contentType == ContentTypeTypingIndicator else {
+            return false
+        }
+
+        guard message.senderInboxId != params.client.inboxId else {
+            return true
+        }
+
+        guard let content = try? TypingIndicatorCodec().decode(content: message.encodedContent) else {
+            Log.warning("Failed to decode TypingIndicator from message \(message.id)")
+            return true
+        }
+
+        onTypingIndicator?(conversationId, message.senderInboxId, content.isTyping)
+        return true
+    }
 
     private func processProfileMessage(_ message: DecodedMessage, conversationId: String) async -> Bool {
         guard let contentType = try? message.encodedContent.type else {
