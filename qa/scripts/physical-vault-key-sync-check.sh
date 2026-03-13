@@ -178,6 +178,7 @@ require_command ideviceinfo
 require_command idevicesyslog
 require_command xcrun
 require_command python3
+require_command stdbuf
 
 UDID="$(resolve_udid "$DEVICE_INPUT" || true)"
 if [[ -z "$UDID" ]]; then
