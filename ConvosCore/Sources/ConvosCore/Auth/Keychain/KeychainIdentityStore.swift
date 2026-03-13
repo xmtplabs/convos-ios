@@ -35,11 +35,6 @@ public struct KeychainIdentityKeys: Codable, XMTPClientKeys, Sendable {
         self.databaseKey = databaseKey
     }
 
-    public init(privateKeyData: Data, databaseKey: Data) throws {
-        self.privateKey = try PrivateKey(privateKeyData)
-        self.databaseKey = databaseKey
-    }
-
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         databaseKey = try container.decode(Data.self, forKey: .databaseKey)
@@ -143,6 +138,7 @@ private struct KeychainQuery {
     let service: String
     let accessGroup: String
     let accessible: CFString
+    let accessControl: SecAccessControl?
     let clientId: String?
 
     init(
@@ -150,12 +146,14 @@ private struct KeychainQuery {
         service: String,
         accessGroup: String,
         accessible: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        accessControl: SecAccessControl? = nil,
         clientId: String? = nil
     ) {
         self.account = account
         self.service = service
         self.accessGroup = accessGroup
         self.accessible = accessible
+        self.accessControl = accessControl
         self.clientId = clientId
     }
 
@@ -164,12 +162,18 @@ private struct KeychainQuery {
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: account,
             kSecAttrService as String: service,
-            kSecAttrAccessGroup as String: accessGroup,
-            kSecAttrAccessible as String: accessible
+            kSecAttrAccessGroup as String: accessGroup
         ]
 
+        // Add clientId as generic attribute for direct lookup
         if let clientId = clientId, let clientIdData = clientId.data(using: .utf8) {
             query[kSecAttrGeneric as String] = clientIdData
+        }
+
+        if let accessControl = accessControl {
+            query[kSecAttrAccessControl as String] = accessControl
+        } else {
+            query[kSecAttrAccessible as String] = accessible
         }
 
         return query
@@ -187,12 +191,12 @@ private struct KeychainQuery {
 
 public protocol KeychainIdentityStoreProtocol: Actor {
     func generateKeys() throws -> KeychainIdentityKeys
-    func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) async throws -> KeychainIdentity
-    func identity(for inboxId: String) async throws -> KeychainIdentity
-    func loadAll() async throws -> [KeychainIdentity]
-    func delete(inboxId: String) async throws
-    func delete(clientId: String) async throws -> KeychainIdentity
-    func deleteAll() async throws
+    func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity
+    func identity(for inboxId: String) throws -> KeychainIdentity
+    func loadAll() throws -> [KeychainIdentity]
+    func delete(inboxId: String) throws
+    func delete(clientId: String) throws -> KeychainIdentity
+    func deleteAll() throws
 }
 
 /// Secure storage for XMTP identity keys in device keychain
@@ -204,134 +208,22 @@ public protocol KeychainIdentityStoreProtocol: Actor {
 /// - Private key for XMTP message signing
 /// - Database encryption key for local XMTP database
 ///
-/// Keys are stored in the app group keychain with configurable protection level.
-/// Enforces clientId uniqueness to prevent duplicate identities.
+/// Keys are stored in the app group keychain with AfterFirstUnlock protection,
+/// allowing access to the notification extension. Enforces clientId uniqueness
+/// to prevent duplicate identities.
 public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Properties
 
     private let keychainService: String
     private let keychainAccessGroup: String
-    private let accessibility: CFString
 
-    public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
-    public static let icloudService: String = "org.convos.ios.KeychainIdentityStore.v2.icloud"
-    private static let localFormatMigrationKey: String = "KeychainIdentityStore.localFormatMigrationComplete"
+    static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
 
     // MARK: - Initialization
 
-    public init(
-        accessGroup: String,
-        service: String = KeychainIdentityStore.defaultService,
-        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    ) {
+    public init(accessGroup: String) {
         self.keychainAccessGroup = accessGroup
-        self.keychainService = service
-        self.accessibility = accessibility
-    }
-
-    /// Migrates existing keychain items from `SecAccessControl` to plain `kSecAttrAccessible`.
-    ///
-    /// Call once at app launch before creating the store. Items stored with `SecAccessControl`
-    /// (empty flags) are functionally identical to plain `kSecAttrAccessible` but cannot have
-    /// their accessibility updated in-place via `SecItemUpdate`. This migration deletes and
-    /// re-adds each item with plain `kSecAttrAccessible` to enable future in-place updates.
-    ///
-    /// This is `nonisolated` and `static` so it can be called synchronously at app launch.
-    private nonisolated static let migrationLock: NSLock = .init()
-
-    public nonisolated static func migrateToPlainAccessibilityIfNeeded(
-        accessGroup: String,
-        service: String = defaultService,
-        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    ) {
-        migrationLock.lock()
-        defer { migrationLock.unlock() }
-
-        guard !UserDefaults.standard.bool(forKey: localFormatMigrationKey) else { return }
-
-        let loadQuery: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccessGroup as String: accessGroup,
-            kSecMatchLimit as String: kSecMatchLimitAll,
-            kSecReturnData as String: true,
-            kSecReturnAttributes as String: true
-        ]
-
-        var result: CFTypeRef?
-        let loadStatus = SecItemCopyMatching(loadQuery as CFDictionary, &result)
-
-        guard loadStatus == errSecSuccess, let items = result as? [[String: Any]] else {
-            if loadStatus == errSecItemNotFound {
-                UserDefaults.standard.set(true, forKey: localFormatMigrationKey)
-                Log.info("Keychain format migration: no items to migrate")
-            } else {
-                Log.error("Keychain format migration: failed to load items, status: \(loadStatus)")
-            }
-            return
-        }
-
-        Log.info("Keychain format migration: migrating \(items.count) item(s)")
-
-        var migratedCount = 0
-        for item in items {
-            guard let account = item[kSecAttrAccount as String] as? String,
-                  let data = item[kSecValueData as String] as? Data else {
-                Log.warning("Keychain format migration: skipping item with missing account or data")
-                continue
-            }
-
-            var addQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: "\(account).migrated",
-                kSecAttrAccessible as String: accessibility,
-                kSecValueData as String: data
-            ]
-
-            if let genericData = item[kSecAttrGeneric as String] as? Data {
-                addQuery[kSecAttrGeneric as String] = genericData
-            }
-
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
-                Log.error("Keychain format migration: failed to add new item \(account), status: \(addStatus)")
-                continue
-            }
-
-            let deleteQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: account
-            ]
-            SecItemDelete(deleteQuery as CFDictionary)
-
-            if addStatus == errSecDuplicateItem {
-                migratedCount += 1
-                continue
-            }
-
-            let renameQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: "\(account).migrated"
-            ]
-            let renameAttrs: [String: Any] = [
-                kSecAttrAccount as String: account
-            ]
-            let renameStatus = SecItemUpdate(renameQuery as CFDictionary, renameAttrs as CFDictionary)
-            if renameStatus == errSecSuccess {
-                migratedCount += 1
-            } else {
-                Log.error("Keychain format migration: failed to rename item \(account), status: \(renameStatus)")
-            }
-        }
-
-        UserDefaults.standard.set(true, forKey: localFormatMigrationKey)
-        Log.info("Keychain format migration: completed, migrated \(migratedCount)/\(items.count) item(s)")
+        self.keychainService = Self.defaultService
     }
 
     // MARK: - Public Interface
@@ -354,8 +246,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         let query = KeychainQuery(
             account: inboxId,
             service: keychainService,
-            accessGroup: keychainAccessGroup,
-            accessible: accessibility
+            accessGroup: keychainAccessGroup
         )
         let data = try loadData(with: query)
         return try JSONDecoder().decode(KeychainIdentity.self, from: data)
@@ -364,6 +255,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Private lookup by clientId
 
     private func identity(forClientId clientId: String) throws -> KeychainIdentity {
+        // Query keychain directly using clientId as generic attribute
         guard let clientIdData = clientId.data(using: .utf8) else {
             throw KeychainIdentityStoreError.identityNotFound("Invalid clientId encoding: \(clientId)")
         }
@@ -388,10 +280,13 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             throw KeychainIdentityStoreError.keychainOperationFailed(status, "identity(forClientId:)")
         }
 
+        // Verify exactly one match exists
         let items: [Data]
         if let singleItem = result as? Data {
+            // Single item returned
             items = [singleItem]
         } else if let multipleItems = result as? [Data] {
+            // Multiple items returned
             items = multipleItems
         } else {
             throw KeychainIdentityStoreError.keychainOperationFailed(errSecUnknownFormat, "identity(forClientId:)")
@@ -440,15 +335,17 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         let query = KeychainQuery(
             account: inboxId,
             service: keychainService,
-            accessGroup: keychainAccessGroup,
-            accessible: accessibility
+            accessGroup: keychainAccessGroup
         )
 
         try deleteData(with: query)
     }
 
     public func delete(clientId: String) throws -> KeychainIdentity {
+        // Direct lookup using clientId as a keychain attribute
         let identity = try identity(forClientId: clientId)
+
+        // Delete using the inboxId (which is the account key in keychain)
         try delete(inboxId: identity.inboxId)
         return identity
     }
@@ -469,26 +366,42 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Private Methods
 
     private func save(identity: KeychainIdentity) throws {
+        // First, check if a different identity with the same clientId already exists
+        // This enforces clientId uniqueness before saving
         do {
             let existingIdentity = try self.identity(forClientId: identity.clientId)
 
+            // If we found an identity with this clientId, make sure it's the same inboxId
+            // (updating the same identity is OK, but a different identity with same clientId is not)
             if existingIdentity.inboxId != identity.inboxId {
                 throw KeychainIdentityStoreError.duplicateClientId(
                     identity.clientId,
-                    2
+                    2 // At least 2: the existing one and the one we're trying to save
                 )
             }
+            // If inboxId matches, we're updating the same identity, which is allowed
         } catch KeychainIdentityStoreError.identityNotFound {
-            // no existing identity with this clientId, proceed
+            // No existing identity with this clientId - good, we can proceed
         }
 
         let data = try JSONEncoder().encode(identity)
+
+        // Create access control for enhanced security
+        guard let accessControl = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            [],
+            nil
+        ) else {
+            throw KeychainIdentityStoreError.keychainOperationFailed(errSecNotAvailable, "create access control")
+        }
 
         let query = KeychainQuery(
             account: identity.inboxId,
             service: keychainService,
             accessGroup: keychainAccessGroup,
-            accessible: accessibility,
+            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            accessControl: accessControl,
             clientId: identity.clientId
         )
 
@@ -504,6 +417,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         let status = SecItemAdd(queryDict as CFDictionary, nil)
 
         if status == errSecDuplicateItem {
+            // Item exists, update it
             let updateQuery = query.toDictionary()
             let attributesToUpdate: [String: Any] = [kSecValueData as String: data]
 

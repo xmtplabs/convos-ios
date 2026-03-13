@@ -9,9 +9,7 @@ extension ConvosClient {
         let databaseManager = DatabaseManager(environment: environment)
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
-        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(accessGroup: environment.keychainAccessGroup)
-        let identityStore = ICloudIdentityStore(accessGroup: environment.keychainAccessGroup)
-        Task { await identityStore.syncLocalKeysToICloud() }
+        let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
         let sessionManager = SessionManager(
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
