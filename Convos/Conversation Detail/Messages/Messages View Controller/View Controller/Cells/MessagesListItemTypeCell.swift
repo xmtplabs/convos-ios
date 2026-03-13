@@ -158,6 +158,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                                 .padding(.horizontal, DesignConstants.Spacing.step4x)
                         }
                     }
+
+                case .typingIndicator:
+                    EmptyView()
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

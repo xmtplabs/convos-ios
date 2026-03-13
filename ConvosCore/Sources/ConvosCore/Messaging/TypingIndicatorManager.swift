@@ -14,17 +14,17 @@ public struct TypingMember: Equatable, Sendable {
 @Observable
 @MainActor
 public final class TypingIndicatorManager {
+    public static let shared: TypingIndicatorManager = .init()
+
     public var typingMembersByConversation: [String: [TypingMember]] = [:]
 
     private var expiryTasks: [String: [String: Task<Void, Never>]] = [:]
 
     private let expiryInterval: TimeInterval
 
-    private enum Constant {
-        static let defaultExpiryInterval: TimeInterval = 15
-    }
+    public static let defaultExpiryInterval: TimeInterval = 15
 
-    public init(expiryInterval: TimeInterval = Constant.defaultExpiryInterval) {
+    public init(expiryInterval: TimeInterval = TypingIndicatorManager.defaultExpiryInterval) {
         self.expiryInterval = expiryInterval
     }
 

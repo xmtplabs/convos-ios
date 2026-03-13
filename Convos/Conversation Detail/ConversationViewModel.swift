@@ -473,6 +473,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
+        observeTypingIndicators(TypingIndicatorManager.shared)
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
@@ -555,6 +556,7 @@ class ConversationViewModel {
 
     private func observe() {
         messagesListRepository.startObserving()
+        setupTypingIndicatorHandler()
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -1601,6 +1603,21 @@ extension ConversationViewModel {
     }
 
     // MARK: - Typing Indicators
+
+    private func setupTypingIndicatorHandler() {
+        let typingManager = TypingIndicatorManager.shared
+        Task {
+            await messagingService.inboxStateManager.setTypingIndicatorHandler { conversationId, senderInboxId, isTyping in
+                Task { @MainActor in
+                    typingManager.handleTypingEvent(
+                        conversationId: conversationId,
+                        senderInboxId: senderInboxId,
+                        isTyping: isTyping
+                    )
+                }
+            }
+        }
+    }
 
     func observeTypingIndicators(_ manager: TypingIndicatorManager) {
         withObservationTracking {
