@@ -44,6 +44,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 25 | `qa/tests/25-conversations-list-baseline.md` | Conversations list baseline for UICollectionView migration - captures all UI states and interactions |
 | 26 | `qa/tests/26-failed-message-send.md` | Failed message send: "Not Delivered" state, retry, and delete |
 | 27 | `qa/tests/27-send-receive-video.md` | Send and receive video messages, inline playback, blur/reveal, context menu, size limit |
+| 28 | `qa/tests/28-receive-file-attachments.md` | Receive file attachments (PDF, text, CSV, JSON), file bubble display, QuickLook preview, Save to Files |
 
 ## Running Tests
 
@@ -74,6 +75,7 @@ Recommended order:
 16. **17-swipe-actions** — tests mark read/unread swipe actions
 17. **20-send-receive-photos** — tests photo send/receive, blur/reveal, context menu
 18. **27-send-receive-video** — tests video send/receive, inline playback, blur/reveal
+19. **28-receive-file-attachments** — tests receiving file attachments from CLI, file bubble UI, QuickLook
 19. **19-profile-photo** — tests profile and group photos
 20. **15-performance** — performance baselines (run last, non-destructive)
 21. **18-delete-all-data** — wipes all data (run very last, destructive)
