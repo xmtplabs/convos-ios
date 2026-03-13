@@ -44,6 +44,10 @@ public final class TypingIndicatorManager {
         }
     }
 
+    public func handleMessageReceived(conversationId: String, senderInboxId: String) {
+        removeTyper(conversationId: conversationId, inboxId: senderInboxId)
+    }
+
     public func clearAll(for conversationId: String) {
         typingMembersByConversation.removeValue(forKey: conversationId)
         cancelAllExpiryTasks(for: conversationId)
