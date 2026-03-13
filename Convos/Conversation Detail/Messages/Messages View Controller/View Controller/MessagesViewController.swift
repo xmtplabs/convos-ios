@@ -858,6 +858,70 @@ extension MessagesViewController: KeyboardListenerDelegate {
     }
 }
 
+// MARK: - File Attachment QuickLook
+
+extension MessagesViewController: QLPreviewControllerDataSource {
+    private func openFileAttachment(_ attachment: HydratedAttachment) {
+        Task {
+            do {
+                let fileURL = try await loadFileForPreview(attachment)
+                let previewController = QLPreviewController()
+                filePreviewURL = fileURL
+                previewController.dataSource = self
+                present(previewController, animated: true)
+            } catch {
+                Log.error("Failed to open file attachment: \(error)")
+                let alert = UIAlertController(
+                    title: "File Unavailable",
+                    message: "This file is no longer available on this device.",
+                    preferredStyle: .alert
+                )
+                let okAction = UIAlertAction(title: "OK", style: .default)
+                alert.addAction(okAction)
+                present(alert, animated: true)
+            }
+        }
+    }
+
+    private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
+        let filename = attachment.filename ?? "attachment"
+
+        if attachment.key.hasPrefix("file://") {
+            let path = String(attachment.key.dropFirst("file://".count))
+            let sourceURL = URL(fileURLWithPath: path)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("preview_\(UUID().uuidString)")
+                .appendingPathComponent(filename)
+            try FileManager.default.createDirectory(
+                at: tempURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+            return tempURL
+        }
+
+        let loader = RemoteAttachmentLoader()
+        let loaded = try await loader.loadAttachmentData(from: attachment.key)
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("preview_\(UUID().uuidString)")
+            .appendingPathComponent(filename)
+        try FileManager.default.createDirectory(
+            at: tempURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try loaded.data.write(to: tempURL)
+        return tempURL
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+        filePreviewURL != nil ? 1 : 0
+    }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
+        (filePreviewURL ?? URL(fileURLWithPath: "")) as NSURL
+    }
+}
+
 // MARK: - UIGestureRecognizerDelegate
 
 extension MessagesViewController: UIGestureRecognizerDelegate {
