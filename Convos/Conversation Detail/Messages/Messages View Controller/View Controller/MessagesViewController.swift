@@ -842,6 +842,14 @@ extension MessagesViewController: QLPreviewControllerDataSource {
                 present(previewController, animated: true)
             } catch {
                 Log.error("Failed to open file attachment: \(error)")
+                let alert = UIAlertController(
+                    title: "File Unavailable",
+                    message: "This file is no longer available on this device.",
+                    preferredStyle: .alert
+                )
+                let okAction = UIAlertAction(title: "OK", style: .default)
+                alert.addAction(okAction)
+                present(alert, animated: true)
             }
         }
     }
