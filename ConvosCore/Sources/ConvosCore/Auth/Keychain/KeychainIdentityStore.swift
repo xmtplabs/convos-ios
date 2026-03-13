@@ -250,6 +250,120 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         return identity.inboxId
     }
 
+    private nonisolated static let migrationTemporarySuffix: String = ".migrated"
+
+    private nonisolated static func keychainAccountQuery(account: String, service: String, accessGroup: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrAccount as String: account
+        ]
+    }
+
+    private nonisolated static func keychainData(account: String, service: String, accessGroup: String) -> Data? {
+        var query = keychainAccountQuery(account: account, service: service, accessGroup: accessGroup)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess else {
+            return nil
+        }
+
+        return result as? Data
+    }
+
+    private nonisolated static func migrateItemToPlainAccessibility(
+        item: [String: Any],
+        service: String,
+        accessGroup: String,
+        accessibility: CFString
+    ) -> Bool {
+        guard let account = item[kSecAttrAccount as String] as? String,
+              let data = item[kSecValueData as String] as? Data else {
+            Log.warning("Keychain format migration: skipping item with missing account or data")
+            return false
+        }
+
+        let genericData = item[kSecAttrGeneric as String] as? Data
+        let targetAccount = migrationTargetAccount(account: account, data: data)
+
+        let isTemporarySource = account.hasSuffix(migrationTemporarySuffix)
+        let tempAccount = isTemporarySource ? account : "\(account)\(migrationTemporarySuffix)"
+
+        if !isTemporarySource {
+            var addQuery = keychainAccountQuery(account: tempAccount, service: service, accessGroup: accessGroup)
+            addQuery[kSecAttrAccessible as String] = accessibility
+            addQuery[kSecValueData as String] = data
+
+            if let genericData {
+                addQuery[kSecAttrGeneric as String] = genericData
+            }
+
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+                Log.error("Keychain format migration: failed to add new item \(account), status: \(addStatus)")
+                return false
+            }
+
+            let deleteStatus = SecItemDelete(
+                keychainAccountQuery(account: account, service: service, accessGroup: accessGroup) as CFDictionary
+            )
+            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+                Log.error("Keychain format migration: failed to delete old item \(account), status: \(deleteStatus)")
+                return false
+            }
+        }
+
+        guard tempAccount != targetAccount else {
+            return true
+        }
+
+        let renameStatus = SecItemUpdate(
+            keychainAccountQuery(account: tempAccount, service: service, accessGroup: accessGroup) as CFDictionary,
+            [kSecAttrAccount as String: targetAccount] as CFDictionary
+        )
+
+        if renameStatus == errSecSuccess {
+            return true
+        }
+
+        if renameStatus == errSecDuplicateItem {
+            guard let targetData = keychainData(account: targetAccount, service: service, accessGroup: accessGroup) else {
+                Log.error("Keychain format migration: duplicate target \(targetAccount) reported but not readable")
+                return false
+            }
+
+            guard targetData == data else {
+                Log.error("Keychain format migration: duplicate target \(targetAccount) has different data from \(account)")
+                return false
+            }
+
+            let cleanupStatus = SecItemDelete(
+                keychainAccountQuery(account: tempAccount, service: service, accessGroup: accessGroup) as CFDictionary
+            )
+            guard cleanupStatus == errSecSuccess || cleanupStatus == errSecItemNotFound else {
+                Log.error("Keychain format migration: failed to remove redundant migrated item \(tempAccount), status: \(cleanupStatus)")
+                return false
+            }
+
+            Log.info("Keychain format migration: removed redundant migrated item \(tempAccount)")
+            return true
+        }
+
+        if renameStatus == errSecItemNotFound,
+           let targetData = keychainData(account: targetAccount, service: service, accessGroup: accessGroup),
+           targetData == data {
+            return true
+        }
+
+        Log.error("Keychain format migration: failed to rename item \(account) to \(targetAccount), status: \(renameStatus). Keeping migrated copy for retry")
+        return false
+    }
+
     public nonisolated static func migrateToPlainAccessibilityIfNeeded(
         accessGroup: String,
         service: String = defaultService,
@@ -289,64 +403,15 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         var failedCount = 0
 
         for item in items {
-            guard let account = item[kSecAttrAccount as String] as? String,
-                  let data = item[kSecValueData as String] as? Data else {
-                failedCount += 1
-                Log.warning("Keychain format migration: skipping item with missing account or data")
-                continue
-            }
-
-            let targetAccount = migrationTargetAccount(account: account, data: data)
-            let tempAccount = "\(account).migrated"
-
-            var addQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: tempAccount,
-                kSecAttrAccessible as String: accessibility,
-                kSecValueData as String: data
-            ]
-
-            if let genericData = item[kSecAttrGeneric as String] as? Data {
-                addQuery[kSecAttrGeneric as String] = genericData
-            }
-
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
-                failedCount += 1
-                Log.error("Keychain format migration: failed to add new item \(account), status: \(addStatus)")
-                continue
-            }
-
-            let deleteQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: account
-            ]
-            let deleteStatus = SecItemDelete(deleteQuery as CFDictionary)
-            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
-                failedCount += 1
-                Log.error("Keychain format migration: failed to delete old item \(account), status: \(deleteStatus)")
-                continue
-            }
-
-            let renameQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: tempAccount
-            ]
-            let renameAttrs: [String: Any] = [
-                kSecAttrAccount as String: targetAccount
-            ]
-            let renameStatus = SecItemUpdate(renameQuery as CFDictionary, renameAttrs as CFDictionary)
-            if renameStatus == errSecSuccess {
+            if migrateItemToPlainAccessibility(
+                item: item,
+                service: service,
+                accessGroup: accessGroup,
+                accessibility: accessibility
+            ) {
                 migratedCount += 1
             } else {
                 failedCount += 1
-                Log.error("Keychain format migration: failed to rename item \(account) to \(targetAccount), status: \(renameStatus). Keeping migrated copy for retry")
             }
         }
 

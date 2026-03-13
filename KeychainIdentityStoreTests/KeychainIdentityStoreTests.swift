@@ -420,7 +420,6 @@ import Testing
         let keys = try await keychainStore.generateKeys()
         let identity = try await keychainStore.save(inboxId: "recover-inbox", clientId: "recover-client", keys: keys)
         let identityData = try JSONEncoder().encode(identity)
-        try await keychainStore.delete(inboxId: "recover-inbox")
 
         let strandedAccount = "recover-inbox.migrated"
         let addStrandedQuery: [String: Any] = [
@@ -435,18 +434,13 @@ import Testing
         let addStatus = SecItemAdd(addStrandedQuery as CFDictionary, nil)
         #expect(addStatus == errSecSuccess)
 
-        do {
-            _ = try await keychainStore.identity(for: "recover-inbox")
-            #expect(Bool(false), "Expected lookup by canonical account to fail before migration")
-        } catch {
-            #expect(error is KeychainIdentityStoreError)
-        }
-
         KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
             accessGroup: testAccessGroup,
             service: service,
             accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         )
+
+        #expect(UserDefaults.standard.bool(forKey: migrationKey) == true)
 
         let recovered = try await keychainStore.identity(for: "recover-inbox")
         #expect(recovered.inboxId == "recover-inbox")
@@ -463,6 +457,18 @@ import Testing
         var strandedItem: CFTypeRef?
         let strandedStatus = SecItemCopyMatching(strandedLookupQuery as CFDictionary, &strandedItem)
         #expect(strandedStatus == errSecItemNotFound)
+
+        let nestedStrandedLookupQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: "recover-inbox.migrated.migrated",
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true
+        ]
+        var nestedStrandedItem: CFTypeRef?
+        let nestedStatus = SecItemCopyMatching(nestedStrandedLookupQuery as CFDictionary, &nestedStrandedItem)
+        #expect(nestedStatus == errSecItemNotFound)
 
         UserDefaults.standard.removeObject(forKey: migrationKey)
     }
@@ -482,6 +488,17 @@ import Testing
         )
         let canonicalData = try JSONEncoder().encode(canonicalIdentity)
 
+        guard var payload = try JSONSerialization.jsonObject(with: canonicalData) as? [String: Any],
+              var keysPayload = payload["keys"] as? [String: Any] else {
+            Issue.record("Failed to construct conflicting keychain payload")
+            return
+        }
+
+        keysPayload["databaseKey"] = Data("conflicting-db-key".utf8).base64EncodedString()
+        payload["keys"] = keysPayload
+
+        let conflictingData = try JSONSerialization.data(withJSONObject: payload)
+
         let addAliasQuery: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -489,7 +506,7 @@ import Testing
             kSecAttrAccount as String: "conflict-alias",
             kSecAttrGeneric as String: Data("conflict-client".utf8),
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            kSecValueData as String: canonicalData
+            kSecValueData as String: conflictingData
         ]
         let addAliasStatus = SecItemAdd(addAliasQuery as CFDictionary, nil)
         #expect(addAliasStatus == errSecSuccess)
