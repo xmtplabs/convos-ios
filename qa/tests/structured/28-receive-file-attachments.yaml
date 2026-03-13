@@ -1,0 +1,295 @@
+id: "28"
+name: "Receive File Attachments"
+description: >
+  Verify that generic file attachments (PDF, text, CSV, JSON) sent from
+  the CLI are received and displayed correctly as compact file bubbles
+  matching the iMessage design: file type icon on the left, filename and
+  type/size on the right, within the message bubble. Tapping opens
+  QuickLook for full-screen viewing. Context menu offers Save to Files
+  and Share.
+tags: [messaging, files, attachments, core]
+depends_on: ["20"]
+estimated_duration_s: 300
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  shared_conversation: false
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  invite_url: null
+
+setup:
+  - action: cli_reset
+    note: >
+      convos reset && convos init --env dev --force
+  - action: create_test_files
+    note: >
+      Create test files on disk:
+
+      # PDF
+      python3 -c "
+      import struct
+      pdf = b'%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n4 0 obj<</Length 44>>stream\nBT /F1 24 Tf 100 700 Td (Hello from Agent!) Tj ET\nendstream\nendobj\n5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\nxref\n0 6\ntrailer<</Size 6/Root 1 0 R>>\nstartxref\n0\n%%EOF'
+      open('/tmp/test-document.pdf','wb').write(pdf)
+      "
+
+      # Text
+      echo "Hello, this is a plain text document sent by an AI assistant.\nIt contains multiple lines of text.\nLine 3." > /tmp/test-notes.txt
+
+      # CSV
+      printf "name,age,city\nAlice,30,NYC\nBob,25,London\nCharlie,35,Tokyo\n" > /tmp/test-data.csv
+
+      # JSON
+      echo '{"name": "Assistant Config", "version": "1.0", "features": ["chat", "files", "code"]}' > /tmp/test-config.json
+  - action: cli_create_conversation
+    args: { name: "File Test", profile_name: "Agent" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.invite_url
+  - action: open_deep_link
+    args: { url: "$invite_url" }
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id", watch: true, timeout: 30 }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+
+steps:
+  - id: receive_pdf
+    name: "Receive a PDF from CLI"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/test-document.pdf"
+      - wait_for_element: { id: "file-attachment-bubble", timeout: 30 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "file-attachment-bubble" }
+      - element_exists: { id: "file-attachment-filename" }
+      - visual_check: >
+          File bubble shows a PDF-style icon on the left, filename
+          "test-document.pdf" in bold, and a type/size subtitle. The
+          bubble fits within the standard message area. Sender avatar
+          is visible.
+    criteria: pdf_displays_as_file_bubble
+    note: >
+      The CLI auto-detects mime type as application/pdf. The file is small
+      enough to send inline (under 1MB). The app should display it as a
+      compact file bubble, not as a photo placeholder.
+
+  - id: receive_text_file
+    name: "Receive a text file from CLI"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/test-notes.txt"
+      - wait_for_element: { id: "file-attachment-bubble", timeout: 30 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "file-attachment-bubble" }
+      - visual_check: >
+          Text file bubble shows a document icon, filename "test-notes.txt",
+          and type/size subtitle.
+    criteria: text_file_displays_as_file_bubble
+
+  - id: receive_csv_file
+    name: "Receive a CSV file from CLI"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/test-data.csv"
+      - wait_for_element: { id: "file-attachment-bubble", timeout: 30 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "file-attachment-bubble" }
+      - visual_check: >
+          CSV file bubble shows a spreadsheet-style icon, filename
+          "test-data.csv", and type/size subtitle.
+    criteria: csv_file_displays_as_file_bubble
+
+  - id: receive_json_file
+    name: "Receive a JSON file from CLI"
+    actions:
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/test-config.json"
+      - wait_for_element: { id: "file-attachment-bubble", timeout: 30 }
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "file-attachment-bubble" }
+      - visual_check: >
+          JSON file bubble shows a code-style icon, filename
+          "test-config.json", and type/size subtitle.
+    criteria: json_file_displays_as_file_bubble
+
+  - id: tap_pdf_opens_quicklook
+    name: "Tap PDF to open in QuickLook"
+    actions:
+      - scroll_to: { id: "file-attachment-filename", label_contains: "test-document.pdf" }
+      - tap: { id: "file-attachment-bubble" }
+        note: Tap the PDF file bubble
+      - wait: { seconds: 3 }
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          A full-screen QuickLook preview opens showing the PDF content
+          (the text "Hello from Agent!" should be visible). A share button
+          and Done button are in the toolbar.
+    criteria: tap_opens_quicklook_pdf
+    note: >
+      The file must be downloaded and decrypted first, then saved to a temp
+      file with the correct .pdf extension for QuickLook to render it.
+      A loading indicator should show during download.
+
+  - id: dismiss_quicklook
+    name: "Dismiss QuickLook"
+    actions:
+      - tap: { label: "Done" }
+        note: Tap Done button in QuickLook toolbar
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: quicklook_dismissable
+
+  - id: tap_text_file_quicklook
+    name: "Tap text file to open in QuickLook"
+    actions:
+      - scroll_to: { id: "file-attachment-filename", label_contains: "test-notes.txt" }
+      - tap: { id: "file-attachment-bubble" }
+      - wait: { seconds: 3 }
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          QuickLook displays the text content: "Hello, this is a plain text
+          document sent by an AI assistant."
+    criteria: tap_opens_quicklook_text
+    actions_after:
+      - tap: { label: "Done" }
+
+  - id: file_context_menu
+    name: "File context menu shows correct options"
+    actions:
+      - scroll_to: { id: "file-attachment-filename", label_contains: "test-document.pdf" }
+      - long_press: { id: "file-attachment-bubble", duration: 0.5 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label: "Reply" }
+      - element_exists: { label: "Save to Files" }
+      - element_exists: { label: "Share" }
+    criteria: file_context_menu_correct
+    note: >
+      File context menu should show Reply, Save to Files, and Share. It should
+      NOT show Blur/Reveal (files don't have visual content to blur) or Save
+      (which is for saving images to Photos).
+
+  - id: dismiss_context_menu
+    name: "Dismiss context menu"
+    actions:
+      - key: { code: 41 }
+    verify: []
+    criteria: context_menu_dismissable
+
+  - id: save_to_files
+    name: "Save to Files from context menu"
+    actions:
+      - long_press: { id: "file-attachment-bubble", duration: 0.5 }
+      - tap: { label: "Save to Files" }
+      - wait: { seconds: 2 }
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          The iOS document picker (Files) opens showing the file ready
+          to save. The filename is preserved (test-document.pdf).
+    criteria: save_to_files_works
+    actions_after:
+      - tap: { label: "Cancel" }
+        note: Dismiss the document picker
+
+  - id: share_file
+    name: "Share file from context menu"
+    actions:
+      - long_press: { id: "file-attachment-bubble", duration: 0.5 }
+      - tap: { label: "Share" }
+      - wait: { seconds: 2 }
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          The standard iOS share sheet opens with the file. AirDrop, Messages,
+          and other share targets are visible.
+    criteria: share_file_works
+    actions_after:
+      - tap: { label: "Close" }
+        note: Dismiss share sheet
+
+  - id: conversation_list_preview
+    name: "Conversation list shows file preview"
+    actions:
+      - navigate_back: {}
+      - wait_for_element: { label_contains: "File Test", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          The conversation list entry for "File Test" shows a preview that
+          includes the filename (e.g., "test-config.json") or "sent a file"
+          rather than "sent a photo".
+    criteria: list_preview_shows_filename
+
+  - id: photo_video_still_work
+    name: "Photo and video messages still render correctly"
+    actions:
+      - navigate_to_conversation: { label: "File Test" }
+      - cli_send_attachment:
+          conversation: "$conversation_id"
+          path: "/tmp/test-photo.jpg"
+          note: >
+            If a test photo exists at /tmp/test-photo.jpg, send it. Otherwise
+            skip this step — the goal is to verify that file support doesn't
+            break existing photo rendering.
+      - wait: { seconds: 5 }
+      - screenshot: {}
+    verify:
+      - visual_check: >
+          If a photo was sent, it renders as a full-bleed image (not as a
+          file bubble). File messages and photo messages coexist correctly.
+    criteria: photos_still_render_correctly
+    note: >
+      This is a regression check. Photos should continue to render as
+      full-width images with blur/reveal treatment, not as file bubbles.
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  pdf_displays_as_file_bubble:
+    description: "PDF from CLI renders as compact file bubble with icon, filename, type, size"
+  text_file_displays_as_file_bubble:
+    description: "Text file from CLI renders as compact file bubble"
+  csv_file_displays_as_file_bubble:
+    description: "CSV file from CLI renders as compact file bubble"
+  json_file_displays_as_file_bubble:
+    description: "JSON file from CLI renders as compact file bubble"
+  tap_opens_quicklook_pdf:
+    description: "Tapping PDF file bubble opens full-screen QuickLook preview"
+  quicklook_dismissable:
+    description: "QuickLook preview can be dismissed"
+  tap_opens_quicklook_text:
+    description: "Tapping text file opens QuickLook showing text content"
+  file_context_menu_correct:
+    description: "File context menu shows Reply, Save to Files, Share"
+  context_menu_dismissable:
+    description: "Context menu can be dismissed"
+  save_to_files_works:
+    description: "Save to Files opens document picker with correct filename"
+  share_file_works:
+    description: "Share opens standard iOS share sheet with the file"
+  list_preview_shows_filename:
+    description: "Conversation list shows filename or 'sent a file' for file messages"
+  photos_still_render_correctly:
+    description: "Photo/video messages still render as images, not file bubbles"
