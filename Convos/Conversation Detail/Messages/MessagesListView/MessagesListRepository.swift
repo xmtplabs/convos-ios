@@ -9,15 +9,9 @@ protocol MessagesListRepositoryProtocol {
     var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> { get }
 
     func startObserving()
-
-    /// Fetches the initial page of messages (most recent messages)
     func fetchInitial() throws -> [MessagesListItemType]
-
-    /// Fetches previous (older) messages
-    /// Results are delivered through the messagesListPublisher
     func fetchPrevious() throws
 
-    /// Indicates if there are more messages to load
     var hasMoreMessages: Bool { get }
 }
 
@@ -38,10 +32,10 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     }
 
     var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> {
-        messagesRepository.conversationMessagesPublisher
-            .map { [weak self] conversationId, messages in
-                let processedMessages = self?.processMessages(messages) ?? []
-                return (conversationId, processedMessages)
+        messagesRepository.conversationMessagesResultPublisher
+            .map { [weak self] result in
+                let processedMessages = self?.processMessages(result.messages, readReceipts: result.readReceipts) ?? []
+                return (result.conversationId, processedMessages)
             }
             .handleEvents(receiveOutput: { [weak self] _, processedMessages in
                 self?.messagesListSubject.send(processedMessages)
@@ -60,9 +54,9 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     func startObserving() {
         guard !hasStartedObserving else { return }
         hasStartedObserving = true
-        messagesRepository.messagesPublisher
-            .map { [weak self] messages in
-                self?.processMessages(messages) ?? []
+        messagesRepository.conversationMessagesResultPublisher
+            .map { [weak self] result in
+                self?.processMessages(result.messages, readReceipts: result.readReceipts) ?? []
             }
             .sink { [weak self] processedMessages in
                 self?.messagesListSubject.send(processedMessages)
@@ -73,8 +67,8 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     // MARK: - Public Methods
 
     func fetchInitial() throws -> [MessagesListItemType] {
-        let messages = try messagesRepository.fetchInitial()
-        return processMessages(messages)
+        let result = try messagesRepository.fetchInitialResult()
+        return processMessages(result.messages, readReceipts: result.readReceipts)
     }
 
     func fetchPrevious() throws {
@@ -88,9 +82,12 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     // MARK: - Private Methods
 
-    private func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
+    private var lastReadReceipts: [ReadReceiptEntry] = []
+
+    private func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = []) -> [MessagesListItemType] {
         lastRawMessages = messages
-        let items = MessagesListProcessor.process(messages)
+        lastReadReceipts = readReceipts
+        let items = MessagesListProcessor.process(messages, readReceipts: readReceipts)
         scheduleAssistantJoinDismissIfNeeded(items)
         return items
     }
@@ -109,7 +106,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .delay(for: .seconds(remaining), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let reprocessed = MessagesListProcessor.process(self.lastRawMessages)
+                let reprocessed = MessagesListProcessor.process(self.lastRawMessages, readReceipts: self.lastReadReceipts)
                 self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
                 self.messagesListSubject.send(reprocessed)
             }

@@ -12,21 +12,13 @@ final class MessagesListProcessor {
     /// Transforms messages into display items for the messages list
     /// - Parameter messages: Array of messages from the repository (already sorted by sortId)
     /// - Returns: Array of items ready for display in the messages list
-    static func process(_ messages: [AnyMessage]) -> [MessagesListItemType] {
+    static func process(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = []) -> [MessagesListItemType] {
         let visibleMessages = messages.filter { $0.base.content.showsInMessagesList }
-        return processMessages(visibleMessages)
+        return processMessages(visibleMessages, readReceipts: readReceipts)
     }
 
-    /// Processes messages for pagination scenarios
-    /// When loading previous messages, this method ensures proper grouping and date handling
-    /// - Parameters:
-    ///   - messages: Array of all messages from the repository (including newly loaded)
-    ///   - isLoadingPrevious: Whether we're loading previous messages (affects date separator logic)
-    /// - Returns: Array of items ready for display in the messages list
-    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false) -> [MessagesListItemType] {
-        // Use the standard process method - it handles all messages properly
-        // The repository already ensures messages are in the correct order
-        return process(messages)
+    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false, readReceipts: [ReadReceiptEntry] = []) -> [MessagesListItemType] {
+        return process(messages, readReceipts: readReceipts)
     }
 
     // MARK: - Private Methods
@@ -45,7 +37,7 @@ final class MessagesListProcessor {
     }
 
     // swiftlint:disable:next cyclomatic_complexity
-    private static func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
+    private static func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = []) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
         let lastAssistantJoinIndex: Int? = {
@@ -151,12 +143,30 @@ final class MessagesListProcessor {
 
         if let lastCurrentUserIndex = lastMessageGroupSentByCurrentUserIndex,
            case .messages(let group) = items[lastCurrentUserIndex] {
-            let updatedGroup = MessagesGroup(
+            var readByProfiles: [Profile] = []
+            if let lastMessage = group.messages.last,
+               lastMessage.base.status == .published,
+               !readReceipts.isEmpty {
+                let messageDateNs = Int64(lastMessage.base.date.timeIntervalSince1970 * 1_000_000_000)
+                let currentInboxId = group.sender.profile.inboxId
+                let readInboxIds = Set(
+                    readReceipts
+                        .filter { $0.readAtNs >= messageDateNs && $0.inboxId != currentInboxId }
+                        .map(\.inboxId)
+                )
+                readByProfiles = readInboxIds.compactMap { inboxId in
+                    messages.lazy
+                        .compactMap { $0.base.sender.profile.inboxId == inboxId ? $0.base.sender.profile : nil }
+                        .first
+                }
+            }
+            var updatedGroup = MessagesGroup(
                 id: group.id,
                 sender: group.sender,
                 messages: group.messages,
                 isLastGroup: group.isLastGroup,
-                isLastGroupSentByCurrentUser: true
+                isLastGroupSentByCurrentUser: true,
+                readByProfiles: readByProfiles
             )
             items[lastCurrentUserIndex] = .messages(updatedGroup)
         }

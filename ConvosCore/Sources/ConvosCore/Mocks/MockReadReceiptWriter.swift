@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 public final class MockReadReceiptWriter: ReadReceiptWriterProtocol, @unchecked Sendable {
@@ -15,5 +16,9 @@ public final class MockReadReceiptWriter: ReadReceiptWriterProtocol, @unchecked 
         excludingInboxId: String
     ) async throws -> [String] {
         []
+    }
+
+    public func readReceiptsPublisher(for conversationId: String) -> AnyPublisher<[ReadReceiptEntry], Error> {
+        Just([]).setFailureType(to: Error.self).eraseToAnyPublisher()
     }
 }
