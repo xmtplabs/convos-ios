@@ -242,6 +242,14 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         "\(localFormatMigrationKeyPrefix).\(service)"
     }
 
+    private nonisolated static func migrationTargetAccount(account: String, data: Data) -> String {
+        guard let identity = try? JSONDecoder().decode(KeychainIdentity.self, from: data), !identity.inboxId.isEmpty else {
+            return account
+        }
+
+        return identity.inboxId
+    }
+
     public nonisolated static func migrateToPlainAccessibilityIfNeeded(
         accessGroup: String,
         service: String = defaultService,
@@ -278,18 +286,24 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         Log.info("Keychain format migration: migrating \(items.count) item(s)")
 
         var migratedCount = 0
+        var failedCount = 0
+
         for item in items {
             guard let account = item[kSecAttrAccount as String] as? String,
                   let data = item[kSecValueData as String] as? Data else {
+                failedCount += 1
                 Log.warning("Keychain format migration: skipping item with missing account or data")
                 continue
             }
+
+            let targetAccount = migrationTargetAccount(account: account, data: data)
+            let tempAccount = "\(account).migrated"
 
             var addQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
                 kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: "\(account).migrated",
+                kSecAttrAccount as String: tempAccount,
                 kSecAttrAccessible as String: accessibility,
                 kSecValueData as String: data
             ]
@@ -300,6 +314,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
             guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+                failedCount += 1
                 Log.error("Keychain format migration: failed to add new item \(account), status: \(addStatus)")
                 continue
             }
@@ -312,6 +327,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             ]
             let deleteStatus = SecItemDelete(deleteQuery as CFDictionary)
             guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+                failedCount += 1
                 Log.error("Keychain format migration: failed to delete old item \(account), status: \(deleteStatus)")
                 continue
             }
@@ -320,17 +336,23 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
                 kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: "\(account).migrated"
+                kSecAttrAccount as String: tempAccount
             ]
             let renameAttrs: [String: Any] = [
-                kSecAttrAccount as String: account
+                kSecAttrAccount as String: targetAccount
             ]
             let renameStatus = SecItemUpdate(renameQuery as CFDictionary, renameAttrs as CFDictionary)
             if renameStatus == errSecSuccess {
                 migratedCount += 1
             } else {
-                Log.error("Keychain format migration: failed to rename item \(account), status: \(renameStatus)")
+                failedCount += 1
+                Log.error("Keychain format migration: failed to rename item \(account) to \(targetAccount), status: \(renameStatus). Keeping migrated copy for retry")
             }
+        }
+
+        guard failedCount == 0 else {
+            Log.error("Keychain format migration: completed with failures, migrated \(migratedCount)/\(items.count) item(s). Will retry on next launch")
+            return
         }
 
         UserDefaults.standard.set(true, forKey: migrationKey)
