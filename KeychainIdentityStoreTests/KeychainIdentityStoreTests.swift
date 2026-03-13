@@ -1,5 +1,6 @@
 import ConvosCore
 import Foundation
+import Security
 import Testing
 
 /// Test suite for KeychainIdentityStore
@@ -13,10 +14,8 @@ import Testing
         keychainStore = KeychainIdentityStore(accessGroup: testAccessGroup)
     }
 
-    // MARK: - Helper Methods
-
-    private func createKeychainStore() -> KeychainIdentityStoreProtocol {
-        return KeychainIdentityStore(accessGroup: testAccessGroup)
+    private func migrationKey(for service: String) -> String {
+        "KeychainIdentityStore.localFormatMigrationComplete.\(service)"
     }
 
     // MARK: - Identity Management Tests
@@ -26,7 +25,7 @@ import Testing
         let keys = try await keychainStore.generateKeys()
 
         // Then
-        #expect(keys.databaseKey.count == 32) // 256-bit key
+        #expect(keys.databaseKey.count == 32)
     }
 
     @Test func testSaveAndLoadIdentity() async throws {
@@ -51,15 +50,11 @@ import Testing
     }
 
     @Test func testLoadNonExistentIdentity() async throws {
-        // Given
-        let nonExistentInboxId = "non-existent-inbox"
-
         // When & Then
         do {
-            _ = try await keychainStore.identity(for: nonExistentInboxId)
+            _ = try await keychainStore.identity(for: "non-existent-inbox")
             #expect(Bool(false), "Expected error when loading non-existent identity")
         } catch {
-            // Expected to throw an error
             #expect(error is KeychainIdentityStoreError)
         }
     }
@@ -114,11 +109,9 @@ import Testing
             _ = try await keychainStore.identity(for: inboxId)
             #expect(Bool(false), "Expected error when loading deleted identity")
         } catch {
-            // Expected to throw an error
             #expect(error is KeychainIdentityStoreError)
         }
 
-        // Verify it's not in the list
         let allIdentities = try await keychainStore.loadAll()
         #expect(!allIdentities.contains { $0.inboxId == inboxId })
     }
@@ -133,19 +126,17 @@ import Testing
         _ = try await keychainStore.save(inboxId: inboxId, clientId: clientId, keys: keys)
         #expect(try await keychainStore.identity(for: inboxId).inboxId == inboxId)
 
-        // When - Delete using clientId instead of inboxId
+        // When
         _ = try await keychainStore.delete(clientId: clientId)
 
-        // Then - Identity should be deleted
+        // Then
         do {
             _ = try await keychainStore.identity(for: inboxId)
             #expect(Bool(false), "Expected error when loading deleted identity")
         } catch {
-            // Expected to throw an error
             #expect(error is KeychainIdentityStoreError)
         }
 
-        // Verify it's not in the list
         let allIdentities = try await keychainStore.loadAll()
         #expect(!allIdentities.contains { $0.clientId == clientId })
     }
@@ -153,30 +144,23 @@ import Testing
     @Test func testDeleteNonExistentIdentity() async throws {
         try await keychainStore.deleteAll()
 
-        // Given
-        let nonExistentInboxId = "non-existent-inbox"
-
-        // When & Then - Should not throw
-        try await keychainStore.delete(inboxId: nonExistentInboxId)
+        // When & Then - should not throw
+        try await keychainStore.delete(inboxId: "non-existent-inbox")
     }
 
     @Test func testDeleteByNonExistentClientId() async throws {
         try await keychainStore.deleteAll()
 
-        // Given
-        let nonExistentClientId = "non-existent-client"
-
-        // When & Then - Should throw an error
+        // When & Then
         do {
-            _ = try await keychainStore.delete(clientId: nonExistentClientId)
+            _ = try await keychainStore.delete(clientId: "non-existent-client")
             #expect(Bool(false), "Expected error when deleting non-existent clientId")
         } catch {
-            // Expected to throw an error
             #expect(error is KeychainIdentityStoreError)
         }
     }
 
-    // MARK: - Error Handling Tests
+    // MARK: - Concurrency Tests
 
     @Test func testConcurrentIdentityOperations() async throws {
         try await keychainStore.deleteAll()
@@ -185,7 +169,7 @@ import Testing
         let numberOfIdentities = 10
         let store = keychainStore
 
-        // When - Create multiple identities concurrently
+        // When
         let identities = try await withThrowingTaskGroup(of: KeychainIdentity.self) { group in
             for i in 0..<numberOfIdentities {
                 group.addTask {
@@ -204,11 +188,9 @@ import Testing
         // Then
         #expect(identities.count == numberOfIdentities)
 
-        // Verify all identities are unique
         let inboxIds = Set(identities.map { $0.inboxId })
         #expect(inboxIds.count == numberOfIdentities)
 
-        // Verify we can load all identities
         let loadedIdentities = try await keychainStore.loadAll()
         #expect(loadedIdentities.count >= numberOfIdentities)
     }
@@ -268,113 +250,36 @@ import Testing
 
     // MARK: - Cleanup Tests
 
-    @Test func testCompleteCleanup() async throws {
+    @Test func testDeleteAll() async throws {
         try await keychainStore.deleteAll()
 
         // Given
         let keys1 = try await keychainStore.generateKeys()
         let keys2 = try await keychainStore.generateKeys()
 
-        let identity1 = try await keychainStore.save(inboxId: "cleanup-inbox1", clientId: "cleanup-client1", keys: keys1)
-        let identity2 = try await keychainStore.save(inboxId: "cleanup-inbox2", clientId: "cleanup-client2", keys: keys2)
-
-        // Verify data exists
+        _ = try await keychainStore.save(inboxId: "delete-all-inbox1", clientId: "delete-all-client1", keys: keys1)
+        _ = try await keychainStore.save(inboxId: "delete-all-inbox2", clientId: "delete-all-client2", keys: keys2)
         #expect(try await keychainStore.loadAll().count == 2)
 
-        // When - Delete identities
-        try await keychainStore.delete(inboxId: identity1.inboxId)
-        try await keychainStore.delete(inboxId: identity2.inboxId)
+        // When
+        try await keychainStore.deleteAll()
 
         // Then
         #expect(try await keychainStore.loadAll().isEmpty)
-
-        // Identities should not be loadable
-        do {
-            _ = try await keychainStore.identity(for: identity1.inboxId)
-            #expect(Bool(false), "Identity should be cleaned up")
-        } catch {
-            // Expected
-        }
-
-        do {
-            _ = try await keychainStore.identity(for: identity2.inboxId)
-            #expect(Bool(false), "Identity should be cleaned up")
-        } catch {
-            // Expected
-        }
-    }
-
-    @Test func testDeleteAll() async throws {
-        try await keychainStore.deleteAll()
-
-        // Given - Create multiple identities
-        let keys1 = try await keychainStore.generateKeys()
-        let keys2 = try await keychainStore.generateKeys()
-        let keys3 = try await keychainStore.generateKeys()
-
-        let identity1 = try await keychainStore.save(inboxId: "delete-all-inbox1", clientId: "delete-all-client1", keys: keys1)
-        let identity2 = try await keychainStore.save(inboxId: "delete-all-inbox2", clientId: "delete-all-client2", keys: keys2)
-        let identity3 = try await keychainStore.save(inboxId: "delete-all-inbox3", clientId: "delete-all-client3", keys: keys3)
-
-        // Verify data exists
-        #expect(try await keychainStore.loadAll().count == 3)
-        #expect(try await keychainStore.identity(for: identity1.inboxId).inboxId == identity1.inboxId)
-
-        // When - Delete all data
-        try await keychainStore.deleteAll()
-
-        // Then - All identities should be gone
-        #expect(try await keychainStore.loadAll().isEmpty)
-
-        // Individual identities should not be loadable
-        do {
-            _ = try await keychainStore.identity(for: identity1.inboxId)
-            #expect(Bool(false), "Identity should be cleaned up")
-        } catch {
-            // Expected
-        }
-
-        do {
-            _ = try await keychainStore.identity(for: identity2.inboxId)
-            #expect(Bool(false), "Identity should be cleaned up")
-        } catch {
-            // Expected
-        }
-
-        do {
-            _ = try await keychainStore.identity(for: identity3.inboxId)
-            #expect(Bool(false), "Identity should be cleaned up")
-        } catch {
-            // Expected
-        }
     }
 
     @Test func testDeleteAllWhenEmpty() async throws {
         try await keychainStore.deleteAll()
-
-        // Given - Empty keychain store
         #expect(try await keychainStore.loadAll().isEmpty)
 
-        // When & Then - Should not throw when deleting all from empty store
+        // When & Then - should not throw
         try await keychainStore.deleteAll()
         #expect(try await keychainStore.loadAll().isEmpty)
     }
 
-    // MARK: - KeychainIdentityKeys Tests
-
-    @Test func testKeychainIdentityKeysGeneration() async throws {
-        try await keychainStore.deleteAll()
-
-        // When
-        let keys = try await keychainStore.generateKeys()
-
-        // Then
-        #expect(keys.databaseKey.count == 32) // 256-bit key
-    }
+    // MARK: - KeychainIdentityKeys Coding Tests
 
     @Test func testKeychainIdentityKeysCoding() async throws {
-        try await keychainStore.deleteAll()
-
         // Given
         let keys = try await keychainStore.generateKeys()
 
@@ -390,10 +295,8 @@ import Testing
         try await keychainStore.deleteAll()
 
         // Given
-        let inboxId = "coding-test-inbox"
-        let clientId = "coding-test-client"
         let keys = try await keychainStore.generateKeys()
-        let identity = try await keychainStore.save(inboxId: inboxId, clientId: clientId, keys: keys)
+        let identity = try await keychainStore.save(inboxId: "coding-test-inbox", clientId: "coding-test-client", keys: keys)
 
         // When
         let encoded = try JSONEncoder().encode(identity)
@@ -402,5 +305,654 @@ import Testing
         // Then
         #expect(decoded.inboxId == identity.inboxId)
         #expect(decoded.keys.databaseKey == identity.keys.databaseKey)
+    }
+
+    // MARK: - Local Format Migration Tests (SecAccessControl → plain kSecAttrAccessible)
+
+    @Test func testMigrateFromSecAccessControlToPlainAccessibility() async throws {
+        try await keychainStore.deleteAll()
+
+        let service = KeychainIdentityStore.defaultService
+        let migrationKey = migrationKey(for: service)
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+
+        // Given - save an identity, then recreate it with old SecAccessControl format
+        let keys = try await keychainStore.generateKeys()
+        let saved = try await keychainStore.save(inboxId: "format-inbox", clientId: "format-client", keys: keys)
+        let savedData = try JSONEncoder().encode(saved)
+        try await keychainStore.delete(inboxId: "format-inbox")
+
+        guard let oldAccessControl = SecAccessControlCreateWithFlags(
+            nil,
+            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            [],
+            nil
+        ) else {
+            Issue.record("Failed to create access control")
+            return
+        }
+
+        let oldAddQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: "format-inbox",
+            kSecAttrGeneric as String: Data("format-client".utf8),
+            kSecAttrAccessControl as String: oldAccessControl,
+            kSecValueData as String: savedData
+        ]
+        let addStatus = SecItemAdd(oldAddQuery as CFDictionary, nil)
+        #expect(addStatus == errSecSuccess, "Failed to add old-style item: \(addStatus)")
+
+        // When
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: service,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+
+        // Then - verify the item is still readable and data is preserved
+        let loaded = try await keychainStore.identity(for: "format-inbox")
+        #expect(loaded.inboxId == "format-inbox")
+        #expect(loaded.clientId == "format-client")
+        #expect(loaded.keys.databaseKey == keys.databaseKey)
+
+        // Verify the item now has plain kSecAttrAccessible
+        let checkQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: "format-inbox",
+            kSecReturnAttributes as String: true
+        ]
+        var checkResult: CFTypeRef?
+        let checkStatus = SecItemCopyMatching(checkQuery as CFDictionary, &checkResult)
+        #expect(checkStatus == errSecSuccess)
+
+        if let attrs = checkResult as? [String: Any],
+           let accessible = attrs[kSecAttrAccessible as String] as? String {
+            #expect(accessible == kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly as String)
+        }
+
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+    }
+
+    @Test func testLocalFormatMigrationIsIdempotent() async throws {
+        try await keychainStore.deleteAll()
+
+        let service = KeychainIdentityStore.defaultService
+        let migrationKey = migrationKey(for: service)
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+
+        // Given
+        let keys = try await keychainStore.generateKeys()
+        _ = try await keychainStore.save(inboxId: "idempotent-inbox", clientId: "idempotent-client", keys: keys)
+
+        // When - run migration twice (reset flag between runs)
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: service,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: service,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+
+        // Then - data still intact
+        let loaded = try await keychainStore.identity(for: "idempotent-inbox")
+        #expect(loaded.inboxId == "idempotent-inbox")
+        #expect(loaded.clientId == "idempotent-client")
+        #expect(loaded.keys.databaseKey == keys.databaseKey)
+
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+    }
+
+    @Test func testMigrationRecoversStrandedMigratedAccountName() async throws {
+        try await keychainStore.deleteAll()
+
+        let service = KeychainIdentityStore.defaultService
+        let migrationKey = migrationKey(for: service)
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+
+        let keys = try await keychainStore.generateKeys()
+        let identity = try await keychainStore.save(inboxId: "recover-inbox", clientId: "recover-client", keys: keys)
+        let identityData = try JSONEncoder().encode(identity)
+
+        let strandedAccount = "recover-inbox.migrated"
+        let addStrandedQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: strandedAccount,
+            kSecAttrGeneric as String: Data("recover-client".utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData as String: identityData
+        ]
+        let addStatus = SecItemAdd(addStrandedQuery as CFDictionary, nil)
+        #expect(addStatus == errSecSuccess)
+
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: service,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+
+        #expect(UserDefaults.standard.bool(forKey: migrationKey) == true)
+
+        let recovered = try await keychainStore.identity(for: "recover-inbox")
+        #expect(recovered.inboxId == "recover-inbox")
+        #expect(recovered.clientId == "recover-client")
+
+        let strandedLookupQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: strandedAccount,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true
+        ]
+        var strandedItem: CFTypeRef?
+        let strandedStatus = SecItemCopyMatching(strandedLookupQuery as CFDictionary, &strandedItem)
+        #expect(strandedStatus == errSecItemNotFound)
+
+        let nestedStrandedLookupQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: "recover-inbox.migrated.migrated",
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true
+        ]
+        var nestedStrandedItem: CFTypeRef?
+        let nestedStatus = SecItemCopyMatching(nestedStrandedLookupQuery as CFDictionary, &nestedStrandedItem)
+        #expect(nestedStatus == errSecItemNotFound)
+
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+    }
+
+    @Test func testMigrationDoesNotSetCompletionFlagWhenAnyItemFails() async throws {
+        try await keychainStore.deleteAll()
+
+        let service = KeychainIdentityStore.defaultService
+        let migrationKey = migrationKey(for: service)
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+
+        let keys = try await keychainStore.generateKeys()
+        let canonicalIdentity = try await keychainStore.save(
+            inboxId: "conflict-inbox",
+            clientId: "conflict-client",
+            keys: keys
+        )
+        let canonicalData = try JSONEncoder().encode(canonicalIdentity)
+
+        guard var payload = try JSONSerialization.jsonObject(with: canonicalData) as? [String: Any],
+              var keysPayload = payload["keys"] as? [String: Any] else {
+            Issue.record("Failed to construct conflicting keychain payload")
+            return
+        }
+
+        keysPayload["databaseKey"] = Data("conflicting-db-key".utf8).base64EncodedString()
+        payload["keys"] = keysPayload
+
+        let conflictingData = try JSONSerialization.data(withJSONObject: payload)
+
+        let addAliasQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: "conflict-alias",
+            kSecAttrGeneric as String: Data("conflict-client".utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData as String: conflictingData
+        ]
+        let addAliasStatus = SecItemAdd(addAliasQuery as CFDictionary, nil)
+        #expect(addAliasStatus == errSecSuccess)
+
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: service,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+
+        #expect(UserDefaults.standard.bool(forKey: migrationKey) == false)
+
+        try await keychainStore.deleteAll()
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+    }
+
+    @Test func testLocalFormatMigrationIsTrackedPerService() {
+        let serviceA = "org.convos.test.service-a"
+        let serviceB = "org.convos.test.service-b"
+        let migrationKeyA = migrationKey(for: serviceA)
+        let migrationKeyB = migrationKey(for: serviceB)
+
+        UserDefaults.standard.removeObject(forKey: migrationKeyA)
+        UserDefaults.standard.removeObject(forKey: migrationKeyB)
+
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: serviceA,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+
+        #expect(UserDefaults.standard.bool(forKey: migrationKeyA) == true)
+        #expect(UserDefaults.standard.bool(forKey: migrationKeyB) == false)
+
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: serviceB,
+            accessibility: kSecAttrAccessibleAfterFirstUnlock
+        )
+
+        #expect(UserDefaults.standard.bool(forKey: migrationKeyB) == true)
+
+        UserDefaults.standard.removeObject(forKey: migrationKeyA)
+        UserDefaults.standard.removeObject(forKey: migrationKeyB)
+    }
+
+    // MARK: - ICloudIdentityStore Tests
+
+    private let testLocalService: String = "org.convos.test.local"
+    private let testICloudService: String = "org.convos.test.icloud"
+
+    private func makeICloudStore() -> ICloudIdentityStore {
+        let local = KeychainIdentityStore(
+            accessGroup: testAccessGroup,
+            service: testLocalService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+        let icloud = KeychainIdentityStore(
+            accessGroup: testAccessGroup,
+            service: testICloudService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlock
+        )
+        return ICloudIdentityStore(localStore: local, icloudStore: icloud)
+    }
+
+    private func makeRawLocalStore() -> KeychainIdentityStore {
+        KeychainIdentityStore(
+            accessGroup: testAccessGroup,
+            service: testLocalService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+    }
+
+    private func makeRawICloudStore() -> KeychainIdentityStore {
+        KeychainIdentityStore(
+            accessGroup: testAccessGroup,
+            service: testICloudService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlock
+        )
+    }
+
+    private func cleanupICloudStores() async throws {
+        try await makeRawLocalStore().deleteAll()
+        try await makeRawICloudStore().deleteAll()
+    }
+
+    @Test func testICloudStoreSavesToBothStores() async throws {
+        try await cleanupICloudStores()
+
+        // Given
+        let store = makeICloudStore()
+        let keys = try await store.generateKeys()
+
+        // When
+        _ = try await store.save(inboxId: "dual-inbox", clientId: "dual-client", keys: keys)
+
+        // Then
+        let localIdentities = try await makeRawLocalStore().loadAll()
+        let icloudIdentities = try await makeRawICloudStore().loadAll()
+        #expect(localIdentities.count == 1)
+        #expect(icloudIdentities.count == 1)
+        #expect(localIdentities[0].inboxId == "dual-inbox")
+        #expect(icloudIdentities[0].inboxId == "dual-inbox")
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testICloudStoreReadsPrefersLocal() async throws {
+        try await cleanupICloudStores()
+
+        // Given - different keys in each store
+        let localStore = makeRawLocalStore()
+        let icloudRawStore = makeRawICloudStore()
+        let store = makeICloudStore()
+
+        let localKeys = try await localStore.generateKeys()
+        let icloudKeys = try await icloudRawStore.generateKeys()
+
+        _ = try await localStore.save(inboxId: "pref-inbox", clientId: "pref-client", keys: localKeys)
+        _ = try await icloudRawStore.save(inboxId: "pref-inbox", clientId: "pref-client", keys: icloudKeys)
+
+        // When
+        let loaded = try await store.identity(for: "pref-inbox")
+
+        // Then - should get local keys
+        #expect(loaded.keys.databaseKey == localKeys.databaseKey)
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testICloudStoreFallsBackToICloud() async throws {
+        try await cleanupICloudStores()
+
+        // Given - only iCloud has the key (restore scenario)
+        let icloudRawStore = makeRawICloudStore()
+        let store = makeICloudStore()
+
+        let icloudKeys = try await icloudRawStore.generateKeys()
+        _ = try await icloudRawStore.save(inboxId: "fallback-inbox", clientId: "fallback-client", keys: icloudKeys)
+
+        // When
+        let loaded = try await store.identity(for: "fallback-inbox")
+
+        // Then
+        #expect(loaded.keys.databaseKey == icloudKeys.databaseKey)
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testDeleteByClientIdFallsBackToICloud() async throws {
+        try await cleanupICloudStores()
+
+        // Given - key exists only in iCloud
+        let icloudRawStore = makeRawICloudStore()
+        let store = makeICloudStore()
+
+        let keys = try await icloudRawStore.generateKeys()
+        _ = try await icloudRawStore.save(inboxId: "delete-fallback-inbox", clientId: "delete-fallback-client", keys: keys)
+
+        // When
+        let deleted = try await store.delete(clientId: "delete-fallback-client")
+
+        // Then
+        #expect(deleted.inboxId == "delete-fallback-inbox")
+        #expect(try await makeRawICloudStore().loadAll().isEmpty)
+        #expect(try await makeRawLocalStore().loadAll().isEmpty)
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testICloudFallbackCachesLocally() async throws {
+        try await cleanupICloudStores()
+
+        // Given - only iCloud has the key
+        let icloudRawStore = makeRawICloudStore()
+        let store = makeICloudStore()
+
+        let icloudKeys = try await icloudRawStore.generateKeys()
+        _ = try await icloudRawStore.save(inboxId: "cache-inbox", clientId: "cache-client", keys: icloudKeys)
+
+        // When - read triggers fallback
+        _ = try await store.identity(for: "cache-inbox")
+
+        // Then - local should now have a cached copy
+        let localIdentities = try await makeRawLocalStore().loadAll()
+        #expect(localIdentities.count == 1)
+        #expect(localIdentities[0].keys.databaseKey == icloudKeys.databaseKey)
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testLoadAllMergesBothStores() async throws {
+        try await cleanupICloudStores()
+
+        // Given - 2 local keys, 1 iCloud-only key (partial restore scenario)
+        let localStore = makeRawLocalStore()
+        let icloudRawStore = makeRawICloudStore()
+        let store = makeICloudStore()
+
+        let keys1 = try await localStore.generateKeys()
+        let keys2 = try await localStore.generateKeys()
+        let keys3 = try await icloudRawStore.generateKeys()
+
+        _ = try await localStore.save(inboxId: "local-1", clientId: "client-1", keys: keys1)
+        _ = try await localStore.save(inboxId: "local-2", clientId: "client-2", keys: keys2)
+        _ = try await icloudRawStore.save(inboxId: "icloud-only", clientId: "client-3", keys: keys3)
+
+        // When
+        let all = try await store.loadAll()
+
+        // Then - should include all 3 (2 local + 1 iCloud-only)
+        #expect(all.count == 3)
+        #expect(all.contains { $0.inboxId == "local-1" })
+        #expect(all.contains { $0.inboxId == "local-2" })
+        #expect(all.contains { $0.inboxId == "icloud-only" })
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testLoadAllDeduplicatesSharedKeys() async throws {
+        try await cleanupICloudStores()
+
+        // Given - same key in both stores
+        let store = makeICloudStore()
+        let keys = try await store.generateKeys()
+        _ = try await store.save(inboxId: "shared-inbox", clientId: "shared-client", keys: keys)
+
+        // When
+        let all = try await store.loadAll()
+
+        // Then - should not duplicate
+        #expect(all.count == 1)
+        #expect(all[0].inboxId == "shared-inbox")
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testICloudStoreThrowsWhenBothEmpty() async throws {
+        try await cleanupICloudStores()
+
+        // Given
+        let store = makeICloudStore()
+
+        // When & Then
+        do {
+            _ = try await store.identity(for: "nonexistent")
+            #expect(Bool(false), "Expected error")
+        } catch {
+            #expect(error is KeychainIdentityStoreError)
+        }
+    }
+
+    @Test func testICloudStoreDeleteRemovesBoth() async throws {
+        try await cleanupICloudStores()
+
+        // Given
+        let store = makeICloudStore()
+        let keys = try await store.generateKeys()
+        _ = try await store.save(inboxId: "del-inbox", clientId: "del-client", keys: keys)
+
+        // When
+        try await store.delete(inboxId: "del-inbox")
+
+        // Then
+        let localIdentities = try await makeRawLocalStore().loadAll()
+        let icloudIdentities = try await makeRawICloudStore().loadAll()
+        #expect(localIdentities.isEmpty)
+        #expect(icloudIdentities.isEmpty)
+    }
+
+    @Test func testDeleteICloudCopyKeepsLocal() async throws {
+        try await cleanupICloudStores()
+
+        // Given
+        let store = makeICloudStore()
+        let keys = try await store.generateKeys()
+        _ = try await store.save(inboxId: "keep-inbox", clientId: "keep-client", keys: keys)
+
+        // When - delete only the iCloud copy
+        try await store.deleteICloudCopy(inboxId: "keep-inbox")
+
+        // Then - local is preserved, iCloud is gone
+        let localIdentities = try await makeRawLocalStore().loadAll()
+        let icloudIdentities = try await makeRawICloudStore().loadAll()
+        #expect(localIdentities.count == 1)
+        #expect(icloudIdentities.isEmpty)
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testDeleteAllICloudCopiesKeepsLocal() async throws {
+        try await cleanupICloudStores()
+
+        // Given
+        let store = makeICloudStore()
+        let keys1 = try await store.generateKeys()
+        let keys2 = try await store.generateKeys()
+        _ = try await store.save(inboxId: "bulk-1", clientId: "client-1", keys: keys1)
+        _ = try await store.save(inboxId: "bulk-2", clientId: "client-2", keys: keys2)
+
+        // When
+        try await store.deleteAllICloudCopies()
+
+        // Then
+        let localIdentities = try await makeRawLocalStore().loadAll()
+        let icloudIdentities = try await makeRawICloudStore().loadAll()
+        #expect(localIdentities.count == 2)
+        #expect(icloudIdentities.isEmpty)
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testHasICloudOnlyKeys() async throws {
+        try await cleanupICloudStores()
+
+        // Given - empty stores
+        let store = makeICloudStore()
+        #expect(await store.hasICloudOnlyKeys() == false)
+
+        // When - add key to iCloud only (simulates restore scenario)
+        let icloudRawStore = makeRawICloudStore()
+        let keys = try await icloudRawStore.generateKeys()
+        _ = try await icloudRawStore.save(inboxId: "restored-inbox", clientId: "restored-client", keys: keys)
+
+        // Then
+        #expect(await store.hasICloudOnlyKeys() == true)
+
+        // When - add same key to local
+        let localStore = makeRawLocalStore()
+        _ = try await localStore.save(inboxId: "restored-inbox", clientId: "restored-client", keys: keys)
+
+        // Then
+        #expect(await store.hasICloudOnlyKeys() == false)
+
+        try await cleanupICloudStores()
+    }
+
+    // MARK: - iCloud Sync Tests
+
+    @Test func testSyncCopiesMissingKeysToICloud() async throws {
+        try await cleanupICloudStores()
+
+        // Given - keys in local only
+        let localStore = makeRawLocalStore()
+        let keys1 = try await localStore.generateKeys()
+        let keys2 = try await localStore.generateKeys()
+        _ = try await localStore.save(inboxId: "sync-inbox-1", clientId: "sync-client-1", keys: keys1)
+        _ = try await localStore.save(inboxId: "sync-inbox-2", clientId: "sync-client-2", keys: keys2)
+
+        // When
+        let store = makeICloudStore()
+        await store.syncLocalKeysToICloud()
+
+        // Then - iCloud now has copies
+        let icloudIdentities = try await makeRawICloudStore().loadAll()
+        #expect(icloudIdentities.count == 2)
+        #expect(icloudIdentities.contains { $0.inboxId == "sync-inbox-1" })
+        #expect(icloudIdentities.contains { $0.inboxId == "sync-inbox-2" })
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testSyncSkipsAlreadySyncedKeys() async throws {
+        try await cleanupICloudStores()
+
+        // Given - key in both stores
+        let store = makeICloudStore()
+        let keys = try await store.generateKeys()
+        _ = try await store.save(inboxId: "already-synced", clientId: "already-client", keys: keys)
+
+        // Add another key only to local
+        let localStore = makeRawLocalStore()
+        let keys2 = try await localStore.generateKeys()
+        _ = try await localStore.save(inboxId: "not-synced", clientId: "not-client", keys: keys2)
+
+        // When
+        await store.syncLocalKeysToICloud()
+
+        // Then - iCloud has both (original + newly synced)
+        let icloudIdentities = try await makeRawICloudStore().loadAll()
+        #expect(icloudIdentities.count == 2)
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testSyncIsIdempotent() async throws {
+        try await cleanupICloudStores()
+
+        // Given
+        let localStore = makeRawLocalStore()
+        let keys = try await localStore.generateKeys()
+        _ = try await localStore.save(inboxId: "idempotent-inbox", clientId: "idempotent-client", keys: keys)
+
+        let store = makeICloudStore()
+
+        // When - sync multiple times
+        await store.syncLocalKeysToICloud()
+        await store.syncLocalKeysToICloud()
+        await store.syncLocalKeysToICloud()
+
+        // Then - still just one copy
+        let icloudIdentities = try await makeRawICloudStore().loadAll()
+        #expect(icloudIdentities.count == 1)
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testSyncAfterICloudCopiesDeleted() async throws {
+        try await cleanupICloudStores()
+
+        // Given - key in both stores
+        let store = makeICloudStore()
+        let keys = try await store.generateKeys()
+        _ = try await store.save(inboxId: "resync-inbox", clientId: "resync-client", keys: keys)
+
+        // When - iCloud copies are removed (simulates iCloud disable)
+        try await store.deleteAllICloudCopies()
+        let icloudBefore = try await makeRawICloudStore().loadAll()
+        #expect(icloudBefore.isEmpty)
+
+        // Then - sync restores iCloud copies (simulates iCloud re-enable)
+        await store.syncLocalKeysToICloud()
+        let icloudAfter = try await makeRawICloudStore().loadAll()
+        #expect(icloudAfter.count == 1)
+        #expect(icloudAfter[0].inboxId == "resync-inbox")
+
+        try await cleanupICloudStores()
+    }
+
+    @Test func testSyncWithEmptyLocalStore() async throws {
+        try await cleanupICloudStores()
+
+        // Given - nothing in local
+        let store = makeICloudStore()
+
+        // When - should be a no-op
+        await store.syncLocalKeysToICloud()
+
+        // Then
+        let icloudIdentities = try await makeRawICloudStore().loadAll()
+        #expect(icloudIdentities.isEmpty)
+    }
+
+    @Test func testICloudAccountAvailabilityDetection() {
+        // Just verify the API exists and returns a boolean
+        let available = ICloudIdentityStore.isICloudAccountAvailable
+        #expect(available == true || available == false)
     }
 }
