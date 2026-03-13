@@ -68,7 +68,8 @@ struct MessagesListView: View {
                                     onReply: onReply,
                                     onPhotoRevealed: onPhotoRevealed,
                                     onPhotoHidden: onPhotoHidden,
-                                    onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
+                                    onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                                    onOpenFile: nil
                                 )
 
                             case .invite(let invite):

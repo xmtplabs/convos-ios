@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
 
 public typealias ConversationMessages = (conversationId: String, messages: [AnyMessage])
 
@@ -778,6 +779,7 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
     var thumbnailDataBase64: String?
     var width: Int? = localState?.width
     var height: Int? = localState?.height
+    var filename: String?
 
     if let stored = try? StoredRemoteAttachment.fromJSON(key) {
         if mimeType == nil { mimeType = stored.mimeType }
@@ -785,6 +787,25 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         if height == nil { height = stored.mediaHeight }
         duration = stored.mediaDuration
         thumbnailDataBase64 = stored.thumbnailDataBase64
+        filename = stored.filename
+    }
+
+    if filename == nil, key.hasPrefix("file://") {
+        if let url = URL(string: key) {
+            let lastComponent = url.lastPathComponent
+            if let underscoreRange = lastComponent.range(of: "_") {
+                filename = String(lastComponent[underscoreRange.upperBound...])
+            } else {
+                filename = lastComponent
+            }
+        }
+    }
+
+    if mimeType == nil, let fn = filename {
+        let ext = (fn as NSString).pathExtension.lowercased()
+        if !ext.isEmpty, let utType = UTType(filenameExtension: ext) {
+            mimeType = utType.preferredMIMEType
+        }
     }
 
     return HydratedAttachment(
@@ -795,6 +816,7 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         height: height,
         mimeType: mimeType,
         duration: duration,
-        thumbnailDataBase64: thumbnailDataBase64
+        thumbnailDataBase64: thumbnailDataBase64,
+        filename: filename
     )
 }

@@ -22,6 +22,7 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
+    var onOpenFile: ((HydratedAttachment) -> Void)?
     var onAboutAssistants: (() -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
@@ -93,6 +94,9 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
                 self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
+            },
+            onOpenFile: { [weak self] attachment in
+                self?.onOpenFile?(attachment)
             },
             onRetryMessage: { [weak self] message in
                 self?.onRetryMessage?(message)

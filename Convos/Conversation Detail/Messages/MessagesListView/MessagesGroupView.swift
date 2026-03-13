@@ -12,6 +12,7 @@ struct MessagesGroupView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onOpenFile: ((HydratedAttachment) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
 
@@ -84,6 +85,7 @@ struct MessagesGroupView: View {
                         onPhotoRevealed: onPhotoRevealed,
                         onPhotoHidden: onPhotoHidden,
                         onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                        onOpenFile: onOpenFile,
                         omitTrailingPadding: isFailed
                     )
                     .zIndex(100)
@@ -570,7 +572,8 @@ struct MessagesGroupView: View {
                     onReply: { _ in },
                     onPhotoRevealed: { _ in },
                     onPhotoHidden: { _ in },
-                    onPhotoDimensionsLoaded: { _, _, _ in }
+                    onPhotoDimensionsLoaded: { _, _, _ in },
+                    onOpenFile: nil
                 )
             }
         }

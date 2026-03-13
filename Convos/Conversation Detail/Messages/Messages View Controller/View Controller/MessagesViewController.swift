@@ -3,6 +3,7 @@ import ConvosCore
 import DifferenceKit
 import Foundation
 import Observation
+import QuickLook
 import SwiftUI
 import UIKit
 
@@ -65,6 +66,7 @@ final class MessagesViewController: UIViewController {
 
     private var isFirstStateUpdate: Bool = true
     private var hasPendingInterrupt: Bool = false
+    private var filePreviewURL: URL?
     private var previousLastMessageId: String?
     private var previousFocusState: MessagesViewInputFocus?
 
@@ -333,6 +335,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
             self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
+        }
+        dataSource.onOpenFile = { [weak self] attachment in
+            self?.openFileAttachment(attachment)
         }
         dataSource.onAboutAssistants = { [weak self] in
             self?.onAboutAssistants?()
@@ -821,6 +826,47 @@ extension MessagesViewController: KeyboardListenerDelegate {
         }, completion: { _ in
             self.currentInterfaceActions.options.remove(.changingContentInsets)
         })
+    }
+}
+
+// MARK: - File Attachment QuickLook
+
+extension MessagesViewController: QLPreviewControllerDataSource {
+    private func openFileAttachment(_ attachment: HydratedAttachment) {
+        Task {
+            do {
+                let fileURL = try await loadFileForPreview(attachment)
+                let previewController = QLPreviewController()
+                filePreviewURL = fileURL
+                previewController.dataSource = self
+                present(previewController, animated: true)
+            } catch {
+                Log.error("Failed to open file attachment: \(error)")
+            }
+        }
+    }
+
+    private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
+        if attachment.key.hasPrefix("file://") {
+            let path = String(attachment.key.dropFirst("file://".count))
+            return URL(fileURLWithPath: path)
+        }
+
+        let loader = RemoteAttachmentLoader()
+        let loaded = try await loader.loadAttachmentData(from: attachment.key)
+        let filename = attachment.filename ?? "attachment"
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("preview_\(UUID().uuidString)_\(filename)")
+        try loaded.data.write(to: tempURL)
+        return tempURL
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+        filePreviewURL != nil ? 1 : 0
+    }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
+        (filePreviewURL ?? URL(fileURLWithPath: "")) as NSURL
     }
 }
 

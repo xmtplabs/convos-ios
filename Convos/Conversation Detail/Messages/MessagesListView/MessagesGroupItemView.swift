@@ -14,6 +14,7 @@ struct MessagesGroupItemView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onOpenFile: ((HydratedAttachment) -> Void)?
     var omitTrailingPadding: Bool = false
 
     @State private var isAppearing: Bool = true
@@ -180,18 +181,34 @@ struct MessagesGroupItemView: View {
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
         let isBlurred = attachment.isHiddenByOwner || (!message.base.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
 
-        VideoTapAttachmentView(
-            attachment: attachment,
-            message: message,
-            isOutgoing: message.base.sender.isCurrentUser,
-            profile: message.base.sender.profile,
-            shouldBlurPhotos: shouldBlurPhotos,
-            isBlurred: isBlurred,
-            onPhotoRevealed: onPhotoRevealed,
-            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-            onReply: onReply
-        )
-        .id(message.base.id)
+        if attachment.mediaType == .file {
+            let fileTapAction: () -> Void = { onOpenFile?(attachment) }
+            FileAttachmentBubble(
+                attachment: attachment,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: .normal,
+                onSingleTap: fileTapAction,
+                onReply: onReply
+            )
+            .id(message.base.id)
+        } else {
+            VideoTapAttachmentView(
+                attachment: attachment,
+                message: message,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile,
+                shouldBlurPhotos: shouldBlurPhotos,
+                isBlurred: isBlurred,
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                onReply: onReply
+            )
+            .id(message.base.id)
+        }
     }
 }
 
@@ -660,7 +677,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -679,7 +697,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -698,7 +717,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -717,7 +737,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -737,7 +758,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -757,7 +779,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -777,7 +800,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -796,7 +820,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -815,7 +840,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in print("Photo revealed") },
         onPhotoHidden: { _ in print("Photo hidden") },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }

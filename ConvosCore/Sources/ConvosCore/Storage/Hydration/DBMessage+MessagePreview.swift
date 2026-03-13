@@ -93,13 +93,31 @@ extension DBLastMessageWithSource {
     }
 
     static func attachmentsPreviewString(attachmentUrls: [String], count: Int) -> String {
-        let hasVideo = attachmentUrls.contains { url in
-            guard let stored = try? StoredRemoteAttachment.fromJSON(url) else { return false }
-            return stored.mimeType?.hasPrefix("video/") == true
+        var hasVideo = false
+        var hasFile = false
+        var filename: String?
+
+        for url in attachmentUrls {
+            if let stored = try? StoredRemoteAttachment.fromJSON(url) {
+                if stored.mimeType?.hasPrefix("video/") == true {
+                    hasVideo = true
+                } else if let mime = stored.mimeType, !mime.hasPrefix("image/") {
+                    hasFile = true
+                    filename = stored.filename
+                } else if let fn = stored.filename, !fn.hasSuffix(".jpg") && !fn.hasSuffix(".jpeg") && !fn.hasSuffix(".png") && !fn.hasSuffix(".heic") && !fn.hasSuffix(".gif") && !fn.hasSuffix(".webp") {
+                    hasFile = true
+                    filename = fn
+                }
+            }
         }
+
         if count <= 1 {
-            return hasVideo ? "a video" : "a photo"
+            if hasFile, let filename { return filename }
+            if hasFile { return "a file" }
+            if hasVideo { return "a video" }
+            return "a photo"
         }
-        return hasVideo ? "\(count) attachments" : "\(count) photos"
+        if hasFile || hasVideo { return "\(count) attachments" }
+        return "\(count) photos"
     }
 }

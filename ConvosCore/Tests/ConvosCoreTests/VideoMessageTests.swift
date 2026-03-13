@@ -219,6 +219,104 @@ struct VideoMessageTests {
         #expect(result == "a photo")
     }
 
+    // MARK: - File Attachment Tests
+
+    @Test("MediaType from PDF mimeType")
+    func testMediaTypePDF() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "application/pdf")
+        #expect(attachment.mediaType == .file)
+    }
+
+    @Test("MediaType from text mimeType")
+    func testMediaTypeText() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "text/plain")
+        #expect(attachment.mediaType == .file)
+    }
+
+    @Test("MediaType from JSON mimeType")
+    func testMediaTypeJSON() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "application/json")
+        #expect(attachment.mediaType == .file)
+    }
+
+    @Test("MediaType derived from filename extension when mimeType is nil")
+    func testMediaTypeFromFilenameExtension() {
+        let attachment = HydratedAttachment(key: "test", filename: "report.pdf")
+        #expect(attachment.mediaType == .file)
+    }
+
+    @Test("MediaType from filename with image extension stays image when mimeType is nil")
+    func testMediaTypeFromImageFilename() {
+        let attachment = HydratedAttachment(key: "test", filename: "photo.jpg")
+        #expect(attachment.mediaType == .image)
+    }
+
+    @Test("MediaType from filename with video extension")
+    func testMediaTypeFromVideoFilename() {
+        let attachment = HydratedAttachment(key: "test", filename: "clip.mp4")
+        #expect(attachment.mediaType == .video)
+    }
+
+    @Test("filenameExtension extracts correctly")
+    func testFilenameExtension() {
+        let attachment = HydratedAttachment(key: "test", filename: "report.pdf")
+        #expect(attachment.filenameExtension == "pdf")
+    }
+
+    @Test("filenameExtension returns nil for no extension")
+    func testFilenameExtensionNil() {
+        let attachment = HydratedAttachment(key: "test", filename: "README")
+        #expect(attachment.filenameExtension == nil)
+    }
+
+    @Test("fileTypeLabel returns localized description for PDF")
+    func testFileTypeLabelPDF() {
+        let attachment = HydratedAttachment(key: "test", filename: "test.pdf")
+        #expect(attachment.fileTypeLabel != nil)
+        #expect(attachment.fileTypeLabel?.contains("PDF") == true)
+    }
+
+    @Test("fileTypeLabel from mimeType when filename has no extension")
+    func testFileTypeLabelFromMimeType() {
+        let attachment = HydratedAttachment(key: "test", mimeType: "application/pdf")
+        #expect(attachment.fileTypeLabel != nil)
+    }
+
+    @Test("Single file attachment shows filename in preview")
+    func testPreviewStringFile() {
+        let fileJSON = makeFileJSON(filename: "report.pdf", mimeType: "application/pdf")
+        let result = DBLastMessageWithSource.attachmentsPreviewString(attachmentUrls: [fileJSON], count: 1)
+        #expect(result == "report.pdf")
+    }
+
+    @Test("Single file without mime but with non-image filename shows 'a file'")
+    func testPreviewStringFileNoMime() {
+        let fileJSON = makeFileJSON(filename: "data.csv", mimeType: nil)
+        let result = DBLastMessageWithSource.attachmentsPreviewString(attachmentUrls: [fileJSON], count: 1)
+        #expect(result == "data.csv")
+    }
+
+    @Test("Mixed file and photo shows 'N attachments'")
+    func testPreviewStringMixedFileAndPhoto() {
+        let fileJSON = makeFileJSON(filename: "doc.pdf", mimeType: "application/pdf")
+        let photoJSON = makePhotoJSON()
+        let result = DBLastMessageWithSource.attachmentsPreviewString(attachmentUrls: [fileJSON, photoJSON], count: 2)
+        #expect(result == "2 attachments")
+    }
+
+    private func makeFileJSON(filename: String, mimeType: String?) -> String {
+        let stored = StoredRemoteAttachment(
+            url: "https://example.com/file.enc",
+            contentDigest: "abc",
+            secret: Data("s".utf8),
+            salt: Data("s".utf8),
+            nonce: Data("n".utf8),
+            filename: filename,
+            mimeType: mimeType
+        )
+        return (try? stored.toJSON()) ?? ""
+    }
+
     private func makePhotoJSON() -> String {
         let stored = StoredRemoteAttachment(
             url: "https://example.com/photo.enc",

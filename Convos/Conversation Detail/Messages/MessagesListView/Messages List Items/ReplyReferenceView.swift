@@ -20,13 +20,21 @@ struct ReplyReferenceView: View {
         case .emoji(let emoji):
             return emoji
         case .attachment(let attachment):
-            return attachment.mediaType == .video ? "video" : "photo"
+            return replyLabel(for: attachment)
         case .attachments(let attachments):
-            return attachments.first?.mediaType == .video ? "video" : "photo"
+            return attachments.first.map { replyLabel(for: $0) } ?? "photo"
         case .invite:
             return "invite"
         case .update, .assistantJoinRequest:
             return ""
+        }
+    }
+
+    private func replyLabel(for attachment: HydratedAttachment) -> String {
+        switch attachment.mediaType {
+        case .video: return "video"
+        case .file: return attachment.filename ?? "file"
+        default: return "photo"
         }
     }
 
@@ -82,7 +90,10 @@ struct ReplyReferenceView: View {
             .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
             .padding(.trailing, isOutgoing ? (DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x) : 0.0)
 
-            if let attachment = parentAttachment {
+            if let attachment = parentAttachment, attachment.mediaType == .file {
+                ReplyReferenceFileBubble(attachment: attachment)
+                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
+            } else if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
                     attachmentKey: attachment.key,
                     isVideo: attachment.mediaType == .video,
@@ -365,5 +376,43 @@ private struct ReplyReferenceInvitePreview: View {
         .cachedImage(for: invite) { image in
             cachedImage = image
         }
+    }
+}
+
+// MARK: - File Reply Preview
+
+private struct ReplyReferenceFileBubble: View {
+    let attachment: HydratedAttachment
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.colorFillMinimal)
+                Image(systemName: "doc.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 40, height: 40)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(attachment.filename ?? "File")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if let label = attachment.fileTypeLabel {
+                    Text(label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(DesignConstants.Spacing.step2x)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.colorFillMinimal)
+        )
+        .frame(maxWidth: 210)
     }
 }

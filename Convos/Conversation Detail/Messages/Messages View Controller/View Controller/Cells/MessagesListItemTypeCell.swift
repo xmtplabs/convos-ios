@@ -87,6 +87,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onPhotoRevealed: config.onPhotoRevealed,
                         onPhotoHidden: config.onPhotoHidden,
                         onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
+                        onOpenFile: config.onOpenFile,
                         onRetryMessage: config.onRetryMessage,
                         onDeleteMessage: config.onDeleteMessage
                     )
