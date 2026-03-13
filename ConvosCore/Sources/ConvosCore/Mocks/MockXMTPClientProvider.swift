@@ -144,6 +144,10 @@ public final class MockConversationsProvider: ConversationsProvider, @unchecked 
         // No-op for mock
     }
 
+    public func findMessage(messageId: String) throws -> DecodedMessage? {
+        nil
+    }
+
     public func syncAllConversations(consentStates: [ConsentState]?) async throws -> GroupSyncSummary {
         GroupSyncSummary(numEligible: 0, numSynced: 0)
     }

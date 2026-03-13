@@ -766,6 +766,16 @@ private struct ContextMenuPhotoPreview: View {
 
 // MARK: - Save Attachment Helper
 
+private func recoverInlineAttachmentData(fromPath path: String) async throws -> Data {
+    let fileURL = URL(fileURLWithPath: path)
+    let filename = fileURL.lastPathComponent
+    guard let underscoreIndex = filename.firstIndex(of: "_") else {
+        throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+    }
+    let messageId = String(filename[filename.startIndex..<underscoreIndex])
+    return try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+}
+
 private func saveAttachmentToPhotoLibrary(key: String) {
     guard let image = ImageCache.shared.image(for: key) else { return }
     PHPhotoLibrary.shared().performChanges {
@@ -780,7 +790,15 @@ private func saveVideoToPhotoLibrary(key: String) {
             let isLocalFile = key.hasPrefix("file://")
             if isLocalFile {
                 let path = String(key.dropFirst("file://".count))
-                videoURL = URL(fileURLWithPath: path)
+                if FileManager.default.fileExists(atPath: path) {
+                    videoURL = URL(fileURLWithPath: path)
+                } else {
+                    let data = try await recoverInlineAttachmentData(fromPath: path)
+                    let tempURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
+                    try data.write(to: tempURL)
+                    videoURL = tempURL
+                }
             } else {
                 let loader = RemoteAttachmentLoader()
                 let loaded = try await loader.loadAttachmentData(from: key)
@@ -808,14 +826,30 @@ private func saveVideoToPhotoLibrary(key: String) {
 // MARK: - File Save/Share Helpers
 
 private func loadFileToTempURL(key: String, filename: String?) async throws -> URL {
+    let name = filename ?? "attachment"
+
     if key.hasPrefix("file://") {
         let path = String(key.dropFirst("file://".count))
-        return URL(fileURLWithPath: path)
+        if FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+
+        let fileURL = URL(fileURLWithPath: path)
+        let fullFilename = fileURL.lastPathComponent
+        if let underscoreIndex = fullFilename.firstIndex(of: "_") {
+            let messageId = String(fullFilename[fullFilename.startIndex..<underscoreIndex])
+            let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("share_\(UUID().uuidString)_\(name)")
+            try data.write(to: tempURL)
+            return tempURL
+        }
+
+        throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
     }
 
     let loader = RemoteAttachmentLoader()
     let loaded = try await loader.loadAttachmentData(from: key)
-    let name = filename ?? "attachment"
     let tempURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("share_\(UUID().uuidString)_\(name)")
     try loaded.data.write(to: tempURL)

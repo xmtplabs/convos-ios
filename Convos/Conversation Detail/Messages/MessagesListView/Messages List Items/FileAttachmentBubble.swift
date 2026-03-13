@@ -44,8 +44,6 @@ struct FileAttachmentBubble: View {
                         .lineLimit(1)
                         .accessibilityIdentifier("file-attachment-subtitle")
                 }
-
-                Spacer(minLength: 0)
             }
             .padding(DesignConstants.Spacing.step3x)
         }
