@@ -170,6 +170,11 @@ final class MessagingService: MessagingServiceProtocol, @unchecked Sendable {
                        databaseWriter: databaseWriter)
     }
 
+    func readReceiptWriter() -> any ReadReceiptWriterProtocol {
+        ReadReceiptWriter(inboxStateManager: inboxStateManager,
+                          databaseWriter: databaseWriter)
+    }
+
     func replyWriter() -> any ReplyMessageWriterProtocol {
         ReplyMessageWriter(inboxStateManager: inboxStateManager,
                            databaseWriter: databaseWriter)
