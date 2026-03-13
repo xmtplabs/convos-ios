@@ -238,6 +238,28 @@ struct MessageContextMenuOverlay: View {
     }
 
     @ViewBuilder
+    private func emojiButton(emoji: String, index: Int, messageId: String) -> some View {
+        let didAppear: Bool = emojiAppeared.indices.contains(index) && emojiAppeared[index]
+        let action = {
+            selectReaction(emoji, messageId: messageId)
+        }
+        Button(action: action) {
+            Text(emoji)
+                .font(.system(size: C.emojiFontSize))
+                .padding(C.padding)
+                .blur(radius: !drawerExpanded ? C.blurRadius : (didAppear ? 0 : C.blurRadius))
+                .scaleEffect(!drawerExpanded ? 0 : (didAppear ? 1.0 : 0))
+                .rotationEffect(.degrees(didAppear && drawerExpanded ? 0 : C.emojiRotation))
+                .opacity(!drawerExpanded ? 0 : 1)
+                .animation(.spring(response: 0.29, dampingFraction: 0.6), value: didAppear)
+                .animation(.spring(response: 0.29, dampingFraction: 0.6), value: drawerExpanded)
+        }
+        .buttonStyle(.plain)
+        .disabled(!drawerExpanded)
+        .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
+    }
+
+    @ViewBuilder
     private func reactionsBarContent(messageId: String, width: CGFloat, height: CGFloat) -> some View {
         GeometryReader { reader in
             let readerHeight = max(reader.size.height - C.padding * 2, 0)
@@ -245,24 +267,7 @@ struct MessageContextMenuOverlay: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 0) {
                         ForEach(Array(C.defaultReactions.enumerated()), id: \.element) { index, emoji in
-                            let didAppear = emojiAppeared.indices.contains(index) && emojiAppeared[index]
-                            let action = {
-                                selectReaction(emoji, messageId: messageId)
-                            }
-                            Button(action: action) {
-                                Text(emoji)
-                                    .font(.system(size: C.emojiFontSize))
-                                    .padding(C.padding)
-                                    .blur(radius: !drawerExpanded ? C.blurRadius : (didAppear ? 0 : C.blurRadius))
-                                    .scaleEffect(!drawerExpanded ? 0 : (didAppear ? 1.0 : 0))
-                                    .rotationEffect(.degrees(didAppear && drawerExpanded ? 0 : C.emojiRotation))
-                                    .opacity(!drawerExpanded ? 0 : 1)
-                                    .animation(.spring(response: 0.29, dampingFraction: 0.6), value: didAppear)
-                                    .animation(.spring(response: 0.29, dampingFraction: 0.6), value: drawerExpanded)
-                            }
-                            .buttonStyle(.plain)
-                            .disabled(!drawerExpanded)
-                            .scaleEffect(selectedEmoji == nil ? 1.0 : 0)
+                            emojiButton(emoji: emoji, index: index, messageId: messageId)
                         }
                     }
                     .padding(.horizontal, C.padding)

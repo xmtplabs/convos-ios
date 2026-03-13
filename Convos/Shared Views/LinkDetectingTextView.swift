@@ -84,12 +84,13 @@ private struct LinkTextViewRepresentable: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate {
         func textView(
             _ textView: UITextView,
-            shouldInteractWith url: URL,
-            in characterRange: NSRange,
-            interaction: UITextItemInteraction
-        ) -> Bool {
-            UIApplication.shared.open(url)
-            return false
+            primaryActionFor textItem: UITextItem,
+            defaultAction: UIAction
+        ) -> UIAction? {
+            guard case .link(let url) = textItem.content else { return defaultAction }
+            return UIAction { _ in
+                UIApplication.shared.open(url)
+            }
         }
     }
 }
@@ -125,7 +126,7 @@ final class LinkTextView: UITextView, LinkHitTestable {
     private func urlAtPoint(_ point: CGPoint) -> URL? {
         guard let position = closestPosition(to: point) else { return nil }
         let charIndex = offset(from: beginningOfDocument, to: position)
-        guard let attributed = attributedText as? NSAttributedString,
+        guard let attributed = attributedText,
               charIndex >= 0, charIndex < attributed.length else {
             return nil
         }

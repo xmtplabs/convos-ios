@@ -181,71 +181,157 @@ struct ConversationInfoView: View {
         }
     }
 
+    private var headerSection: some View {
+        Section {
+            HStack {
+                Spacer()
+                VStack(spacing: DesignConstants.Spacing.step4x) {
+                    ConversationAvatarView(
+                        conversation: viewModel.conversation,
+                        conversationImage: viewModel.conversationImage
+                    )
+                    .frame(width: 160.0, height: 160.0)
+
+                    VStack(spacing: DesignConstants.Spacing.step2x) {
+                        Text(viewModel.conversation.computedDisplayName)
+                            .font(.largeTitle.weight(.semibold))
+                            .foregroundStyle(.colorTextPrimary)
+                            .multilineTextAlignment(.center)
+                        if !viewModel.conversationDescription.isEmpty {
+                            Text(viewModel.conversationDescription)
+                                .font(.subheadline)
+                        }
+
+                        Button {
+                            presentingEditView = true
+                        } label: {
+                            Text("Edit info")
+                                .font(.caption)
+                                .foregroundStyle(.colorTextSecondary)
+                        }
+                        .buttonStyle(.bordered)
+                        .hoverEffect(.lift)
+                        .padding(.top, DesignConstants.Spacing.step2x)
+                        .accessibilityLabel("Edit conversation info")
+                        .accessibilityIdentifier("edit-info-button")
+                        .sheet(isPresented: $presentingEditView) {
+                            ConversationInfoEditView(viewModel: viewModel, focusCoordinator: focusCoordinator)
+                        }
+                    }
+                }
+                Spacer()
+            }
+            .listRowBackground(Color.clear)
+        }
+        .listSectionMargins(.top, 0.0)
+        .listSectionSeparator(.hidden)
+    }
+
+    private var membersSection: some View {
+        Section {
+            NavigationLink {
+                ConversationMembersListView(viewModel: viewModel)
+            } label: {
+                HStack {
+                    Text(viewModel.conversation.membersCountString)
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    if viewModel.isFull {
+                        Text("Full")
+                            .foregroundStyle(.colorTextSecondary)
+                    } else if viewModel.conversation.members.count > 100 {
+                        Text("\(Conversation.maxMembers) max")
+                            .foregroundStyle(.colorTextSecondary)
+                    }
+                }
+            }
+        }
+    }
+
+    private var preferencesSection: some View {
+        Section {
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "bell.fill",
+                title: "Notifications",
+                subtitle: nil
+            ) {
+                Toggle("", isOn: $viewModel.notificationsEnabled)
+                    .labelsHidden()
+                    .accessibilityLabel("Notifications")
+                    .accessibilityValue(viewModel.notificationsEnabled ? "on" : "off")
+                    .accessibilityIdentifier("notifications-toggle")
+            }
+
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "eye.circle.fill",
+                title: "Reveal mode",
+                subtitle: "Blur incoming pics"
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { !viewModel.autoRevealPhotos },
+                    set: { viewModel.setAutoReveal(!$0) }
+                ))
+                .labelsHidden()
+            }
+
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "eyeglasses",
+                title: "Peek-a-boo",
+                subtitle: "Blur when people peek"
+            ) {
+                SoonLabel()
+            }
+
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "tray.fill",
+                title: "Allow DMs",
+                subtitle: "From group members"
+            ) {
+                SoonLabel()
+            }
+
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "faceid",
+                title: "Require FaceID",
+                subtitle: "Or passcode"
+            ) {
+                SoonLabel()
+            }
+        } header: {
+            Text("Personal preferences")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
+    private var convoRulesSection: some View {
+        Section {
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "timer",
+                title: "Disappear",
+                subtitle: "Messages"
+            ) {
+                SoonLabel()
+            }
+        } header: {
+            Text("Convo rules")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
-                Section {
-                    HStack {
-                        Spacer()
-                        VStack(spacing: DesignConstants.Spacing.step4x) {
-                            ConversationAvatarView(
-                                conversation: viewModel.conversation,
-                                conversationImage: viewModel.conversationImage
-                            )
-                            .frame(width: 160.0, height: 160.0)
+                headerSection
 
-                            VStack(spacing: DesignConstants.Spacing.step2x) {
-                                Text(viewModel.conversation.computedDisplayName)
-                                    .font(.largeTitle.weight(.semibold))
-                                    .foregroundStyle(.colorTextPrimary)
-                                    .multilineTextAlignment(.center)
-                                if !viewModel.conversationDescription.isEmpty {
-                                    Text(viewModel.conversationDescription)
-                                        .font(.subheadline)
-                                }
-
-                                Button {
-                                    presentingEditView = true
-                                } label: {
-                                    Text("Edit info")
-                                        .font(.caption)
-                                        .foregroundStyle(.colorTextSecondary)
-                                }
-                                .buttonStyle(.bordered)
-                                .hoverEffect(.lift)
-                                .padding(.top, DesignConstants.Spacing.step2x)
-                                .accessibilityLabel("Edit conversation info")
-                                .accessibilityIdentifier("edit-info-button")
-                                .sheet(isPresented: $presentingEditView) {
-                                    ConversationInfoEditView(viewModel: viewModel, focusCoordinator: focusCoordinator)
-                                }
-                            }
-                        }
-                        Spacer()
-                    }
-                    .listRowBackground(Color.clear)
-                }
-                .listSectionMargins(.top, 0.0)
-                .listSectionSeparator(.hidden)
-
-                Section {
-                    NavigationLink {
-                        ConversationMembersListView(viewModel: viewModel)
-                    } label: {
-                        HStack {
-                            Text(viewModel.conversation.membersCountString)
-                                .foregroundStyle(.colorTextPrimary)
-                            Spacer()
-                            if viewModel.isFull {
-                                Text("Full")
-                                    .foregroundStyle(.colorTextSecondary)
-                            } else if viewModel.conversation.members.count > 100 {
-                                Text("\(Conversation.maxMembers) max")
-                                    .foregroundStyle(.colorTextSecondary)
-                            }
-                        }
-                    }
-                }
+                membersSection
 
                 Section {
                     convoCodeRow
@@ -263,79 +349,9 @@ struct ConversationInfoView: View {
                     }
                 }
 
-                Section {
-                    FeatureRowItem(
-                        imageName: nil,
-                        symbolName: "bell.fill",
-                        title: "Notifications",
-                        subtitle: nil
-                    ) {
-                        Toggle("", isOn: $viewModel.notificationsEnabled)
-                            .labelsHidden()
-                            .accessibilityLabel("Notifications")
-                            .accessibilityValue(viewModel.notificationsEnabled ? "on" : "off")
-                            .accessibilityIdentifier("notifications-toggle")
-                    }
+                preferencesSection
 
-                    FeatureRowItem(
-                        imageName: nil,
-                        symbolName: "eye.circle.fill",
-                        title: "Reveal mode",
-                        subtitle: "Blur incoming pics"
-                    ) {
-                        Toggle("", isOn: Binding(
-                            get: { !viewModel.autoRevealPhotos },
-                            set: { viewModel.setAutoReveal(!$0) }
-                        ))
-                        .labelsHidden()
-                    }
-
-                    FeatureRowItem(
-                        imageName: nil,
-                        symbolName: "eyeglasses",
-                        title: "Peek-a-boo",
-                        subtitle: "Blur when people peek"
-                    ) {
-                        SoonLabel()
-                    }
-
-                    FeatureRowItem(
-                        imageName: nil,
-                        symbolName: "tray.fill",
-                        title: "Allow DMs",
-                        subtitle: "From group members"
-                    ) {
-                        SoonLabel()
-                    }
-
-                    FeatureRowItem(
-                        imageName: nil,
-                        symbolName: "faceid",
-                        title: "Require FaceID",
-                        subtitle: "Or passcode"
-                    ) {
-                        SoonLabel()
-                    }
-                } header: {
-                    Text("Personal preferences")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.colorTextSecondary)
-                }
-
-                Section {
-                    FeatureRowItem(
-                        imageName: nil,
-                        symbolName: "timer",
-                        title: "Disappear",
-                        subtitle: "Messages"
-                    ) {
-                        SoonLabel()
-                    }
-                } header: {
-                    Text("Convo rules")
-                        .font(.footnote.weight(.medium))
-                        .foregroundStyle(.colorTextSecondary)
-                }
+                convoRulesSection
 
                 Section {
                     HStack {
