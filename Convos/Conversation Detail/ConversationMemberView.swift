@@ -58,14 +58,14 @@ struct ConversationMemberView: View {
                         color: .colorTexting,
                         title: "+1-765-184-2765",
                         subtitle: "Texting (US numbers only)",
-                        copyable: true
+                        copyText: "+1-765-184-2765"
                     )
                     toolRow(
                         icon: "envelope.fill",
                         color: .colorEmail,
                         title: "ad8•••@mail.convos.org",
                         subtitle: "Send and receive emails",
-                        copyable: true
+                        copyText: "ad8@mail.convos.org"
                     )
                     toolRow(
                         icon: "pointer.arrow",
@@ -244,7 +244,7 @@ struct ConversationMemberView: View {
         iconForeground: Color = .white,
         title: String,
         subtitle: String,
-        copyable: Bool = false
+        copyText: String? = nil
     ) -> some View {
         HStack {
             Image(systemName: icon)
@@ -264,8 +264,8 @@ struct ConversationMemberView: View {
 
             Spacer()
 
-            if copyable {
-                CopyButton(text: title)
+            if let copyText {
+                CopyButton(text: copyText)
                     .padding(.trailing, DesignConstants.Spacing.step6x)
             }
         }
