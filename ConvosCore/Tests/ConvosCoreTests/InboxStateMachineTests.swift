@@ -209,10 +209,11 @@ struct InboxStateMachineTests {
         let fixtures = TestFixtures()
 
         let (client, clientId, _) = try await fixtures.createClient()
+        let inboxId = client.inboxId
 
         let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
         _ = try await inboxWriter.save(
-            inboxId: client.inboxId,
+            inboxId: inboxId,
             clientId: clientId,
             installationId: "old-installation-from-previous-device"
         )
@@ -238,7 +239,7 @@ struct InboxStateMachineTests {
             }
         )
 
-        await stateMachine.authorize(inboxId: client.inboxId, clientId: clientId)
+        await stateMachine.authorize(inboxId: inboxId, clientId: clientId)
 
         let state = try await waitForState(stateMachine, timeout: 30) { state in
             if case .ready = state { return true }
@@ -258,11 +259,95 @@ struct InboxStateMachineTests {
         #expect(await revocationTracker.callCount == 1)
 
         let dbInbox = try await fixtures.databaseManager.dbReader.read { db in
-            try DBInbox.fetchOne(db, id: client.inboxId)
+            try DBInbox.fetchOne(db, id: inboxId)
         }
         #expect(dbInbox?.installationId == result.client.installationId)
 
         try? result.client.deleteLocalDatabase()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Authorize with unchanged installationId does not revoke")
+    func testAuthorizeWithSameInstallationIdDoesNotRevoke() async throws {
+        actor RevocationTracker {
+            var callCount = 0
+
+            func record() {
+                callCount += 1
+            }
+        }
+
+        let fixtures = TestFixtures()
+
+        let clientId = ClientId.generate().value
+        let mockInvites = MockInvitesRepository()
+        let networkMonitor = NetworkMonitor()
+        let revocationTracker = RevocationTracker()
+
+        let stateMachine = InboxStateMachine(
+            clientId: clientId,
+            identityStore: fixtures.identityStore,
+            invitesRepository: mockInvites,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            syncingManager: nil,
+            networkMonitor: networkMonitor,
+            overrideJWTToken: "test-jwt-token",
+            environment: .tests,
+            appLifecycle: testAppLifecycle,
+            revokeInstallationsHandler: { _, _ in
+                await revocationTracker.record()
+            }
+        )
+
+        await stateMachine.register(clientId: clientId)
+
+        let registerState = try await waitForState(stateMachine, timeout: 30) { state in
+            if case .ready = state { return true }
+            if case .error = state { return true }
+            return false
+        }
+
+        guard case .ready(_, let registerResult) = registerState else {
+            if case .error(_, let error) = registerState {
+                Issue.record("Registration failed: \(error)")
+            }
+            Issue.record("Did not reach ready state")
+            try? await fixtures.cleanup()
+            return
+        }
+
+        await stateMachine.stop()
+        _ = try await waitForState(stateMachine, timeout: 10) { state in
+            if case .idle = state { return true }
+            return false
+        }
+
+        await stateMachine.authorize(inboxId: registerResult.client.inboxId, clientId: clientId)
+
+        let authorizeState = try await waitForState(stateMachine, timeout: 30) { state in
+            if case .ready = state { return true }
+            if case .error = state { return true }
+            return false
+        }
+
+        guard case .ready(_, let authorizeResult) = authorizeState else {
+            if case .error(_, let error) = authorizeState {
+                Issue.record("Authorization failed: \(error)")
+            }
+            Issue.record("Did not reach ready state after authorize")
+            try? registerResult.client.deleteLocalDatabase()
+            try? await fixtures.cleanup()
+            return
+        }
+
+        #expect(await revocationTracker.callCount == 0)
+
+        let dbInbox = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: registerResult.client.inboxId)
+        }
+        #expect(dbInbox?.installationId == authorizeResult.client.installationId)
+
+        try? authorizeResult.client.deleteLocalDatabase()
         try? await fixtures.cleanup()
     }
 

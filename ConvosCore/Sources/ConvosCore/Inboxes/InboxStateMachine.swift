@@ -699,17 +699,30 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             }
         }
 
-        let storedInstallationId: String? = try? await databaseWriter.read { db in
-            try DBInbox.fetchOne(db, id: result.client.inboxId)?.installationId
-        }
-        if let storedInstallationId, storedInstallationId != result.client.installationId {
-            do {
-                let identity = try await identityStore.identity(for: result.client.inboxId)
-                try await revokeInstallationsHandler(result.client, identity.keys.signingKey)
-                Log.info("Revoked all other installations for inbox: \(result.client.inboxId)")
-            } catch {
-                Log.warning("Failed to revoke other installations for inbox \(result.client.inboxId) (non-fatal): \(error)")
+        let storedInstallationId: String?
+        do {
+            storedInstallationId = try await databaseWriter.read { db in
+                try DBInbox.fetchOne(db, id: result.client.inboxId)?.installationId
             }
+        } catch {
+            Log.warning("Failed to read stored installationId for inbox \(result.client.inboxId), skipping revocation check (non-fatal): \(error)")
+            storedInstallationId = nil
+        }
+
+        if let storedInstallationId {
+            if storedInstallationId != result.client.installationId {
+                do {
+                    let identity = try await identityStore.identity(for: result.client.inboxId)
+                    try await revokeInstallationsHandler(result.client, identity.keys.signingKey)
+                    Log.info("Revoked all other installations for inbox: \(result.client.inboxId)")
+                } catch {
+                    Log.warning("Failed to revoke other installations for inbox \(result.client.inboxId) (non-fatal): \(error)")
+                }
+            } else {
+                Log.debug("Skipping installation revocation for inbox \(result.client.inboxId) because installationId is unchanged")
+            }
+        } else {
+            Log.debug("Skipping installation revocation for inbox \(result.client.inboxId) because no stored installationId was found")
         }
 
         do {
@@ -720,7 +733,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 installationId: result.client.installationId
             )
         } catch {
-            Log.warning("Failed to persist installationId for inbox \(result.client.inboxId) (non-fatal): \(error)")
+            Log.error("Failed to persist installationId for inbox \(result.client.inboxId) (non-fatal): \(error)")
         }
 
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
