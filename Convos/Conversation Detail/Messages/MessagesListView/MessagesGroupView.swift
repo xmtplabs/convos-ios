@@ -40,7 +40,7 @@ struct MessagesGroupView: View {
             let allMessages = group.allMessages
             ForEach(Array(allMessages.enumerated()), id: \.element.base.id) { index, message in
                 let isReply = if case .reply = message { true } else { false }
-                let isFullWidthAttachment = message.base.content.isAttachment
+                let isFullWidthAttachment = message.base.content.isFullBleedAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
