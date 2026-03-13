@@ -60,19 +60,32 @@ latest_bootstrap_inbox_id() {
 wait_for_new_bootstrap() {
     local previous_count="$1"
     local timeout_seconds="$2"
+    local description="$3"
     local start
+    local last_reported_seconds=-1
     start="$(date +%s)"
+
+    echo "Waiting for $description log signal (up to ${timeout_seconds}s)..."
 
     while true; do
         local current_count
         current_count="$(bootstrap_count)"
 
         if (( current_count > previous_count )); then
+            echo "Detected new vault bootstrap log entry."
             return 0
         fi
 
-        if (( $(date +%s) - start >= timeout_seconds )); then
+        local elapsed
+        elapsed=$(( $(date +%s) - start ))
+        if (( elapsed >= timeout_seconds )); then
+            echo "No new vault bootstrap log entry seen within ${timeout_seconds}s."
             return 1
+        fi
+
+        if (( elapsed > 0 && elapsed % 10 == 0 && elapsed != last_reported_seconds )); then
+            echo "  ... still waiting (${elapsed}s/${timeout_seconds}s)"
+            last_reported_seconds=$elapsed
         fi
 
         sleep 1
@@ -218,23 +231,26 @@ trap cleanup EXIT INT TERM
 sleep 2
 launch_app
 
+first_before_count="$(bootstrap_count)"
 print_step \
     "Step 1/2 — Initial app run" \
     "On your iPhone:\n1. Open Convos.\n2. If onboarding/login appears, complete it until you reach the conversations/home screen.\n3. Keep the app in the foreground for ~10 seconds."
 
-first_before_count="$(bootstrap_count)"
-if wait_for_new_bootstrap "$first_before_count" 120; then
+if wait_for_new_bootstrap "$first_before_count" 120 "initial vault bootstrap"; then
     FIRST_INBOX_ID="$(latest_bootstrap_inbox_id)"
+elif (( first_before_count > 0 )); then
+    FIRST_INBOX_ID="$(latest_bootstrap_inbox_id)"
+    echo "Using existing vault bootstrap log entry from this run."
 else
     FIRST_INBOX_ID=""
 fi
 
+second_before_count="$(bootstrap_count)"
 print_step \
     "Step 2/2 — Relaunch check" \
     "On your iPhone:\n1. Open app switcher and force-close Convos.\n2. Reopen Convos from the home screen.\n3. Keep it in the foreground for ~10 seconds."
 
-second_before_count="$(bootstrap_count)"
-if wait_for_new_bootstrap "$second_before_count" 120; then
+if wait_for_new_bootstrap "$second_before_count" 120 "post-relaunch vault bootstrap"; then
     SECOND_INBOX_ID="$(latest_bootstrap_inbox_id)"
 else
     SECOND_INBOX_ID=""
