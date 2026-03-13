@@ -588,7 +588,9 @@ class ConversationViewModel {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
-                self?.messages = messages
+                guard let self else { return }
+                self.clearTypingForNewMessages(old: self.messages, new: messages)
+                self.messages = messages
             }
             .store(in: &cancellables)
         conversationRepository.conversationPublisher
@@ -1666,6 +1668,19 @@ extension ConversationViewModel {
             typerInboxIds.contains { $0.inboxId == member.profile.inboxId }
         }
         typingMembers = members
+    }
+
+    private func clearTypingForNewMessages(old: [MessagesListItemType], new: [MessagesListItemType]) {
+        let oldLastId = old.lastMessageId
+        let newLastId = new.lastMessageId
+        guard oldLastId != newLastId,
+              let lastItem = new.last,
+              case .messages(let group) = lastItem,
+              !group.sender.isCurrentUser else { return }
+        TypingIndicatorManager.shared.handleMessageReceived(
+            conversationId: conversation.id,
+            senderInboxId: group.sender.profile.inboxId
+        )
     }
 
     func stopTyping() {
