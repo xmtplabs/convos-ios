@@ -42,7 +42,15 @@ resolve_udid() {
 }
 
 bootstrap_count() {
-    grep -c "Vault bootstrapped: inboxId=" "$LOG_FILE" 2>/dev/null || echo 0
+    local count
+    count="$(grep -c "Vault bootstrapped: inboxId=" "$LOG_FILE" 2>/dev/null || true)"
+    count="$(echo "$count" | tail -1 | tr -dc '0-9')"
+
+    if [[ -z "$count" ]]; then
+        echo 0
+    else
+        echo "$count"
+    fi
 }
 
 latest_bootstrap_inbox_id() {
@@ -58,6 +66,7 @@ wait_for_new_bootstrap() {
     while true; do
         local current_count
         current_count="$(bootstrap_count)"
+
         if (( current_count > previous_count )); then
             return 0
         fi
@@ -65,23 +74,88 @@ wait_for_new_bootstrap() {
         if (( $(date +%s) - start >= timeout_seconds )); then
             return 1
         fi
+
         sleep 1
     done
 }
 
+is_app_installed() {
+    local tmp_json
+    tmp_json="$(mktemp /tmp/devicectl-apps.XXXX.json)"
+
+    if ! xcrun devicectl device info apps --device "$DEVICE_INPUT" --bundle-id "$BUNDLE_ID" --json-output "$tmp_json" >/dev/null 2>&1; then
+        rm -f "$tmp_json"
+        return 1
+    fi
+
+    local installed
+    installed="$(python3 - "$tmp_json" 2>/dev/null <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    payload = json.load(f)
+
+apps = payload.get("result", {}).get("apps", [])
+print("1" if apps else "0")
+PY
+)"
+
+    rm -f "$tmp_json"
+    [[ "$installed" == "1" ]]
+}
+
+find_device_app_bundle() {
+    find .derivedData/Build/Products -path '*-iphoneos/Convos.app' -type d 2>/dev/null | head -1
+}
+
 launch_app() {
+    local tmp_json
+    tmp_json="$(mktemp /tmp/devicectl-launch.XXXX.json)"
+
+    set +e
     xcrun devicectl device process launch \
         --device "$DEVICE_INPUT" \
         --terminate-existing \
-        "$BUNDLE_ID" >/dev/null 2>&1 || true
+        "$BUNDLE_ID" \
+        --json-output "$tmp_json" >/dev/null 2>&1
+    local exit_code=$?
+    set -e
+
+    if (( exit_code != 0 )); then
+        local reason
+        reason="$(python3 - "$tmp_json" <<'PY'
+import json
+import sys
+
+try:
+    with open(sys.argv[1], encoding="utf-8") as f:
+        payload = json.load(f)
+except Exception:
+    print("unknown launch error")
+    raise SystemExit
+
+user_info = payload.get("error", {}).get("userInfo", {})
+failure_reason = user_info.get("NSLocalizedFailureReason", {}).get("string")
+description = user_info.get("NSLocalizedDescription", {}).get("string")
+print(failure_reason or description or "unknown launch error")
+PY
+)"
+        echo "Warning: automatic app launch failed: $reason"
+        echo "Please open Convos manually on your iPhone."
+    fi
+
+    rm -f "$tmp_json"
 }
 
 print_step() {
     local title="$1"
     local body="$2"
+
     echo
     echo "== $title =="
-    echo "$body"
+    printf "%b\n" "$body"
     echo
     read -r -p "Press Enter when done... "
 }
@@ -90,6 +164,7 @@ require_command idevice_id
 require_command ideviceinfo
 require_command idevicesyslog
 require_command xcrun
+require_command python3
 
 UDID="$(resolve_udid "$DEVICE_INPUT" || true)"
 if [[ -z "$UDID" ]]; then
@@ -103,6 +178,31 @@ DEVICE_VERSION="$(ideviceinfo -u "$UDID" -k ProductVersion 2>/dev/null || echo "
 
 echo "Using device: $DEVICE_NAME ($UDID)"
 echo "iOS version: $DEVICE_VERSION"
+
+if ! is_app_installed; then
+    echo
+    echo "App $BUNDLE_ID is not installed on this device."
+
+    APP_PATH="$(find_device_app_bundle || true)"
+    if [[ -n "$APP_PATH" ]]; then
+        echo "Found a built device app at: $APP_PATH"
+        echo "Attempting to install it..."
+
+        if ! xcrun devicectl device install app --device "$DEVICE_INPUT" "$APP_PATH" >/dev/null 2>&1; then
+            echo "Install failed. Please run the app once from Xcode, then re-run this script."
+            exit 1
+        fi
+
+        echo "Install succeeded."
+    else
+        echo "No device build found under .derivedData."
+        echo "Run the app once from Xcode on this device (or build+install), then re-run this script."
+        echo "Suggested build command:"
+        echo "  xcodebuild build -project Convos.xcodeproj -scheme \"Convos (Dev)\" -destination \"id=$UDID\" -derivedDataPath .derivedData"
+        exit 1
+    fi
+fi
+
 echo "Saving raw logs to: $LOG_FILE"
 
 stdbuf -oL idevicesyslog -u "$UDID" --no-colors > "$LOG_FILE" 2>&1 &
