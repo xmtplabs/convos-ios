@@ -436,7 +436,7 @@ private struct ReplyReferenceLinkPreview: View {
                 do {
                     let (data, _) = try await URLSession.shared.data(from: imageURL)
                     if let image = UIImage(data: data) {
-                        ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .persistent)
+                        ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
                         cachedImage = image
                     }
                 } catch {

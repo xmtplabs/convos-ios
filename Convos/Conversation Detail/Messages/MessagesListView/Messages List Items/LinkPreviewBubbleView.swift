@@ -124,7 +124,7 @@ struct LinkPreviewCardView: View {
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
             if let image = UIImage(data: data) {
-                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .persistent)
+                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
                 cachedImage = image
                 imageAspectRatio = image.size.width / image.size.height
             }
