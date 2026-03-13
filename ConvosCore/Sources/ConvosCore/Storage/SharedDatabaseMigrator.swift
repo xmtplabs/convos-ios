@@ -427,6 +427,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addInstallationIdToInbox") { db in
+            try db.alter(table: "inbox") { t in
+                t.add(column: "installationId", .text)
+            }
+        }
+
         return migrator
     }
 }

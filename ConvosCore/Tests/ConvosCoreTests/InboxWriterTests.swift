@@ -62,6 +62,33 @@ struct InboxWriterTests {
         try? await fixtures.cleanup()
     }
 
+    @Test("Save updates installationId for existing inbox")
+    func testSaveUpdatesInstallationId() async throws {
+        let fixtures = TestFixtures()
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+
+        let inboxId = "test-inbox-id"
+        let clientId = ClientId.generate().value
+
+        _ = try await inboxWriter.save(inboxId: inboxId, clientId: clientId)
+
+        let installationId = "installation-123"
+        let updatedInbox = try await inboxWriter.save(
+            inboxId: inboxId,
+            clientId: clientId,
+            installationId: installationId
+        )
+
+        #expect(updatedInbox.installationId == installationId)
+
+        let dbInbox = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: inboxId)
+        }
+        #expect(dbInbox?.installationId == installationId)
+
+        try? await fixtures.cleanup()
+    }
+
     @Test("Save throws error when clientId doesn't match (invariant violation)")
     func testSaveThrowsOnClientIdMismatch() async throws {
         let fixtures = TestFixtures()
