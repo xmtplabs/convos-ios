@@ -1,4 +1,5 @@
 @testable import ConvosCore
+import Foundation
 import Testing
 
 @Suite("LinkPreview Detection")
@@ -91,6 +92,61 @@ struct LinkPreviewDetectionTests {
         let preview = LinkPreview(url: "https://example.com")
         #expect(preview.resolvedURL != nil)
         #expect(preview.resolvedURL?.absoluteString == "https://example.com")
+    }
+
+    @Test("Rejects localhost")
+    func rejectsLocalhost() {
+        let preview = LinkPreview.from(text: "https://localhost/admin")
+        #expect(preview == nil)
+    }
+
+    @Test("Rejects private IP 10.x.x.x")
+    func rejectsPrivateIP10() {
+        let preview = LinkPreview.from(text: "https://10.0.0.1/secret")
+        #expect(preview == nil)
+    }
+
+    @Test("Rejects private IP 192.168.x.x")
+    func rejectsPrivateIP192() {
+        let preview = LinkPreview.from(text: "https://192.168.1.1")
+        #expect(preview == nil)
+    }
+
+    @Test("Rejects private IP 172.16.x.x")
+    func rejectsPrivateIP172() {
+        let preview = LinkPreview.from(text: "https://172.16.0.1")
+        #expect(preview == nil)
+    }
+
+    @Test("Rejects loopback 127.x.x.x")
+    func rejectsLoopback() {
+        let preview = LinkPreview.from(text: "https://127.0.0.1:8080/api")
+        #expect(preview == nil)
+    }
+
+    @Test("Rejects non-standard port")
+    func rejectsNonStandardPort() {
+        let preview = LinkPreview.from(text: "https://example.com:8443/page")
+        #expect(preview == nil)
+    }
+
+    @Test("Allows standard port 443")
+    func allowsStandardPort443() {
+        let preview = LinkPreview.from(text: "https://example.com:443/page")
+        #expect(preview != nil)
+    }
+
+    @Test("Rejects URL exceeding max length")
+    func rejectsLongURL() {
+        let longPath = String(repeating: "a", count: 2100)
+        let preview = LinkPreview.from(text: "https://example.com/\(longPath)")
+        #expect(preview == nil)
+    }
+
+    @Test("Rejects .local domains")
+    func rejectsLocalDomain() {
+        let preview = LinkPreview.from(text: "https://myserver.local/dashboard")
+        #expect(preview == nil)
     }
 }
 
@@ -242,5 +298,64 @@ struct HTMLEntityDecodingTests {
     func mixedEntities() async {
         let result = await service.decodeHTMLEntities("&lt;div&gt;Tom &amp; Jerry&#x27;s &quot;show&quot;&lt;/div&gt;")
         #expect(result == "<div>Tom & Jerry's \"show\"</div>")
+    }
+}
+
+@Suite("Image Validation")
+struct ImageValidationTests {
+    @Test("Accepts JPEG data")
+    func acceptsJPEG() {
+        var data = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        data.append(Data(repeating: 0x00, count: 100))
+        #expect(OpenGraphService.isValidImageData(data))
+    }
+
+    @Test("Accepts PNG data")
+    func acceptsPNG() {
+        var data = Data([0x89, 0x50, 0x4E, 0x47])
+        data.append(Data(repeating: 0x00, count: 100))
+        #expect(OpenGraphService.isValidImageData(data))
+    }
+
+    @Test("Accepts GIF data")
+    func acceptsGIF() {
+        var data = Data([0x47, 0x49, 0x46, 0x38])
+        data.append(Data(repeating: 0x00, count: 100))
+        #expect(OpenGraphService.isValidImageData(data))
+    }
+
+    @Test("Rejects empty data")
+    func rejectsEmpty() {
+        #expect(!OpenGraphService.isValidImageData(Data()))
+    }
+
+    @Test("Rejects non-image data")
+    func rejectsNonImage() {
+        let data = Data("<!DOCTYPE html>".utf8)
+        #expect(!OpenGraphService.isValidImageData(data))
+    }
+
+    @Test("Rejects oversized data")
+    func rejectsOversized() {
+        var data = Data([0xFF, 0xD8, 0xFF, 0xE0])
+        data.append(Data(repeating: 0x00, count: 6_000_000))
+        #expect(!OpenGraphService.isValidImageData(data))
+    }
+
+    @Test("Valid image dimensions")
+    func validDimensions() {
+        #expect(OpenGraphService.isValidImageSize(width: 1200, height: 630))
+        #expect(OpenGraphService.isValidImageSize(width: 32, height: 32))
+    }
+
+    @Test("Rejects tiny image dimensions")
+    func rejectsTinyDimensions() {
+        #expect(!OpenGraphService.isValidImageSize(width: 1, height: 1))
+        #expect(!OpenGraphService.isValidImageSize(width: 10, height: 10))
+    }
+
+    @Test("Rejects oversized dimensions")
+    func rejectsOversizedDimensions() {
+        #expect(!OpenGraphService.isValidImageSize(width: 10000, height: 10000))
     }
 }
