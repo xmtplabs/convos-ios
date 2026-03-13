@@ -440,6 +440,12 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("addSendReadReceiptsToPhotoPreferences") { db in
+            try db.alter(table: "photoPreferences") { t in
+                t.add(column: "sendReadReceipts", .boolean)
+            }
+        }
+
         return migrator
     }
 }
