@@ -177,7 +177,7 @@ Key design decisions:
 ### Negative
 
 - **Complexity:** Cryptographic operations and multi-stage encoding add implementation complexity
-- **8KB Metadata Limit:** XMTP appData field constrains amount of metadata (tags, profiles, expiration)
+- **8KB Metadata Limit:** XMTP appData field constrains amount of metadata (tags, expiration). Profiles were moved to dedicated XMTP messages (see ADR 005), freeing significant appData space.
 - **No Centralized Analytics:** Can't track invite usage without backend
 - **Revocation Lag:** Updating invite tag only affects future joins, can't force-expire already-shared invites
 
@@ -225,7 +225,7 @@ While the creator's inbox ID is visible in invites, this is not a privacy concer
 - ADR 002: Per-Conversation Identity Model (explains the per-conversation inbox architecture used for invite creators)
 - ADR 003: Inbox Lifecycle Management (explains how pre-created inboxes optimize the join flow)
 - ADR 004: Conversation Explode Feature (join error feedback follows the same custom content type codec pattern)
-- ADR 005: Profile Storage in Conversation Metadata (also uses XMTP custom metadata, shares the 8KB appData limit)
+- ADR 005: Member Profile System (profiles moved to XMTP messages; appData no longer shared with profiles)
 
 ## References
 

@@ -139,6 +139,7 @@ public protocol XMTPClientProvider: AnyObject {
     func revokeInstallations(
         signingKey: SigningKey, installationIds: [String]
     ) async throws
+    func requestDeviceSync() async throws
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
     func dropLocalDatabaseConnection() throws
@@ -242,6 +243,10 @@ extension XMTPiOS.Client: XMTPClientProvider {
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
     }
+
+    public func requestDeviceSync() async throws {
+        try await sendSyncRequest()
+    }
 }
 
 extension XMTPiOS.Conversation: MessageSender {
@@ -264,6 +269,16 @@ extension XMTPiOS.Conversation: MessageSender {
             options: .init(contentType: codec.contentType)
         )
         Log.info("InviteJoinError message sent successfully")
+    }
+
+    public func sendAssistantJoinRequest(_ request: AssistantJoinRequest) async throws {
+        Log.info("Sending AssistantJoinRequest with status: \(request.status.rawValue), requestId: \(request.requestId)")
+        let codec = AssistantJoinRequestCodec()
+        try await send(
+            content: request,
+            options: .init(contentType: codec.contentType)
+        )
+        Log.info("AssistantJoinRequest message sent successfully")
     }
 
     public func prepare(text: String) async throws -> String {

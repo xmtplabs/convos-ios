@@ -12,6 +12,8 @@ struct MessagesGroupView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    var onRetryMessage: ((AnyMessage) -> Void)?
+    var onDeleteMessage: ((AnyMessage) -> Void)?
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
@@ -40,30 +42,33 @@ struct MessagesGroupView: View {
                 let isFullWidthAttachment = message.base.content.isAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
-                    Text(group.sender.profile.displayName)
-                        .scaleEffect(isAppearing ? 0.9 : 1.0)
-                        .opacity(isAppearing ? 0.0 : 1.0)
-                        .offset(
-                            x: 0.0,
-                            y: isAppearing ? 100 : 0
-                        )
-                        .blur(radius: isAppearing ? 10.0 : 0.0)
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
-                        .padding(.bottom, DesignConstants.Spacing.stepHalf)
+                    HStack(spacing: DesignConstants.Spacing.stepX) {
+                        Text(group.sender.profile.displayName)
+                        if group.sender.isAgent && group.sender.profile.isOutOfCredits {
+                            Image(systemName: "battery.0percent")
+                        }
+                    }
+                    .scaleEffect(isAppearing ? 0.9 : 1.0)
+                    .opacity(isAppearing ? 0.0 : 1.0)
+                    .offset(
+                        x: 0.0,
+                        y: isAppearing ? 100 : 0
+                    )
+                    .blur(radius: isAppearing ? 10.0 : 0.0)
+                    .font(.footnote)
+                    .foregroundColor(group.sender.isAgent ? .colorLava : .secondary)
+                    .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
+                    .padding(.bottom, DesignConstants.Spacing.stepHalf)
                 }
 
                 let lastMessage = group.messages.last
                 let isLast = message == lastMessage
                 let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
                 let isLastInGroup = message == group.messages.last
-                // Show "Sent" status for the last message in the last group sent by current user,
-                // but only if it's published (not still sending)
                 let showsSentStatus = isLastInGroup && group.isLastGroupSentByCurrentUser && message.base.status == .published
+                let isFailed = message.base.sender.isCurrentUser && message.base.status == .failed
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
-                    // Show avatar spacer for incoming non-attachment messages only
                     if !group.sender.isCurrentUser && !isFullWidthAttachment {
                         Color.clear
                             .frame(width: avatarSize, height: avatarSize)
@@ -78,7 +83,8 @@ struct MessagesGroupView: View {
                         onReply: onReply,
                         onPhotoRevealed: onPhotoRevealed,
                         onPhotoHidden: onPhotoHidden,
-                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
+                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                        omitTrailingPadding: isFailed
                     )
                     .zIndex(100)
                     .id("messages-group-item-\(message.differenceIdentifier)")
@@ -106,6 +112,16 @@ struct MessagesGroupView: View {
                                 .accessibilityAddTraits(.isButton)
                         }
                     }
+
+                    if isFailed {
+                        FailedMessageButton(
+                            message: message,
+                            onRetry: onRetryMessage,
+                            onDelete: onDeleteMessage
+                        )
+                        .padding(.leading, DesignConstants.Spacing.step3x - avatarSpacing)
+                        .padding(.trailing, DesignConstants.Spacing.step4x)
+                    }
                 }
                 .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
 
@@ -123,7 +139,21 @@ struct MessagesGroupView: View {
                     .id("reactions-\(message.differenceIdentifier)")
                 }
 
-                if showsSentStatus {
+                if isFailed {
+                    HStack(spacing: DesignConstants.Spacing.stepHalf) {
+                        Spacer()
+                        Text("Not Delivered")
+                    }
+                    .transition(.blurReplace)
+                    .padding(.vertical, DesignConstants.Spacing.stepX)
+                    .padding(.leading, DesignConstants.Spacing.step2x)
+                    .padding(.trailing, DesignConstants.Spacing.step4x)
+                    .font(.caption)
+                    .foregroundStyle(.colorCaution)
+                    .zIndex(-1)
+                    .id("failed-status-\(message.differenceIdentifier)")
+                    .accessibilityLabel("Message not delivered")
+                } else if showsSentStatus {
                     HStack(spacing: DesignConstants.Spacing.stepHalf) {
                         Spacer()
                         Text("Sent")
@@ -514,6 +544,17 @@ struct MessagesGroupView: View {
             ],
             isLastGroup: true,
             isLastGroupSentByCurrentUser: true
+        ),
+
+        // -- Failed message --
+        MessagesGroup(
+            id: "failed-message",
+            sender: me,
+            messages: [
+                .message(Message.mock(text: "This message failed to send", sender: me, status: .failed), .existing),
+            ],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false
         ),
     ]
 

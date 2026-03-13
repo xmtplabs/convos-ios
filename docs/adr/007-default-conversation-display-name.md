@@ -174,4 +174,4 @@ A conversation with 0 other members is not fully anonymous; it's considered new.
 ## Related Decisions
 
 - [ADR 002](./002-per-conversation-identity-model.md): Per-conversation identities explain why members are often anonymous
-- [ADR 005](./005-profile-storage-in-conversation-metadata.md): Profile storage determines when member names are available
+- [ADR 005](./005-member-profile-system.md): Member profile system — ProfileUpdate/ProfileSnapshot messages determine when member names are available

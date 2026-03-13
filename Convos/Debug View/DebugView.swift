@@ -3,18 +3,6 @@ import ConvosCoreiOS
 import Sentry
 import SwiftUI
 import UIKit
-import XMTPiOS
-
-extension Client {
-    static var logFileURLs: [URL]? {
-        let customLogDirectory = ConfigManager.shared.currentEnvironment.defaultXMTPLogsDirectoryURL
-        let filePaths = getXMTPLogFilePaths(customLogDirectory: customLogDirectory)
-        guard !filePaths.isEmpty else { return nil }
-        return filePaths
-            .map { URL(fileURLWithPath: $0) }
-            .filter { FileManager.default.fileExists(atPath: $0.path) }
-    }
-}
 
 struct DebugViewSection: View {
     let environment: AppEnvironment
@@ -22,47 +10,11 @@ struct DebugViewSection: View {
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var notificationAuthGranted: Bool = false
     @State private var lastDeviceToken: String = ""
-    @State private var debugFileURLs: [URL]?
-    @State private var preparingLogs: Bool = false
     @State private var isRenewingAssets: Bool = false
     @State private var renewalAlertMessage: String?
     @State private var showingRenewalAlert: Bool = false
     @State private var presentingPhotosInfoSheet: Bool = false
-
-    private var bundleIdentifier: String {
-        Bundle.main.bundleIdentifier ?? "Unknown"
-    }
-
-    private var buildNumber: String {
-        Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "Unknown"
-    }
-
-    @MainActor
-    private func prepareDebugInfoFile() async {
-        guard !preparingLogs else { return }
-        preparingLogs = true
-        let logs = await ConvosLog.getLogs(appGroupIdentifier: environment.appGroupIdentifier)
-
-        let debugInfo = """
-        Convos Debug Information
-
-        Bundle ID: \(bundleIdentifier)
-        Version: \(Bundle.appVersion)
-        Environment: \(ConfigManager.shared.currentEnvironment)
-
-        \(logs)
-        """
-
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("convos-debug-info.txt")
-        try? debugInfo.write(to: tempURL, atomically: true, encoding: String.Encoding.utf8)
-        var debugFileURLs = [tempURL]
-        if let xmtpFileURLs = Client.logFileURLs {
-            debugFileURLs.append(contentsOf: xmtpFileURLs)
-        }
-        self.debugFileURLs = debugFileURLs
-        self.preparingLogs = false
-    }
+    @State private var logStorageInfo: DebugLogExporter.LogStorageInfo?
 
     var body: some View {
         Group {
@@ -119,30 +71,10 @@ struct DebugViewSection: View {
             }
 
             Section("Debug") {
-                if let debugFileURLs {
-                    ShareLink(items: debugFileURLs) {
-                        HStack {
-                            HStack {
-                                Text("Share logs")
-                                Spacer()
-                                Image(systemName: "square.and.arrow.up")
-                            }
-                            .foregroundStyle(.colorTextPrimary)
-                        }
-                    }
-                } else {
-                    HStack {
-                        Text("Preparing logs…")
-                        Spacer()
-                        if preparingLogs { ProgressView() }
-                    }
-                    .foregroundStyle(.colorTextSecondary)
-                }
-
                 HStack {
                     Text("Bundle ID")
                     Spacer()
-                    Text(bundleIdentifier)
+                    Text(Bundle.main.bundleIdentifier ?? "Unknown")
                         .foregroundStyle(.colorTextSecondary)
                 }
 
@@ -158,6 +90,17 @@ struct DebugViewSection: View {
                     Spacer()
                     Text(ConfigManager.shared.currentEnvironment.name.capitalized)
                         .foregroundStyle(.colorTextSecondary)
+                }
+
+                HStack {
+                    Text("Log storage")
+                    Spacer()
+                    if let info = logStorageInfo {
+                        Text(info.formattedTotalSize)
+                            .foregroundStyle(.colorTextSecondary)
+                    } else {
+                        ProgressView()
+                    }
                 }
             }
 
@@ -218,11 +161,19 @@ struct DebugViewSection: View {
                 .disabled(isRenewingAssets)
             }
 
+            SeedConversationsView(session: session)
+
             Section("Sheets") {
                 Button {
                     presentingPhotosInfoSheet = true
                 } label: {
                     Text("Show Photos Info Sheet")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                NavigationLink {
+                    PairingFlowDebugView()
+                } label: {
+                    Text("Pairing Flow Stepper")
                         .foregroundStyle(.colorTextPrimary)
                 }
             }
@@ -253,7 +204,7 @@ struct DebugViewSection: View {
         }
         .task {
             await refreshNotificationStatus()
-            await prepareDebugInfoFile()
+            logStorageInfo = DebugLogExporter.getStorageInfo(environment: environment)
         }
         .alert("Asset Renewal", isPresented: $showingRenewalAlert, presenting: renewalAlertMessage) { _ in
             Button("OK", role: .cancel) {}
@@ -345,6 +296,7 @@ extension DebugViewSection {
         ConversationViewModel.resetUserDefaults()
         ConversationsViewModel.resetUserDefaults()
         ConversationOnboardingCoordinator.resetUserDefaults()
+        GlobalConvoDefaults.shared.reset()
     }
 
     func testSentryMessage() {

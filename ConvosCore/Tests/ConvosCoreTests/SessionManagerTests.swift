@@ -47,7 +47,7 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
             ).insert(db)
         }
 
@@ -120,7 +120,7 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
             ).insert(db)
         }
 
@@ -161,7 +161,7 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
             ).insert(db)
         }
 
@@ -210,7 +210,7 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -237,7 +237,7 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
             ).insert(db)
         }
 
@@ -290,7 +290,7 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
             ).insert(db)
 
             // Insert second inbox and conversation
@@ -317,7 +317,7 @@ struct SessionManagerTests {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
             ).insert(db)
         }
 

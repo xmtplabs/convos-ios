@@ -143,6 +143,15 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
     /// Shows conversation info at the top of the conversation (for non-creators)
     case conversationInfo(Conversation)
 
+    /// Shows when an agent is out of processing power (credits depleted)
+    case agentOutOfCredits(Profile)
+
+    /// Shows the current assistant join status (pending, error, etc.)
+    case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
+
+    /// Shows info about an assistant already present when a new member joins
+    case assistantPresentInfo
+
     var id: String {
         switch self {
         case .update(let id, _, _):
@@ -155,6 +164,12 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "invite-\(invite.id)"
         case .conversationInfo(let conversation):
             return "conversation-info-\(conversation.id)"
+        case .agentOutOfCredits(let profile):
+            return "agent-out-of-credits-\(profile.inboxId)"
+        case .assistantJoinStatus:
+            return "assistant-join"
+        case .assistantPresentInfo:
+            return "assistant-present-info"
         }
     }
 
@@ -183,7 +198,7 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo:
             return nil
         }
     }
@@ -198,6 +213,8 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
         switch self {
         case .invite, .conversationInfo:
             return .center
+        case .agentOutOfCredits:
+            return .fullWidth
         default:
             return .fullWidth
         }
@@ -216,6 +233,12 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "MessagesListItemTypeCell-invite"
         case .conversationInfo:
             return "MessagesListItemTypeCell-conversationInfo"
+        case .agentOutOfCredits:
+            return "MessagesListItemTypeCell-agentOutOfCredits"
+        case .assistantJoinStatus:
+            return "MessagesListItemTypeCell-assistantJoinStatus"
+        case .assistantPresentInfo:
+            return "MessagesListItemTypeCell-assistantPresentInfo"
         }
     }
 
@@ -226,7 +249,10 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             "MessagesListItemTypeCell-update",
             "MessagesListItemTypeCell-messages",
             "MessagesListItemTypeCell-invite",
-            "MessagesListItemTypeCell-conversationInfo"
+            "MessagesListItemTypeCell-conversationInfo",
+            "MessagesListItemTypeCell-agentOutOfCredits",
+            "MessagesListItemTypeCell-assistantJoinStatus",
+            "MessagesListItemTypeCell-assistantPresentInfo"
         ]
     }
 }

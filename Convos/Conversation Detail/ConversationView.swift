@@ -13,6 +13,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
+    @State private var showingAssistantsInfo: Bool = false
+    @State private var showingProcessingPowerInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -71,6 +73,11 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
+            onAboutAssistants: { showingAssistantsInfo = true },
+            onAgentOutOfCredits: { showingProcessingPowerInfo = true },
+            onRetryMessage: viewModel.retryMessage(_:),
+            onDeleteMessage: viewModel.deleteMessage(_:),
+            onRetryAssistantJoin: { viewModel.requestAssistantJoin() },
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
             },
@@ -144,6 +151,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     case .share:
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
+                            hasAssistant: viewModel.conversation.hasAssistant,
+                            isAssistantJoinPending: viewModel.isAssistantJoinPending,
                             isEnabled: messagesTopBarTrailingItemEnabled,
                             onConvoCode: {
                                 if viewModel.isFull {
@@ -179,6 +188,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 quicknameViewModel: quicknameViewModel
             )
             .background(.colorBackgroundSurfaceless)
+        }
+        .selfSizingSheet(isPresented: $showingAssistantsInfo) {
+            AssistantsInfoView()
+                .padding(.top, 20)
+        }
+        .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
+            AssistantProcessingPowerInfoView()
+                .padding(.top, 20)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in
             NavigationStack {

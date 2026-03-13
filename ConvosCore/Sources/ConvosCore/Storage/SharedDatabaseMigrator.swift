@@ -360,6 +360,54 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addMemberKindToProfile") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "memberKind", .text)
+            }
+        }
+
+        migrator.registerMigration("addMetadataToProfile") { db in
+            try db.alter(table: "memberProfile") { t in
+                t.add(column: "metadata", .jsonText)
+            }
+        }
+
+        migrator.registerMigration("addAssistantJoinRequestIndex") { db in
+            try db.create(
+                index: "message_assistantJoinRequest_conversationId",
+                on: "message",
+                columns: ["conversationId", "contentType", "dateNs"],
+                condition: Column("contentType") == MessageContentType.assistantJoinRequest.rawValue
+            )
+        }
+
+        migrator.registerMigration("addIsVaultToInbox") { db in
+            try db.alter(table: "inbox") { t in
+                t.add(column: "isVault", .boolean).notNull().defaults(to: false)
+            }
+
+            try db.create(
+                index: "inbox_unique_vault",
+                on: "inbox",
+                columns: ["isVault"],
+                unique: true,
+                condition: Column("isVault") == true
+            )
+        }
+
+        migrator.registerMigration("addVaultDeviceTable") { db in
+            try db.create(table: "vaultDevice") { t in
+                t.primaryKey("inboxId", .text)
+                t.column("name", .text).notNull()
+                t.column("isCurrentDevice", .boolean).notNull().defaults(to: false)
+                t.column("addedAt", .datetime).notNull()
+            }
+
+            try db.alter(table: "inbox") { t in
+                t.add(column: "sharedToVault", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }

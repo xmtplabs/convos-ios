@@ -1,0 +1,102 @@
+id: "04"
+name: "Join Conversation via Paste in Scan View"
+description: >
+  Verify that a conversation can be joined by pasting the invite URL
+  in the scan view. Requires copying the invite URL to the simulator
+  pasteboard, then tapping the paste button in the scan view.
+tags: [invites, paste, core]
+depends_on: ["01"]
+estimated_duration_s: 180
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  invite_url: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "Paste Test" }
+    save: conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save: invite_url
+  - action: pbcopy_to_simulator
+    args: { text: "$invite_url" }
+    note: >
+      Use `echo -n "$invite_url" | xcrun simctl pbcopy $UDID`
+      to copy the invite URL to the simulator's pasteboard.
+
+steps:
+  - id: open_scan_view
+    name: "Open scan view and verify paste button"
+    actions:
+      - tap: { id: "scan-button" }
+      - wait_for_element: { id: "paste-invite-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "paste-invite-button" }
+    criteria: scan_view_has_paste
+    note: >
+      Scan view UI elements:
+      - X close button (top-left)
+      - paste-invite-button (top-right, clipboard icon,
+        label="Paste invite code from clipboard")
+      - Camera viewfinder area with "Scan" pill button
+      - "Scan a convo code" text below viewfinder
+
+  - id: paste_and_join
+    name: "Paste invite URL and join"
+    actions:
+      - tap: { id: "paste-invite-button" }
+      - dismiss_system_dialog: { button: "Allow Paste" }
+      - wait_for_element: { label_contains: "Verifying", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "Verifying" }
+    criteria: paste_join_enters_verifying
+    note: >
+      iOS shows a system paste permission dialog: "Convos would like to
+      paste from CoreSimulatorBridge. Do you want to allow this?"
+      Options: "Don't Allow Paste" (blue) and "Allow Paste".
+      After allowing, app enters Verifying state with the conversation
+      name, 1 member count, and disabled message input.
+
+  - id: approve_and_verify
+    name: "Approve join and verify conversation is active"
+    actions:
+      - cli_process_join_requests:
+          conversation: "$conversation_id"
+          watch: true
+          timeout: 30
+      - wait_for_element: { label_contains: "2 members", timeout: 30 }
+    verify:
+      - element_exists: { label_contains: "2 members" }
+      - element_exists: { id: "message-text-field" }
+    criteria: paste_join_succeeds
+
+  - id: send_message
+    name: "Send message after paste join"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Paste join works!" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Paste join works!", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Paste join works!" }
+    criteria: messaging_works
+
+teardown:
+  - action: cli_explode
+    args: { conversation: "$conversation_id" }
+    optional: true
+
+criteria:
+  scan_view_has_paste:
+    description: "Scan view has paste-invite-button"
+  paste_join_enters_verifying:
+    description: "Pasting invite URL enters Verifying state"
+  paste_join_succeeds:
+    description: "Paste join completes after CLI approval"
+  messaging_works:
+    description: "Messaging works after paste join"

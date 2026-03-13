@@ -145,9 +145,11 @@ public final class MockMessagesRepository: MessagesRepositoryProtocol, @unchecke
 /// Mock implementation of DraftConversationRepositoryProtocol for testing
 public final class MockDraftConversationRepository: DraftConversationRepositoryProtocol, @unchecked Sendable {
     public var mockConversation: Conversation
+    private let _messagesRepository: (any MessagesRepositoryProtocol)?
 
-    public init(conversation: Conversation = .mock(id: "draft-123")) {
+    public init(conversation: Conversation = .mock(id: "draft-123"), messagesRepository: (any MessagesRepositoryProtocol)? = nil) {
         self.mockConversation = conversation
+        self._messagesRepository = messagesRepository
     }
 
     public var conversationId: String {
@@ -155,7 +157,7 @@ public final class MockDraftConversationRepository: DraftConversationRepositoryP
     }
 
     public var messagesRepository: any MessagesRepositoryProtocol {
-        MockMessagesRepository(conversationId: mockConversation.id)
+        _messagesRepository ?? MockMessagesRepository(conversationId: mockConversation.id)
     }
 
     public var myProfileRepository: any MyProfileRepositoryProtocol {

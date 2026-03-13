@@ -63,6 +63,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleGroupUpdatedContent()
         case ContentTypeExplodeSettings:
             components = try handleExplodeSettingsContent()
+        case ContentTypeAssistantJoinRequest:
+            components = try handleAssistantJoinRequestContent()
         default:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         }
@@ -408,6 +410,22 @@ extension XMTPiOS.DecodedMessage {
             attachmentUrls: [],
             text: nil,
             update: update
+        )
+    }
+
+    private func handleAssistantJoinRequestContent() throws -> DBMessageComponents {
+        let content = try content() as Any
+        guard let request = content as? AssistantJoinRequest else {
+            throw DecodedMessageDBRepresentationError.mismatchedContentType
+        }
+        return DBMessageComponents(
+            messageType: .original,
+            contentType: .assistantJoinRequest,
+            sourceMessageId: nil,
+            emoji: nil,
+            attachmentUrls: [],
+            text: request.status.rawValue,
+            update: nil
         )
     }
 

@@ -22,6 +22,11 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
+    var onAboutAssistants: (() -> Void)?
+    var onAgentOutOfCredits: (() -> Void)?
+    var onRetryMessage: ((AnyMessage) -> Void)?
+    var onDeleteMessage: ((AnyMessage) -> Void)?
+    var onRetryAssistantJoin: (() -> Void)?
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -77,8 +82,23 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 Log.debug("[DataSource] onPhotoHidden called with: \(attachmentData.prefix(50))...")
                 self?.onPhotoHidden?(attachmentData)
             },
+            onAboutAssistants: { [weak self] in
+                self?.onAboutAssistants?()
+            },
+            onAgentOutOfCredits: { [weak self] in
+                self?.onAgentOutOfCredits?()
+            },
+            onRetryAssistantJoin: { [weak self] in
+                self?.onRetryAssistantJoin?()
+            },
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
                 self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
+            },
+            onRetryMessage: { [weak self] message in
+                self?.onRetryMessage?(message)
+            },
+            onDeleteMessage: { [weak self] message in
+                self?.onDeleteMessage?(message)
             }
         )
         return CellFactory.createCell(

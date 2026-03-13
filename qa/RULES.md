@@ -111,6 +111,94 @@ Pass the resolved UDID to every simulator tool call (the `udid` parameter). Also
 
 At the start of a QA session, resolve the UDID once and reuse it for all subsequent operations.
 
+## Multi-Simulator Tests
+
+Some tests (e.g., 03, 04) require two simulators running the app simultaneously. **Never skip a test because it requires multiple simulators — create the second simulator instead.**
+
+### Creating a Second Simulator
+
+When a test says "Two simulators required," create a second simulator alongside the primary one:
+
+```bash
+# The primary simulator UDID is already resolved (see Simulator Selection above)
+DEVICE_A_UDID=$UDID  # Primary simulator = Device A
+
+# Create Device B by cloning an available iPhone simulator
+BASE=$(xcrun simctl list devices available -j | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(next((dev['name'] for rt in d['devices'].values() for dev in rt if 'iPhone' in dev['name'] and dev['isAvailable']), ''))
+")
+DEVICE_B_NAME="convos-qa-device-b"
+xcrun simctl clone "$BASE" "$DEVICE_B_NAME" 2>/dev/null || true
+
+# Get Device B's UDID
+DEVICE_B_UDID=$(xcrun simctl list devices -j | python3 -c "
+import json,sys
+d=json.load(sys.stdin)
+print(next((dev['udid'] for rt in d['devices'].values() for dev in rt if dev['name']=='$DEVICE_B_NAME'), ''))
+")
+
+# Boot Device B
+xcrun simctl boot "$DEVICE_B_UDID" 2>/dev/null || true
+```
+
+### Installing the App on Device B
+
+The app must be built and installed on Device B. Use the same build artifact from the primary build:
+
+```bash
+# Find the built .app bundle (already built for Device A)
+APP_PATH=$(find .derivedData/Build/Products -name 'Convos.app' -type d | head -1)
+
+# If no build exists yet, build first:
+# xcodebuild build -project Convos.xcodeproj -scheme "Convos (Dev)" \
+#   -destination "platform=iOS Simulator,name=$DEVICE_B_NAME" \
+#   -derivedDataPath .derivedData 2>&1 | tail -100
+
+# Install and launch on Device B
+xcrun simctl install "$DEVICE_B_UDID" "$APP_PATH"
+xcrun simctl launch "$DEVICE_B_UDID" org.convos.ios-preview
+```
+
+### Interacting with Both Simulators
+
+Pass the correct UDID to every simulator tool call. The `udid` parameter on all `sim_*` tools determines which simulator receives the interaction:
+
+```
+# Tap on Device A
+sim_tap_id(identifier="compose-button", udid=DEVICE_A_UDID)
+
+# Tap on Device B
+sim_tap_id(identifier="scan-button", udid=DEVICE_B_UDID)
+
+# Screenshot Device B
+sim_screenshot(udid=DEVICE_B_UDID)
+```
+
+### Cleanup
+
+After the test completes, shut down and delete Device B:
+
+```bash
+xcrun simctl shutdown "$DEVICE_B_UDID" 2>/dev/null || true
+xcrun simctl delete "$DEVICE_B_UDID" 2>/dev/null || true
+```
+
+Do not delete Device A — it is the branch's primary simulator and may be used by other tests.
+
+### Erasing Simulators Between Test Parts
+
+Some multi-simulator tests (e.g., test 03 Part 2) require erasing simulators to clear XMTP state. After erasing, reinstall and relaunch the app:
+
+```bash
+xcrun simctl terminate "$DEVICE_UDID" org.convos.ios-preview
+xcrun simctl erase "$DEVICE_UDID"
+xcrun simctl boot "$DEVICE_UDID" 2>/dev/null || true
+xcrun simctl install "$DEVICE_UDID" "$APP_PATH"
+xcrun simctl launch "$DEVICE_UDID" org.convos.ios-preview
+```
+
 ## CXDB — Persistent Test State
 
 CXDB (`qa/cxdb/qa.sqlite`) stores test results, state, and findings across context windows. Use `qa/cxdb/cxdb.sh` to interact with it.
@@ -168,6 +256,20 @@ $CXDB summary "$RUN"                       # Quick console summary
 When a structured YAML test exists in `qa/tests/structured/`, prefer it over the markdown version. The YAML defines explicit actions, verifications, and criteria that reduce interpretation overhead. The agent still adapts and recovers from errors — the YAML is a plan, not a script.
 
 ## General Testing Rules
+
+### No Skipping Tests
+
+**Never skip a test.** If a test has prerequisites that aren't met, set them up — don't skip. Common situations and how to handle them:
+
+- **"Requires two simulators"** → Create a second simulator (see Multi-Simulator Tests above).
+- **"Requires a conversation with multiple members"** → Create one using the CLI. Use `convos conversation create` to make a conversation, then join from the app or have the app create it and the CLI join.
+- **"Requires super admin with another member"** → The app is always super admin of conversations it creates. Create a fresh conversation from the app and have the CLI join it.
+- **"Previous test failed so prerequisites aren't met"** → Set up the prerequisites from scratch for this test. Don't assume state from a previous test that failed.
+- **"Requires specific app state"** → Reset the app or simulator if needed and rebuild the state.
+
+The only acceptable reason to skip a test is if the test exercises functionality that literally does not exist in the current build (e.g., a test for a feature behind a feature flag that's disabled). Infrastructure limitations (number of simulators, conversation setup, state management) are never valid skip reasons.
+
+When a test's setup section describes prerequisites, treat those as instructions to execute, not conditions to check and bail on.
 
 ### Simulator Preparation
 
@@ -257,6 +359,7 @@ The app emits structured `[EVENT]` log lines at key milestones. Use `sim_log_eve
 | `invite.join_request_sent` | Join request sent to inviter |
 | `invite.member_accepted` | Join request processed, member added (includes conversation, member) |
 | `sync.completed` | Full sync completed |
+| `vault.pairing_url_created` | Vault pairing invite URL generated (includes url) |
 
 **Usage pattern:**
 ```

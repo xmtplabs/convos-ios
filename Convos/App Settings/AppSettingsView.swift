@@ -29,8 +29,6 @@ struct ConvosToolbarButton: View {
     }
 }
 
-// swiftlint:disable force_unwrapping
-
 struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
@@ -103,24 +101,47 @@ struct AppSettingsView: View {
                     Text("Private unless you choose to share")
                 }
 
-                Section {
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text("Customize new convos")
-                            .foregroundStyle(.colorTextTertiary)
-
-                        Spacer()
-
-                        SoonLabel()
+                if FeatureFlags.shared.isAssistantEnabled {
+                    Section {
+                        NavigationLink {
+                            AssistantSettingsView()
+                        } label: {
+                            Text("Assistants")
+                                .foregroundStyle(.colorTextPrimary)
+                        }
+                        .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                    } footer: {
+                        Text("Optional AI for groups")
                     }
-                    .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
+                }
 
-                    HStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text("Notifications")
-                            .foregroundStyle(.colorTextTertiary)
+                Section {
+                    NavigationLink {
+                        DevicesView(viewModel: DevicesViewModel(session: session))
+                    } label: {
+                        HStack {
+                            Image(systemName: "iphone.gen3.sizes")
+                                .foregroundStyle(.colorTextPrimary)
 
-                        Spacer()
+                            Text("Devices")
+                                .foregroundStyle(.colorTextPrimary)
+                        }
+                    }
+                    .accessibilityIdentifier("devices-row")
+                } footer: {
+                    Text("Manage and pair other devices")
+                }
 
-                        SoonLabel()
+                Section {
+                    NavigationLink {
+                        CustomizeSettingsView()
+                    } label: {
+                        HStack(spacing: DesignConstants.Spacing.step2x) {
+                            Text("Customize")
+                                .foregroundStyle(.colorTextPrimary)
+
+                            Spacer()
+                        }
                     }
                     .listRowInsets(.init(top: 0, leading: DesignConstants.Spacing.step4x, bottom: 0, trailing: 10.0))
                 }
@@ -128,7 +149,7 @@ struct AppSettingsView: View {
 
                 Section {
                     Button {
-                        openURL(URL(string: "https://xmtp.org")!)
+                        openExternalURL("https://xmtp.org")
                     } label: {
                         NavigationLink {
                             EmptyView()
@@ -147,7 +168,7 @@ struct AppSettingsView: View {
                     .foregroundStyle(.colorTextPrimary)
 
                     Button {
-                        openURL(URL(string: "https://hq.convos.org/privacy-and-terms")!)
+                        openExternalURL("https://hq.convos.org/privacy-and-terms")
                     } label: {
                         NavigationLink("Privacy & Terms", destination: EmptyView())
                     }
@@ -166,6 +187,7 @@ struct AppSettingsView: View {
                         } label: {
                             Text("Debug")
                         }
+                        .accessibilityIdentifier("debug-row")
                         .foregroundStyle(.colorTextPrimary)
                     }
                 } footer: {
@@ -230,9 +252,12 @@ struct AppSettingsView: View {
             openURL(mailtoURL)
         }
     }
-}
 
-// swiftlint:enable force_unwrapping
+    private func openExternalURL(_ urlString: String) {
+        guard let url = URL(string: urlString) else { return }
+        openURL(url)
+    }
+}
 
 #Preview {
     let quicknameViewModel = QuicknameSettingsViewModel.shared

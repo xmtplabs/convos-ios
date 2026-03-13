@@ -182,6 +182,11 @@ final class MessagesViewController: UIViewController {
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
+    var onAboutAssistants: (() -> Void)?
+    var onAgentOutOfCredits: (() -> Void)?
+    var onRetryMessage: ((AnyMessage) -> Void)?
+    var onDeleteMessage: ((AnyMessage) -> Void)?
+    var onRetryAssistantJoin: (() -> Void)?
     var shouldBlurPhotos: Bool = true {
         didSet {
             guard oldValue != shouldBlurPhotos else { return }
@@ -329,6 +334,21 @@ final class MessagesViewController: UIViewController {
         dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
             self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
         }
+        dataSource.onAboutAssistants = { [weak self] in
+            self?.onAboutAssistants?()
+        }
+        dataSource.onAgentOutOfCredits = { [weak self] in
+            self?.onAgentOutOfCredits?()
+        }
+        dataSource.onRetryMessage = { [weak self] message in
+            self?.onRetryMessage?(message)
+        }
+        dataSource.onDeleteMessage = { [weak self] message in
+            self?.onDeleteMessage?(message)
+        }
+        dataSource.onRetryAssistantJoin = { [weak self] in
+            self?.onRetryAssistantJoin?()
+        }
 
         setupImmediateTouchGesture()
         setupHorizontalBlockerGesture()
@@ -465,11 +485,26 @@ extension MessagesViewController {
         var cells: [MessagesListItemType] = messages
 
         // Add invite or conversation info at the beginning if all messages are loaded
-        if hasLoadedAllMessages {
+        if hasLoadedAllMessages, !conversation.isDraft {
             if conversation.creator.isCurrentUser && !conversation.isLocked && !conversation.isFull {
                 cells.insert(.invite(invite), at: 0)
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)
+                if conversation.hasAssistant {
+                    cells.insert(.assistantPresentInfo, at: 1)
+                }
+            }
+        }
+
+        if let agentMember = conversation.members.first(where: { $0.isAgent && $0.profile.isOutOfCredits }) {
+            let agentInboxId = agentMember.profile.inboxId
+            if let lastAgentIndex = cells.lastIndex(where: {
+                if case .messages(let group) = $0 { return group.sender.profile.inboxId == agentInboxId }
+                return false
+            }) {
+                cells.insert(.agentOutOfCredits(agentMember.profile), at: lastAgentIndex + 1)
+            } else {
+                cells.append(.agentOutOfCredits(agentMember.profile))
             }
         }
 

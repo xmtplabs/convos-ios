@@ -37,6 +37,12 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 return .estimated(CGSize(width: width, height: 48.0))
             case .messages(let group):
                 return .estimated(CGSize(width: width, height: estimatedHeight(for: group, width: width)))
+            case .agentOutOfCredits:
+                return .estimated(CGSize(width: width, height: 48.0))
+            case .assistantJoinStatus:
+                return .estimated(CGSize(width: width, height: 48.0))
+            case .assistantPresentInfo:
+                return .estimated(CGSize(width: width, height: 120.0))
             }
         case .footer, .header:
             return .exact(.zero)
@@ -98,7 +104,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 40.0
         case .invite:
             height = 240.0
-        case .update:
+        case .update, .assistantJoinRequest:
             height = 30.0
         }
 

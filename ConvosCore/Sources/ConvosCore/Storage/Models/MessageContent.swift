@@ -8,7 +8,8 @@ public enum MessageContent: Hashable, Codable, Sendable {
          emoji(String), // all emoji, not a reaction
          attachment(HydratedAttachment),
          attachments([HydratedAttachment]),
-         update(ConversationUpdate)
+         update(ConversationUpdate),
+         assistantJoinRequest(status: AssistantJoinStatus, requestedByInboxId: String)
 
     public var showsInMessagesList: Bool {
         switch self {
@@ -39,10 +40,19 @@ public enum MessageContent: Hashable, Codable, Sendable {
 
     public var showsSender: Bool {
         switch self {
-        case .update:
+        case .update, .assistantJoinRequest:
             false
         default:
             true
+        }
+    }
+
+    public var isAssistantJoinRequest: Bool {
+        switch self {
+        case .assistantJoinRequest:
+            true
+        default:
+            false
         }
     }
 

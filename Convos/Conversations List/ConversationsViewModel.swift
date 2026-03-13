@@ -248,6 +248,9 @@ final class ConversationsViewModel {
         updateSelectionTask?.cancel()
     }
 
+    var joinerPairingViewModel: JoinerPairingSheetViewModel?
+    var showJoinerPairingSheet: Bool = false
+
     func handleURL(_ url: URL) {
         guard let destination = DeepLinkHandler.destination(for: url) else {
             return
@@ -256,7 +259,23 @@ final class ConversationsViewModel {
         switch destination {
         case .joinConversation(inviteCode: let inviteCode):
             join(from: inviteCode)
+        case let .pairDevice(pairingId, expiresAt, initiatorName):
+            startJoinerPairing(pairingId: pairingId, expiresAt: expiresAt, initiatorName: initiatorName)
         }
+    }
+
+    private func startJoinerPairing(pairingId: String, expiresAt: Date?, initiatorName: String?) {
+        joinerPairingViewModel?.cancel()
+
+        let vaultManager = (session.vaultService as? VaultManager) ?? .preview
+        let vm = JoinerPairingSheetViewModel(
+            pairingId: pairingId,
+            expiresAt: expiresAt,
+            initiatorName: initiatorName,
+            vaultManager: vaultManager
+        )
+        joinerPairingViewModel = vm
+        showJoinerPairingSheet = true
     }
 
     func onStartConvo() {

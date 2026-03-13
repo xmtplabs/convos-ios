@@ -1,7 +1,10 @@
 import Combine
 import Foundation
+import GRDB
 
 public final class MockInboxesService: SessionManagerProtocol {
+    // swiftlint:disable:next force_try
+    public let databaseReader: any DatabaseReader = try! DatabaseQueue()
     private let mockMessagingService: MockMessagingService = MockMessagingService()
 
     public func deleteAllInboxesWithProgress() -> AsyncThrowingStream<InboxDeletionProgress, any Error> {
@@ -81,8 +84,16 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockInviteRepository()
     }
 
-    public func requestAgentJoin(slug: String, instructions: String) async throws -> ConvosAPI.AgentJoinResponse {
-        .init(success: true, joined: true)
+    public func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
+        if let forceErrorCode {
+            switch forceErrorCode {
+            case 502: throw APIError.agentProvisionFailed
+            case 503: throw APIError.noAgentsAvailable
+            case 504: throw APIError.agentPoolTimeout
+            default: throw APIError.serverError("Mock forced error \(forceErrorCode)")
+            }
+        }
+        return .init(success: true, joined: true)
     }
 
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
@@ -120,6 +131,10 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func isInboxSleeping(clientId: String) async -> Bool {
         false
     }
+
+    // MARK: - Vault
+
+    public var vaultService: (any VaultServiceProtocol)? { nil }
 
     // MARK: - Debug
 

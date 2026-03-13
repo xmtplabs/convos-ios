@@ -1,0 +1,75 @@
+id: "23b"
+name: "Scheduled Explode (In-App Expiration)"
+description: >
+  Verify that a conversation with a scheduled explosion shows a countdown
+  timer and is automatically cleaned up when the timer expires while the
+  app is in the foreground. Uses CLI `conversation explode --scheduled`
+  to schedule the explosion.
+tags: [conversations, explode, scheduled, timer]
+depends_on: ["09"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversation_detail
+
+state:
+  conversation_id: null
+
+setup:
+  - action: cli_create_and_app_join
+    note: >
+      CLI creates conversation and app joins via invite.
+      Exchange messages so conversation has content.
+    save:
+      conversation_id: "from CLI"
+
+steps:
+  - id: verify_active
+    name: "Conversation is active with messages"
+    actions:
+      - tap: { id: "conversation-list-item-$conversation_id" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: conversation_active
+
+  - id: schedule_explosion
+    name: "Schedule explosion from CLI"
+    actions:
+      - cli_explode_scheduled:
+          conversation: "$conversation_id"
+          seconds_from_now: 25
+      - wait_for_element: { label_contains: "explode", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "explode" }
+    criteria: countdown_shown
+    note: >
+      CLI command: `convos conversation explode <id> --scheduled <ISO8601> --force`.
+      The app shows: (1) red countdown timer in the conversation title bar
+      next to the conversation name, format "00:00:XX"; (2) system message
+      "<sender> set this convo to explode in Xm". The countdown updates
+      in real-time.
+
+  - id: wait_for_expiration
+    name: "Conversation auto-cleans up when timer expires"
+    actions:
+      - wait_for_element: { id: "compose-button", timeout: 45 }
+    verify:
+      - element_not_exists: { id: "conversation-list-item-$conversation_id" }
+    criteria: auto_cleanup
+    note: >
+      The app automatically navigates back to the conversations list
+      when the timer reaches zero. The exploded conversation disappears
+      from the list entirely.
+
+teardown: []
+
+criteria:
+  conversation_active:
+    description: "Conversation is active and showing messages before scheduling"
+  countdown_shown:
+    description: "App shows red countdown timer in title bar and system message"
+  auto_cleanup:
+    description: "Conversation auto-cleaned up and removed when timer expired"

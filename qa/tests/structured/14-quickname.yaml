@@ -1,0 +1,151 @@
+id: "14"
+name: "Quickname Flow"
+description: >
+  Verify that quickname can be set via My Info, applied to conversations
+  via the setup banner or quick edit, and that name changes appear on messages.
+  Quickname from My Info is not auto-applied to new conversations — the user
+  must tap the "Add your name for this convo" banner (id=setup-quickname-button)
+  which opens the quick-edit inline UI.
+tags: [profile, quickname, core]
+depends_on: ["01"]
+estimated_duration_s: 240
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+  invite_url: null
+  quickname: "QA Tester"
+
+setup:
+  - action: set_quickname_if_needed
+    args: { name: "QA Tester" }
+    save:
+      quickname: "QA Tester"
+    note: >
+      Go to Settings > My Info and set quickname in the
+      quickname-display-name-field if not already set.
+      Field id: quickname-display-name-field. Press Return to save.
+
+steps:
+  - id: join_conversation
+    name: "Join a CLI-created conversation"
+    actions:
+      - cli_create_conversation:
+          name: "Quickname Test"
+          profile_name: "CLI Bot"
+        save:
+          conversation_id: "from cli output"
+      - cli_generate_invite:
+          conversation: "$conversation_id"
+        save:
+          invite_url: "from cli output"
+      - sim_open_url: { url: "$invite_url" }
+      - cli_process_joins_background:
+          conversation: "$conversation_id"
+      - wait_for_element: { id: "message-text-field", timeout: 30 }
+    verify:
+      - element_exists: { id: "message-text-field" }
+    criteria: conversation_joined
+
+  - id: quickname_banner
+    name: "Quickname setup banner appears"
+    actions:
+      - wait_for_element: { id: "setup-quickname-button", timeout: 10 }
+    verify:
+      - element_exists: { id: "setup-quickname-button" }
+    criteria: quickname_banner_appears
+    note: >
+      Banner shows id="setup-quickname-button", label="Add your name for
+      this convo" with a red lanyard icon. The quickname from My Info is
+      not auto-applied — the field starts empty with placeholder
+      "Add your name".
+
+  - id: apply_quickname
+    name: "Apply quickname via setup banner"
+    actions:
+      - tap: { id: "setup-quickname-button" }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 5 }
+      - type_in_field: { id: "quick-edit-display-name-field", text: "$quickname" }
+      - tap: { id: "quick-edit-done-button" }
+      - wait_for_element: { label_contains: "Chat as $quickname", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Chat as $quickname" }
+    criteria: quickname_applied
+    note: >
+      Quick edit inline UI has 3 elements:
+      - quick-edit-image-picker (label="Choose photo")
+      - quick-edit-display-name-field (text field)
+      - quick-edit-done-button (label="Done editing", checkmark icon)
+      After tapping done, "Chat as <name>" appears in text field placeholder
+      and system message updates to "You joined as <name>".
+
+  - id: quickname_on_messages
+    name: "Messages show quickname display name"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Hello with quickname" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Hello with quickname", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "$quickname" }
+    criteria: quickname_on_messages
+
+  - id: quick_edit_opens
+    name: "Quick edit view opens from avatar"
+    actions:
+      - tap: { id: "profile-avatar-button" }
+      - wait_for_element: { id: "quick-edit-display-name-field", timeout: 10 }
+    verify:
+      - element_exists: { id: "quick-edit-display-name-field" }
+      - element_exists: { id: "quick-edit-done-button" }
+    criteria: quick_edit_opens
+    note: >
+      Avatar button id="profile-avatar-button", label="Edit your profile".
+      The quick-edit field is pre-populated with the current display name.
+
+  - id: edit_name_quick_edit
+    name: "Display name changed via quick edit"
+    actions:
+      - type_in_field: { id: "quick-edit-display-name-field", text: "Custom Name", clear_first: true }
+      - tap: { id: "quick-edit-done-button" }
+      - wait_for_element: { label_contains: "Chat as Custom Name", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Chat as Custom Name" }
+    criteria: name_changed_quick_edit
+    note: >
+      Name changes are retroactive — system message "You joined as" and
+      all previous messages update to show the new name.
+
+  - id: custom_name_on_messages
+    name: "Changed name appears on sent messages"
+    actions:
+      - type_in_field: { id: "message-text-field", text: "Message with custom name" }
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "Custom Name", timeout: 10 }
+    verify:
+      - element_exists: { label_contains: "Custom Name: Message with custom name" }
+    criteria: custom_name_visible
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+    optional: true
+
+criteria:
+  conversation_joined:
+    description: "Successfully joined a CLI-created conversation"
+  quickname_banner_appears:
+    description: "Quickname setup banner appears above the composer"
+  quickname_applied:
+    description: "Quickname applied via the setup banner and reflected in UI"
+  quickname_on_messages:
+    description: "Messages sent with quickname show the correct display name"
+  quick_edit_opens:
+    description: "Quick edit view opens when tapping the avatar"
+  name_changed_quick_edit:
+    description: "Display name can be changed via the quick edit view"
+  custom_name_visible:
+    description: "Changed display name appears on sent messages"

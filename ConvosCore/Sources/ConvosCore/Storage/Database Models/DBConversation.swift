@@ -148,6 +148,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
 
     static let lastMessageRequest: QueryInterfaceRequest<DBMessage> = DBMessage
         .filter(DBMessage.Columns.contentType != MessageContentType.update.rawValue)
+        .filter(DBMessage.Columns.contentType != MessageContentType.assistantJoinRequest.rawValue)
         .annotated { max($0.dateNs) }
         .group(\.conversationId)
 
@@ -167,15 +168,40 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
                     src.text as sourceMessageText
                 FROM message m
                 LEFT JOIN message src ON m.sourceMessageId = src.id
-                WHERE m.contentType != ?
+                WHERE m.contentType NOT IN (?, ?)
                 AND m.dateNs = (
                     SELECT MAX(m2.dateNs)
                     FROM message m2
                     WHERE m2.conversationId = m.conversationId
-                    AND m2.contentType != ?
+                    AND m2.contentType NOT IN (?, ?)
                 )
                 """,
-            arguments: [MessageContentType.update.rawValue, MessageContentType.update.rawValue]
+            arguments: [
+                MessageContentType.update.rawValue,
+                MessageContentType.assistantJoinRequest.rawValue,
+                MessageContentType.update.rawValue,
+                MessageContentType.assistantJoinRequest.rawValue,
+            ]
+        )
+
+    nonisolated(unsafe) static let latestAssistantJoinRequestCTE: CommonTableExpression<DBAssistantJoinRequest> =
+        CommonTableExpression<DBAssistantJoinRequest>(
+            named: "conversationAssistantJoinRequest",
+            sql: """
+                SELECT m.conversationId, m.text AS status, m.date
+                FROM message m
+                WHERE m.contentType = ?
+                AND m.dateNs = (
+                    SELECT MAX(m2.dateNs)
+                    FROM message m2
+                    WHERE m2.conversationId = m.conversationId
+                    AND m2.contentType = ?
+                )
+                """,
+            arguments: [
+                MessageContentType.assistantJoinRequest.rawValue,
+                MessageContentType.assistantJoinRequest.rawValue,
+            ]
         )
 
     static let localState: HasOneAssociation<DBConversation, ConversationLocalState> = hasOne(
@@ -372,6 +398,33 @@ extension DBConversation {
     }
 
     func with(description: String?) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused
+        )
+    }
+
+    func with(createdAt: Date) -> Self {
         .init(
             id: id,
             inboxId: inboxId,

@@ -305,10 +305,12 @@ extension Array where Element == DBMessage {
         var updatedSeenIds = seenMessageIds
 
         let messages = compactMap { dbMessage -> AnyMessage? in
-            guard let sender = memberProfileCache.member(for: dbMessage.senderId) else {
-                Log.warning("Message dropped: missing sender profile for inboxId \(dbMessage.senderId)")
-                return nil
-            }
+            let sender = memberProfileCache.member(for: dbMessage.senderId)
+                ?? ConversationMember(
+                    profile: .empty(inboxId: dbMessage.senderId),
+                    role: .member,
+                    isCurrentUser: dbMessage.senderId == conversation.inboxId
+                )
             let source: MessageSource = sender.isCurrentUser ? .outgoing : .incoming
             let reactions = (reactionsBySourceId[dbMessage.id] ?? []).hydrateReactions(
                 cache: memberProfileCache,
@@ -390,6 +392,9 @@ extension Array where Element == DBMessage {
                             metadataChanges: metadataChanges
                         )
                     )
+                case .assistantJoinRequest:
+                    let status = AssistantJoinStatus(rawValue: dbMessage.text ?? "pending") ?? .pending
+                    messageContent = .assistantJoinRequest(status: status, requestedByInboxId: dbMessage.senderId)
                 }
 
                 let message = Message(
@@ -454,7 +459,7 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
-        case .update:
+        case .update, .assistantJoinRequest:
             return nil
         }
 
@@ -492,7 +497,7 @@ extension Array where Element == DBMessage {
             } else {
                 parentContent = .text("[Invite]")
             }
-        case .update:
+        case .update, .assistantJoinRequest:
             parentContent = .text("[Update]")
         }
 
@@ -532,13 +537,28 @@ extension Array where Element == DBMessage {
 struct MemberProfileCache {
     private let profilesByInboxId: [String: ConversationMember]
 
-    init(profiles: [DBConversationMemberProfileWithRole], currentInboxId: String) {
+    init(
+        activeProfiles: [DBConversationMemberProfileWithRole],
+        allProfiles: [DBMemberProfile],
+        currentInboxId: String
+    ) {
         var map: [String: ConversationMember] = [:]
-        map.reserveCapacity(profiles.count)
-        for profile in profiles {
+        map.reserveCapacity(max(activeProfiles.count, allProfiles.count))
+
+        for profile in activeProfiles {
             map[profile.memberProfile.inboxId] = profile.hydrateConversationMember(currentInboxId: currentInboxId)
         }
-        self.profilesByInboxId = map
+
+        for profile in allProfiles where map[profile.inboxId] == nil {
+            map[profile.inboxId] = ConversationMember(
+                profile: profile.hydrateProfile(),
+                role: .member,
+                isCurrentUser: profile.inboxId == currentInboxId,
+                isAgent: profile.isAgent
+            )
+        }
+
+        profilesByInboxId = map
     }
 
     func member(for inboxId: String) -> ConversationMember? {
@@ -618,7 +638,8 @@ private extension LightweightConversationDetails {
             creator = ConversationMember(
                 profile: profile.hydrateProfile(),
                 role: creatorDetails.role,
-                isCurrentUser: profile.inboxId == conversation.inboxId
+                isCurrentUser: profile.inboxId == conversation.inboxId,
+                isAgent: profile.isAgent
             )
         } else {
             creator = ConversationMember(
@@ -668,7 +689,8 @@ private extension LightweightConversationDetails {
             invite: nil,
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
-            isLocked: conversation.isLocked
+            isLocked: conversation.isLocked,
+            assistantJoinStatus: nil
         )
     }
 }
@@ -686,14 +708,20 @@ fileprivate extension Database {
             return ([], .init())
         }
 
-        let allMemberProfiles = try DBConversationMember
+        let activeMemberProfiles = try DBConversationMember
             .filter(DBConversationMember.Columns.conversationId == conversationId)
             .select([DBConversationMember.Columns.role])
             .including(required: DBConversationMember.memberProfile)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(self)
+
+        let historicalMemberProfiles = try DBMemberProfile
+            .filter(DBMemberProfile.Columns.conversationId == conversationId)
+            .fetchAll(self)
+
         let memberProfileCache = MemberProfileCache(
-            profiles: allMemberProfiles,
+            activeProfiles: activeMemberProfiles,
+            allProfiles: historicalMemberProfiles,
             currentInboxId: conversation.inboxId
         )
 

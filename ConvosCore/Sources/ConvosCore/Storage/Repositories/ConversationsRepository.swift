@@ -77,6 +77,13 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
             }
         ).forKey("conversationLastMessageWithSource")
 
+        let assistantJoinRequest = DBConversation.association(
+            to: DBConversation.latestAssistantJoinRequestCTE,
+            on: { conversation, cte in
+                conversation.id == cte[Column("conversationId")]
+            }
+        ).forKey("conversationAssistantJoinRequest")
+
         return self
             .including(optional: DBConversation.invite)
             .including(
@@ -88,6 +95,8 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
             .including(required: DBConversation.localState)
             .with(DBConversation.lastMessageWithSourceCTE)
             .including(optional: lastMessageWithSource)
+            .with(DBConversation.latestAssistantJoinRequestCTE)
+            .including(optional: assistantJoinRequest)
             .including(
                 all: DBConversation._members
                     .forKey("conversationMembers")
@@ -95,7 +104,6 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
                     .including(required: DBConversationMember.memberProfile)
             )
             .group(DBConversation.Columns.id)
-            // Sort by last message date if available, otherwise by conversation createdAt
             .order(sql: "COALESCE(conversationLastMessageWithSource.date, conversation.createdAt) DESC")
             .asRequest(of: DBConversationDetails.self)
     }

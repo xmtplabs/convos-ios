@@ -1,6 +1,7 @@
 import ConvosProfiles
 import Foundation
 import GRDB
+@preconcurrency import XMTPiOS
 
 public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
@@ -51,7 +52,12 @@ class MyProfileWriter: MyProfileWriterProtocol {
             return profile
         }
 
-        try await group.updateProfile(profile)
+        do {
+            try await group.updateProfile(profile)
+        } catch {
+            Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+        }
+        await sendProfileUpdate(profile: profile, group: group)
     }
 
     func update(avatar: ImageType?, conversationId: String) async throws {
@@ -85,7 +91,12 @@ class MyProfileWriter: MyProfileWriterProtocol {
             try await databaseWriter.write { db in
                 try updatedProfile.save(db)
             }
-            try await group.updateProfile(updatedProfile)
+            do {
+                try await group.updateProfile(updatedProfile)
+            } catch {
+                Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+            }
+            await sendProfileUpdate(profile: updatedProfile, group: group)
             return
         }
 
@@ -117,9 +128,12 @@ class MyProfileWriter: MyProfileWriterProtocol {
             key: groupKey
         )
 
-        try await group.updateProfile(updatedProfile)
+        do {
+            try await group.updateProfile(updatedProfile)
+        } catch {
+            Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+        }
 
-        // Cache the uploaded image using the new URL-tracking API
         if let image = ImageType(data: compressedImageData) {
             ImageCacheContainer.shared.cacheAfterUpload(image, for: hydratedProfile, url: uploadedAssetUrl)
         }
@@ -127,6 +141,33 @@ class MyProfileWriter: MyProfileWriterProtocol {
         try await databaseWriter.write { db in
             Log.info("Updated encrypted avatar for profile: \(updatedProfile)")
             try updatedProfile.save(db)
+        }
+
+        await sendProfileUpdate(profile: updatedProfile, group: group)
+    }
+
+    private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {
+        var update = ProfileUpdate()
+        if let name = profile.name {
+            update.name = name
+        }
+        if let encryptedRef = profile.encryptedImageRef {
+            update.encryptedImage = EncryptedProfileImageRef(encryptedRef)
+        }
+        if let kind = profile.memberKind {
+            update.memberKind = kind.protoMemberKind
+        }
+        if let metadata = profile.metadata, !metadata.isEmpty {
+            update.metadata = metadata.asProtoMap
+        }
+
+        do {
+            let codec = ProfileUpdateCodec()
+            let encoded = try codec.encode(content: update)
+            _ = try await group.send(encodedContent: encoded)
+            Log.debug("Sent ProfileUpdate message for \(profile.inboxId) in \(profile.conversationId)")
+        } catch {
+            Log.warning("Failed to send ProfileUpdate message: \(error.localizedDescription)")
         }
     }
 }

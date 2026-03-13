@@ -414,7 +414,7 @@ After eviction completes, we double-check state before proceeding since another 
 **Related ADRs:**
 - ADR 002: Per-Conversation Identity Model (explains why lifecycle management is needed)
 - ADR 004: Explode Feature (uses inbox deletion process for conversation explosions)
-- ADR 005: Profile Storage in Conversation Metadata (per-conversation profiles rely on per-conversation identities)
+- ADR 005: Member Profile System (per-conversation profiles rely on per-conversation identities)
 
 ## References
 

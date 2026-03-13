@@ -78,16 +78,26 @@ public struct JoinRequest: Sendable {
     /// The message containing the join request
     public let messageId: String
 
+    /// The joiner's profile (name, image) if provided
+    public let profile: JoinRequestProfile?
+
+    /// Additional metadata (e.g., device name, confirmation code for Vault pairing)
+    public let metadata: [String: String]?
+
     public init(
         joinerInboxId: String,
         dmConversationId: String,
         signedInvite: SignedInvite,
-        messageId: String
+        messageId: String,
+        profile: JoinRequestProfile? = nil,
+        metadata: [String: String]? = nil
     ) {
         self.joinerInboxId = joinerInboxId
         self.dmConversationId = dmConversationId
         self.signedInvite = signedInvite
         self.messageId = messageId
+        self.profile = profile
+        self.metadata = metadata
     }
 }
 
@@ -104,10 +114,24 @@ public struct JoinResult: Sendable {
     /// The name of the conversation (if available)
     public let conversationName: String?
 
-    public init(conversationId: String, joinerInboxId: String, conversationName: String?) {
+    /// The joiner's profile if provided in the join request
+    public let profile: JoinRequestProfile?
+
+    /// Additional metadata from the join request
+    public let metadata: [String: String]?
+
+    public init(
+        conversationId: String,
+        joinerInboxId: String,
+        conversationName: String?,
+        profile: JoinRequestProfile? = nil,
+        metadata: [String: String]? = nil
+    ) {
         self.conversationId = conversationId
         self.joinerInboxId = joinerInboxId
         self.conversationName = conversationName
+        self.profile = profile
+        self.metadata = metadata
     }
 }
 
