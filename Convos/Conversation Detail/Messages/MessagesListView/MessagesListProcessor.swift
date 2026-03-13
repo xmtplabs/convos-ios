@@ -12,13 +12,13 @@ final class MessagesListProcessor {
     /// Transforms messages into display items for the messages list
     /// - Parameter messages: Array of messages from the repository (already sorted by sortId)
     /// - Returns: Array of items ready for display in the messages list
-    static func process(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = []) -> [MessagesListItemType] {
+    static func process(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
         let visibleMessages = messages.filter { $0.base.content.showsInMessagesList }
-        return processMessages(visibleMessages, readReceipts: readReceipts)
+        return processMessages(visibleMessages, readReceipts: readReceipts, memberProfiles: memberProfiles)
     }
 
-    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false, readReceipts: [ReadReceiptEntry] = []) -> [MessagesListItemType] {
-        return process(messages, readReceipts: readReceipts)
+    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false, readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
+        return process(messages, readReceipts: readReceipts, memberProfiles: memberProfiles)
     }
 
     // MARK: - Private Methods
@@ -37,7 +37,7 @@ final class MessagesListProcessor {
     }
 
     // swiftlint:disable:next cyclomatic_complexity
-    private static func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = []) -> [MessagesListItemType] {
+    private static func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
         let lastAssistantJoinIndex: Int? = {
@@ -146,7 +146,8 @@ final class MessagesListProcessor {
             var readByProfiles: [Profile] = []
             if let lastMessage = group.messages.last,
                lastMessage.base.status == .published,
-               !readReceipts.isEmpty {
+               !readReceipts.isEmpty,
+               GlobalConvoDefaults.shared.sendReadReceipts {
                 let messageDateNs = Int64(lastMessage.base.date.timeIntervalSince1970 * 1_000_000_000)
                 let currentInboxId = group.sender.profile.inboxId
                 let readInboxIds = Set(
@@ -155,9 +156,15 @@ final class MessagesListProcessor {
                         .map(\.inboxId)
                 )
                 readByProfiles = readInboxIds.compactMap { inboxId in
-                    messages.lazy
-                        .compactMap { $0.base.sender.profile.inboxId == inboxId ? $0.base.sender.profile : nil }
-                        .first
+                    if let msgProfile = messages.lazy
+                        .compactMap({ $0.base.sender.profile.inboxId == inboxId ? $0.base.sender.profile : nil })
+                        .first {
+                        return msgProfile
+                    }
+                    if let memberInfo = memberProfiles[inboxId] {
+                        return Profile(inboxId: inboxId, name: memberInfo.name, avatar: memberInfo.avatar)
+                    }
+                    return nil
                 }
             }
             var updatedGroup = MessagesGroup(

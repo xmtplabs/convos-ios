@@ -6,6 +6,19 @@ public struct ConversationMessagesResult: Sendable {
     public let conversationId: String
     public let messages: [AnyMessage]
     public let readReceipts: [ReadReceiptEntry]
+    public let memberProfiles: [String: MemberProfileInfo]
+}
+
+public struct MemberProfileInfo: Sendable {
+    public let inboxId: String
+    public let name: String?
+    public let avatar: String?
+
+    public init(inboxId: String, name: String?, avatar: String?) {
+        self.inboxId = inboxId
+        self.name = name
+        self.avatar = avatar
+    }
 }
 
 public protocol MessagesRepositoryProtocol {
@@ -180,7 +193,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
 
         return try dbReader.read { [weak self] db in
             guard let self else {
-                return ConversationMessagesResult(conversationId: self?.conversationId ?? "", messages: [], readReceipts: [])
+                return ConversationMessagesResult(conversationId: self?.conversationId ?? "", messages: [], readReceipts: [], memberProfiles: [:])
             }
 
             let currentSeenIds = self.stateQueue.sync { self._seenMessageIds }
@@ -206,10 +219,13 @@ class MessagesRepository: MessagesRepositoryProtocol {
                 .fetchAll(db)
                 .map { ReadReceiptEntry(inboxId: $0.inboxId, readAtNs: $0.readAtNs) }
 
+            let profiles = try Self.fetchMemberProfiles(db, conversationId: self.conversationId)
+
             return ConversationMessagesResult(
                 conversationId: self.conversationId,
                 messages: messages,
-                readReceipts: readReceipts
+                readReceipts: readReceipts,
+                memberProfiles: profiles
             )
         }
     }
@@ -278,7 +294,7 @@ class MessagesRepository: MessagesRepositoryProtocol {
         )
         .map { [weak self] conversationId, limit -> AnyPublisher<ConversationMessagesResult, Never> in
             guard let self else {
-                return Just(ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: []))
+                return Just(ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [], memberProfiles: [:]))
                     .eraseToAnyPublisher()
             }
 
@@ -315,23 +331,37 @@ class MessagesRepository: MessagesRepositoryProtocol {
                             .fetchAll(db)
                             .map { ReadReceiptEntry(inboxId: $0.inboxId, readAtNs: $0.readAtNs) }
 
+                        let profiles = try MessagesRepository.fetchMemberProfiles(db, conversationId: conversationId)
+
                         return ConversationMessagesResult(
                             conversationId: conversationId,
                             messages: messages,
-                            readReceipts: readReceipts
+                            readReceipts: readReceipts,
+                            memberProfiles: profiles
                         )
                     } catch {
                         Log.error("Error in messages publisher: \(error)")
                     }
-                    return ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [])
+                    return ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [], memberProfiles: [:])
                 }
                 .publisher(in: dbReader)
-                .replaceError(with: ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: []))
+                .replaceError(with: ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [], memberProfiles: [:]))
                 .eraseToAnyPublisher()
         }
         .switchToLatest()
         .eraseToAnyPublisher()
     }()
+
+    static func fetchMemberProfiles(_ db: Database, conversationId: String) throws -> [String: MemberProfileInfo] {
+        let rows = try DBMemberProfile
+            .filter(DBMemberProfile.Columns.conversationId == conversationId)
+            .fetchAll(db)
+        var result: [String: MemberProfileInfo] = [:]
+        for row in rows {
+            result[row.inboxId] = MemberProfileInfo(inboxId: row.inboxId, name: row.name, avatar: row.avatar)
+        }
+        return result
+    }
 }
 
 extension Array where Element == DBMessage {
