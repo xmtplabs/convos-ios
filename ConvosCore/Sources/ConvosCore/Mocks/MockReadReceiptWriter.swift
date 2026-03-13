@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 
 public final class MockReadReceiptWriter: ReadReceiptWriterProtocol, @unchecked Sendable {
@@ -8,17 +7,5 @@ public final class MockReadReceiptWriter: ReadReceiptWriterProtocol, @unchecked 
 
     public func sendReadReceipt(for conversationId: String) async throws {
         sentReadReceipts.append(conversationId)
-    }
-
-    public func fetchReadMemberInboxIds(
-        for conversationId: String,
-        afterNs messageDateNs: Int64,
-        excludingInboxId: String
-    ) async throws -> [String] {
-        []
-    }
-
-    public func readReceiptsPublisher(for conversationId: String) -> AnyPublisher<[ReadReceiptEntry], Error> {
-        Just([]).setFailureType(to: Error.self).eraseToAnyPublisher()
     }
 }

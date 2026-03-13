@@ -1,4 +1,3 @@
-import Combine
 import Foundation
 import GRDB
 import XMTPiOS
@@ -10,12 +9,6 @@ public struct ReadReceiptEntry: Sendable {
 
 public protocol ReadReceiptWriterProtocol: Sendable {
     func sendReadReceipt(for conversationId: String) async throws
-    func fetchReadMemberInboxIds(
-        for conversationId: String,
-        afterNs messageDateNs: Int64,
-        excludingInboxId: String
-    ) async throws -> [String]
-    func readReceiptsPublisher(for conversationId: String) -> AnyPublisher<[ReadReceiptEntry], Error>
 }
 
 enum ReadReceiptWriterError: Error {
@@ -56,34 +49,6 @@ final class ReadReceiptWriter: ReadReceiptWriterProtocol, Sendable {
         }
 
         Log.info("Sent read receipt for conversation \(conversationId)")
-    }
-
-    func fetchReadMemberInboxIds(
-        for conversationId: String,
-        afterNs messageDateNs: Int64,
-        excludingInboxId: String
-    ) async throws -> [String] {
-        try await databaseWriter.read { db in
-            try DBConversationReadReceipt
-                .filter(DBConversationReadReceipt.Columns.conversationId == conversationId)
-                .filter(DBConversationReadReceipt.Columns.readAtNs >= messageDateNs)
-                .filter(DBConversationReadReceipt.Columns.inboxId != excludingInboxId)
-                .select(DBConversationReadReceipt.Columns.inboxId)
-                .asRequest(of: String.self)
-                .fetchAll(db)
-        }
-    }
-
-    func readReceiptsPublisher(for conversationId: String) -> AnyPublisher<[ReadReceiptEntry], Error> {
-        let observation = ValueObservation.tracking { db in
-            try DBConversationReadReceipt
-                .filter(DBConversationReadReceipt.Columns.conversationId == conversationId)
-                .fetchAll(db)
-                .map { ReadReceiptEntry(inboxId: $0.inboxId, readAtNs: $0.readAtNs) }
-        }
-        return observation
-            .publisher(in: databaseWriter, scheduling: .immediate)
-            .eraseToAnyPublisher()
     }
 }
 
