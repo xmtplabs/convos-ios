@@ -89,7 +89,9 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         lastRawMessages = messages
         lastReadReceipts = readReceipts
         lastMemberProfiles = memberProfiles
-        let items = MessagesListProcessor.process(messages, readReceipts: readReceipts, memberProfiles: memberProfiles)
+        let currentUserInboxIds = Set(messages.filter { $0.base.sender.isCurrentUser }.map { $0.base.sender.profile.inboxId })
+        let otherMemberCount = memberProfiles.keys.filter { !currentUserInboxIds.contains($0) }.count
+        let items = MessagesListProcessor.process(messages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: otherMemberCount)
         scheduleAssistantJoinDismissIfNeeded(items)
         return items
     }

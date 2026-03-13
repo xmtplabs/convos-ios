@@ -12,13 +12,13 @@ final class MessagesListProcessor {
     /// Transforms messages into display items for the messages list
     /// - Parameter messages: Array of messages from the repository (already sorted by sortId)
     /// - Returns: Array of items ready for display in the messages list
-    static func process(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
+    static func process(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0) -> [MessagesListItemType] {
         let visibleMessages = messages.filter { $0.base.content.showsInMessagesList }
-        return processMessages(visibleMessages, readReceipts: readReceipts, memberProfiles: memberProfiles)
+        return processMessages(visibleMessages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: currentOtherMemberCount)
     }
 
-    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false, readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
-        return process(messages, readReceipts: readReceipts, memberProfiles: memberProfiles)
+    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false, readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0) -> [MessagesListItemType] {
+        return process(messages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: currentOtherMemberCount)
     }
 
     // MARK: - Private Methods
@@ -37,7 +37,7 @@ final class MessagesListProcessor {
     }
 
     // swiftlint:disable:next cyclomatic_complexity
-    private static func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
+    private static func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
         let lastAssistantJoinIndex: Int? = {
@@ -178,15 +178,16 @@ final class MessagesListProcessor {
             items[lastCurrentUserIndex] = .messages(updatedGroup)
         }
 
-        markOnlyVisibleToSender(&items)
+        markOnlyVisibleToSender(&items, currentOtherMemberCount: currentOtherMemberCount)
 
         return items
     }
 
     private static func markOnlyVisibleToSender(
-        _ items: inout [MessagesListItemType]
+        _ items: inout [MessagesListItemType],
+        currentOtherMemberCount: Int = 0
     ) {
-        var otherMemberCount: Int = 0
+        var otherMemberCount: Int = currentOtherMemberCount
         var lastOnlyVisibleIndex: Int?
 
         for i in items.indices {

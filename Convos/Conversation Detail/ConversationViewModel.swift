@@ -64,6 +64,10 @@ class ConversationViewModel {
     private var observedPhotoPreferencesConversationId: String?
     @ObservationIgnored
     private var lastReadReceiptSentAt: Date?
+    @ObservationIgnored
+    private var pendingReadReceiptTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var lastMessageCountForReadReceipt: Int = 0
 
     // MARK: - Public
 
@@ -514,8 +518,14 @@ class ConversationViewModel {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
-                self?.messages = messages
-                self?.sendReadReceiptIfNeeded()
+                guard let self else { return }
+                let messageCount = messages.countMessages
+                let messagesChanged = messageCount != self.lastMessageCountForReadReceipt
+                self.lastMessageCountForReadReceipt = messageCount
+                self.messages = messages
+                if messagesChanged {
+                    self.sendReadReceiptIfNeeded()
+                }
             }
             .store(in: &cancellables)
         conversationRepository.conversationPublisher
@@ -1413,13 +1423,28 @@ extension ConversationViewModel {
         guard !conversation.isDraft, !conversation.isPendingInvite else { return }
         guard GlobalConvoDefaults.shared.sendReadReceipts else { return }
 
-        if let lastSent = lastReadReceiptSentAt, Date().timeIntervalSince(lastSent) < 5 {
+        let debounceInterval: TimeInterval = 1
+        if let lastSent = lastReadReceiptSentAt, Date().timeIntervalSince(lastSent) < debounceInterval {
+            guard pendingReadReceiptTask == nil else { return }
+            let delay = debounceInterval - Date().timeIntervalSince(lastSent)
+            let conversationId = conversation.id
+            pendingReadReceiptTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                await self?.sendReadReceipt(for: conversationId)
+                self?.pendingReadReceiptTask = nil
+            }
             return
         }
 
-        lastReadReceiptSentAt = Date()
         let conversationId = conversation.id
+        Task { [weak self] in
+            await self?.sendReadReceipt(for: conversationId)
+        }
+    }
 
+    private func sendReadReceipt(for conversationId: String) {
+        lastReadReceiptSentAt = Date()
         Task {
             do {
                 try await readReceiptWriter.sendReadReceipt(for: conversationId)

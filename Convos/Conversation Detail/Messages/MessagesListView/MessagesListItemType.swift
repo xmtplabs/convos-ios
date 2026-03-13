@@ -319,4 +319,13 @@ extension Array where Element == MessagesListItemType {
         }
         return nil
     }
+
+    var countMessages: Int {
+        reduce(0) { count, item in
+            if case .messages(let group) = item {
+                return count + group.messages.count
+            }
+            return count
+        }
+    }
 }
