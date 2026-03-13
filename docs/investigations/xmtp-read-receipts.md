@@ -1,82 +1,111 @@
-# XMTP Read Receipts Investigation
+# XMTP Read Receipts — Implementation Plan
 
-## What XMTP Provides
+## Overview
+
+Add read receipt support to Convos. When a user opens a conversation or receives a new message while viewing it, we send a read receipt. The last message sent by the current user shows "Read" with a horizontally scrolling list of profile avatars of members who have seen it (replacing the current "Sent" + checkmark). Users can opt out of both sending and seeing read receipts.
+
+## XMTP SDK API
 
 ### ReadReceiptCodec
-- Located at `XMTPiOS/Codecs/ReadReceiptCodec.swift`
 - Content type: `xmtp.org/readReceipt:1.0`
-- `ReadReceipt` is an empty struct — no payload, just the message existence + sender + timestamp
-- `shouldPush` returns `false` — no push notifications for read receipts
-- Fallback is `nil` — the message is not expected to be displayed
-- Read receipts must be filtered out and not shown to users as messages
+- `ReadReceipt` is an empty struct — timestamp is the message's `sentAt`
+- `shouldPush` returns `false`
+- Fallback is `nil` — must be filtered from visible messages
 
-### Sending a Read Receipt
-Send via regular `conversation.send()`:
+### Sending
 ```swift
-Client.register(codec: ReadReceiptCodec())
 try await conversation.send(
     content: ReadReceipt(),
     options: .init(contentType: ReadReceiptCodec().contentType)
 )
 ```
 
-### Querying Read Times
+### Querying
 ```swift
 let lastReadTimes: [String: Int64] = try conversation.getLastReadTimes()
 // Returns: [inboxId: sentAtNs] for each member's most recent read receipt
 ```
 
-This is built into the XMTP SDK at the FFI level — no manual message scanning needed.
+## DB Schema
 
-### Key Docs Notes (from docs.xmtp.org)
-- **Opt-out**: Best practice is to provide users with the option to opt out of sending read receipts
-- **Display**: Read receipt indicator should be displayed under the message it's associated with, can include a timestamp
-- **Filtering**: Read receipts are empty messages — must filter them out so they don't render as visible messages
-- **Timestamp comparison**: The read receipt timestamp indicates "everything up to this time was read" — compare message timestamps to determine which messages have been read
-- **No push**: `shouldPush` is false, so properly configured notification servers won't send push for read receipts
+New table: `conversation_read_receipts`
+```sql
+CREATE TABLE conversation_read_receipts (
+    conversationId TEXT NOT NULL,
+    inboxId TEXT NOT NULL,
+    readAtNs INTEGER NOT NULL,
+    PRIMARY KEY (conversationId, inboxId)
+);
+CREATE INDEX idx_read_receipts_conversation ON conversation_read_receipts(conversationId);
+```
 
-## Implementation Plan
+One row per member per conversation. Updated when a new read receipt is received (upsert with max timestamp). To find who has read a message: `WHERE conversationId = ? AND readAtNs >= message.dateNs AND inboxId != currentUserInboxId`.
+
+This optimizes for the primary use case (who read the last sent message) while supporting future per-message queries with the same schema.
+
+## Implementation
 
 ### Phase 1: Infrastructure
+
 1. **Register `ReadReceiptCodec`** in `InboxStateMachine.swift` codecs array
-2. **Handle in `DecodedMessage+DBRepresentation.swift`**: Add `ContentTypeReadReceipt` case — skip storing as a visible message (return early or use a non-visible content type)
-3. **Handle in `StreamProcessor`**: When receiving a read receipt, update local state rather than storing a message
-4. **Handle in `IncomingMessageWriter`**: Skip read receipt messages (don't store in message table)
+2. **Skip in `DecodedMessage+DBRepresentation.swift`**: Add `ContentTypeReadReceipt` case, throw or return early (don't store as a visible message)
+3. **Skip in `StreamProcessor.processMessage`**: Detect read receipt content type before calling `messageWriter.store()`, extract sender + timestamp, write to `conversation_read_receipts` instead
+4. **Skip in NSE**: Drop read receipt messages in `MessagingService+PushNotifications.swift` (return `.droppedMessage`)
+5. **DB migration**: Add `conversation_read_receipts` table
 
 ### Phase 2: Sending Read Receipts
-1. **Add `sendReadReceipt()` to `MessageSender` protocol** (or a separate protocol)
-2. **Trigger when user views a conversation**: When `MessagesViewController` appears / messages are displayed
-3. **Debounce**: Don't send on every message — send when the user opens/focuses a conversation, or periodically while viewing
-4. **Store locally**: Track last sent read receipt timestamp per conversation to avoid redundant sends
+
+1. **Add `sendReadReceipt` to `MessageSender` protocol** (or on `ConversationSender`)
+2. **Trigger on conversation open**: When `MessagesViewController` appears and messages load
+3. **Trigger on new incoming message**: When a message arrives while the conversation is active (`activeConversationId` matches)
+4. **Debounce**: Don't re-send if we already sent one within the last N seconds for the same conversation
+5. **Respect opt-out**: Check `GlobalConvoDefaults.sendReadReceipts` before sending
 
 ### Phase 3: Displaying Read Status
-1. **Store read times in DB**: New table or column — `conversation_read_receipts(conversationId, inboxId, readAtNs)`
-2. **Update `MessageStatus`**: Add `.read` status or a separate "read by" indicator
-3. **UI**: Show read indicators on messages (e.g., "Read" or profile avatars of readers under the last read message)
 
-### Phase 4: Real-time Updates
-1. **Stream processing**: Update read receipt state when receiving read receipt messages via stream
-2. **Polling fallback**: Periodically call `getLastReadTimes()` to sync state
+1. **New model**: `ReadReceipt` or extend `ConversationMember` with read status
+2. **Query at display time**: For the last message sent by current user, fetch members from `conversation_read_receipts` where `readAtNs >= message.dateNs`
+3. **UI in `MessagesGroupView`**: Replace "Sent" + checkmark with "Read" + horizontally scrolling avatar list
+   - ScrollView with profile avatars (same size as current checkmark, ~16pt)
+   - Max width capped, gradient fade on edges (same pattern as reactions HStack)
+   - Only shows on the last message sent by current user (`isLastGroupSentByCurrentUser`)
+   - Exclude current user from avatar list
+   - If no one has read it yet, show "Sent" + checkmark (existing behavior)
+4. **Respect opt-out**: If user has opted out, always show "Sent" (never "Read")
 
-## Key Decisions Needed
-- **Groups vs DMs**: Read receipts in groups show who has read up to what point. Do we show this for all groups or just DMs?
-- **Privacy**: Should read receipts be opt-in/opt-out per user?
-- **UI treatment**: iMessage-style "Read" text? Profile avatar bubbles under last read message? Both?
-- **Frequency**: How often to send read receipts? On open? On scroll? Throttled?
-- **Storage**: Do we need a new DB table for read receipt state, or can we use `getLastReadTimes()` on demand?
+### Phase 4: Settings
 
-## Effort Estimate
-- Phase 1 (infra): Small — register codec, skip in message pipeline
-- Phase 2 (sending): Medium — protocol addition, trigger logic, debouncing
-- Phase 3 (display): Medium-Large — DB schema, UI changes, message status updates
-- Phase 4 (real-time): Small — stream handler addition
+1. **Add to `GlobalConvoDefaults`**: `sendReadReceipts: Bool` (default `true`)
+2. **Add to `CustomizeSettingsView`**: Toggle row with appropriate icon/description
+3. **When disabled**: Stop sending read receipts AND hide "Read" status (show "Sent" instead)
 
 ## Files to Modify
-- `ConvosCore/Sources/ConvosCore/Inboxes/InboxStateMachine.swift` (register codec)
-- `ConvosCore/Sources/ConvosCore/Storage/XMTP DB Representations/DecodedMessage+DBRepresentation.swift` (handle content type)
-- `ConvosCore/Sources/ConvosCore/Syncing/StreamProcessor.swift` (process read receipts)
-- `ConvosCore/Sources/ConvosCore/Storage/Writers/IncomingMessageWriter.swift` (skip storing)
-- `ConvosCore/Sources/ConvosCore/Messaging/XMTPClientProvider.swift` (send method)
-- New: DB migration for read receipt storage
-- New: Read receipt repository/writer
-- UI: Message status views
+
+### ConvosCore
+- `InboxStateMachine.swift` — register codec
+- `DecodedMessage+DBRepresentation.swift` — handle content type (skip)
+- `StreamProcessor.swift` — intercept read receipts, write to DB
+- `SharedDatabaseMigrator.swift` — new migration
+- `MessagingService+PushNotifications.swift` — drop in NSE
+- `XMTPClientProvider.swift` — add `sendReadReceipt` to protocol
+- New: `DBConversationReadReceipt.swift` — GRDB model
+- New: `ReadReceiptWriter.swift` — write read receipts to DB
+- New: `ReadReceiptRepository.swift` — query read receipts for UI
+
+### Main App
+- `MessagesGroupView.swift` — read status UI (replace "Sent" section)
+- `GlobalConvoDefaults.swift` — add `sendReadReceipts` setting
+- `CustomizeSettingsView.swift` — add toggle
+- `ConversationViewModel.swift` or `MessagesViewController.swift` — trigger sending
+- New: `ReadReceiptAvatarsView.swift` — scrolling avatar list with gradient fade
+
+## Key Decisions
+- **One table, not per-message**: `conversation_read_receipts` stores latest read timestamp per member per conversation — works for both "who read the last message" and future "who read message X"
+- **Agents included**: Agents/assistants send read receipts and appear in the avatar list
+- **Opt-out is both**: Disabling read receipts stops sending AND hides others' read status
+- **Send frequency**: On conversation open + on each new incoming message while viewing
+- **Default on**: `sendReadReceipts` defaults to `true`
+
+## QA Testing
+- Use two simulators + CLI tool for multi-member testing
+- Test sending, receiving, display, opt-out, and edge cases
