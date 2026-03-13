@@ -549,28 +549,7 @@ private struct AttachmentPlaceholder: View {
             }
 
             do {
-                let videoURL: URL
-                if attachment.key.hasPrefix("file://") {
-                    let path = String(attachment.key.dropFirst("file://".count))
-                    if FileManager.default.fileExists(atPath: path) {
-                        videoURL = URL(fileURLWithPath: path)
-                    } else {
-                        let data = try await recoverInlineAttachmentData(from: path)
-                        let tempURL = FileManager.default.temporaryDirectory
-                            .appendingPathComponent("video_\(UUID().uuidString).mp4")
-                        try data.write(to: tempURL)
-                        videoURL = tempURL
-                    }
-                } else if let cached = await VideoURLCache.shared.url(for: attachment.key) {
-                    videoURL = cached
-                } else {
-                    let loaded = try await Self.loader.loadAttachmentData(from: attachment.key)
-                    let tempURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("video_\(UUID().uuidString).mp4")
-                    try loaded.data.write(to: tempURL)
-                    await VideoURLCache.shared.set(tempURL, for: attachment.key)
-                    videoURL = tempURL
-                }
+                let videoURL = try await resolveVideoURL(for: attachment.key)
                 let player = AVPlayer(url: videoURL)
                 await player.seek(to: .zero)
                 inlinePlayer = player
@@ -630,6 +609,29 @@ private struct AttachmentPlaceholder: View {
         }
 
         isLoading = false
+    }
+
+    private func resolveVideoURL(for key: String) async throws -> URL {
+        if key.hasPrefix("file://") {
+            let path = String(key.dropFirst("file://".count))
+            if FileManager.default.fileExists(atPath: path) {
+                return URL(fileURLWithPath: path)
+            }
+            let data = try await recoverInlineAttachmentData(from: path)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("video_\(UUID().uuidString).mp4")
+            try data.write(to: tempURL)
+            return tempURL
+        }
+        if let cached = await VideoURLCache.shared.url(for: key) {
+            return cached
+        }
+        let loaded = try await Self.loader.loadAttachmentData(from: key)
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("video_\(UUID().uuidString).mp4")
+        try loaded.data.write(to: tempURL)
+        await VideoURLCache.shared.set(tempURL, for: key)
+        return tempURL
     }
 
     private var loadingPlaceholder: some View {

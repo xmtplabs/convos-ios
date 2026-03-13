@@ -48,7 +48,9 @@ public actor InlineAttachmentRecovery {
         }
         let dir = cacheDir.appendingPathComponent("InlineAttachments", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        let safeFilename = "\(messageId)_\(filename)".replacingOccurrences(of: "/", with: "_")
+        let safeFilename = "\(messageId)_\(filename)"
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "..", with: "_")
         let fileURL = dir.appendingPathComponent(safeFilename)
         try data.write(to: fileURL, options: .atomic)
     }

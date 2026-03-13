@@ -82,9 +82,7 @@ struct MessageContextMenuOverlay: View {
         return shouldBlurPhotos && !photoAttachment.isRevealed
     }
 
-    private var windowSafeTop: CGFloat {
-        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.windows.first?.safeAreaInsets.top ?? 0
-    }
+    private var windowSafeTop: CGFloat { (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.windows.first?.safeAreaInsets.top ?? 0 }
 
     var body: some View {
         if let message = state.presentedMessage {
@@ -765,8 +763,8 @@ private func saveVideoToPhotoLibrary(key: String) {
     Task {
         do {
             let videoURL: URL
-            let isLocalFile = key.hasPrefix("file://")
-            if isLocalFile {
+            var isTempFile = false
+            if key.hasPrefix("file://") {
                 let path = String(key.dropFirst("file://".count))
                 if FileManager.default.fileExists(atPath: path) {
                     videoURL = URL(fileURLWithPath: path)
@@ -776,6 +774,7 @@ private func saveVideoToPhotoLibrary(key: String) {
                         .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
                     try data.write(to: tempURL)
                     videoURL = tempURL
+                    isTempFile = true
                 }
             } else {
                 let loader = RemoteAttachmentLoader()
@@ -784,10 +783,11 @@ private func saveVideoToPhotoLibrary(key: String) {
                     .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
                 try loaded.data.write(to: tempURL)
                 videoURL = tempURL
+                isTempFile = true
             }
 
             defer {
-                if !isLocalFile {
+                if isTempFile {
                     try? FileManager.default.removeItem(at: videoURL)
                 }
             }
@@ -816,6 +816,7 @@ private func loadFileToTempURL(key: String, filename: String?) async throws -> U
         let fullFilename = fileURL.lastPathComponent
         if let underscoreIndex = fullFilename.firstIndex(of: "_") {
             let messageId = String(fullFilename[fullFilename.startIndex..<underscoreIndex])
+            guard !messageId.isEmpty else { throw CocoaError(.fileReadNoSuchFile) }
             let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
             let tempURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("share_\(UUID().uuidString)_\(name)")

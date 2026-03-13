@@ -37,13 +37,20 @@ setup:
       "
 
       # Text
-      echo "Hello, this is a plain text document sent by an AI assistant.\nIt contains multiple lines of text.\nLine 3." > /tmp/test-notes.txt
+      printf "Hello, this is a plain text document sent by an AI assistant.\nIt contains multiple lines of text.\nLine 3.\n" > /tmp/test-notes.txt
 
       # CSV
       printf "name,age,city\nAlice,30,NYC\nBob,25,London\nCharlie,35,Tokyo\n" > /tmp/test-data.csv
 
       # JSON
       echo '{"name": "Assistant Config", "version": "1.0", "features": ["chat", "files", "code"]}' > /tmp/test-config.json
+
+      # Test photo for backward compatibility check
+      python3 -c "
+      from PIL import Image
+      img = Image.new('RGB', (200, 200), color='red')
+      img.save('/tmp/test-photo.jpg', 'JPEG')
+      " 2>/dev/null || true
   - action: cli_create_conversation
     args: { name: "File Test", profile_name: "Agent" }
     save:

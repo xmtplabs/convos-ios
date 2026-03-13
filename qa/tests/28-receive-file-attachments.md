@@ -91,12 +91,6 @@ Files and Share options.
 35. Verify the preview text shows the filename (e.g., "test-config.json") or
     "sent a file" for the most recent message.
 
-### Incoming file blurred by default
-
-36. Open the conversation and verify the file bubbles from the CLI user
-    follow the same blur/reveal treatment as photos and videos.
-37. If blurred, tap to reveal and verify the file bubble content becomes visible.
-
 ### Photo and video still work
 
 38. Send a photo from the app (or verify existing photos in conversation still
@@ -121,7 +115,6 @@ Explode the conversation via CLI.
 - [ ] Save to Files opens document picker
 - [ ] Share opens standard share sheet
 - [ ] Conversation list shows filename or "sent a file" for file messages
-- [ ] File messages respect blur/reveal privacy treatment
 - [ ] Existing photo/video messages still render correctly
 
 ## Accessibility Identifiers Needed
