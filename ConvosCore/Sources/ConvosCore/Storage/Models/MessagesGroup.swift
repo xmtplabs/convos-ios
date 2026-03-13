@@ -6,6 +6,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     public let rawMessages: ArraySlice<AnyMessage>
     public let isLastGroup: Bool
     public var isLastGroupSentByCurrentUser: Bool
+    public let showsTypingIndicator: Bool
+    public let allTypingMembers: [ConversationMember]
     public var onlyVisibleToSender: Bool = false
     public var isLastGroupBeforeOtherMembers: Bool = false
 
@@ -23,6 +25,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         messages: ArraySlice<AnyMessage>,
         isLastGroup: Bool,
         isLastGroupSentByCurrentUser: Bool,
+        showsTypingIndicator: Bool = false,
+        allTypingMembers: [ConversationMember] = [],
         onlyVisibleToSender: Bool = false,
         isLastGroupBeforeOtherMembers: Bool = false
     ) {
@@ -31,6 +35,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         self.rawMessages = messages
         self.isLastGroup = isLastGroup
         self.isLastGroupSentByCurrentUser = isLastGroupSentByCurrentUser
+        self.showsTypingIndicator = showsTypingIndicator
+        self.allTypingMembers = allTypingMembers
         self.onlyVisibleToSender = onlyVisibleToSender
         self.isLastGroupBeforeOtherMembers = isLastGroupBeforeOtherMembers
     }
@@ -41,6 +47,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         messages: [AnyMessage],
         isLastGroup: Bool,
         isLastGroupSentByCurrentUser: Bool,
+        showsTypingIndicator: Bool = false,
+        allTypingMembers: [ConversationMember] = [],
         onlyVisibleToSender: Bool = false,
         isLastGroupBeforeOtherMembers: Bool = false
     ) {
@@ -49,6 +57,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         self.rawMessages = messages[...]
         self.isLastGroup = isLastGroup
         self.isLastGroupSentByCurrentUser = isLastGroupSentByCurrentUser
+        self.showsTypingIndicator = showsTypingIndicator
+        self.allTypingMembers = allTypingMembers
         self.onlyVisibleToSender = onlyVisibleToSender
         self.isLastGroupBeforeOtherMembers = isLastGroupBeforeOtherMembers
     }
@@ -59,6 +69,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.rawMessages == rhs.rawMessages &&
         lhs.isLastGroup == rhs.isLastGroup &&
         lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser &&
+        lhs.showsTypingIndicator == rhs.showsTypingIndicator &&
+        lhs.allTypingMembers == rhs.allTypingMembers &&
         lhs.onlyVisibleToSender == rhs.onlyVisibleToSender &&
         lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers
     }
@@ -71,6 +83,7 @@ extension MessagesGroup: Hashable {
         hasher.combine(Array(rawMessages))
         hasher.combine(isLastGroup)
         hasher.combine(isLastGroupSentByCurrentUser)
+        hasher.combine(showsTypingIndicator)
         hasher.combine(onlyVisibleToSender)
         hasher.combine(isLastGroupBeforeOtherMembers)
     }

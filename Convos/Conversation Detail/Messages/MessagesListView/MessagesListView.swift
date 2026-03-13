@@ -132,8 +132,8 @@ struct MessagesListView: View {
                                     }
                                 }
 
-                            case .typingIndicator(let typers):
-                                TypingIndicatorView(typers: typers)
+                            case .typingIndicator:
+                                EmptyView()
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in
