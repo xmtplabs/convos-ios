@@ -19,6 +19,11 @@ public actor OpenGraphService {
         let metadata: OpenGraphMetadata
     }
 
+    private static let maxHTMLBytes: Int = 200_000
+    private static let maxImageBytes: Int = 5_000_000
+    private static let minImageDimension: CGFloat = 32
+    private static let maxImageDimension: CGFloat = 4096
+
     public func fetchMetadata(for urlString: String) async -> OpenGraphMetadata? {
         if let entry = cache[urlString] {
             promoteCacheEntry(urlString)
@@ -51,8 +56,7 @@ public actor OpenGraphService {
                     return nil
                 }
 
-                let maxBytes = 200_000
-                let htmlData = data.prefix(maxBytes)
+                let htmlData = data.prefix(Self.maxHTMLBytes)
                 guard let html = String(data: htmlData, encoding: .utf8)
                         ?? String(data: htmlData, encoding: .ascii) else {
                     Log.error("OpenGraph decode failed for \(urlString): not UTF-8/ASCII")
@@ -96,6 +100,30 @@ public actor OpenGraphService {
             cacheOrder.remove(at: index)
             cacheOrder.append(key)
         }
+    }
+
+    public static func isValidImageData(_ data: Data, maxBytes: Int? = nil) -> Bool {
+        let limit = maxBytes ?? maxImageBytes
+        guard data.count <= limit, data.count > 0 else { return false }
+
+        guard data.count >= 2 else { return false }
+        let header = [UInt8](data.prefix(4))
+        let isJPEG = header[0] == 0xFF && header[1] == 0xD8
+        let isPNG = header.count >= 4 && header[0] == 0x89 && header[1] == 0x50
+            && header[2] == 0x4E && header[3] == 0x47
+        let isGIF = header.count >= 3 && header[0] == 0x47 && header[1] == 0x49
+            && header[2] == 0x46
+        let isWebP = data.count >= 12 && header.count >= 4 && header[0] == 0x52
+            && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+
+        guard isJPEG || isPNG || isGIF || isWebP else { return false }
+
+        return true
+    }
+
+    public static func isValidImageSize(width: CGFloat, height: CGFloat) -> Bool {
+        width >= minImageDimension && height >= minImageDimension
+            && width <= maxImageDimension && height <= maxImageDimension
     }
 
     func parseOpenGraphTags(from html: String) -> OpenGraphMetadata? {

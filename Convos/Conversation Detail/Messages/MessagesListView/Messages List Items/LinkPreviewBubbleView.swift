@@ -86,6 +86,9 @@ struct LinkPreviewCardView: View {
         }
         .frame(maxWidth: 280.0, alignment: .leading)
         .background(.colorLinkBackground)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Link preview: \(displayTitle)")
+        .accessibilityHint("Opens \(preview.displayHost)")
         .task {
             await fetchOpenGraphMetadata()
         }
@@ -123,7 +126,12 @@ struct LinkPreviewCardView: View {
 
         do {
             let (data, _) = try await URLSession.shared.data(from: url)
-            if let image = UIImage(data: data) {
+            guard OpenGraphService.isValidImageData(data) else {
+                Log.warning("Link preview image rejected: invalid format or size")
+                return
+            }
+            if let image = UIImage(data: data),
+               OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
                 ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
                 cachedImage = image
                 imageAspectRatio = image.size.width / image.size.height

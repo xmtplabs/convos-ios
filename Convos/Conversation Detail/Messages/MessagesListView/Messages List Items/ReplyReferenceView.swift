@@ -415,6 +415,8 @@ private struct ReplyReferenceLinkPreview: View {
         .frame(maxWidth: 210.0, alignment: .leading)
         .background(.colorLinkBackground)
         .clipShape(RoundedRectangle(cornerRadius: 10.0))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Link preview: \(displayTitle)")
         .task {
             await fetchMetadata()
         }
@@ -435,7 +437,9 @@ private struct ReplyReferenceLinkPreview: View {
                 }
                 do {
                     let (data, _) = try await URLSession.shared.data(from: imageURL)
-                    if let image = UIImage(data: data) {
+                    guard OpenGraphService.isValidImageData(data) else { return }
+                    if let image = UIImage(data: data),
+                       OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
                         ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
                         cachedImage = image
                     }
