@@ -387,6 +387,20 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("createConversationReadReceipts") { db in
+            try db.create(table: "conversation_read_receipts") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("inboxId", .text).notNull()
+                t.column("readAtNs", .integer).notNull()
+                t.primaryKey(["conversationId", "inboxId"])
+            }
+            try db.create(
+                index: "idx_read_receipts_conversation",
+                on: "conversation_read_receipts",
+                columns: ["conversationId"]
+            )
+        }
+
         return migrator
     }
 }
