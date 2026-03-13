@@ -60,9 +60,18 @@ convos [TOPIC] [COMMAND] [ARGUMENTS] [FLAGS]
 
 | Topic | Purpose |
 | ----- | ------- |
+| `agent` | Agent mode — long-running sessions with streaming I/O |
 | `identity` | Manage per-conversation identities (inboxes) |
 | `conversations` | List, create, join, and stream conversations |
 | `conversation` | Interact with a specific conversation |
+
+### Standalone Commands
+
+| Command | Purpose |
+| ------- | ------- |
+| `init` | Initialize configuration and directory structure |
+| `reset` | Delete all identities and conversation data (preserves .env) |
+| `schema` | Introspect CLI commands as machine-readable JSON (args, flags, examples) |
 
 ## Output Modes
 
@@ -70,6 +79,20 @@ All commands support `--json` for machine-readable JSON output:
 
 ```bash
 convos conversations list --json
+```
+
+Use `--fields` to limit JSON output to specific fields (implicitly enables `--json`). Supports dot notation for nested paths:
+
+```bash
+# only get message id, content, and sender
+convos conversation messages <id> --fields id,content,senderInboxId
+
+# nested field extraction
+convos conversation messages <id> --fields id,content,contentType.typeId,sentAt
+
+# works on any command
+convos conversation profiles <id> --fields profiles
+convos conversations list --fields conversationId,name
 ```
 
 Use `--verbose` to see detailed client initialization logs. When combined with `--json`, verbose output goes to stderr:
@@ -114,6 +137,18 @@ convos conversation send-reply <conversation-id> <message-id> --file ./photo.jpg
 # reply with a large file (auto-uploaded via provider)
 convos conversation send-reply <conversation-id> <message-id> --file ./video.mp4
 ```
+
+### Send Typing Indicators
+
+```bash
+# send a typing indicator (isTyping=true)
+convos conversation send-typing-indicator <conversation-id>
+
+# send a stop-typing indicator (isTyping=false)
+convos conversation send-typing-indicator <conversation-id> --stop
+```
+
+Typing indicators are silent — they do not appear as messages and do not trigger push notifications. The iOS app auto-expires typing indicators after 15 seconds, so send `isTyping=true` periodically while actively typing.
 
 ### Send Attachments
 
@@ -265,6 +300,18 @@ convos conversations process-join-requests --watch
 
 Each conversation has independent profiles — you can have a different name and avatar in each.
 
+Profile updates are sent as **ProfileUpdate messages** to the group. The CLI no longer writes profiles to `appData` (this was removed to fix a data corruption bug where concurrent read-modify-write cycles could erase invite tags and other members' profiles). When reading profiles, message-sourced profiles take precedence, with `appData` as a read-only fallback for profiles written by older clients (e.g., iOS).
+
+When new members are added (via invite or directly), a **ProfileSnapshot message** is sent containing all current member profiles so the new joiner has everyone's data immediately — solving the MLS forward secrecy problem where older messages may be undecryptable.
+
+Profile resolution precedence:
+1. **Latest ProfileUpdate from that member** — highest priority, most recent self-authored update
+2. **Most recent ProfileSnapshot containing that member** — fallback when no ProfileUpdate exists
+3. **appData profiles** — legacy fallback for backward compatibility with older clients
+4. **No profile** — member has no name/avatar set
+
+Both ProfileUpdate and ProfileSnapshot are silent messages (`shouldPush = false`) — they do not appear in chat or trigger notifications.
+
 ```bash
 # set display name
 convos conversation update-profile <conversation-id> --name "Alice"
@@ -296,6 +343,18 @@ convos identity info <identity-id>
 
 # remove an identity (destroys all keys — irreversible)
 convos identity remove <identity-id> --force
+```
+
+### Reset All Data
+
+Delete all identities and conversation data. The `.env` configuration is preserved.
+
+```bash
+# reset with confirmation prompt
+convos reset
+
+# reset without confirmation
+convos reset --force
 ```
 
 ### Group Management
@@ -356,6 +415,134 @@ convos conversations sync
 convos conversation sync <conversation-id>
 ```
 
+## Agent Mode
+
+The `agent serve` command runs a long-running process that combines conversation creation, message streaming, join request processing, and stdin command handling — ideal for AI agents and bots.
+
+### Quick Start (Agent)
+
+```bash
+# create a new conversation and start serving
+convos agent serve --name "My Bot" --profile-name "Assistant"
+
+# attach to an existing conversation
+convos agent serve <conversation-id>
+
+# create with admin-only permissions
+convos agent serve --name "Agent" --permissions admin-only
+```
+
+### Protocol
+
+The agent uses an **ndjson** (newline-delimited JSON) protocol:
+
+- **stdout**: Events (one JSON object per line)
+- **stdin**: Commands (one JSON object per line)
+- **stderr**: QR code + diagnostic logs
+
+#### Events (stdout)
+
+| Event | Description | Key Fields |
+| ----- | ----------- | ---------- |
+| `ready` | Session started | `conversationId`, `inviteUrl`, `inboxId` |
+| `message` | New message received | `id`, `senderInboxId`, `senderProfile` (optional: `name`, `image`), `content`, `contentType`, `sentAt`, `catchup` (optional) |
+| `member_joined` | Member joined via invite | `inboxId`, `conversationId`, `catchup` (optional) |
+| `sent` | Message sent confirmation | `id`, `text`, `replyTo` (optional), `type` (optional) |
+| `heartbeat` | Periodic health check | `conversationId`, `activeStreams` |
+| `error` | Error occurred | `message` |
+
+Messages with `catchup: true` were fetched during stream reconnection (missed while disconnected).
+
+#### Commands (stdin)
+
+```jsonl
+{"type":"send","text":"Hello, world!"}
+{"type":"send","text":"Replying to you","replyTo":"<message-id>"}
+{"type":"react","messageId":"<message-id>","emoji":"👍"}
+{"type":"react","messageId":"<message-id>","emoji":"👍","action":"remove"}
+{"type":"attach","file":"./photo.jpg"}
+{"type":"attach","file":"./photo.jpg","replyTo":"<message-id>"}
+{"type":"attach","file":"./photo.jpg","mimeType":"image/jpeg"}
+{"type":"remote-attach","url":"https://...","contentDigest":"<hex>","secret":"<base64>","salt":"<base64>","nonce":"<base64>","contentLength":12345,"filename":"photo.jpg"}
+{"type":"rename","name":"New Group Name"}
+{"type":"lock"}
+{"type":"unlock"}
+{"type":"explode"}
+{"type":"explode","scheduled":"2025-03-01T00:00:00Z"}
+{"type":"stop"}
+```
+
+| Command | Required Fields | Optional Fields |
+| ------- | --------------- | --------------- |
+| `send` | `text` | `replyTo` |
+| `react` | `messageId`, `emoji` | `action` (`add`/`remove`, default: `add`) |
+| `attach` | `file` (local path) | `mimeType`, `replyTo` |
+| `remote-attach` | `url`, `contentDigest`, `secret`, `salt`, `nonce`, `contentLength` | `filename`, `scheme` |
+| `rename` | `name` | — |
+| `lock` | — | — |
+| `unlock` | — | — |
+| `explode` | — | `scheduled` (ISO8601 date) |
+| `stop` | — | — |
+
+Small attachments (≤1MB) are sent inline. Larger files are auto-encrypted and uploaded via the configured upload provider (e.g., Pinata).
+
+**Lock** prevents new members from joining by rotating the invite tag and setting addMember permission to deny. **Unlock** reverses this (previously shared invites remain invalid). **Explode** permanently destroys the conversation — sends ExplodeSettings notification, removes members, and deletes the local identity. Immediate explode triggers agent shutdown. **Rename** updates the conversation name visible to all members.
+
+### How It Works
+
+When started, `agent serve`:
+
+1. **Creates or attaches** to a conversation
+2. **Displays QR code** invite on stderr (so users can scan and join)
+3. **Emits `ready` event** with conversation ID, invite URL, and identity info
+4. **Processes pending join requests** from before the agent started
+5. **Streams messages** — emits `message` events as they arrive in real-time
+6. **Streams DM join requests** — automatically adds new members and emits `member_joined`
+7. **Reads stdin** — accepts `send`, `rename`, `lock`, `unlock`, `explode`, and `stop` commands
+8. **Emits heartbeat** (optional) — periodic health check events when `--heartbeat` is set
+9. **Catches up on reconnect** — if a stream disconnects and reconnects, fetches any missed messages since the last seen timestamp
+
+All of these run concurrently. The agent stays alive until `SIGINT`, `SIGTERM`, stdin close, a `stop` command, or an immediate `explode`.
+
+### Example: Agent Integration
+
+```bash
+# Start the agent, pipe commands in, read events out
+convos agent serve --name "Bot" --profile-name "AI Assistant" | while IFS= read -r event; do
+  type=$(echo "$event" | jq -r '.event')
+  case "$type" in
+    ready)
+      echo "Bot ready! Invite URL: $(echo "$event" | jq -r '.inviteUrl')" >&2
+      ;;
+    message)
+      content=$(echo "$event" | jq -r '.content')
+      echo "Received: $content" >&2
+      # Send a reply (write JSON command to agent's stdin)
+      msg_id=$(echo "$event" | jq -r '.id')
+      echo "{\"type\":\"send\",\"text\":\"You said: $content\",\"replyTo\":\"$msg_id\"}"
+      ;;
+    member_joined)
+      inbox=$(echo "$event" | jq -r '.inboxId')
+      echo "New member: $inbox" >&2
+      echo "{\"type\":\"send\",\"text\":\"Welcome!\"}"
+      ;;
+  esac
+done
+```
+
+### Agent Flags
+
+| Flag | Description |
+| ---- | ----------- |
+| `--name` | Conversation name (when creating new) |
+| `--description` | Conversation description (when creating new) |
+| `--permissions` | `all-members` or `admin-only` (when creating new) |
+| `--profile-name` | Display name for this conversation |
+| `--identity` | Use an existing unlinked identity |
+| `--label` | Local label for the identity |
+| `--no-invite` | Skip generating an invite (attach mode) |
+| `--heartbeat` | Emit heartbeat events every N seconds (0 to disable, default: 0) |
+
 ## Important Concepts
 
 ### Per-Conversation Identities
@@ -377,6 +564,32 @@ Identities are stored in `~/.convos/identities/<id>.json`. Databases are stored 
 4. Person is now a member with their own isolated identity
 
 **Key point:** Step 3 must happen *after* step 2. The creator must either run `process-join-requests` after the invite has been opened, or use `--watch` to stream and process requests as they arrive.
+
+### Profile Messages
+
+Member profiles are stored as XMTP group messages using two custom content types:
+
+- **`ProfileUpdate`** (`convos.org/profile_update:1.0`) — sent by a member when they change their own name or avatar. The sender's inbox ID is implicit from the XMTP message, preventing spoofing.
+- **`ProfileSnapshot`** (`convos.org/profile_snapshot:1.0`) — sent after adding members to a group. Contains all current member profiles so new joiners have data immediately (solves MLS forward secrecy gap).
+
+Both are silent (no push notification, not displayed in chat). The CLI reads `appData` profiles as a fallback for backward compatibility with older clients, but does not write profiles there. Custom XMTP content codecs (`ProfileUpdateCodec`, `ProfileSnapshotCodec`) are registered with the XMTP client at creation time so the SDK can decode these message types natively.
+
+Profiles support typed **metadata** — arbitrary key-value pairs where values can be string, number (double), or boolean. Metadata is carried in both `ProfileUpdate` and `ProfileSnapshot` messages via a `map<string, MetadataValue>` protobuf field. Use `--metadata key=value` on `update-profile` (repeatable, auto-typed: "true"/"false" → bool, numeric → number, else string). Metadata merges with existing values (new keys overwrite, unmentioned keys preserved).
+
+Profile **images** are encrypted end-to-end using the same scheme as iOS: HKDF-SHA256 derives a per-image AES-256-GCM key from the group's `imageEncryptionKey` (stored in appData) + random 32-byte salt, then encrypts with a random 12-byte nonce. The encrypted blob is uploaded via the configured upload provider and the URL + salt + nonce are sent as `EncryptedProfileImageRef` in the `ProfileUpdate` message. If no `imageEncryptionKey` exists for the group, the CLI generates one and writes it to appData.
+
+Supported upload providers:
+- **Convos API:** `CONVOS_UPLOAD_PROVIDER=convos-api`, `CONVOS_API_KEY=<key>`, optional `CONVOS_API_BASE_URL=<url>` (auto-derived from XMTP env: dev → `https://api.dev.convos.xyz/api`, production → `https://api.convos.xyz/api`). Uses the same presigned S3 URL flow as iOS. Requires the backend to accept API key auth on `POST /v2/auth/token` via `X-API-Key` header.
+- **Pinata (IPFS):** `CONVOS_UPLOAD_PROVIDER=pinata`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<jwt>`, optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<url>`
+- **S3 (direct):** `CONVOS_UPLOAD_PROVIDER=s3`, `CONVOS_UPLOAD_PROVIDER_TOKEN=<accessKeyId>:<secretAccessKey>`, `CONVOS_S3_BUCKET=<bucket>`, optional `CONVOS_S3_REGION=<region>` (default: us-east-1), optional `CONVOS_S3_ENDPOINT=<url>` (for S3-compatible services like MinIO, R2), optional `CONVOS_UPLOAD_PROVIDER_GATEWAY=<public-url-prefix>`
+
+### Join Request Messages
+
+Join requests use a structured content type instead of plain text:
+
+- **`JoinRequest`** (`convos.org/join_request:1.0`) — sent as a DM to the conversation creator when joining via invite. Contains the invite slug, joiner's profile (name, image, memberKind), and optional metadata.
+
+The CLI sets `memberKind: "agent"` by default on all join requests so the creator knows a bot is joining. For backward compatibility, the CLI sends both the JoinRequestContent message and a plain text slug — older clients that don't understand the new content type will read the text fallback. When processing incoming join requests, the CLI tries JoinRequestContent first, then falls back to plain text.
 
 ### Consent States
 
@@ -446,11 +659,14 @@ convos conversation stream "$CONV_ID" --timeout 300
 
 ## Tips
 
-1. **Always display the full QR code**: The `conversation invite` and `conversations create` commands output a scannable QR code rendered in Unicode block characters followed by the invite URL. When showing the user the result, you **must** display the complete, unmodified command output so the QR code renders correctly in the terminal. Do not summarize, truncate, or omit the QR code — it is the primary way users share invites. Always show the full stdout output to the user.
-2. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
-3. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
-4. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
-5. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
-6. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
-7. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
-8. **Check command help**: Run `convos <command> --help` for full flag documentation
+1. **Always display the full QR code**: The `conversation invite` and `conversations create` commands output a scannable QR code rendered in Unicode block characters followed by the invite URL. When showing the user the result, you **must** display the complete, unmodified command output so the QR code renders correctly in the terminal. Do not summarize, truncate, or omit the QR code — it is the primary way users share invites. Always show the full stdout output to the user. When running `agent serve`, the QR code is saved as a PNG file (path in the `qrCodePath` field of the `ready` event) — display it to the user using the read tool so they can scan it.
+2. **Never use markdown in messages**: Convos does not render markdown. When sending messages (via `send-text`, `send-reply`, or agent `send` commands), always use plain text. Do not use markdown formatting like `**bold**`, `*italic*`, `# headings`, `` `code` ``, `[links](url)`, or bullet lists with `- ` or `* `. Write naturally in plain text instead.
+3. **Identities are automatic**: You rarely need to manage them directly — creating/joining conversations handles it
+4. **Use JSON output for scripting**: Add `--json` flag when extracting data programmatically
+5. **Use `--fields` to limit output**: When fetching messages or other large responses, use `--fields` to include only the fields you need — this saves context window tokens and reduces noise. e.g. `--fields id,content,senderInboxId`
+6. **Sync before reading**: Add `--sync` flag when reading messages to ensure fresh data
+6. **Process join requests after invite is opened**: After generating an invite, wait for the person to open/scan it, then run `process-join-requests`. If you don't know when they'll open it, use `--watch` to stream requests as they arrive
+7. **Lock before exploding**: Lock a conversation first to prevent new joins, then explode when ready
+8. **Dangerous operations require --force**: Commands like `explode`, `identity remove`, and `lock` prompt for confirmation unless `--force` is passed
+9. **Check command help**: Run `convos <command> --help` for full flag documentation
+10. **Use `convos schema` for runtime introspection**: `convos schema` lists all commands as JSON, `convos schema <command>` shows full args/flags/examples for a specific command. Useful for discovering capabilities without pre-loaded docs
