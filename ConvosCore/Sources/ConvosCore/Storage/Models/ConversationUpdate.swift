@@ -44,7 +44,8 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
             } else {
                 return nil
             }
-        } else if metadataChanges.first != nil {
+        } else if let change = metadataChanges.first,
+                  change.field != .image || change.newValue != nil {
             return creator
         } else {
             return nil
