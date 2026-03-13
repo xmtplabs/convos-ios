@@ -23,7 +23,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
         MessagesView(
             conversation: viewModel.conversation,
-            messages: viewModel.messages,
+            messages: viewModel.messagesWithTypingIndicator,
             invite: viewModel.invite,
             hasLoadedAllMessages: viewModel.hasLoadedAllMessages,
             profile: viewModel.profile,

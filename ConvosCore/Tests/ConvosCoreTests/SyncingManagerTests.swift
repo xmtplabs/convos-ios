@@ -279,6 +279,9 @@ class TestableMockMessageSender: MessageSender {
     func sendExplode(expiresAt: Date) async throws {
     }
 
+    func sendTypingIndicator(isTyping: Bool) async throws {
+    }
+
     func prepare(text: String) async throws -> String {
         ""
     }

@@ -9,6 +9,12 @@ extension DecodedMessage {
         guard let contentType = try? encodedContent.type else { return false }
         return contentType == ContentTypeProfileUpdate || contentType == ContentTypeProfileSnapshot
     }
+
+    var isTypingIndicator: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeTypingIndicator.authorityID
+            && contentType.typeID == ContentTypeTypingIndicator.typeID
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -249,7 +255,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Store last message (skip profile messages which aren't stored as DB messages)
         let lastMessage = try await conversation.lastMessage()
-        if let lastMessage, !lastMessage.isProfileMessage {
+        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator {
             let result = try await messageWriter.store(
                 message: lastMessage,
                 for: dbConversation
@@ -520,7 +526,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         // Store messages and track if conversation should be marked unread
         var marksConversationAsUnread = false
         for message in messages {
-            guard !message.isProfileMessage else { continue }
+            guard !message.isProfileMessage, !message.isTypingIndicator else { continue }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread {

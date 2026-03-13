@@ -13,6 +13,7 @@ public protocol SyncingManagerProtocol: Actor {
     func resume() async
     func requestDiscovery() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
 }
 
 /// Wrapper for client and API client parameters used in state transitions
@@ -807,6 +808,10 @@ actor SyncingManager: SyncingManagerProtocol {
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
         await streamProcessor.setInviteJoinErrorHandler(handler)
+    }
+
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
+        await streamProcessor.setTypingIndicatorHandler(handler)
     }
 
     // MARK: - Notification Observers

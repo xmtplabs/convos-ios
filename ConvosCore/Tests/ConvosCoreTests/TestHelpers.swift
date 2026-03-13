@@ -117,7 +117,8 @@ class TestFixtures {
                 InviteJoinErrorCodec(),
                 ProfileUpdateCodec(),
                 ProfileSnapshotCodec(),
-                JoinRequestCodec()
+                JoinRequestCodec(),
+                TypingIndicatorCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory
@@ -218,6 +219,9 @@ actor MockSyncingManager: SyncingManagerProtocol {
     }
 
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
+    }
+
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
     }
 
     func requestDiscovery() async {

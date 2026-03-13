@@ -34,35 +34,56 @@ struct MessagesGroupView: View {
         DesignConstants.Spacing.step2x
     }
 
+    private var senderLabel: some View {
+        HStack(spacing: DesignConstants.Spacing.stepX) {
+            Text(group.sender.profile.displayName)
+            if group.sender.isAgent && group.sender.profile.isOutOfCredits {
+                Image(systemName: "battery.0percent")
+            }
+        }
+        .scaleEffect(isAppearing ? 0.9 : 1.0)
+        .opacity(isAppearing ? 0.0 : 1.0)
+        .offset(
+            x: 0.0,
+            y: isAppearing ? 100 : 0
+        )
+        .blur(radius: isAppearing ? 10.0 : 0.0)
+        .font(.footnote)
+        .foregroundColor(group.sender.isAgent ? .colorLava : .secondary)
+        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
+        .padding(.bottom, DesignConstants.Spacing.stepHalf)
+    }
+
+    private func avatarOverlay(onTap: (() -> Void)? = nil) -> some View {
+        MessageAvatarView(profile: group.sender.profile, size: avatarSize)
+            .offset(x: -(avatarSize + avatarSpacing))
+            .onTapGesture { onTap?() }
+            .scaleEffect(isAppearing ? 0.9 : 1.0)
+            .opacity(isAppearing ? 0.0 : 1.0)
+            .offset(
+                x: isAppearing ? -80 : 0,
+                y: 0.0
+            )
+            .id("profile-\(group.id)")
+            .accessibilityLabel("View \(group.sender.profile.displayName)'s profile")
+            .accessibilityAddTraits(.isButton)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             let allMessages = group.allMessages
+            let isTypingOnly = allMessages.isEmpty && group.showsTypingIndicator
             ForEach(Array(allMessages.enumerated()), id: \.element.base.id) { index, message in
                 let isReply = if case .reply = message { true } else { false }
                 let isFullWidthAttachment = message.base.content.isAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Text(group.sender.profile.displayName)
-                        if group.sender.isAgent && group.sender.profile.isOutOfCredits {
-                            Image(systemName: "battery.0percent")
-                        }
-                    }
-                    .scaleEffect(isAppearing ? 0.9 : 1.0)
-                    .opacity(isAppearing ? 0.0 : 1.0)
-                    .offset(
-                        x: 0.0,
-                        y: isAppearing ? 100 : 0
-                    )
-                    .blur(radius: isAppearing ? 10.0 : 0.0)
-                    .font(.footnote)
-                    .foregroundColor(group.sender.isAgent ? .colorLava : .secondary)
-                    .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
-                    .padding(.bottom, DesignConstants.Spacing.stepHalf)
+                    senderLabel
                 }
 
                 let lastMessage = group.messages.last
-                let isLast = message == lastMessage
+                let isLastMessage = message == lastMessage
+                let isLast = isLastMessage && !group.showsTypingIndicator
                 let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
                 let isLastInGroup = message == group.messages.last
                 let showsSentStatus = isLastInGroup && group.isLastGroupSentByCurrentUser && message.base.status == .published
@@ -96,20 +117,7 @@ struct MessagesGroupView: View {
                     )
                     .overlay(alignment: .bottomLeading) {
                         if isLast && !group.sender.isCurrentUser {
-                            MessageAvatarView(profile: group.sender.profile, size: avatarSize)
-                                .offset(x: -(avatarSize + avatarSpacing))
-                                .onTapGesture {
-                                    onTapAvatar(message)
-                                }
-                                .scaleEffect(isAppearing ? 0.9 : 1.0)
-                                .opacity(isAppearing ? 0.0 : 1.0)
-                                .offset(
-                                    x: isAppearing ? -80 : 0,
-                                    y: 0.0
-                                )
-                                .id("profile-\(group.id)")
-                                .accessibilityLabel("View \(group.sender.profile.displayName)'s profile")
-                                .accessibilityAddTraits(.isButton)
+                            avatarOverlay { onTapAvatar(message) }
                         }
                     }
 
@@ -169,6 +177,29 @@ struct MessagesGroupView: View {
                     .id("sent-status-\(message.differenceIdentifier)")
                     .accessibilityLabel("Message sent")
                 }
+            }
+
+            if group.showsTypingIndicator {
+                if isTypingOnly && !group.sender.isCurrentUser {
+                    senderLabel
+                }
+
+                HStack(alignment: .bottom, spacing: avatarSpacing) {
+                    if !group.sender.isCurrentUser {
+                        Color.clear
+                            .frame(width: avatarSize, height: avatarSize)
+                    }
+
+                    TypingIndicatorBubbleView()
+                        .overlay(alignment: .bottomLeading) {
+                            if !group.sender.isCurrentUser {
+                                avatarOverlay()
+                            }
+                        }
+                }
+                .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+                .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
+                .id("typing-indicator-\(group.id)")
             }
         }
         .id("message-group-container-\(group.id)")

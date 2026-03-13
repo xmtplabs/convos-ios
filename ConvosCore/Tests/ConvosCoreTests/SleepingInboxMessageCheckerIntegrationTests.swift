@@ -376,7 +376,8 @@ private class IntegrationTestFixtures {
                 GroupUpdatedCodec(),
                 ExplodeSettingsCodec(),
                 ProfileUpdateCodec(),
-                ProfileSnapshotCodec()
+                ProfileSnapshotCodec(),
+                TypingIndicatorCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory

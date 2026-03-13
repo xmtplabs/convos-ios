@@ -159,7 +159,55 @@ class ConversationViewModel {
         }
     }
     var isConversationImageDirty: Bool = false
-    var messageText: String = ""
+    var messageText: String = "" {
+        didSet {
+            handleTextChanged()
+        }
+    }
+
+    private(set) var typingMembers: [ConversationMember] = []
+
+    var messagesWithTypingIndicator: [MessagesListItemType] {
+        guard !typingMembers.isEmpty else { return messages }
+
+        let singleTyper = typingMembers.count == 1 ? typingMembers[0] : nil
+
+        if let singleTyper,
+           let lastIndex = messages.lastIndex(where: { if case .messages = $0 { return true }; return false }),
+           case .messages(let lastGroup) = messages[lastIndex],
+           lastGroup.sender.profile.inboxId == singleTyper.profile.inboxId {
+            var updated = messages
+            let updatedGroup = MessagesGroup(
+                id: lastGroup.id,
+                sender: lastGroup.sender,
+                messages: lastGroup.messages,
+                isLastGroup: lastGroup.isLastGroup,
+                isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
+                showsTypingIndicator: true
+            )
+            updated[lastIndex] = .messages(updatedGroup)
+            return updated
+        }
+
+        let typingSender = singleTyper ?? typingMembers[0]
+        let typingGroup = MessagesGroup(
+            id: "typing-indicator",
+            sender: typingSender,
+            messages: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false,
+            showsTypingIndicator: true
+        )
+        return messages + [.messages(typingGroup)]
+    }
+
+    @ObservationIgnored
+    private var isTypingSent: Bool = false
+    @ObservationIgnored
+    private var typingResetTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var typingThrottleDate: Date?
+
     var selectedAttachmentImage: UIImage? {
         didSet {
             if selectedAttachmentImage != nil, oldValue == nil {
@@ -406,6 +454,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
+        observeTypingIndicators(TypingIndicatorManager.shared)
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
@@ -464,6 +513,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
+        observeTypingIndicators(TypingIndicatorManager.shared)
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -486,11 +536,14 @@ class ConversationViewModel {
 
     private func observe() {
         messagesListRepository.startObserving()
+        setupTypingIndicatorHandler()
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
-                self?.messages = messages
+                guard let self else { return }
+                self.clearTypingForNewMessages(old: self.messages, new: messages)
+                self.messages = messages
             }
             .store(in: &cancellables)
         conversationRepository.conversationPublisher
@@ -707,6 +760,7 @@ extension ConversationViewModel {
         let eagerUploadKey = currentEagerUploadKey
         let prevInviteURL = pendingInvite?.fullURL
 
+        stopTyping()
         messageText = ""
         replyingToMessage = nil
         selectedAttachmentImage = nil
@@ -1380,5 +1434,101 @@ extension ConversationViewModel {
 
     func clearPendingInvite() {
         pendingInvite = nil
+    }
+
+    // MARK: - Typing Indicators
+
+    private func setupTypingIndicatorHandler() {
+        let typingManager = TypingIndicatorManager.shared
+        Task {
+            await messagingService.inboxStateManager.setTypingIndicatorHandler { conversationId, senderInboxId, isTyping in
+                Task { @MainActor in
+                    typingManager.handleTypingEvent(
+                        conversationId: conversationId,
+                        senderInboxId: senderInboxId,
+                        isTyping: isTyping
+                    )
+                }
+            }
+        }
+    }
+
+    func observeTypingIndicators(_ manager: TypingIndicatorManager) {
+        withObservationTracking {
+            _ = manager.typingMembersByConversation[conversation.id]
+        } onChange: { [weak self] in
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                self.updateTypingMembers(from: manager)
+                self.observeTypingIndicators(manager)
+            }
+        }
+        updateTypingMembers(from: manager)
+    }
+
+    private func updateTypingMembers(from manager: TypingIndicatorManager) {
+        let typerInboxIds = manager.typers(for: conversation.id)
+        let members = conversation.members.filter { member in
+            typerInboxIds.contains { $0.inboxId == member.profile.inboxId }
+        }
+        typingMembers = members
+    }
+
+    private func clearTypingForNewMessages(old: [MessagesListItemType], new: [MessagesListItemType]) {
+        let oldLastId = old.lastMessageId
+        let newLastId = new.lastMessageId
+        guard oldLastId != newLastId,
+              let lastItem = new.last,
+              case .messages(let group) = lastItem,
+              !group.sender.isCurrentUser else { return }
+        let manager = TypingIndicatorManager.shared
+        manager.handleMessageReceived(
+            conversationId: conversation.id,
+            senderInboxId: group.sender.profile.inboxId
+        )
+        updateTypingMembers(from: manager)
+    }
+
+    func stopTyping() {
+        guard isTypingSent else { return }
+        isTypingSent = false
+        typingThrottleDate = nil
+        typingResetTask?.cancel()
+        typingResetTask = nil
+        let conversationId = conversation.id
+        Task { [weak self] in
+            guard let self else { return }
+            try? await self.messagingService.sendTypingIndicator(isTyping: false, for: conversationId)
+        }
+    }
+
+    private func handleTextChanged() {
+        if messageText.isEmpty {
+            stopTyping()
+            return
+        }
+
+        let now = Date()
+        if let lastSent = typingThrottleDate, now.timeIntervalSince(lastSent) < 5 {
+            return
+        }
+
+        typingThrottleDate = now
+        isTypingSent = true
+
+        typingResetTask?.cancel()
+        typingResetTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(10))
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.isTypingSent = false
+            }
+        }
+
+        let conversationId = conversation.id
+        Task { [weak self] in
+            guard let self else { return }
+            try? await self.messagingService.sendTypingIndicator(isTyping: true, for: conversationId)
+        }
     }
 }

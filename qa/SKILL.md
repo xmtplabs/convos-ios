@@ -43,6 +43,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 23 | `qa/tests/23-pending-invites-home-view.md` | Pending invites appear in home view, filter, swipe/context restrictions, approval transition |
 | 25 | `qa/tests/25-conversations-list-baseline.md` | Conversations list baseline for UICollectionView migration - captures all UI states and interactions |
 | 26 | `qa/tests/26-failed-message-send.md` | Failed message send: "Not Delivered" state, retry, and delete |
+| 27 | `qa/tests/27-typing-indicators.md` | Typing indicators: receive, dismiss, message-arrival clearing, grouping, expiry |
 
 ## Running Tests
 

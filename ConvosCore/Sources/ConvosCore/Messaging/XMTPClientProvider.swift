@@ -43,6 +43,7 @@ public struct SendableXMTPOperations: Sendable {
 
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
+    func sendTypingIndicator(isTyping: Bool) async throws
     func prepare(text: String) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
@@ -274,6 +275,14 @@ extension XMTPiOS.Conversation: MessageSender {
             options: .init(contentType: codec.contentType)
         )
         Log.info("AssistantJoinRequest message sent successfully")
+    }
+
+    public func sendTypingIndicator(isTyping: Bool) async throws {
+        let codec = TypingIndicatorCodec()
+        try await send(
+            content: TypingIndicatorContent(isTyping: isTyping),
+            options: .init(contentType: codec.contentType)
+        )
     }
 
     public func prepare(text: String) async throws -> String {

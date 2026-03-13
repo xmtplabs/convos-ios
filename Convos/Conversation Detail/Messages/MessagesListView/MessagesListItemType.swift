@@ -12,12 +12,28 @@ enum MessageBubbleType {
 
 struct MessagesGroup: Identifiable, Equatable, Hashable {
     let id: String
-    let sender: ConversationMember // The sender of all messages in this group
-    let messages: [AnyMessage] // All messages in this group (published + unpublished in sortId order)
+    let sender: ConversationMember
+    let messages: [AnyMessage]
     let isLastGroup: Bool
     let isLastGroupSentByCurrentUser: Bool
+    let showsTypingIndicator: Bool
 
-    /// All messages in this group (already sorted by sortId from repository)
+    init(
+        id: String,
+        sender: ConversationMember,
+        messages: [AnyMessage],
+        isLastGroup: Bool,
+        isLastGroupSentByCurrentUser: Bool,
+        showsTypingIndicator: Bool = false
+    ) {
+        self.id = id
+        self.sender = sender
+        self.messages = messages
+        self.isLastGroup = isLastGroup
+        self.isLastGroupSentByCurrentUser = isLastGroupSentByCurrentUser
+        self.showsTypingIndicator = showsTypingIndicator
+    }
+
     var allMessages: [AnyMessage] {
         messages
     }
@@ -27,7 +43,8 @@ struct MessagesGroup: Identifiable, Equatable, Hashable {
         lhs.sender == rhs.sender &&
         lhs.messages == rhs.messages &&
         lhs.isLastGroup == rhs.isLastGroup &&
-        lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser
+        lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser &&
+        lhs.showsTypingIndicator == rhs.showsTypingIndicator
     }
 }
 
@@ -152,6 +169,9 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
     /// Shows info about an assistant already present when a new member joins
     case assistantPresentInfo
 
+    /// Shows typing indicator with avatars of members currently typing
+    case typingIndicator(typers: [ConversationMember])
+
     var id: String {
         switch self {
         case .update(let id, _, _):
@@ -170,6 +190,8 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "assistant-join"
         case .assistantPresentInfo:
             return "assistant-present-info"
+        case .typingIndicator:
+            return "typing-indicator"
         }
     }
 
@@ -198,7 +220,7 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo, .typingIndicator:
             return nil
         }
     }
@@ -239,6 +261,8 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "MessagesListItemTypeCell-assistantJoinStatus"
         case .assistantPresentInfo:
             return "MessagesListItemTypeCell-assistantPresentInfo"
+        case .typingIndicator:
+            return "TypingIndicatorCollectionCell"
         }
     }
 
@@ -252,7 +276,8 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             "MessagesListItemTypeCell-conversationInfo",
             "MessagesListItemTypeCell-agentOutOfCredits",
             "MessagesListItemTypeCell-assistantJoinStatus",
-            "MessagesListItemTypeCell-assistantPresentInfo"
+            "MessagesListItemTypeCell-assistantPresentInfo",
+            "TypingIndicatorCollectionCell"
         ]
     }
 }
