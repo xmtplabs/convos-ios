@@ -134,15 +134,13 @@ struct InboxStateMachineTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Register revokes other installations and persists installationId")
-    func testRegisterRevokesInstallationsAndPersistsInstallationId() async throws {
+    @Test("Register does not revoke and persists installationId")
+    func testRegisterDoesNotRevokeAndPersistsInstallationId() async throws {
         actor RevocationTracker {
             var callCount = 0
-            var lastInstallationId: String?
 
-            func record(installationId: String) {
+            func record() {
                 callCount += 1
-                lastInstallationId = installationId
             }
         }
 
@@ -163,8 +161,8 @@ struct InboxStateMachineTests {
             overrideJWTToken: "test-jwt-token",
             environment: .tests,
             appLifecycle: testAppLifecycle,
-            revokeInstallationsHandler: { client, _ in
-                await revocationTracker.record(installationId: client.installationId)
+            revokeInstallationsHandler: { _, _ in
+                await revocationTracker.record()
             }
         )
 
@@ -185,8 +183,7 @@ struct InboxStateMachineTests {
             return
         }
 
-        #expect(await revocationTracker.callCount == 1)
-        #expect(await revocationTracker.lastInstallationId == result.client.installationId)
+        #expect(await revocationTracker.callCount == 0)
 
         let dbInbox = try await fixtures.databaseManager.dbReader.read { db in
             try DBInbox
@@ -199,7 +196,77 @@ struct InboxStateMachineTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Revocation failure is non-fatal during ready transition")
+    @Test("Authorize revokes when installationId changed (restore scenario)")
+    func testAuthorizeRevokesOnInstallationIdChange() async throws {
+        actor RevocationTracker {
+            var callCount = 0
+
+            func record() {
+                callCount += 1
+            }
+        }
+
+        let fixtures = TestFixtures()
+
+        let (client, clientId, _) = try await fixtures.createClient()
+
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+        _ = try await inboxWriter.save(
+            inboxId: client.inboxId,
+            clientId: clientId,
+            installationId: "old-installation-from-previous-device"
+        )
+
+        try? client.deleteLocalDatabase()
+
+        let revocationTracker = RevocationTracker()
+        let mockInvites = MockInvitesRepository()
+        let networkMonitor = NetworkMonitor()
+
+        let stateMachine = InboxStateMachine(
+            clientId: clientId,
+            identityStore: fixtures.identityStore,
+            invitesRepository: mockInvites,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            syncingManager: nil,
+            networkMonitor: networkMonitor,
+            overrideJWTToken: "test-jwt-token",
+            environment: .tests,
+            appLifecycle: testAppLifecycle,
+            revokeInstallationsHandler: { _, _ in
+                await revocationTracker.record()
+            }
+        )
+
+        await stateMachine.authorize(inboxId: client.inboxId, clientId: clientId)
+
+        let state = try await waitForState(stateMachine, timeout: 30) { state in
+            if case .ready = state { return true }
+            if case .error = state { return true }
+            return false
+        }
+
+        guard case .ready(_, let result) = state else {
+            if case .error(_, let error) = state {
+                Issue.record("Authorization failed: \(error)")
+            }
+            Issue.record("Did not reach ready state")
+            try? await fixtures.cleanup()
+            return
+        }
+
+        #expect(await revocationTracker.callCount == 1)
+
+        let dbInbox = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: client.inboxId)
+        }
+        #expect(dbInbox?.installationId == result.client.installationId)
+
+        try? result.client.deleteLocalDatabase()
+        try? await fixtures.cleanup()
+    }
+
+    @Test("Revocation failure is non-fatal during restore")
     func testRevocationFailureDoesNotBlockReadyState() async throws {
         enum TestRevocationError: Error {
             case expected
@@ -215,7 +282,17 @@ struct InboxStateMachineTests {
 
         let fixtures = TestFixtures()
 
-        let clientId = ClientId.generate().value
+        let (client, clientId, _) = try await fixtures.createClient()
+
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+        _ = try await inboxWriter.save(
+            inboxId: client.inboxId,
+            clientId: clientId,
+            installationId: "old-installation-from-previous-device"
+        )
+
+        try? client.deleteLocalDatabase()
+
         let mockSync = MockSyncingManager()
         let mockInvites = MockInvitesRepository()
         let networkMonitor = NetworkMonitor()
@@ -237,7 +314,7 @@ struct InboxStateMachineTests {
             }
         )
 
-        await stateMachine.register(clientId: clientId)
+        await stateMachine.authorize(inboxId: client.inboxId, clientId: clientId)
 
         let state = try await waitForState(stateMachine, timeout: 30) { state in
             if case .ready = state { return true }
@@ -247,7 +324,7 @@ struct InboxStateMachineTests {
 
         guard case .ready(_, let result) = state else {
             if case .error(_, let error) = state {
-                Issue.record("Registration failed after revocation error: \(error)")
+                Issue.record("Authorization failed after revocation error: \(error)")
             }
             Issue.record("Did not reach ready state")
             try? await fixtures.cleanup()
