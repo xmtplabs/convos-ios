@@ -41,7 +41,7 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
 
     public func cancelEagerUpload(trackingKey: String) async {}
 
-    public func sendVideo(at fileURL: URL) async throws -> String {
+    public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
         sentImageCount += 1
         return UUID().uuidString
     }
