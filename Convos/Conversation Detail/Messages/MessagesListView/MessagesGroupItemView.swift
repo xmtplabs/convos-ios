@@ -44,6 +44,7 @@ struct MessagesGroupItemView: View {
                 .padding(.leading, !message.base.sender.isCurrentUser && message.base.content.isFullBleedAttachment
                     ? DesignConstants.Spacing.step4x
                     : 0.0)
+                .padding(.trailing, trailingPadding)
             }
             messageContent
         }

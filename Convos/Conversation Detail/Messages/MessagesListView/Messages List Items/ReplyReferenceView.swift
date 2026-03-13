@@ -88,11 +88,10 @@ struct ReplyReferenceView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
-            .padding(.trailing, isOutgoing ? (DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x) : 0.0)
+            .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step3x : 0.0)
 
             if let attachment = parentAttachment, attachment.mediaType == .file {
                 ReplyReferenceFileBubble(attachment: attachment)
-                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
                     attachmentKey: attachment.key,
@@ -102,11 +101,9 @@ struct ReplyReferenceView: View {
                     onReveal: { onPhotoRevealed?(attachment.key) },
                     onHide: { onPhotoHidden?(attachment.key) }
                 )
-                .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let emoji = parentEmoji {
                 Text(emoji)
                     .font(.largeTitle)
-                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let invite = parentInvite {
                 if let onTapInvite {
                     let tapAction = { onTapInvite(invite) }
@@ -114,10 +111,8 @@ struct ReplyReferenceView: View {
                         ReplyReferenceInvitePreview(invite: invite)
                     }
                     .buttonStyle(.plain)
-                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 } else {
                     ReplyReferenceInvitePreview(invite: invite)
-                        .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 }
             } else {
                 HStack(spacing: 0) {
@@ -133,7 +128,6 @@ struct ReplyReferenceView: View {
                             .layoutPriority(-1)
                     }
                 }
-                .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             }
         }
         .padding(.top, DesignConstants.Spacing.stepX)
@@ -408,11 +402,11 @@ private struct ReplyReferenceFileBubble: View {
                 }
             }
         }
-        .padding(DesignConstants.Spacing.step2x)
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
         .background(
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.colorFillMinimal)
         )
-        .frame(maxWidth: 210)
     }
 }

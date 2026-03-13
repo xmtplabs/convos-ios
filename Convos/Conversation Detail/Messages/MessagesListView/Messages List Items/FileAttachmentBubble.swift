@@ -26,7 +26,7 @@ struct FileAttachmentBubble: View {
 
     var body: some View {
         MessageContainer(style: style, isOutgoing: isOutgoing) {
-            HStack(spacing: DesignConstants.Spacing.step3x) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
                 fileIcon
                     .frame(width: 44, height: 44)
                     .accessibilityIdentifier("file-attachment-icon")
@@ -45,7 +45,8 @@ struct FileAttachmentBubble: View {
                         .accessibilityIdentifier("file-attachment-subtitle")
                 }
             }
-            .padding(DesignConstants.Spacing.step3x)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
         }
         .accessibilityIdentifier("file-attachment-bubble")
         .accessibilityLabel("File: \(displayFilename)")
