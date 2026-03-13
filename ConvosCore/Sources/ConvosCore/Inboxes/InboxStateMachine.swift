@@ -373,6 +373,11 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         await syncingManager.setInviteJoinErrorHandler(handler)
     }
 
+    public func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
+        guard let syncingManager else { return }
+        await syncingManager.setTypingIndicatorHandler(handler)
+    }
+
     public func requestDiscovery() async {
         guard let syncingManager else { return }
         await syncingManager.requestDiscovery()

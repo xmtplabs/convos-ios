@@ -73,24 +73,24 @@ struct TypingIndicatorView: View {
 
 #Preview("One typer") {
     TypingIndicatorView(typers: [
-        .mock(isCurrentUser: false, name: "Alice")
+        ConversationMember(profile: .mock(name: "Alice"), role: .member, isCurrentUser: false)
     ])
     .padding()
 }
 
 #Preview("Two typers") {
     TypingIndicatorView(typers: [
-        .mock(isCurrentUser: false, name: "Alice"),
-        .mock(isCurrentUser: false, name: "Bob")
+        ConversationMember(profile: .mock(name: "Alice"), role: .member, isCurrentUser: false),
+        ConversationMember(profile: .mock(name: "Bob"), role: .member, isCurrentUser: false)
     ])
     .padding()
 }
 
 #Preview("Three typers") {
     TypingIndicatorView(typers: [
-        .mock(isCurrentUser: false, name: "Alice"),
-        .mock(isCurrentUser: false, name: "Bob"),
-        .mock(isCurrentUser: false, name: "Charlie")
+        ConversationMember(profile: .mock(name: "Alice"), role: .member, isCurrentUser: false),
+        ConversationMember(profile: .mock(name: "Bob"), role: .member, isCurrentUser: false),
+        ConversationMember(profile: .mock(name: "Charlie"), role: .member, isCurrentUser: false)
     ])
     .padding()
 }

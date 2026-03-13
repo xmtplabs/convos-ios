@@ -14,6 +14,7 @@ public protocol InboxStateManagerProtocol: AnyObject, Sendable {
     func deleteInbox() async throws
     func waitForDeletionComplete() async
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
+    func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async
 
     func requestDiscovery() async
 
