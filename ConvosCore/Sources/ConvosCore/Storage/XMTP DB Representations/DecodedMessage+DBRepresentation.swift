@@ -67,6 +67,8 @@ extension XMTPiOS.DecodedMessage {
             components = try handleExplodeSettingsContent()
         case ContentTypeAssistantJoinRequest:
             components = try handleAssistantJoinRequestContent()
+        case ContentTypeReadReceipt:
+            throw DecodedMessageDBRepresentationError.unsupportedContentType
         default:
             throw DecodedMessageDBRepresentationError.unsupportedContentType
         }

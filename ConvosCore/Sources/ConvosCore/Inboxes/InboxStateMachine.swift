@@ -1111,7 +1111,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 ProfileSnapshotCodec(),
                 JoinRequestCodec(),
                 AssistantJoinRequestCodec(),
-                TypingIndicatorCodec()
+                TypingIndicatorCodec(),
+                ReadReceiptCodec()
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,
