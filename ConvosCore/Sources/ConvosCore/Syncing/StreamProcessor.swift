@@ -272,8 +272,7 @@ actor StreamProcessor: StreamProcessorProtocol {
         conversationId: String,
         params: SyncClientParams
     ) -> Bool {
-        guard let contentType = try? message.encodedContent.type,
-              contentType == ContentTypeTypingIndicator else {
+        guard message.isTypingIndicator else {
             return false
         }
 
