@@ -194,7 +194,7 @@ struct MessagesGroupItemView: View {
                 : 0,
                 y: isAppearing ? 40 : 0
             )
-            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .padding(.trailing, trailingPadding)
 
         case .attachment(let attachment):
             attachmentView(for: attachment)
