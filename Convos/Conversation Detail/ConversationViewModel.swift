@@ -50,7 +50,7 @@ class ConversationViewModel {
     private let reactionWriter: any ReactionWriterProtocol
     private let readReceiptWriter: any ReadReceiptWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
-    private let messagesListRepository: any MessagesListRepositoryProtocol
+    private var messagesListRepository: any MessagesListRepositoryProtocol
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
@@ -255,6 +255,7 @@ class ConversationViewModel {
     private var assistantJoinTaskId: String?
 
     var autoRevealPhotos: Bool = false
+    var sendReadReceipts: Bool = true
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -506,6 +507,9 @@ class ConversationViewModel {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
                 let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
                 setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoReveal)
+                let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
+                sendReadReceipts = readReceiptsPref
+                messagesListRepository.sendReadReceipts = readReceiptsPref
             } catch {
                 Log.error("Error loading photo preferences: \(error)")
             }
@@ -569,6 +573,9 @@ class ConversationViewModel {
             .sink { [weak self] prefs in
                 guard let self else { return }
                 setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoRevealForNewConversation)
+                let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
+                sendReadReceipts = readReceiptsPref
+                messagesListRepository.sendReadReceipts = readReceiptsPref
             }
     }
 
@@ -584,6 +591,19 @@ class ConversationViewModel {
 
     private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {
         autoRevealPhotos = autoReveal
+    }
+
+    func setSendReadReceipts(_ value: Bool) {
+        sendReadReceipts = value
+        messagesListRepository.sendReadReceipts = value
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await photoPreferencesWriter.setSendReadReceipts(value, for: conversation.id)
+            } catch {
+                Log.error("Error setting sendReadReceipts: \(error)")
+            }
+        }
     }
 
     private func setAutoRevealPhotosPersisted(_ autoReveal: Bool) {
@@ -1421,7 +1441,7 @@ extension ConversationViewModel {
 
     private func sendReadReceiptIfNeeded() {
         guard !conversation.isDraft, !conversation.isPendingInvite else { return }
-        guard GlobalConvoDefaults.shared.sendReadReceipts else { return }
+        guard sendReadReceipts else { return }
 
         let debounceInterval: TimeInterval = 1
         if let lastSent = lastReadReceiptSentAt, Date().timeIntervalSince(lastSent) < debounceInterval {

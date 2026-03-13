@@ -202,6 +202,7 @@ public final class MockPhotoPreferencesRepository: PhotoPreferencesRepositoryPro
 public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @unchecked Sendable {
     public var autoRevealValues: [String: Bool] = [:]
     public var hasRevealedFirstValues: [String: Bool] = [:]
+    public var sendReadReceiptsValues: [String: Bool?] = [:]
 
     public init() {}
 
@@ -211,6 +212,10 @@ public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @
 
     public func setHasRevealedFirst(_ hasRevealedFirst: Bool, for conversationId: String) async throws {
         hasRevealedFirstValues[conversationId] = hasRevealedFirst
+    }
+
+    public func setSendReadReceipts(_ sendReadReceipts: Bool?, for conversationId: String) async throws {
+        sendReadReceiptsValues[conversationId] = sendReadReceipts
     }
 }
 

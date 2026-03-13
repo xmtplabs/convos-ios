@@ -12,13 +12,13 @@ final class MessagesListProcessor {
     /// Transforms messages into display items for the messages list
     /// - Parameter messages: Array of messages from the repository (already sorted by sortId)
     /// - Returns: Array of items ready for display in the messages list
-    static func process(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0) -> [MessagesListItemType] {
+    static func process(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0, sendReadReceipts: Bool = true) -> [MessagesListItemType] {
         let visibleMessages = messages.filter { $0.base.content.showsInMessagesList }
-        return processMessages(visibleMessages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: currentOtherMemberCount)
+        return processMessages(visibleMessages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: currentOtherMemberCount, sendReadReceipts: sendReadReceipts)
     }
 
-    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false, readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0) -> [MessagesListItemType] {
-        return process(messages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: currentOtherMemberCount)
+    static func processWithPagination(_ messages: [AnyMessage], isLoadingPrevious: Bool = false, readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0, sendReadReceipts: Bool = true) -> [MessagesListItemType] {
+        return process(messages, readReceipts: readReceipts, memberProfiles: memberProfiles, currentOtherMemberCount: currentOtherMemberCount, sendReadReceipts: sendReadReceipts)
     }
 
     // MARK: - Private Methods
@@ -37,7 +37,7 @@ final class MessagesListProcessor {
     }
 
     // swiftlint:disable:next cyclomatic_complexity
-    private static func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0) -> [MessagesListItemType] {
+    private static func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:], currentOtherMemberCount: Int = 0, sendReadReceipts: Bool = true) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
         let lastAssistantJoinIndex: Int? = {
@@ -147,7 +147,7 @@ final class MessagesListProcessor {
             if let lastMessage = group.messages.last,
                lastMessage.base.status == .published,
                !readReceipts.isEmpty,
-               GlobalConvoDefaults.shared.sendReadReceipts {
+               sendReadReceipts {
                 let messageDateNs = Int64(lastMessage.base.date.timeIntervalSince1970 * 1_000_000_000)
                 let currentInboxId = group.sender.profile.inboxId
                 let readInboxIds = Set(
