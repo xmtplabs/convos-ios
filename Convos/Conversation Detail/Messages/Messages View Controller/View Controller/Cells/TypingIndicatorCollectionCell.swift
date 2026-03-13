@@ -3,10 +3,10 @@ import SwiftUI
 import UIKit
 
 class TypingIndicatorCollectionCell: UICollectionViewCell {
-    func prepare(with alignment: MessagesListItemAlignment) {
+    func prepare(with typers: [ConversationMember]) {
         contentConfiguration = UIHostingConfiguration {
             HStack {
-                TypingIndicatorView(alignment: alignment)
+                TypingIndicatorView(typers: typers)
                 Spacer()
             }
         }
