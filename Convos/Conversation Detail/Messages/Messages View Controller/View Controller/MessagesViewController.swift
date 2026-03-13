@@ -889,15 +889,34 @@ extension MessagesViewController: QLPreviewControllerDataSource {
         if attachment.key.hasPrefix("file://") {
             let path = String(attachment.key.dropFirst("file://".count))
             let sourceURL = URL(fileURLWithPath: path)
-            let tempURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("preview_\(UUID().uuidString)")
-                .appendingPathComponent(filename)
-            try FileManager.default.createDirectory(
-                at: tempURL.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
-            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
-            return tempURL
+
+            if FileManager.default.fileExists(atPath: path) {
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("preview_\(UUID().uuidString)")
+                    .appendingPathComponent(filename)
+                try FileManager.default.createDirectory(
+                    at: tempURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                return tempURL
+            }
+
+            let messageId = extractMessageId(from: sourceURL)
+            if let messageId {
+                let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("preview_\(UUID().uuidString)")
+                    .appendingPathComponent(filename)
+                try FileManager.default.createDirectory(
+                    at: tempURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: tempURL)
+                return tempURL
+            }
+
+            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
         }
 
         let loader = RemoteAttachmentLoader()
@@ -911,6 +930,14 @@ extension MessagesViewController: QLPreviewControllerDataSource {
         )
         try loaded.data.write(to: tempURL)
         return tempURL
+    }
+
+    private func extractMessageId(from fileURL: URL) -> String? {
+        let filename = fileURL.lastPathComponent
+        guard let underscoreIndex = filename.firstIndex(of: "_") else { return nil }
+        let messageId = String(filename[filename.startIndex..<underscoreIndex])
+        guard !messageId.isEmpty else { return nil }
+        return messageId
     }
 
     func numberOfPreviewItems(in controller: QLPreviewController) -> Int {

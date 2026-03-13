@@ -110,6 +110,8 @@ public protocol ConversationsProvider {
 
     func findOrCreateDm(with peerInboxId: String) async throws -> Dm
 
+    func findMessage(messageId: String) throws -> XMTPiOS.DecodedMessage?
+
     func sync() async throws
     func syncAllConversations(consentStates: [ConsentState]?) async throws -> GroupSyncSummary
     func streamAllMessages(

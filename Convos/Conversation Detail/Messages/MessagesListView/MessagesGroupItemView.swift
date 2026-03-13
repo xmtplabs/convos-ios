@@ -551,7 +551,15 @@ private struct AttachmentPlaceholder: View {
                 let videoURL: URL
                 if attachment.key.hasPrefix("file://") {
                     let path = String(attachment.key.dropFirst("file://".count))
-                    videoURL = URL(fileURLWithPath: path)
+                    if FileManager.default.fileExists(atPath: path) {
+                        videoURL = URL(fileURLWithPath: path)
+                    } else {
+                        let data = try await recoverInlineAttachmentData(from: path)
+                        let tempURL = FileManager.default.temporaryDirectory
+                            .appendingPathComponent("video_\(UUID().uuidString).mp4")
+                        try data.write(to: tempURL)
+                        videoURL = tempURL
+                    }
                 } else if let cached = await VideoURLCache.shared.url(for: attachment.key) {
                     videoURL = cached
                 } else {
@@ -591,8 +599,11 @@ private struct AttachmentPlaceholder: View {
 
             if attachment.key.hasPrefix("file://") {
                 let path = String(attachment.key.dropFirst("file://".count))
-                let url = URL(fileURLWithPath: path)
-                imageData = try Data(contentsOf: url)
+                if FileManager.default.fileExists(atPath: path) {
+                    imageData = try Data(contentsOf: URL(fileURLWithPath: path))
+                } else {
+                    imageData = try await recoverInlineAttachmentData(from: path)
+                }
             } else if attachment.key.hasPrefix("{") {
                 imageData = try await Self.loader.loadImageData(from: attachment.key)
             } else if let url = URL(string: attachment.key) {
@@ -795,6 +806,16 @@ struct PhotoSenderLabel: View {
         onPhotoDimensionsLoaded: { _, _, _ in }
     )
     .padding()
+}
+
+private func recoverInlineAttachmentData(from path: String) async throws -> Data {
+    let fileURL = URL(fileURLWithPath: path)
+    let filename = fileURL.lastPathComponent
+    guard let underscoreIndex = filename.firstIndex(of: "_") else {
+        throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+    }
+    let messageId = String(filename[filename.startIndex..<underscoreIndex])
+    return try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
 }
 
 // swiftlint:disable force_unwrapping
