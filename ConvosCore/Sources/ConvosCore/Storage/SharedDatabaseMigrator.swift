@@ -456,7 +456,8 @@ extension SharedDatabaseMigrator {
             }
             try db.execute(sql: """
                 INSERT INTO conversation_read_receipts_new
-                SELECT * FROM conversation_read_receipts
+                SELECT r.* FROM conversation_read_receipts r
+                INNER JOIN conversation c ON r.conversationId = c.id
             """)
             try db.drop(table: "conversation_read_receipts")
             try db.rename(table: "conversation_read_receipts_new", to: "conversation_read_receipts")
