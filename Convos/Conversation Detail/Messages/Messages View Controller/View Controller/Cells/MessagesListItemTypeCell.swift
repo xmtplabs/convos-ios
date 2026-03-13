@@ -77,8 +77,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                             .padding(.top, DesignConstants.Spacing.step4x)
                             .padding(.bottom, update.addedAgent ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
                             .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        if update.addedAgent {
-                            AssistantJoinedInfoView(onAboutAssistants: config.onAboutAssistants)
+                        if update.addedAgent, let agent = update.addedMembers.first(where: \.isAgent) {
+                            AssistantJoinedInfoView(onTap: { config.onTapUpdateMember(agent) })
                                 .padding(.horizontal, DesignConstants.Spacing.step4x)
                         }
                     }
