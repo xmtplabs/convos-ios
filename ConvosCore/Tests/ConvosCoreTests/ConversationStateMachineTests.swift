@@ -1,4 +1,5 @@
 @preconcurrency @testable import ConvosCore
+import ConvosInvites
 import Foundation
 import GRDB
 import Testing
@@ -1872,6 +1873,77 @@ struct ConversationStateMachineTests {
         await joinerMessagingService.stopAndDelete()
         try? await inviterFixtures.cleanup()
         try? await joinerFixtures.cleanup()
+    }
+
+    // MARK: - Empty Tag Rejection Tests
+
+    @Test("Join with empty-tag invite transitions to error state")
+    func testJoinWithEmptyTagInviteShowsError() async throws {
+        let fixtures = TestFixtures()
+
+        let unusedInboxCache = UnusedConversationCache(
+            keychainService: fixtures.keychainService,
+            identityStore: fixtures.identityStore,
+            platformProviders: testPlatformProviders
+        )
+        let (messagingService, _) = await unusedInboxCache.consumeOrCreateMessagingService(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: testEnvironment
+        )
+
+        let stateMachine = ConversationStateMachine(
+            inboxStateManager: messagingService.inboxStateManager,
+            identityStore: fixtures.identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            environment: testEnvironment,
+            clientConversationId: DBConversation.generateDraftConversationId()
+        )
+
+        let privateKey: Data = Data(repeating: 0x42, count: 32)
+
+        var payload = InvitePayload()
+        payload.tag = ""
+        payload.conversationToken = Data(repeating: 0x01, count: 32)
+        payload.creatorInboxID = Data(repeating: 0xAB, count: 32)
+        let signature = try payload.sign(with: privateKey)
+
+        var emptyTagInvite = SignedInvite()
+        try emptyTagInvite.setPayload(payload)
+        emptyTagInvite.signature = signature
+
+        let slug = try emptyTagInvite.toURLSafeSlug()
+
+        await stateMachine.join(inviteCode: slug)
+
+        let errorResult: ConversationStateMachineError? = try await withTimeout(seconds: 10) {
+            for await state in await stateMachine.stateSequence {
+                if case .error(let error) = state {
+                    return error as? ConversationStateMachineError
+                }
+                if case .ready = state {
+                    Issue.record("should not reach ready state with an empty-tag invite")
+                    return nil
+                }
+            }
+            return nil
+        }
+
+        #expect(errorResult != nil, "should transition to error state for empty-tag invite")
+        #expect(
+            errorResult?.description.contains("not valid") == true,
+            "error should indicate an invalid code (got: \(errorResult?.description ?? "nil"))"
+        )
+
+        let conversations = try await fixtures.databaseManager.dbReader.read { db in
+            try DBConversation.fetchAll(db)
+        }
+        let nonDraftConversations = conversations.filter { !$0.id.hasPrefix("draft-") && !$0.isUnused }
+        #expect(nonDraftConversations.isEmpty, "no conversation should be matched or created for an empty-tag invite")
+
+        await messagingService.stopAndDelete()
+        try? await fixtures.cleanup()
     }
 }
 

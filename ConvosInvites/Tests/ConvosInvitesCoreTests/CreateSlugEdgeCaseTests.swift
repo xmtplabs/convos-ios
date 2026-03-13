@@ -70,17 +70,16 @@ struct CreateSlugEdgeCaseTests {
         #expect(decoded.conversationExpiresAt == convExpiry)
     }
 
-    @Test("createSlug with empty tag produces valid invite")
-    func emptyTag() throws {
-        let slug = try SignedInvite.createSlug(
-            conversationId: "convo-1",
-            creatorInboxId: validInboxId,
-            privateKey: validPrivateKey,
-            tag: ""
-        )
-
-        let decoded = try SignedInvite.fromURLSafeSlug(slug)
-        #expect(decoded.invitePayload.tag.isEmpty)
+    @Test("createSlug with empty tag throws")
+    func emptyTagThrows() {
+        #expect(throws: InviteTokenError.self) {
+            _ = try SignedInvite.createSlug(
+                conversationId: "convo-1",
+                creatorInboxId: validInboxId,
+                privateKey: validPrivateKey,
+                tag: ""
+            )
+        }
     }
 
     @Test("createSlug with unicode conversation ID round-trips")

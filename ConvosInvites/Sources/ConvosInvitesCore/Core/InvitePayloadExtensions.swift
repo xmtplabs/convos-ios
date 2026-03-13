@@ -52,6 +52,10 @@ extension SignedInvite {
         tag: String,
         options: InviteSlugOptions = InviteSlugOptions()
     ) throws -> String {
+        guard !tag.isEmpty else {
+            throw InviteTokenError.emptyInviteTag
+        }
+
         let conversationTokenBytes = try InviteToken.encrypt(
             conversationId: conversationId,
             creatorInboxId: creatorInboxId,
