@@ -93,7 +93,6 @@ struct LinkPreviewCardView: View {
 
     private func fetchOpenGraphMetadata() async {
         guard !hasFetchedMetadata else { return }
-        hasFetchedMetadata = true
 
         let metadata = await OpenGraphService.shared.fetchMetadata(for: preview.url)
 
@@ -110,6 +109,8 @@ struct LinkPreviewCardView: View {
                   let imageURL = URL(string: imageURLString) {
             await loadImage(from: imageURL)
         }
+
+        hasFetchedMetadata = true
     }
 
     private func loadImage(from url: URL) async {

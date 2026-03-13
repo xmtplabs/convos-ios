@@ -3,8 +3,11 @@ import Foundation
 public actor OpenGraphService {
     public static let shared: OpenGraphService = OpenGraphService()
 
-    private var cache: [String: OpenGraphMetadata] = [:]
+    private var cache: [String: CacheEntry] = [:]
+    private var cacheOrder: [String] = []
     private var inFlightTasks: [String: Task<OpenGraphMetadata?, Never>] = [:]
+
+    private static let maxCacheSize: Int = 100
 
     public struct OpenGraphMetadata: Sendable {
         public let title: String?
@@ -12,9 +15,14 @@ public actor OpenGraphService {
         public let siteName: String?
     }
 
+    private struct CacheEntry {
+        let metadata: OpenGraphMetadata
+    }
+
     public func fetchMetadata(for urlString: String) async -> OpenGraphMetadata? {
-        if let cached = cache[urlString] {
-            return cached
+        if let entry = cache[urlString] {
+            promoteCacheEntry(urlString)
+            return entry.metadata
         }
 
         if let existing = inFlightTasks[urlString] {
@@ -67,13 +75,30 @@ public actor OpenGraphService {
         inFlightTasks[urlString] = nil
 
         if let result {
-            cache[urlString] = result
+            insertCacheEntry(urlString, metadata: result)
         }
 
         return result
     }
 
-    private func parseOpenGraphTags(from html: String) -> OpenGraphMetadata? {
+    private func insertCacheEntry(_ key: String, metadata: OpenGraphMetadata) {
+        cache[key] = CacheEntry(metadata: metadata)
+        cacheOrder.append(key)
+
+        while cache.count > Self.maxCacheSize {
+            let evicted = cacheOrder.removeFirst()
+            cache.removeValue(forKey: evicted)
+        }
+    }
+
+    private func promoteCacheEntry(_ key: String) {
+        if let index = cacheOrder.firstIndex(of: key) {
+            cacheOrder.remove(at: index)
+            cacheOrder.append(key)
+        }
+    }
+
+    func parseOpenGraphTags(from html: String) -> OpenGraphMetadata? {
         let title = extractMetaContent(property: "og:title", from: html)
             ?? extractHTMLTitle(from: html)
         let imageURL = extractMetaContent(property: "og:image", from: html)
@@ -118,7 +143,7 @@ public actor OpenGraphService {
         return title.isEmpty ? nil : title
     }
 
-    private func decodeHTMLEntities(_ string: String) -> String {
+    func decodeHTMLEntities(_ string: String) -> String {
         var result = string
             .replacingOccurrences(of: "&amp;", with: "&")
             .replacingOccurrences(of: "&lt;", with: "<")
@@ -133,12 +158,11 @@ public actor OpenGraphService {
             let nsRange = NSRange(result.startIndex..., in: result)
             let matches = regex.matches(in: result, range: nsRange).reversed()
             for match in matches {
-                if let hexRange = Range(match.range(at: 1), in: result),
-                   let codePoint = UInt32(result[hexRange], radix: 16),
-                   let scalar = Unicode.Scalar(codePoint) {
-                    let fullRange = Range(match.range, in: result)!
-                    result.replaceSubrange(fullRange, with: String(Character(scalar)))
-                }
+                guard let hexRange = Range(match.range(at: 1), in: result),
+                      let fullRange = Range(match.range, in: result),
+                      let codePoint = UInt32(result[hexRange], radix: 16),
+                      let scalar = Unicode.Scalar(codePoint) else { continue }
+                result.replaceSubrange(fullRange, with: String(Character(scalar)))
             }
         }
 
@@ -147,12 +171,11 @@ public actor OpenGraphService {
             let nsRange = NSRange(result.startIndex..., in: result)
             let matches = regex.matches(in: result, range: nsRange).reversed()
             for match in matches {
-                if let decRange = Range(match.range(at: 1), in: result),
-                   let codePoint = UInt32(result[decRange]),
-                   let scalar = Unicode.Scalar(codePoint) {
-                    let fullRange = Range(match.range, in: result)!
-                    result.replaceSubrange(fullRange, with: String(Character(scalar)))
-                }
+                guard let decRange = Range(match.range(at: 1), in: result),
+                      let fullRange = Range(match.range, in: result),
+                      let codePoint = UInt32(result[decRange]),
+                      let scalar = Unicode.Scalar(codePoint) else { continue }
+                result.replaceSubrange(fullRange, with: String(Character(scalar)))
             }
         }
 
