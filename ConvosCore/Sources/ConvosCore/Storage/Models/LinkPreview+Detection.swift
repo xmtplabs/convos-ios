@@ -59,6 +59,16 @@ extension LinkPreview {
             return true
         }
 
+        let stripped = host.replacingOccurrences(of: "[", with: "")
+            .replacingOccurrences(of: "]", with: "")
+        if stripped.contains(":") {
+            if stripped == "::1" { return true }
+            if stripped.hasPrefix("fe80") { return true }
+            if stripped.hasPrefix("fc") || stripped.hasPrefix("fd") { return true }
+            if stripped == "::" { return true }
+            return false
+        }
+
         let parts = host.split(separator: ".").compactMap { UInt8($0) }
         guard parts.count == 4 else { return false }
 
