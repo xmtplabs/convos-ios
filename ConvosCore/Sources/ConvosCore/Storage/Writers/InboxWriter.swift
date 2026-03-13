@@ -63,8 +63,11 @@ struct InboxWriter {
                     )
                 }
 
-                guard let installationId,
-                      existingInbox.installationId != installationId else {
+                guard let installationId else {
+                    return existingInbox
+                }
+
+                guard existingInbox.installationId != installationId else {
                     return existingInbox
                 }
 
