@@ -410,6 +410,102 @@ import Testing
         UserDefaults.standard.removeObject(forKey: migrationKey)
     }
 
+    @Test func testMigrationRecoversStrandedMigratedAccountName() async throws {
+        try await keychainStore.deleteAll()
+
+        let service = KeychainIdentityStore.defaultService
+        let migrationKey = migrationKey(for: service)
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+
+        let keys = try await keychainStore.generateKeys()
+        let identity = try await keychainStore.save(inboxId: "recover-inbox", clientId: "recover-client", keys: keys)
+        let identityData = try JSONEncoder().encode(identity)
+        try await keychainStore.delete(inboxId: "recover-inbox")
+
+        let strandedAccount = "recover-inbox.migrated"
+        let addStrandedQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: strandedAccount,
+            kSecAttrGeneric as String: Data("recover-client".utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData as String: identityData
+        ]
+        let addStatus = SecItemAdd(addStrandedQuery as CFDictionary, nil)
+        #expect(addStatus == errSecSuccess)
+
+        do {
+            _ = try await keychainStore.identity(for: "recover-inbox")
+            #expect(Bool(false), "Expected lookup by canonical account to fail before migration")
+        } catch {
+            #expect(error is KeychainIdentityStoreError)
+        }
+
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: service,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+
+        let recovered = try await keychainStore.identity(for: "recover-inbox")
+        #expect(recovered.inboxId == "recover-inbox")
+        #expect(recovered.clientId == "recover-client")
+
+        let strandedLookupQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: strandedAccount,
+            kSecMatchLimit as String: kSecMatchLimitOne,
+            kSecReturnData as String: true
+        ]
+        var strandedItem: CFTypeRef?
+        let strandedStatus = SecItemCopyMatching(strandedLookupQuery as CFDictionary, &strandedItem)
+        #expect(strandedStatus == errSecItemNotFound)
+
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+    }
+
+    @Test func testMigrationDoesNotSetCompletionFlagWhenAnyItemFails() async throws {
+        try await keychainStore.deleteAll()
+
+        let service = KeychainIdentityStore.defaultService
+        let migrationKey = migrationKey(for: service)
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+
+        let keys = try await keychainStore.generateKeys()
+        let canonicalIdentity = try await keychainStore.save(
+            inboxId: "conflict-inbox",
+            clientId: "conflict-client",
+            keys: keys
+        )
+        let canonicalData = try JSONEncoder().encode(canonicalIdentity)
+
+        let addAliasQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: testAccessGroup,
+            kSecAttrAccount as String: "conflict-alias",
+            kSecAttrGeneric as String: Data("conflict-client".utf8),
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+            kSecValueData as String: canonicalData
+        ]
+        let addAliasStatus = SecItemAdd(addAliasQuery as CFDictionary, nil)
+        #expect(addAliasStatus == errSecSuccess)
+
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: testAccessGroup,
+            service: service,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+
+        #expect(UserDefaults.standard.bool(forKey: migrationKey) == false)
+
+        try await keychainStore.deleteAll()
+        UserDefaults.standard.removeObject(forKey: migrationKey)
+    }
+
     @Test func testLocalFormatMigrationIsTrackedPerService() {
         let serviceA = "org.convos.test.service-a"
         let serviceB = "org.convos.test.service-b"
