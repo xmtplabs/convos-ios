@@ -40,7 +40,7 @@ struct MessagesGroupItemView: View {
                     onPhotoRevealed: onPhotoRevealed,
                     onPhotoHidden: onPhotoHidden
                 )
-                .padding(.leading, !message.sender.isCurrentUser && message.content.isAttachment
+                .padding(.leading, !message.sender.isCurrentUser && message.content.isFullBleedAttachment
                     ? DesignConstants.Spacing.step4x
                     : 0.0)
             }

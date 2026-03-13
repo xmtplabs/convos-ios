@@ -143,7 +143,7 @@ struct MessagesGroupView: View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             ForEach(Array(group.allMessages.enumerated()), id: \.element.messageId) { index, message in
                 let isReply: Bool = if case .reply = message { true } else { false }
-                let isFullWidthAttachment: Bool = message.content.isAttachment
+                let isFullWidthAttachment: Bool = message.content.isFullBleedAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
                     senderLabel
