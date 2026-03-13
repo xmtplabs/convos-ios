@@ -12,12 +12,28 @@ enum MessageBubbleType {
 
 struct MessagesGroup: Identifiable, Equatable, Hashable {
     let id: String
-    let sender: ConversationMember // The sender of all messages in this group
-    let messages: [AnyMessage] // All messages in this group (published + unpublished in sortId order)
+    let sender: ConversationMember
+    let messages: [AnyMessage]
     let isLastGroup: Bool
     let isLastGroupSentByCurrentUser: Bool
+    let showsTypingIndicator: Bool
 
-    /// All messages in this group (already sorted by sortId from repository)
+    init(
+        id: String,
+        sender: ConversationMember,
+        messages: [AnyMessage],
+        isLastGroup: Bool,
+        isLastGroupSentByCurrentUser: Bool,
+        showsTypingIndicator: Bool = false
+    ) {
+        self.id = id
+        self.sender = sender
+        self.messages = messages
+        self.isLastGroup = isLastGroup
+        self.isLastGroupSentByCurrentUser = isLastGroupSentByCurrentUser
+        self.showsTypingIndicator = showsTypingIndicator
+    }
+
     var allMessages: [AnyMessage] {
         messages
     }
@@ -27,7 +43,8 @@ struct MessagesGroup: Identifiable, Equatable, Hashable {
         lhs.sender == rhs.sender &&
         lhs.messages == rhs.messages &&
         lhs.isLastGroup == rhs.isLastGroup &&
-        lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser
+        lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser &&
+        lhs.showsTypingIndicator == rhs.showsTypingIndicator
     }
 }
 

@@ -168,10 +168,37 @@ class ConversationViewModel {
     private(set) var typingMembers: [ConversationMember] = []
 
     var messagesWithTypingIndicator: [MessagesListItemType] {
-        if typingMembers.isEmpty {
-            return messages
+        guard !typingMembers.isEmpty else { return messages }
+
+        let singleTyper = typingMembers.count == 1 ? typingMembers[0] : nil
+
+        if let singleTyper,
+           let lastIndex = messages.lastIndex(where: { if case .messages = $0 { return true }; return false }),
+           case .messages(let lastGroup) = messages[lastIndex],
+           lastGroup.sender.profile.inboxId == singleTyper.profile.inboxId {
+            var updated = messages
+            let updatedGroup = MessagesGroup(
+                id: lastGroup.id,
+                sender: lastGroup.sender,
+                messages: lastGroup.messages,
+                isLastGroup: lastGroup.isLastGroup,
+                isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
+                showsTypingIndicator: true
+            )
+            updated[lastIndex] = .messages(updatedGroup)
+            return updated
         }
-        return messages + [.typingIndicator(typers: typingMembers)]
+
+        let typingSender = singleTyper ?? typingMembers[0]
+        let typingGroup = MessagesGroup(
+            id: "typing-indicator",
+            sender: typingSender,
+            messages: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false,
+            showsTypingIndicator: true
+        )
+        return messages + [.messages(typingGroup)]
     }
 
     @ObservationIgnored
@@ -730,6 +757,7 @@ extension ConversationViewModel {
         let eagerUploadKey = currentEagerUploadKey
         let prevInviteURL = pendingInvite?.fullURL
 
+        stopTyping()
         messageText = ""
         replyingToMessage = nil
         selectedAttachmentImage = nil
