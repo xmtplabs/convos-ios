@@ -55,7 +55,7 @@ struct VaultKeySyncDebugView: View {
                     ProgressView()
                 }
             } else {
-                statusRow(title: "iCloud available", value: snapshot.isICloudAvailable ? "Yes" : "No")
+                statusRow(title: "iCloud account available", value: snapshot.isICloudAccountAvailable ? "Yes" : "No")
                 statusRow(title: "Vault bootstrap", value: snapshot.bootstrapState)
                 statusRow(title: "Vault inbox ID", value: snapshot.vaultInboxId ?? "Unavailable", monospaced: true)
                 statusRow(title: "Local vault keys", value: "\(snapshot.localVaultKeyCount)")
@@ -256,7 +256,7 @@ struct VaultKeySyncDebugView: View {
         let bootstrapInfo = await loadVaultBootstrapInfo()
 
         return Snapshot(
-            isICloudAvailable: ICloudIdentityStore.isICloudAvailable,
+            isICloudAccountAvailable: ICloudIdentityStore.isICloudAccountAvailable,
             bootstrapState: bootstrapInfo.state,
             bootstrapErrorMessage: bootstrapInfo.errorMessage,
             vaultInboxId: bootstrapInfo.vaultInboxId,
@@ -345,7 +345,7 @@ struct VaultKeySyncDebugView: View {
 
 private extension VaultKeySyncDebugView {
     struct Snapshot {
-        let isICloudAvailable: Bool
+        let isICloudAccountAvailable: Bool
         let bootstrapState: String
         let bootstrapErrorMessage: String?
         let vaultInboxId: String?
@@ -355,7 +355,7 @@ private extension VaultKeySyncDebugView {
         let lastRefreshed: Date
 
         static let empty: Snapshot = Snapshot(
-            isICloudAvailable: false,
+            isICloudAccountAvailable: false,
             bootstrapState: "Unavailable",
             bootstrapErrorMessage: nil,
             vaultInboxId: nil,

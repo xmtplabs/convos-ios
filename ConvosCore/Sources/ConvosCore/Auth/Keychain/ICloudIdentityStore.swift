@@ -172,12 +172,17 @@ public actor ICloudIdentityStore: KeychainIdentityStoreProtocol {
 
     // MARK: - iCloud availability detection
 
-    /// Whether the user is signed into iCloud.
+    /// Whether an iCloud account is available on the device.
     ///
-    /// This checks for an iCloud account, not specifically iCloud Keychain.
-    /// There is no public API to check iCloud Keychain status directly, but
-    /// if the user is not signed into iCloud at all, keychain sync is off.
-    public nonisolated static var isICloudAvailable: Bool {
+    /// This checks for iCloud account presence via `ubiquityIdentityToken`.
+    /// It does not indicate whether iCloud Keychain is enabled.
+    /// Apple does not provide a public API to directly query iCloud Keychain status.
+    public nonisolated static var isICloudAccountAvailable: Bool {
         FileManager.default.ubiquityIdentityToken != nil
+    }
+
+    @available(*, deprecated, renamed: "isICloudAccountAvailable", message: "Checks iCloud account availability, not iCloud Keychain status.")
+    public nonisolated static var isICloudAvailable: Bool {
+        isICloudAccountAvailable
     }
 }

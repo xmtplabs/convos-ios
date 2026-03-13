@@ -837,9 +837,9 @@ import Testing
         #expect(icloudIdentities.isEmpty)
     }
 
-    @Test func testICloudAvailabilityDetection() {
+    @Test func testICloudAccountAvailabilityDetection() {
         // Just verify the API exists and returns a boolean
-        let available = ICloudIdentityStore.isICloudAvailable
+        let available = ICloudIdentityStore.isICloudAccountAvailable
         #expect(available == true || available == false)
     }
 }
