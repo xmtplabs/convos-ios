@@ -5,27 +5,27 @@ public final class MessagesListProcessor: Sendable {
 
     public static func process(
         _ messages: [AnyMessage],
-        otherMemberCount: Int = 0,
         voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:],
         readReceipts: [ReadReceiptEntry] = [],
-        memberProfiles: [String: MemberProfileInfo] = [:]
+        memberProfiles: [String: MemberProfileInfo] = [:],
+        currentOtherMemberCount: Int = 0
     ) -> [MessagesListItemType] {
         return processMessages(
             messages,
-            otherMemberCount: otherMemberCount,
             voiceMemoTranscripts: voiceMemoTranscripts,
             readReceipts: readReceipts,
-            memberProfiles: memberProfiles
+            memberProfiles: memberProfiles,
+            currentOtherMemberCount: currentOtherMemberCount
         )
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func processMessages(
         _ messages: [AnyMessage],
-        otherMemberCount: Int = 0,
         voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:],
         readReceipts: [ReadReceiptEntry] = [],
-        memberProfiles: [String: MemberProfileInfo] = [:]
+        memberProfiles: [String: MemberProfileInfo] = [:],
+        currentOtherMemberCount: Int = 0
     ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
@@ -33,7 +33,7 @@ public final class MessagesListProcessor: Sendable {
 
         var lastAssistantJoinIndex: Int?
         var agentJoinedAfterAssistantRequest = false
-        var trackedMemberCount: Int = otherMemberCount
+        var trackedMemberCount: Int = currentOtherMemberCount
 
         for i in 0..<messageCount {
             let content = messages[i].content
