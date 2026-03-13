@@ -15,6 +15,9 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
     public func sendTypingIndicator(isTyping: Bool) async throws {
     }
 
+    public func sendReadReceipt() async throws {
+    }
+
     public func prepare(text: String) async throws -> String {
         let messageId = UUID().uuidString
         preparedMessages.append(messageId)

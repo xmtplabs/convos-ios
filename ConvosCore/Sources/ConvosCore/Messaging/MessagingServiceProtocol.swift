@@ -40,6 +40,7 @@ public protocol MessagingServiceProtocol: AnyObject, Sendable {
         backgroundUploadManager: any BackgroundUploadManagerProtocol
     ) -> any OutgoingMessageWriterProtocol
     func reactionWriter() -> any ReactionWriterProtocol
+    func readReceiptWriter() -> any ReadReceiptWriterProtocol
     func replyWriter() -> any ReplyMessageWriterProtocol
 
     func conversationMetadataWriter() -> any ConversationMetadataWriterProtocol

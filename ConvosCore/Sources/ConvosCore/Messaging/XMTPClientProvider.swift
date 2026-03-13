@@ -44,6 +44,7 @@ public struct SendableXMTPOperations: Sendable {
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
     func sendTypingIndicator(isTyping: Bool) async throws
+    func sendReadReceipt() async throws
     func prepare(text: String) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
@@ -248,6 +249,13 @@ extension XMTPiOS.Client: XMTPClientProvider {
 }
 
 extension XMTPiOS.Conversation: MessageSender {
+    public func sendReadReceipt() async throws {
+        try await send(
+            content: ReadReceipt(),
+            options: .init(contentType: ReadReceiptCodec().contentType)
+        )
+    }
+
     public func sendExplode(expiresAt: Date) async throws {
         Log.info("Sending ExplodeSettings message with expiresAt: \(expiresAt) (\(expiresAt.timeIntervalSince1970))")
         let codec = ExplodeSettingsCodec()

@@ -76,6 +76,7 @@ class ConversationViewModel {
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let explosionWriter: any ConversationExplosionWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
+    private let readReceiptWriter: any ReadReceiptWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private var messagesListRepository: any MessagesListRepositoryProtocol
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
@@ -97,6 +98,8 @@ class ConversationViewModel {
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedPhotoPreferencesConversationId: String?
+    @ObservationIgnored
+    private var lastReadReceiptSentAt: Date?
 
     // MARK: - Public
 
@@ -471,6 +474,7 @@ class ConversationViewModel {
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
+        self.readReceiptWriter = messagingService.readReceiptWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
@@ -510,6 +514,7 @@ class ConversationViewModel {
         observe()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
+        sendReadReceiptIfNeeded()
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
@@ -553,6 +558,7 @@ class ConversationViewModel {
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
+        self.readReceiptWriter = messagingService.readReceiptWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
@@ -583,6 +589,7 @@ class ConversationViewModel {
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
         scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
+        sendReadReceiptIfNeeded()
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -615,6 +622,7 @@ class ConversationViewModel {
                 self.clearTypingForNewMessages(old: self.messages, new: messages)
                 self.messages = messages
                 self.scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
+                self.sendReadReceiptIfNeeded()
             }
             .store(in: &cancellables)
 
@@ -1843,6 +1851,28 @@ extension ConversationViewModel {
                     )
                     self.convosButtonCancellable = nil
                 }
+        }
+    }
+
+    // MARK: - Read Receipts
+
+    private func sendReadReceiptIfNeeded() {
+        guard !conversation.isDraft, !conversation.isPendingInvite else { return }
+        guard GlobalConvoDefaults.shared.sendReadReceipts else { return }
+
+        if let lastSent = lastReadReceiptSentAt, Date().timeIntervalSince(lastSent) < 5 {
+            return
+        }
+
+        lastReadReceiptSentAt = Date()
+        let conversationId = conversation.id
+
+        Task {
+            do {
+                try await readReceiptWriter.sendReadReceipt(for: conversationId)
+            } catch {
+                Log.warning("Failed to send read receipt: \(error.localizedDescription)")
+            }
         }
     }
 }
