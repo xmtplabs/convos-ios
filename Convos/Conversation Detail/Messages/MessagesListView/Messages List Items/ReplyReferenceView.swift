@@ -33,6 +33,7 @@ struct ReplyReferenceView: View {
     private func replyLabel(for attachment: HydratedAttachment) -> String {
         switch attachment.mediaType {
         case .video: return "video"
+        case .audio: return "audio"
         case .file: return attachment.filename ?? "file"
         default: return "photo"
         }

@@ -839,6 +839,7 @@ extension MessagesViewController: QLPreviewControllerDataSource {
                 let previewController = QLPreviewController()
                 filePreviewURL = fileURL
                 previewController.dataSource = self
+                previewController.delegate = self
                 present(previewController, animated: true)
             } catch {
                 Log.error("Failed to open file attachment: \(error)")
@@ -917,6 +918,15 @@ extension MessagesViewController: QLPreviewControllerDataSource {
 
     func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
         (filePreviewURL ?? URL(fileURLWithPath: "")) as NSURL
+    }
+}
+
+extension MessagesViewController: @preconcurrency QLPreviewControllerDelegate {
+    func previewControllerDidDismiss(_ controller: QLPreviewController) {
+        if let url = filePreviewURL {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        filePreviewURL = nil
     }
 }
 

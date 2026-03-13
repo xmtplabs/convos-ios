@@ -100,31 +100,9 @@ extension DBLastMessageWithSource {
 
         for url in attachmentUrls {
             if let stored = try? StoredRemoteAttachment.fromJSON(url) {
-                if stored.mimeType?.hasPrefix("video/") == true {
-                    hasVideo = true
-                } else if let mime = stored.mimeType, !mime.hasPrefix("image/") {
-                    hasFile = true
-                    filename = stored.filename
-                } else if let fn = stored.filename {
-                    let ext = (fn as NSString).pathExtension.lowercased()
-                    if !ext.isEmpty, let utType = UTType(filenameExtension: ext), !utType.conforms(to: .image) {
-                        hasFile = true
-                        filename = fn
-                    }
-                }
+                classifyStoredAttachment(stored, hasVideo: &hasVideo, hasFile: &hasFile, filename: &filename)
             } else if url.hasPrefix("file://") {
-                let fn = extractFilenameFromURL(url)
-                if let fn {
-                    let ext = (fn as NSString).pathExtension.lowercased()
-                    if !ext.isEmpty, let utType = UTType(filenameExtension: ext) {
-                        if utType.conforms(to: .movie) || utType.conforms(to: .video) {
-                            hasVideo = true
-                        } else if !utType.conforms(to: .image) {
-                            hasFile = true
-                            filename = fn
-                        }
-                    }
-                }
+                classifyFileURL(url, hasVideo: &hasVideo, hasFile: &hasFile, filename: &filename)
             }
         }
 
@@ -136,6 +114,43 @@ extension DBLastMessageWithSource {
         }
         if hasFile || hasVideo { return "\(count) attachments" }
         return "\(count) photos"
+    }
+
+    private static func classifyStoredAttachment(
+        _ stored: StoredRemoteAttachment,
+        hasVideo: inout Bool,
+        hasFile: inout Bool,
+        filename: inout String?
+    ) {
+        if stored.mimeType?.hasPrefix("video/") == true {
+            hasVideo = true
+        } else if let mime = stored.mimeType, !mime.hasPrefix("image/") {
+            hasFile = true
+            filename = stored.filename
+        } else if let fn = stored.filename {
+            let ext = (fn as NSString).pathExtension.lowercased()
+            if !ext.isEmpty, let utType = UTType(filenameExtension: ext), !utType.conforms(to: .image) {
+                hasFile = true
+                filename = fn
+            }
+        }
+    }
+
+    private static func classifyFileURL(
+        _ url: String,
+        hasVideo: inout Bool,
+        hasFile: inout Bool,
+        filename: inout String?
+    ) {
+        guard let fn = extractFilenameFromURL(url) else { return }
+        let ext = (fn as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty, let utType = UTType(filenameExtension: ext) else { return }
+        if utType.conforms(to: .movie) || utType.conforms(to: .video) {
+            hasVideo = true
+        } else if !utType.conforms(to: .image) {
+            hasFile = true
+            filename = fn
+        }
     }
 
     private static func extractFilenameFromURL(_ url: String) -> String? {
