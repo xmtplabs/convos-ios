@@ -708,12 +708,17 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             }
         }
 
-        do {
-            let identity = try await identityStore.identity(for: result.client.inboxId)
-            try await revokeInstallationsHandler(result.client, identity.keys.signingKey)
-            Log.info("Revoked all other installations for inbox: \(result.client.inboxId)")
-        } catch {
-            Log.warning("Failed to revoke other installations for inbox \(result.client.inboxId) (non-fatal): \(error)")
+        let storedInstallationId: String? = try? await databaseWriter.read { db in
+            try DBInbox.fetchOne(db, id: result.client.inboxId)?.installationId
+        }
+        if let storedInstallationId, storedInstallationId != result.client.installationId {
+            do {
+                let identity = try await identityStore.identity(for: result.client.inboxId)
+                try await revokeInstallationsHandler(result.client, identity.keys.signingKey)
+                Log.info("Revoked all other installations for inbox: \(result.client.inboxId)")
+            } catch {
+                Log.warning("Failed to revoke other installations for inbox \(result.client.inboxId) (non-fatal): \(error)")
+            }
         }
 
         do {
