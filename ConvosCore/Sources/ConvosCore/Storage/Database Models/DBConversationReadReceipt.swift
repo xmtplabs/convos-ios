@@ -8,8 +8,11 @@ struct DBConversationReadReceipt: Codable, FetchableRecord, PersistableRecord, S
     var inboxId: String
     var readAtNs: Int64
 
-    static let memberProfile = belongsTo(DBMemberProfile.self, using: ForeignKey(
-        ["inboxId", "conversationId"],
-        to: ["inboxId", "conversationId"]
-    ))
+    static let memberProfile: BelongsToAssociation<DBConversationReadReceipt, DBMemberProfile> = belongsTo(
+        DBMemberProfile.self,
+        using: ForeignKey(
+            ["inboxId", "conversationId"],
+            to: ["inboxId", "conversationId"]
+        )
+    )
 }

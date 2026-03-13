@@ -6,12 +6,14 @@ public final class MessagesListProcessor: Sendable {
     public static func process(
         _ messages: [AnyMessage],
         otherMemberCount: Int = 0,
-        voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+        voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:],
+        readReceipts: [ReadReceiptEntry] = []
     ) -> [MessagesListItemType] {
         return processMessages(
             messages,
             otherMemberCount: otherMemberCount,
-            voiceMemoTranscripts: voiceMemoTranscripts
+            voiceMemoTranscripts: voiceMemoTranscripts,
+            readReceipts: readReceipts
         )
     }
 
@@ -19,7 +21,8 @@ public final class MessagesListProcessor: Sendable {
     private static func processMessages(
         _ messages: [AnyMessage],
         otherMemberCount: Int = 0,
-        voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+        voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:],
+        readReceipts: [ReadReceiptEntry] = []
     ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
@@ -203,6 +206,39 @@ public final class MessagesListProcessor: Sendable {
 
         if let lcui = lastCUGroupIdx, case .messages(var group) = items[lcui] {
             group.isLastGroupSentByCurrentUser = true
+
+            if let lastMsg = group.messages.last,
+               lastMsg.status == .published,
+               !readReceipts.isEmpty {
+                let msgDateNs = Int64(lastMsg.date.timeIntervalSince1970 * 1_000_000_000)
+                let senderInboxId = group.sender.profile.inboxId
+                let readInboxIds = Set(
+                    readReceipts
+                        .filter { $0.readAtNs >= msgDateNs && $0.inboxId != senderInboxId }
+                        .map(\.inboxId)
+                )
+                if !readInboxIds.isEmpty {
+                    let profiles = readInboxIds.compactMap { inboxId in
+                        messages.lazy
+                            .compactMap { $0.sender.profile.inboxId == inboxId ? $0.sender.profile : nil }
+                            .first
+                    }
+                    group = MessagesGroup(
+                        id: group.id,
+                        sender: group.sender,
+                        messages: group.rawMessages,
+                        isLastGroup: group.isLastGroup,
+                        isLastGroupSentByCurrentUser: true,
+                        showsTypingIndicator: group.showsTypingIndicator,
+                        allTypingMembers: group.allTypingMembers,
+                        readByProfiles: profiles,
+                        onlyVisibleToSender: group.onlyVisibleToSender,
+                        isLastGroupBeforeOtherMembers: group.isLastGroupBeforeOtherMembers,
+                        voiceMemoTranscripts: group.voiceMemoTranscripts
+                    )
+                }
+            }
+
             items[lcui] = .messages(group)
         }
 
