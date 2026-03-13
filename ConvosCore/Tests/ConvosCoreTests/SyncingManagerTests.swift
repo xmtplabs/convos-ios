@@ -82,6 +82,9 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
     func revokeInstallations(signingKey: any SigningKey, installationIds: [String]) async throws {
     }
 
+    func revokeAllOtherInstallations(signingKey: any SigningKey) async throws {
+    }
+
     func requestDeviceSync() async throws {
     }
 
