@@ -54,9 +54,10 @@ struct MessagesGroupView: View {
         .padding(.bottom, DesignConstants.Spacing.stepHalf)
     }
 
-    private var avatarOverlay: some View {
+    private func avatarOverlay(onTap: (() -> Void)? = nil) -> some View {
         MessageAvatarView(profile: group.sender.profile, size: avatarSize, agentVerification: group.sender.agentVerification)
             .offset(x: -(avatarSize + avatarSpacing))
+            .onTapGesture { onTap?() }
             .scaleEffect(isAppearing ? 0.9 : 1.0)
             .opacity(isAppearing ? 0.0 : 1.0)
             .offset(
@@ -135,7 +136,7 @@ struct MessagesGroupView: View {
                     )
                     .overlay(alignment: .bottomLeading) {
                         if isLast && !group.sender.isCurrentUser {
-                            avatarOverlay
+                            avatarOverlay { onTapAvatar(message) }
                         }
                     }
 
@@ -224,7 +225,7 @@ struct MessagesGroupView: View {
                     TypingIndicatorBubbleView()
                         .overlay(alignment: .bottomLeading) {
                             if !group.sender.isCurrentUser {
-                                avatarOverlay
+                                avatarOverlay()
                             }
                         }
                 }

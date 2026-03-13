@@ -561,6 +561,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
+        observeTypingIndicators(TypingIndicatorManager.shared)
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -1688,6 +1689,7 @@ extension ConversationViewModel {
     func stopTyping() {
         guard isTypingSent else { return }
         isTypingSent = false
+        typingThrottleDate = nil
         typingResetTask?.cancel()
         typingResetTask = nil
         let conversationId = conversation.id
