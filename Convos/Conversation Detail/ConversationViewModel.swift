@@ -1677,10 +1677,12 @@ extension ConversationViewModel {
               let lastItem = new.last,
               case .messages(let group) = lastItem,
               !group.sender.isCurrentUser else { return }
-        TypingIndicatorManager.shared.handleMessageReceived(
+        let manager = TypingIndicatorManager.shared
+        manager.handleMessageReceived(
             conversationId: conversation.id,
             senderInboxId: group.sender.profile.inboxId
         )
+        updateTypingMembers(from: manager)
     }
 
     func stopTyping() {
