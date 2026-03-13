@@ -10,6 +10,7 @@ struct DBInbox: Codable, FetchableRecord, PersistableRecord, Identifiable, Hasha
         static let createdAt: Column = Column(CodingKeys.createdAt)
         static let isVault: Column = Column(CodingKeys.isVault)
         static let sharedToVault: Column = Column(CodingKeys.sharedToVault)
+        static let installationId: Column = Column(CodingKeys.installationId)
     }
 
     var id: String { inboxId }
@@ -18,13 +19,22 @@ struct DBInbox: Codable, FetchableRecord, PersistableRecord, Identifiable, Hasha
     let createdAt: Date
     let isVault: Bool
     var sharedToVault: Bool
+    var installationId: String?
 
-    init(inboxId: String, clientId: String, createdAt: Date = Date(), isVault: Bool = false, sharedToVault: Bool = false) {
+    init(
+        inboxId: String,
+        clientId: String,
+        createdAt: Date = Date(),
+        isVault: Bool = false,
+        sharedToVault: Bool = false,
+        installationId: String? = nil
+    ) {
         self.inboxId = inboxId
         self.clientId = clientId
         self.createdAt = createdAt
         self.isVault = isVault
         self.sharedToVault = sharedToVault
+        self.installationId = installationId
     }
 
     static let conversations: HasManyAssociation<DBInbox, DBConversation> = hasMany(

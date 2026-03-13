@@ -32,7 +32,12 @@ struct InboxWriter {
     }
 
     @discardableResult
-    func save(inboxId: String, clientId: String, isVault: Bool = false) async throws -> DBInbox {
+    func save(
+        inboxId: String,
+        clientId: String,
+        installationId: String? = nil,
+        isVault: Bool = false
+    ) async throws -> DBInbox {
         try await dbWriter.write { db in
             if isVault {
                 let existingVault = try DBInbox
@@ -57,14 +62,27 @@ struct InboxWriter {
                         newClientId: clientId
                     )
                 }
-                return existingInbox
+
+                guard let installationId else {
+                    return existingInbox
+                }
+
+                guard existingInbox.installationId != installationId else {
+                    return existingInbox
+                }
+
+                var updatedInbox = existingInbox
+                updatedInbox.installationId = installationId
+                try updatedInbox.update(db)
+                return updatedInbox
             }
 
             let inbox = DBInbox(
                 inboxId: inboxId,
                 clientId: clientId,
                 createdAt: Date(),
-                isVault: isVault
+                isVault: isVault,
+                installationId: installationId
             )
             try inbox.insert(db)
             return inbox

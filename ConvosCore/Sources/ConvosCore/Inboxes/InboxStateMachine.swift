@@ -50,6 +50,10 @@ public struct InboxReadyResult: @unchecked Sendable {
 
 typealias AnySyncingManager = (any SyncingManagerProtocol)
 typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
+typealias RevokeInstallationsHandler = (
+    _ client: any XMTPClientProvider,
+    _ signingKey: any SigningKey
+) async throws -> Void
 
 // swiftlint:disable type_body_length
 
@@ -107,6 +111,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private let apiClient: any ConvosAPIClientProtocol
     private let networkMonitor: any NetworkMonitorProtocol
     private let appLifecycle: any AppLifecycleProviding
+    private let revokeInstallationsHandler: RevokeInstallationsHandler
     private var requestDeviceSyncAfterAuthorize: Bool = false
 
     private var currentTask: Task<Void, Never>?
@@ -274,7 +279,10 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         overrideJWTToken: String? = nil,
         environment: AppEnvironment,
         appLifecycle: any AppLifecycleProviding,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        revokeInstallationsHandler: @escaping RevokeInstallationsHandler = { client, signingKey in
+            try await client.revokeAllOtherInstallations(signingKey: signingKey)
+        }
     ) {
         let initialState: State = .idle(clientId: clientId)
         self.initialClientId = clientId
@@ -288,6 +296,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         self.overrideJWTToken = overrideJWTToken ?? environment.defaultOverrideJWTToken
         self.environment = environment
         self.appLifecycle = appLifecycle
+        self.revokeInstallationsHandler = revokeInstallationsHandler
 
         // Use provided API client or create a new one
         if let apiClient {
@@ -688,6 +697,43 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             } catch {
                 Log.warning("Device sync request failed (non-fatal): \(error)")
             }
+        }
+
+        let storedInstallationId: String?
+        do {
+            storedInstallationId = try await databaseWriter.read { db in
+                try DBInbox.fetchOne(db, id: result.client.inboxId)?.installationId
+            }
+        } catch {
+            Log.warning("Failed to read stored installationId for inbox \(result.client.inboxId), skipping revocation check (non-fatal): \(error)")
+            storedInstallationId = nil
+        }
+
+        if let storedInstallationId {
+            if storedInstallationId != result.client.installationId {
+                do {
+                    let identity = try await identityStore.identity(for: result.client.inboxId)
+                    try await revokeInstallationsHandler(result.client, identity.keys.signingKey)
+                    Log.info("Revoked all other installations for inbox: \(result.client.inboxId)")
+                } catch {
+                    Log.warning("Failed to revoke other installations for inbox \(result.client.inboxId) (non-fatal): \(error)")
+                }
+            } else {
+                Log.debug("Skipping installation revocation for inbox \(result.client.inboxId) because installationId is unchanged")
+            }
+        } else {
+            Log.debug("Skipping installation revocation for inbox \(result.client.inboxId) because no stored installationId was found")
+        }
+
+        do {
+            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
+            _ = try await inboxWriter.save(
+                inboxId: result.client.inboxId,
+                clientId: clientId,
+                installationId: result.client.installationId
+            )
+        } catch {
+            Log.error("Failed to persist installationId for inbox \(result.client.inboxId) (non-fatal): \(error)")
         }
 
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
