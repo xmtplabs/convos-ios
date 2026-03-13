@@ -50,6 +50,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 30 | `qa/tests/30-verified-assistants.md` | Verified assistant UI: badges, labels, skills button, agent vs assistant distinction |
 | 31 | `qa/tests/31-convos-button-invite.md` | Convos button: create and share invite link from media bar |
 | 32 | `qa/tests/32-voice-memo-transcription.md` | Voice memo transcription: receive voice memo, on-device transcript appears, expand/collapse, persistence across relaunch, retry on failure |
+| 33 | `qa/tests/33-read-receipts.md` | Read receipts: send on view, display avatars, opt-out setting |
 
 ## Running Tests
 
