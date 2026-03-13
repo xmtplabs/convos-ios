@@ -750,7 +750,7 @@ extension ConversationViewModel {
 
     func onSendMessage(focusCoordinator: FocusCoordinator) {
         let hasText = !messageText.isEmpty
-        let hasAttachment = selectedAttachmentImage != nil
+        let hasAttachment = selectedAttachmentImage != nil || selectedVideoURL != nil
         let hasInvite = pendingInvite != nil
         let hasLinkPreview = pastedLinkPreview != nil
 
@@ -789,7 +789,7 @@ extension ConversationViewModel {
 
                 if let videoURL = prevVideoURL {
                     isSendingPhoto = true
-                    let key = try await messageWriter.sendVideo(at: videoURL)
+                    let key = try await messageWriter.sendVideo(at: videoURL, replyToMessageId: replyTarget?.base.id)
                     photoTrackingKey = key
                 } else if prevAttachmentImage != nil {
                     isSendingPhoto = true

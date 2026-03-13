@@ -313,6 +313,7 @@ private struct AttachmentPlaceholder: View {
     @State private var inlinePlayer: AVPlayer?
     @State private var isPlaying: Bool = false
     @State private var isLoadingVideo: Bool = false
+    @State private var videoLoadFailed: Bool = false
     @State private var instanceID: UUID = UUID()
     @Environment(\.messagePressed) private var isPressed: Bool
 
@@ -359,7 +360,7 @@ private struct AttachmentPlaceholder: View {
                             .transition(.opacity)
                     }
 
-                    if !isPlaying, !shouldBlur {
+                    if !isPlaying, !shouldBlur, !videoLoadFailed {
                         videoOverlay
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                     }
@@ -383,7 +384,7 @@ private struct AttachmentPlaceholder: View {
                 ZStack {
                     photoContent(image: image)
 
-                    if isVideo, !shouldBlur {
+                    if isVideo, !shouldBlur, !videoLoadFailed {
                         if isLoadingVideo {
                             ProgressView()
                                 .tint(.white)
@@ -492,17 +493,20 @@ private struct AttachmentPlaceholder: View {
                 }()
 
                 if atEnd {
+                    let id = instanceID
                     player.seek(to: .zero) { [weak player] finished in
                         guard finished else { return }
                         DispatchQueue.main.async {
                             player?.play()
                         }
                     }
+                    isPlaying = true
+                    NotificationCenter.default.post(name: Self.videoPlaybackStarted, object: id)
                 } else {
                     player.play()
+                    isPlaying = true
+                    NotificationCenter.default.post(name: Self.videoPlaybackStarted, object: instanceID)
                 }
-                isPlaying = true
-                NotificationCenter.default.post(name: Self.videoPlaybackStarted, object: instanceID)
             }
             return
         }
@@ -545,6 +549,7 @@ private struct AttachmentPlaceholder: View {
                 loadedImage = thumb
                 isLoading = false
                 isLoadingVideo = true
+                videoLoadFailed = false
             }
 
             do {
@@ -571,6 +576,7 @@ private struct AttachmentPlaceholder: View {
                 loadError = error
                 isLoading = false
                 isLoadingVideo = false
+                videoLoadFailed = true
                 Log.error("Failed to load video: \(error)")
             }
             return

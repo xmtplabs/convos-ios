@@ -750,7 +750,8 @@ private func saveVideoToPhotoLibrary(key: String) {
     Task {
         do {
             let videoURL: URL
-            if key.hasPrefix("file://") {
+            let isLocalFile = key.hasPrefix("file://")
+            if isLocalFile {
                 let path = String(key.dropFirst("file://".count))
                 videoURL = URL(fileURLWithPath: path)
             } else {
@@ -762,11 +763,14 @@ private func saveVideoToPhotoLibrary(key: String) {
                 videoURL = tempURL
             }
 
+            defer {
+                if !isLocalFile {
+                    try? FileManager.default.removeItem(at: videoURL)
+                }
+            }
+
             try await PHPhotoLibrary.shared().performChanges {
                 PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
-            }
-            if !key.hasPrefix("file://") {
-                try? FileManager.default.removeItem(at: videoURL)
             }
         } catch {
             Log.error("Failed to save video to photo library: \(error)")
