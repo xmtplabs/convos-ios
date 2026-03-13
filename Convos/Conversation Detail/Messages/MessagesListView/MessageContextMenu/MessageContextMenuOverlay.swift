@@ -439,6 +439,7 @@ struct MessageContextMenuOverlay: View {
                 if attachment.mediaType == .file {
                     FileAttachmentBubble(
                         attachment: attachment,
+                        style: state.bubbleStyle,
                         isOutgoing: state.isOutgoing,
                         profile: message.base.sender.profile
                     )
@@ -456,6 +457,7 @@ struct MessageContextMenuOverlay: View {
                     if attachment.mediaType == .file {
                         FileAttachmentBubble(
                             attachment: attachment,
+                            style: state.bubbleStyle,
                             isOutgoing: state.isOutgoing,
                             profile: message.base.sender.profile
                         )

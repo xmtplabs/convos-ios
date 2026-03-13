@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 extension DBLastMessageWithSource {
     func hydrateMessagePreview(
@@ -104,9 +105,25 @@ extension DBLastMessageWithSource {
                 } else if let mime = stored.mimeType, !mime.hasPrefix("image/") {
                     hasFile = true
                     filename = stored.filename
-                } else if let fn = stored.filename, !fn.hasSuffix(".jpg") && !fn.hasSuffix(".jpeg") && !fn.hasSuffix(".png") && !fn.hasSuffix(".heic") && !fn.hasSuffix(".gif") && !fn.hasSuffix(".webp") {
-                    hasFile = true
-                    filename = fn
+                } else if let fn = stored.filename {
+                    let ext = (fn as NSString).pathExtension.lowercased()
+                    if !ext.isEmpty, let utType = UTType(filenameExtension: ext), !utType.conforms(to: .image) {
+                        hasFile = true
+                        filename = fn
+                    }
+                }
+            } else if url.hasPrefix("file://") {
+                let fn = extractFilenameFromURL(url)
+                if let fn {
+                    let ext = (fn as NSString).pathExtension.lowercased()
+                    if !ext.isEmpty, let utType = UTType(filenameExtension: ext) {
+                        if utType.conforms(to: .movie) || utType.conforms(to: .video) {
+                            hasVideo = true
+                        } else if !utType.conforms(to: .image) {
+                            hasFile = true
+                            filename = fn
+                        }
+                    }
                 }
             }
         }
@@ -119,5 +136,14 @@ extension DBLastMessageWithSource {
         }
         if hasFile || hasVideo { return "\(count) attachments" }
         return "\(count) photos"
+    }
+
+    private static func extractFilenameFromURL(_ url: String) -> String? {
+        guard let parsed = URL(string: url) else { return nil }
+        let lastComponent = parsed.lastPathComponent
+        if let range = lastComponent.range(of: "_") {
+            return String(lastComponent[range.upperBound...])
+        }
+        return lastComponent
     }
 }

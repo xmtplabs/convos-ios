@@ -185,15 +185,17 @@ struct MessagesGroupItemView: View {
             let fileTapAction: () -> Void = { onOpenFile?(attachment) }
             FileAttachmentBubble(
                 attachment: attachment,
+                style: bubbleType,
                 isOutgoing: message.base.sender.isCurrentUser,
                 profile: message.base.sender.profile
             )
             .messageGesture(
                 message: message,
-                bubbleStyle: .normal,
+                bubbleStyle: bubbleType,
                 onSingleTap: fileTapAction,
                 onReply: onReply
             )
+            .padding(.trailing, trailingPadding)
             .id(message.base.id)
         } else {
             VideoTapAttachmentView(

@@ -4,37 +4,51 @@ import UniformTypeIdentifiers
 
 struct FileAttachmentBubble: View {
     let attachment: HydratedAttachment
+    let style: MessageBubbleType
     let isOutgoing: Bool
     let profile: Profile
 
+    private var textColor: Color {
+        isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary
+    }
+
+    private var secondaryTextColor: Color {
+        isOutgoing ? .colorTextPrimaryInverted.opacity(0.7) : .secondary
+    }
+
+    private var iconBackground: Color {
+        isOutgoing ? .white.opacity(0.2) : .colorFillMinimal
+    }
+
+    private var iconForeground: Color {
+        isOutgoing ? .colorTextPrimaryInverted.opacity(0.8) : .secondary
+    }
+
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            fileIcon
-                .frame(width: 48, height: 48)
-                .accessibilityIdentifier("file-attachment-icon")
+        MessageContainer(style: style, isOutgoing: isOutgoing) {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                fileIcon
+                    .frame(width: 44, height: 44)
+                    .accessibilityIdentifier("file-attachment-icon")
 
-            VStack(alignment: .leading, spacing: 2) {
-                Text(displayFilename)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
-                    .accessibilityIdentifier("file-attachment-filename")
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(displayFilename)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(textColor)
+                        .lineLimit(2)
+                        .accessibilityIdentifier("file-attachment-filename")
 
-                Text(subtitleText)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .accessibilityIdentifier("file-attachment-subtitle")
+                    Text(subtitleText)
+                        .font(.caption)
+                        .foregroundStyle(secondaryTextColor)
+                        .lineLimit(1)
+                        .accessibilityIdentifier("file-attachment-subtitle")
+                }
+
+                Spacer(minLength: 0)
             }
-
-            Spacer(minLength: 0)
+            .padding(DesignConstants.Spacing.step3x)
         }
-        .padding(DesignConstants.Spacing.step3x)
-        .background(
-            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium)
-                .fill(Color.colorFillMinimal)
-        )
-        .frame(maxWidth: 320)
         .accessibilityIdentifier("file-attachment-bubble")
         .accessibilityLabel("File: \(displayFilename)")
     }
@@ -61,13 +75,12 @@ struct FileAttachmentBubble: View {
 
     @ViewBuilder
     private var fileIcon: some View {
-        let symbolName = fileIconSymbol
         ZStack {
             RoundedRectangle(cornerRadius: 8)
-                .fill(Color.colorFillMinimal)
-            Image(systemName: symbolName)
-                .font(.system(size: 22))
-                .foregroundStyle(.secondary)
+                .fill(iconBackground)
+            Image(systemName: fileIconSymbol)
+                .font(.system(size: 20))
+                .foregroundStyle(iconForeground)
         }
     }
 

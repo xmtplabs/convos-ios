@@ -847,16 +847,31 @@ extension MessagesViewController: QLPreviewControllerDataSource {
     }
 
     private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
+        let filename = attachment.filename ?? "attachment"
+
         if attachment.key.hasPrefix("file://") {
             let path = String(attachment.key.dropFirst("file://".count))
-            return URL(fileURLWithPath: path)
+            let sourceURL = URL(fileURLWithPath: path)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("preview_\(UUID().uuidString)")
+                .appendingPathComponent(filename)
+            try FileManager.default.createDirectory(
+                at: tempURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+            return tempURL
         }
 
         let loader = RemoteAttachmentLoader()
         let loaded = try await loader.loadAttachmentData(from: attachment.key)
-        let filename = attachment.filename ?? "attachment"
         let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("preview_\(UUID().uuidString)_\(filename)")
+            .appendingPathComponent("preview_\(UUID().uuidString)")
+            .appendingPathComponent(filename)
+        try FileManager.default.createDirectory(
+            at: tempURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
         try loaded.data.write(to: tempURL)
         return tempURL
     }
