@@ -103,6 +103,26 @@ struct ConversationMemberView: View {
                 }
             }
 
+            if member.isAgent {
+                Section {
+                    let url = URL(string: "https://learn.convos.org/assistants-trust-and-security")
+                    let action = { if let url { openURL(url) } }
+                    Button(action: action) {
+                        HStack {
+                            Text("About Instant Assistants")
+                                .font(.body)
+                                .foregroundStyle(.colorTextPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13))
+                                .foregroundStyle(.colorFillTertiary)
+                        }
+                    }
+                } footer: {
+                    Text("How it works, trust and security")
+                }
+            }
+
             if member.isAgent && member.profile.isOutOfCredits {
                 Section {
                     let url = URL(string: "https://learn.convos.org/assistants-processing-power")
