@@ -22,6 +22,7 @@ public enum InviteTokenError: Error, LocalizedError, Equatable, Sendable {
     case invalidFormat(String)
     case stringTooLong(Int)
     case emptyConversationId
+    case emptyInviteTag
 
     public var errorDescription: String? {
         switch self {
@@ -41,6 +42,8 @@ public enum InviteTokenError: Error, LocalizedError, Equatable, Sendable {
             return "Conversation ID too long: \(length) bytes, max \(InviteToken.maxStringLength)"
         case .emptyConversationId:
             return "Conversation ID cannot be empty"
+        case .emptyInviteTag:
+            return "Invite tag cannot be empty"
         }
     }
 }

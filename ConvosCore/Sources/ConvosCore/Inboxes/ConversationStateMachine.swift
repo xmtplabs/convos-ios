@@ -539,6 +539,10 @@ public actor ConversationStateMachine {
             throw ConversationStateMachineError.conversationExpired
         }
 
+        guard !signedInvite.invitePayload.tag.isEmpty else {
+            throw ConversationStateMachineError.invalidInviteCodeFormat("Invite has an empty tag")
+        }
+
         // Recover the public key of whoever signed this invite
         let signerPublicKey: Data
         do {

@@ -237,11 +237,15 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             oldImageURL: oldImageURL != metadata.imageURLString ? oldImageURL : nil
         )
 
-        _ = try await inviteWriter.generate(
-            for: dbConversation,
-            expiresAt: nil,
-            expiresAfterUse: false
-        )
+        do {
+            _ = try await inviteWriter.generate(
+                for: dbConversation,
+                expiresAt: nil,
+                expiresAfterUse: false
+            )
+        } catch {
+            Log.error("Invite generation skipped for conversation \(dbConversation.id): \(error)")
+        }
 
         // Fetch and store latest messages if requested
         if withLatestMessages {
