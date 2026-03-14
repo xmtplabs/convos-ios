@@ -104,7 +104,7 @@ public actor OpenGraphService {
 
     public static func isValidImageData(_ data: Data, maxBytes: Int? = nil) -> Bool {
         let limit = maxBytes ?? maxImageBytes
-        guard data.count <= limit, data.count > 0 else { return false }
+        guard data.count <= limit, !data.isEmpty else { return false }
 
         guard data.count >= 2 else { return false }
         let header = [UInt8](data.prefix(4))

@@ -36,7 +36,7 @@ extension XMTPiOS.DecodedMessage {
         var sourceMessageId: String?
         var emoji: String?
         var invite: MessageInvite?
-        var linkPreview: LinkPreview? = nil
+        var linkPreview: LinkPreview?
         var attachmentUrls: [String]
         var text: String?
         var update: DBMessage.Update?
