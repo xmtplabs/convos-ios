@@ -536,6 +536,7 @@ extension MessagesViewController {
 
         guard isViewLoaded else {
             dataSource.sections = sections
+            completion?()
             return
         }
 
