@@ -6,6 +6,7 @@ public struct PhotoPreferences: Hashable, Sendable {
     public let conversationId: String
     public let autoReveal: Bool
     public let hasRevealedFirst: Bool
+    public let sendReadReceipts: Bool?
 
     public var shouldBlurPhotos: Bool {
         !hasRevealedFirst || !autoReveal
@@ -33,7 +34,8 @@ public final class PhotoPreferencesRepository: PhotoPreferencesRepositoryProtoco
                     PhotoPreferences(
                         conversationId: dbPrefs.conversationId,
                         autoReveal: dbPrefs.autoReveal,
-                        hasRevealedFirst: dbPrefs.hasRevealedFirst
+                        hasRevealedFirst: dbPrefs.hasRevealedFirst,
+                        sendReadReceipts: dbPrefs.sendReadReceipts
                     )
                 }
         }
@@ -49,7 +51,8 @@ public final class PhotoPreferencesRepository: PhotoPreferencesRepositoryProtoco
                         PhotoPreferences(
                             conversationId: dbPrefs.conversationId,
                             autoReveal: dbPrefs.autoReveal,
-                            hasRevealedFirst: dbPrefs.hasRevealedFirst
+                            hasRevealedFirst: dbPrefs.hasRevealedFirst,
+                            sendReadReceipts: dbPrefs.sendReadReceipts
                         )
                     }
             }

@@ -48,6 +48,14 @@ struct CustomizeSettingsView: View {
                     isOn: $defaults.includeInfoWithInvites,
                     toggleAccessibilityIdentifier: "customize-include-info-toggle"
                 )
+
+                customizeToggleRow(
+                    symbolName: "eye",
+                    title: "Read receipts",
+                    subtitle: "Let others know when you've read their messages",
+                    isOn: $defaults.sendReadReceipts,
+                    toggleAccessibilityIdentifier: "read-receipts-toggle"
+                )
             }
 
             Section {

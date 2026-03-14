@@ -10,7 +10,9 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
     public init() {}
 
     public func sendExplode(expiresAt: Date) async throws {
-        // No-op for mock
+    }
+
+    public func sendReadReceipt() async throws {
     }
 
     public func prepare(text: String) async throws -> String {

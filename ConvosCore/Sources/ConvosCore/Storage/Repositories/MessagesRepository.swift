@@ -2,29 +2,39 @@ import Combine
 import Foundation
 import GRDB
 
-public typealias ConversationMessages = (conversationId: String, messages: [AnyMessage])
+public struct ConversationMessagesResult: Sendable {
+    public let conversationId: String
+    public let messages: [AnyMessage]
+    public let readReceipts: [ReadReceiptEntry]
+    public let memberProfiles: [String: MemberProfileInfo]
+}
+
+public struct MemberProfileInfo: Sendable {
+    public let inboxId: String
+    public let name: String?
+    public let avatar: String?
+
+    public init(inboxId: String, name: String?, avatar: String?) {
+        self.inboxId = inboxId
+        self.name = name
+        self.avatar = avatar
+    }
+}
 
 public protocol MessagesRepositoryProtocol {
     var messagesPublisher: AnyPublisher<[AnyMessage], Never> { get }
-    var conversationMessagesPublisher: AnyPublisher<ConversationMessages, Never> { get }
+    var conversationMessagesResultPublisher: AnyPublisher<ConversationMessagesResult, Never> { get }
 
-    /// Fetches the initial page of messages (most recent messages)
-    /// Resets the pagination cursor to fetch only the latest messages
     func fetchInitial() throws -> [AnyMessage]
-
-    /// Fetches previous (older) messages by increasing the limit
-    /// Each call increases the limit by the page size
-    /// Results are delivered through the publisher
+    func fetchInitialResult() throws -> ConversationMessagesResult
     func fetchPrevious() throws
 
-    /// Indicates if there are more messages to load
-    /// Automatically set to false when fetchPrevious returns fewer messages than the page size
     var hasMoreMessages: Bool { get }
 }
 
 extension MessagesRepositoryProtocol {
     var messagesPublisher: AnyPublisher<[AnyMessage], Never> {
-        conversationMessagesPublisher
+        conversationMessagesResultPublisher
             .map { $0.messages }
             .eraseToAnyPublisher()
     }
@@ -172,6 +182,54 @@ class MessagesRepository: MessagesRepositoryProtocol {
         return result
     }
 
+    func fetchInitialResult() throws -> ConversationMessagesResult {
+        stateQueue.sync(flags: .barrier) {
+            self._hasMoreMessages = true
+            self._seenMessageIds.removeAll()
+            self._hasCompletedInitialLoad = false
+        }
+
+        currentLimit = pageSize
+
+        return try dbReader.read { [weak self] db in
+            guard let self else {
+                return ConversationMessagesResult(conversationId: self?.conversationId ?? "", messages: [], readReceipts: [], memberProfiles: [:])
+            }
+
+            let currentSeenIds = self.stateQueue.sync { self._seenMessageIds }
+
+            let (messages, updatedSeenIds) = try db.composeMessages(
+                for: self.conversationId,
+                limit: self.currentLimit,
+                seenMessageIds: currentSeenIds,
+                isInitialLoad: true,
+                isPaginating: false
+            )
+
+            self.stateQueue.sync(flags: .barrier) {
+                self._seenMessageIds = updatedSeenIds
+                self._hasCompletedInitialLoad = true
+                if messages.count < self.pageSize {
+                    self._hasMoreMessages = false
+                }
+            }
+
+            let readReceipts = try DBConversationReadReceipt
+                .filter(DBConversationReadReceipt.Columns.conversationId == self.conversationId)
+                .fetchAll(db)
+                .map { ReadReceiptEntry(inboxId: $0.inboxId, readAtNs: $0.readAtNs) }
+
+            let profiles = try Self.fetchMemberProfiles(db, conversationId: self.conversationId)
+
+            return ConversationMessagesResult(
+                conversationId: self.conversationId,
+                messages: messages,
+                readReceipts: readReceipts,
+                memberProfiles: profiles
+            )
+        }
+    }
+
     func fetchPrevious() throws {
         // Capture the current conversation ID and calculate target limit before any async operations
         // This prevents race conditions with conversation changes
@@ -227,34 +285,26 @@ class MessagesRepository: MessagesRepositoryProtocol {
         }
     }
 
-    lazy var conversationMessagesPublisher: AnyPublisher<ConversationMessages, Never> = {
+    lazy var conversationMessagesResultPublisher: AnyPublisher<ConversationMessagesResult, Never> = {
         let dbReader = dbReader
         let stateQueue = stateQueue
-        // Combine both conversation ID and limit changes
         return Publishers.CombineLatest(
             conversationIdSubject.removeDuplicates(),
             currentLimitSubject.removeDuplicates()
         )
-        .map { [weak self] conversationId, limit -> AnyPublisher<ConversationMessages, Never> in
+        .map { [weak self] conversationId, limit -> AnyPublisher<ConversationMessagesResult, Never> in
             guard let self else {
-                return Just((conversationId, [])).eraseToAnyPublisher()
+                return Just(ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [], memberProfiles: [:]))
+                    .eraseToAnyPublisher()
             }
 
-            // Capture unsafe self reference for use in @Sendable tracking closure.
-            // This is safe because:
-            // 1. The outer closure already has a weak self guard
-            // 2. GRDB's ValueObservation is bound to the lifecycle of this publisher
-            // 3. The publisher is invalidated when self is deallocated
             nonisolated(unsafe) let unsafeSelf = self
 
             return ValueObservation
                 .tracking { db in
                     do {
-                        // Fetch all local states to force GRDB tracking on that table,
-                        // ensuring reveal/hide changes trigger re-emission
                         let allLocalStates = try AttachmentLocalState.fetchAll(db)
 
-                        // Get current state safely
                         let currentState = stateQueue.sync { () -> LoadingState in
                             LoadingState(
                                 seenIds: unsafeSelf._seenMessageIds,
@@ -272,25 +322,46 @@ class MessagesRepository: MessagesRepositoryProtocol {
                             isPaginating: currentState.isPaginating
                         )
 
-                        // Update seenMessageIds atomically
                         stateQueue.sync(flags: .barrier) {
                             unsafeSelf._seenMessageIds = updatedSeenIds
                         }
 
-                        return messages
+                        let readReceipts = try DBConversationReadReceipt
+                            .filter(DBConversationReadReceipt.Columns.conversationId == conversationId)
+                            .fetchAll(db)
+                            .map { ReadReceiptEntry(inboxId: $0.inboxId, readAtNs: $0.readAtNs) }
+
+                        let profiles = try MessagesRepository.fetchMemberProfiles(db, conversationId: conversationId)
+
+                        return ConversationMessagesResult(
+                            conversationId: conversationId,
+                            messages: messages,
+                            readReceipts: readReceipts,
+                            memberProfiles: profiles
+                        )
                     } catch {
                         Log.error("Error in messages publisher: \(error)")
                     }
-                    return []
+                    return ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [], memberProfiles: [:])
                 }
                 .publisher(in: dbReader)
-                .replaceError(with: [])
-                .map { (conversationId, $0) }
+                .replaceError(with: ConversationMessagesResult(conversationId: conversationId, messages: [], readReceipts: [], memberProfiles: [:]))
                 .eraseToAnyPublisher()
         }
         .switchToLatest()
         .eraseToAnyPublisher()
     }()
+
+    static func fetchMemberProfiles(_ db: Database, conversationId: String) throws -> [String: MemberProfileInfo] {
+        let rows = try DBMemberProfile
+            .filter(DBMemberProfile.Columns.conversationId == conversationId)
+            .fetchAll(db)
+        var result: [String: MemberProfileInfo] = [:]
+        for row in rows {
+            result[row.inboxId] = MemberProfileInfo(inboxId: row.inboxId, name: row.name, avatar: row.avatar)
+        }
+        return result
+    }
 }
 
 extension Array where Element == DBMessage {

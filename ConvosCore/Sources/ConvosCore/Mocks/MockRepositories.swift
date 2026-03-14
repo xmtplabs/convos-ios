@@ -135,8 +135,14 @@ public final class MockMessagesRepository: MessagesRepositoryProtocol, @unchecke
         hasMoreMessages = false
     }
 
-    public var conversationMessagesPublisher: AnyPublisher<ConversationMessages, Never> {
-        Just((conversationId, mockMessages)).eraseToAnyPublisher()
+    public var conversationMessagesResultPublisher: AnyPublisher<ConversationMessagesResult, Never> {
+        Just(ConversationMessagesResult(conversationId: conversationId, messages: mockMessages, readReceipts: [], memberProfiles: [:]))
+            .eraseToAnyPublisher()
+    }
+
+    public func fetchInitialResult() throws -> ConversationMessagesResult {
+        let messages = try fetchInitial()
+        return ConversationMessagesResult(conversationId: conversationId, messages: messages, readReceipts: [], memberProfiles: [:])
     }
 }
 
@@ -196,6 +202,7 @@ public final class MockPhotoPreferencesRepository: PhotoPreferencesRepositoryPro
 public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @unchecked Sendable {
     public var autoRevealValues: [String: Bool] = [:]
     public var hasRevealedFirstValues: [String: Bool] = [:]
+    public var sendReadReceiptsValues: [String: Bool?] = [:]
 
     public init() {}
 
@@ -205,6 +212,10 @@ public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @
 
     public func setHasRevealedFirst(_ hasRevealedFirst: Bool, for conversationId: String) async throws {
         hasRevealedFirstValues[conversationId] = hasRevealedFirst
+    }
+
+    public func setSendReadReceipts(_ sendReadReceipts: Bool?, for conversationId: String) async throws {
+        sendReadReceiptsValues[conversationId] = sendReadReceipts
     }
 }
 

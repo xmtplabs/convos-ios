@@ -341,6 +341,11 @@ extension MessagingService {
             return .droppedMessage
         }
 
+        if let contentType = try? decodedMessage.encodedContent.type,
+           contentType == ContentTypeReadReceipt {
+            return .droppedMessage
+        }
+
         let dbConversation = try await storeConversation(group, inboxId: currentInboxId)
 
         _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)

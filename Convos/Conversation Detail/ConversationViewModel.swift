@@ -48,8 +48,9 @@ class ConversationViewModel {
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let explosionWriter: any ConversationExplosionWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
+    private let readReceiptWriter: any ReadReceiptWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
-    private let messagesListRepository: any MessagesListRepositoryProtocol
+    private var messagesListRepository: any MessagesListRepositoryProtocol
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
@@ -61,6 +62,12 @@ class ConversationViewModel {
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedPhotoPreferencesConversationId: String?
+    @ObservationIgnored
+    private var lastReadReceiptSentAt: Date?
+    @ObservationIgnored
+    private var pendingReadReceiptTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var lastMessageCountForReadReceipt: Int = 0
 
     // MARK: - Public
 
@@ -248,6 +255,7 @@ class ConversationViewModel {
     private var assistantJoinTaskId: String?
 
     var autoRevealPhotos: Bool = false
+    var sendReadReceipts: Bool = true
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -387,6 +395,7 @@ class ConversationViewModel {
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
+        self.readReceiptWriter = messagingService.readReceiptWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
@@ -423,6 +432,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
+        sendReadReceiptIfNeeded()
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
@@ -456,6 +466,7 @@ class ConversationViewModel {
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
+        self.readReceiptWriter = messagingService.readReceiptWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
@@ -481,6 +492,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
+        sendReadReceiptIfNeeded()
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -495,6 +507,9 @@ class ConversationViewModel {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
                 let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
                 setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoReveal)
+                let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
+                sendReadReceipts = readReceiptsPref
+                messagesListRepository.sendReadReceipts = readReceiptsPref
             } catch {
                 Log.error("Error loading photo preferences: \(error)")
             }
@@ -507,7 +522,14 @@ class ConversationViewModel {
             .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] messages in
-                self?.messages = messages
+                guard let self else { return }
+                let messageCount = messages.countMessages
+                let messagesChanged = messageCount != self.lastMessageCountForReadReceipt
+                self.lastMessageCountForReadReceipt = messageCount
+                self.messages = messages
+                if messagesChanged {
+                    self.sendReadReceiptIfNeeded()
+                }
             }
             .store(in: &cancellables)
         conversationRepository.conversationPublisher
@@ -551,6 +573,9 @@ class ConversationViewModel {
             .sink { [weak self] prefs in
                 guard let self else { return }
                 setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoRevealForNewConversation)
+                let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
+                sendReadReceipts = readReceiptsPref
+                messagesListRepository.sendReadReceipts = readReceiptsPref
             }
     }
 
@@ -566,6 +591,19 @@ class ConversationViewModel {
 
     private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {
         autoRevealPhotos = autoReveal
+    }
+
+    func setSendReadReceipts(_ value: Bool) {
+        sendReadReceipts = value
+        messagesListRepository.sendReadReceipts = value
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await photoPreferencesWriter.setSendReadReceipts(value, for: conversation.id)
+            } catch {
+                Log.error("Error setting sendReadReceipts: \(error)")
+            }
+        }
     }
 
     private func setAutoRevealPhotosPersisted(_ autoReveal: Bool) {
@@ -1397,5 +1435,42 @@ extension ConversationViewModel {
 
     func clearPendingInvite() {
         pendingInvite = nil
+    }
+
+    // MARK: - Read Receipts
+
+    private func sendReadReceiptIfNeeded() {
+        guard !conversation.isDraft, !conversation.isPendingInvite else { return }
+        guard sendReadReceipts else { return }
+
+        let debounceInterval: TimeInterval = 1
+        if let lastSent = lastReadReceiptSentAt, Date().timeIntervalSince(lastSent) < debounceInterval {
+            guard pendingReadReceiptTask == nil else { return }
+            let delay = debounceInterval - Date().timeIntervalSince(lastSent)
+            let conversationId = conversation.id
+            pendingReadReceiptTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(delay))
+                guard !Task.isCancelled else { return }
+                await self?.sendReadReceipt(for: conversationId)
+                self?.pendingReadReceiptTask = nil
+            }
+            return
+        }
+
+        let conversationId = conversation.id
+        Task { [weak self] in
+            await self?.sendReadReceipt(for: conversationId)
+        }
+    }
+
+    private func sendReadReceipt(for conversationId: String) {
+        lastReadReceiptSentAt = Date()
+        Task {
+            do {
+                try await readReceiptWriter.sendReadReceipt(for: conversationId)
+            } catch {
+                Log.warning("Failed to send read receipt: \(error.localizedDescription)")
+            }
+        }
     }
 }

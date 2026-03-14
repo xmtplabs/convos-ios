@@ -18,6 +18,7 @@ struct MessagesGroup: Identifiable, Equatable, Hashable {
     let isLastGroupSentByCurrentUser: Bool
     var onlyVisibleToSender: Bool = false
     var isLastGroupBeforeOtherMembers: Bool = false
+    var readByProfiles: [Profile] = []
 
     /// All messages in this group (already sorted by sortId from repository)
     var allMessages: [AnyMessage] {
@@ -31,7 +32,8 @@ struct MessagesGroup: Identifiable, Equatable, Hashable {
         lhs.isLastGroup == rhs.isLastGroup &&
         lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser &&
         lhs.onlyVisibleToSender == rhs.onlyVisibleToSender &&
-        lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers
+        lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers &&
+        lhs.readByProfiles == rhs.readByProfiles
     }
 }
 
@@ -316,5 +318,14 @@ extension Array where Element == MessagesListItemType {
             }
         }
         return nil
+    }
+
+    var countMessages: Int {
+        reduce(0) { count, item in
+            if case .messages(let group) = item {
+                return count + group.messages.count
+            }
+            return count
+        }
     }
 }
