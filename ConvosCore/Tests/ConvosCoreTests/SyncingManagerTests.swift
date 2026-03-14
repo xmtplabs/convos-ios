@@ -198,6 +198,10 @@ class TestableMockConversations: ConversationsProvider, @unchecked Sendable {
         nil
     }
 
+    func findMessage(messageId: String) throws -> DecodedMessage? {
+        nil
+    }
+
     func findOrCreateDm(with peerInboxId: String) async throws -> XMTPiOS.Dm {
         fatalError("not implemented in test mock")
     }

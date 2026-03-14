@@ -111,12 +111,12 @@ final class MessagesListProcessor {
                 addedDateSeparator = true
             }
 
-            let isAttachment = message.base.content.isAttachment
+            let isFullBleed = message.base.content.isFullBleedAttachment
 
             if addedDateSeparator {
                 currentGroup = [message]
                 currentSenderId = message.base.sender.id
-            } else if isAttachment {
+            } else if isFullBleed {
                 if !currentGroup.isEmpty, let currentId = currentSenderId {
                     flushGroup(currentGroup, senderId: currentId, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
                 }
@@ -127,8 +127,7 @@ final class MessagesListProcessor {
                 flushGroup(currentGroup, senderId: currentId, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
                 currentGroup = [message]
                 currentSenderId = message.base.sender.id
-            } else if let currentId = currentSenderId, !currentGroup.isEmpty, currentGroup.last?.base.content.isAttachment == true {
-                // Flush the attachment group before starting a new group
+            } else if let currentId = currentSenderId, !currentGroup.isEmpty, currentGroup.last?.base.content.isFullBleedAttachment == true {
                 flushGroup(currentGroup, senderId: currentId, items: &items, lastCurrentUserIndex: &lastMessageGroupSentByCurrentUserIndex)
                 currentGroup = [message]
                 currentSenderId = message.base.sender.id

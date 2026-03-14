@@ -17,9 +17,9 @@ struct ReplyComposerBar: View {
         case .emoji(let emoji):
             return emoji
         case .attachment(let attachment):
-            return attachment.mediaType == .video ? "Video" : "Photo"
+            return replyLabel(for: attachment)
         case .attachments(let attachments):
-            return attachments.first?.mediaType == .video ? "Video" : "Photo"
+            return attachments.first.map { replyLabel(for: $0) } ?? "Photo"
         case .invite:
             return "Invite"
         default:
@@ -50,10 +50,27 @@ struct ReplyComposerBar: View {
         attachment?.mediaType == .video
     }
 
+    private var isFile: Bool {
+        attachment?.mediaType == .file
+    }
+
+    private func replyLabel(for attachment: HydratedAttachment) -> String {
+        switch attachment.mediaType {
+        case .video: return "Video"
+        case .audio: return "Audio"
+        case .file: return attachment.filename ?? "File"
+        default: return "Photo"
+        }
+    }
+
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             if let attachment {
-                ReplyPhotoThumbnail(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment, isVideo: isVideo)
+                if isFile {
+                    ReplyFileThumbnail()
+                } else {
+                    ReplyPhotoThumbnail(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment, isVideo: isVideo)
+                }
             }
 
             VStack(alignment: .leading, spacing: 2.0) {
@@ -106,7 +123,7 @@ private struct ReplyPhotoThumbnail: View {
     @State private var loadedImage: UIImage?
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
-    private static let thumbnailSize: CGFloat = 40.0
+    static let thumbnailSize: CGFloat = 40.0
 
     init(attachmentKey: String, shouldBlur: Bool, isVideo: Bool = false) {
         self.attachmentKey = attachmentKey
@@ -154,6 +171,19 @@ private struct ReplyPhotoThumbnail: View {
                 Log.error("Failed to load reply photo thumbnail: \(error)")
             }
         }
+    }
+}
+
+private struct ReplyFileThumbnail: View {
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 6)
+                .fill(Color.colorFillMinimal)
+            Image(systemName: "doc.fill")
+                .font(.system(size: 16))
+                .foregroundStyle(.secondary)
+        }
+        .frame(width: ReplyPhotoThumbnail.thumbnailSize, height: ReplyPhotoThumbnail.thumbnailSize)
     }
 }
 

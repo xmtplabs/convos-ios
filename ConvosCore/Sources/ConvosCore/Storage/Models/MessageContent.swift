@@ -64,4 +64,15 @@ public enum MessageContent: Hashable, Codable, Sendable {
             false
         }
     }
+
+    public var isFullBleedAttachment: Bool {
+        switch self {
+        case .attachment(let attachment):
+            attachment.mediaType != .file
+        case .attachments(let attachments):
+            attachments.first.map { $0.mediaType != .file } ?? false
+        default:
+            false
+        }
+    }
 }

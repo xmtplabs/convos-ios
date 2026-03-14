@@ -234,6 +234,7 @@
 				"Conversation Detail/Messages/Messages View Controller/View Controller/MessagesViewController.swift",
 				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesBottomBar.swift",
 				"Conversation Detail/Messages/Messages View Controller/View Controller/Views/MessagesInputView.swift",
+				"Conversation Detail/Messages/MessagesListView/Messages List Items/FileAttachmentBubble.swift",
 				"Conversation Detail/Messages/MessagesListView/Messages List Items/MessageContainer.swift",
 				"Conversation Detail/Messages/MessagesListView/MessagesListItemType.swift",
 				"Conversation Detail/Messages/MessagesListView/MessagesListView.swift",

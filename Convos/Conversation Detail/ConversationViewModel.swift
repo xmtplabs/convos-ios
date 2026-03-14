@@ -414,6 +414,7 @@ class ConversationViewModel {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
         }
         startOnboarding()
+        registerInlineAttachmentRecovery()
     }
 
     // Alternative initializer for draft conversations with pre-loaded dependencies
@@ -814,6 +815,13 @@ extension ConversationViewModel {
             } catch {
                 Log.error("Failed to retry message: \(error.localizedDescription)")
             }
+        }
+    }
+
+    private func registerInlineAttachmentRecovery() {
+        Task {
+            guard let result = try? await messagingService.inboxStateManager.waitForInboxReadyResult() else { return }
+            await InlineAttachmentRecovery.shared.setProvider(result.client.conversationsProvider)
         }
     }
 

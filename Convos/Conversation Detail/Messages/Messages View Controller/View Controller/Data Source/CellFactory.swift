@@ -15,6 +15,7 @@ struct CellConfig {
     let onAgentOutOfCredits: () -> Void
     let onRetryAssistantJoin: () -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onOpenFile: ((HydratedAttachment) -> Void)?
     let onRetryMessage: (AnyMessage) -> Void
     let onDeleteMessage: (AnyMessage) -> Void
 }

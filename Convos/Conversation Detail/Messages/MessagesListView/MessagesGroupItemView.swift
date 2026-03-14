@@ -14,6 +14,7 @@ struct MessagesGroupItemView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onOpenFile: ((HydratedAttachment) -> Void)?
     var omitTrailingPadding: Bool = false
 
     @State private var isAppearing: Bool = true
@@ -40,9 +41,10 @@ struct MessagesGroupItemView: View {
                     onPhotoRevealed: onPhotoRevealed,
                     onPhotoHidden: onPhotoHidden
                 )
-                .padding(.leading, !message.base.sender.isCurrentUser && message.base.content.isAttachment
+                .padding(.leading, !message.base.sender.isCurrentUser && message.base.content.isFullBleedAttachment
                     ? DesignConstants.Spacing.step4x
                     : 0.0)
+                .padding(.trailing, trailingPadding)
             }
             messageContent
         }
@@ -180,18 +182,36 @@ struct MessagesGroupItemView: View {
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
         let isBlurred = attachment.isHiddenByOwner || (!message.base.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
 
-        VideoTapAttachmentView(
-            attachment: attachment,
-            message: message,
-            isOutgoing: message.base.sender.isCurrentUser,
-            profile: message.base.sender.profile,
-            shouldBlurPhotos: shouldBlurPhotos,
-            isBlurred: isBlurred,
-            onPhotoRevealed: onPhotoRevealed,
-            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-            onReply: onReply
-        )
-        .id(message.base.id)
+        if attachment.mediaType == .file {
+            let fileTapAction: () -> Void = { onOpenFile?(attachment) }
+            FileAttachmentBubble(
+                attachment: attachment,
+                style: bubbleType,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onSingleTap: fileTapAction,
+                onReply: onReply
+            )
+            .padding(.trailing, trailingPadding)
+            .id(message.base.id)
+        } else {
+            VideoTapAttachmentView(
+                attachment: attachment,
+                message: message,
+                isOutgoing: message.base.sender.isCurrentUser,
+                profile: message.base.sender.profile,
+                shouldBlurPhotos: shouldBlurPhotos,
+                isBlurred: isBlurred,
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                onReply: onReply
+            )
+            .id(message.base.id)
+        }
     }
 }
 
@@ -513,20 +533,7 @@ private struct AttachmentPlaceholder: View {
             }
 
             do {
-                let videoURL: URL
-                if attachment.key.hasPrefix("file://") {
-                    let path = String(attachment.key.dropFirst("file://".count))
-                    videoURL = URL(fileURLWithPath: path)
-                } else if let cached = await VideoURLCache.shared.url(for: attachment.key) {
-                    videoURL = cached
-                } else {
-                    let loaded = try await Self.loader.loadAttachmentData(from: attachment.key)
-                    let tempURL = FileManager.default.temporaryDirectory
-                        .appendingPathComponent("video_\(UUID().uuidString).mp4")
-                    try loaded.data.write(to: tempURL)
-                    await VideoURLCache.shared.set(tempURL, for: attachment.key)
-                    videoURL = tempURL
-                }
+                let videoURL = try await resolveVideoURL(for: attachment.key)
                 let player = AVPlayer(url: videoURL)
                 await player.seek(to: .zero)
                 inlinePlayer = player
@@ -556,8 +563,11 @@ private struct AttachmentPlaceholder: View {
 
             if attachment.key.hasPrefix("file://") {
                 let path = String(attachment.key.dropFirst("file://".count))
-                let url = URL(fileURLWithPath: path)
-                imageData = try Data(contentsOf: url)
+                if FileManager.default.fileExists(atPath: path) {
+                    imageData = try Data(contentsOf: URL(fileURLWithPath: path))
+                } else {
+                    imageData = try await recoverInlineAttachmentData(from: path)
+                }
             } else if attachment.key.hasPrefix("{") {
                 imageData = try await Self.loader.loadImageData(from: attachment.key)
             } else if let url = URL(string: attachment.key) {
@@ -583,6 +593,29 @@ private struct AttachmentPlaceholder: View {
         }
 
         isLoading = false
+    }
+
+    private func resolveVideoURL(for key: String) async throws -> URL {
+        if key.hasPrefix("file://") {
+            let path = String(key.dropFirst("file://".count))
+            if FileManager.default.fileExists(atPath: path) {
+                return URL(fileURLWithPath: path)
+            }
+            let data = try await recoverInlineAttachmentData(from: path)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("video_\(UUID().uuidString).mp4")
+            try data.write(to: tempURL)
+            return tempURL
+        }
+        if let cached = await VideoURLCache.shared.url(for: key) {
+            return cached
+        }
+        let loaded = try await Self.loader.loadAttachmentData(from: key)
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("video_\(UUID().uuidString).mp4")
+        try loaded.data.write(to: tempURL)
+        await VideoURLCache.shared.set(tempURL, for: key)
+        return tempURL
     }
 
     private var loadingPlaceholder: some View {
@@ -660,7 +693,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -679,7 +713,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -698,7 +733,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -717,7 +753,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -737,7 +774,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -757,9 +795,20 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
+}
+
+private func recoverInlineAttachmentData(from path: String) async throws -> Data {
+    let fileURL = URL(fileURLWithPath: path)
+    let filename = fileURL.lastPathComponent
+    guard let underscoreIndex = filename.firstIndex(of: "_") else {
+        throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+    }
+    let messageId = String(filename[filename.startIndex..<underscoreIndex])
+    return try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
 }
 
 // swiftlint:disable force_unwrapping
@@ -777,7 +826,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -796,7 +846,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }
@@ -815,7 +866,8 @@ struct PhotoSenderLabel: View {
         onReply: { _ in },
         onPhotoRevealed: { _ in print("Photo revealed") },
         onPhotoHidden: { _ in print("Photo hidden") },
-        onPhotoDimensionsLoaded: { _, _, _ in }
+        onPhotoDimensionsLoaded: { _, _, _ in },
+        onOpenFile: nil
     )
     .padding()
 }

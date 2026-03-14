@@ -12,6 +12,7 @@ struct MessagesGroupView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onOpenFile: ((HydratedAttachment) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
 
@@ -39,7 +40,7 @@ struct MessagesGroupView: View {
             let allMessages = group.allMessages
             ForEach(Array(allMessages.enumerated()), id: \.element.base.id) { index, message in
                 let isReply = if case .reply = message { true } else { false }
-                let isFullWidthAttachment = message.base.content.isAttachment
+                let isFullWidthAttachment = message.base.content.isFullBleedAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
@@ -84,6 +85,7 @@ struct MessagesGroupView: View {
                         onPhotoRevealed: onPhotoRevealed,
                         onPhotoHidden: onPhotoHidden,
                         onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                        onOpenFile: onOpenFile,
                         omitTrailingPadding: isFailed
                     )
                     .zIndex(100)
@@ -570,7 +572,8 @@ struct MessagesGroupView: View {
                     onReply: { _ in },
                     onPhotoRevealed: { _ in },
                     onPhotoHidden: { _ in },
-                    onPhotoDimensionsLoaded: { _, _, _ in }
+                    onPhotoDimensionsLoaded: { _, _, _ in },
+                    onOpenFile: nil
                 )
             }
         }
