@@ -336,6 +336,12 @@ extension Array where Element == DBMessage {
                         return nil
                     }
                     messageContent = .invite(invite)
+                case .linkPreview:
+                    guard let preview = dbMessage.linkPreview else {
+                        messageContent = .text(dbMessage.text ?? "")
+                        break
+                    }
+                    messageContent = .linkPreview(preview)
                 case .attachments:
                     let hydratedAttachments = dbMessage.attachmentUrls.map { key in
                         let localState = attachmentLocalStates[key]
@@ -459,6 +465,12 @@ extension Array where Element == DBMessage {
             } else {
                 replyContent = .text(dbMessage.text ?? "")
             }
+        case .linkPreview:
+            if let preview = dbMessage.linkPreview {
+                replyContent = .linkPreview(preview)
+            } else {
+                replyContent = .text(dbMessage.text ?? "")
+            }
         case .update, .assistantJoinRequest:
             return nil
         }
@@ -496,6 +508,12 @@ extension Array where Element == DBMessage {
                 parentContent = .invite(invite)
             } else {
                 parentContent = .text("[Invite]")
+            }
+        case .linkPreview:
+            if let preview = sourceDBMessage.linkPreview {
+                parentContent = .linkPreview(preview)
+            } else {
+                parentContent = .text(sourceDBMessage.text ?? "")
             }
         case .update, .assistantJoinRequest:
             parentContent = .text("[Update]")

@@ -20,6 +20,8 @@ struct ReplyComposerBar: View {
             return "Photo"
         case .invite:
             return "Invite"
+        case .linkPreview(let preview):
+            return preview.title ?? preview.displayHost
         default:
             return ""
         }

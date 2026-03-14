@@ -112,6 +112,7 @@ struct MessagesRepositoryBenchmarkTests {
                 text: "Message \(i) from user \(senderId.prefix(8))",
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: nil,
                 attachmentUrls: [],
                 update: nil
@@ -138,6 +139,7 @@ struct MessagesRepositoryBenchmarkTests {
                     text: nil,
                     emoji: emojis[r % emojis.count],
                     invite: nil,
+                    linkPreview: nil,
                     sourceMessageId: messageIds[i],
                     attachmentUrls: [],
                     update: nil
@@ -163,6 +165,7 @@ struct MessagesRepositoryBenchmarkTests {
                 text: "Reply \(r) to message \(sourceIdx)",
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: messageIds[sourceIdx],
                 attachmentUrls: [],
                 update: nil

@@ -23,6 +23,8 @@ struct ReplyReferenceView: View {
             return "photo"
         case .invite:
             return "invite"
+        case .linkPreview(let preview):
+            return preview.title ?? preview.displayHost
         case .update, .assistantJoinRequest:
             return ""
         }
@@ -49,6 +51,13 @@ struct ReplyReferenceView: View {
     private var parentInvite: MessageInvite? {
         if case .invite(let invite) = parentMessage.content {
             return invite
+        }
+        return nil
+    }
+
+    private var parentLinkPreview: LinkPreview? {
+        if case .linkPreview(let preview) = parentMessage.content {
+            return preview
         }
         return nil
     }
@@ -105,6 +114,9 @@ struct ReplyReferenceView: View {
                     ReplyReferenceInvitePreview(invite: invite)
                         .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 }
+            } else if let preview = parentLinkPreview {
+                ReplyReferenceLinkPreview(preview: preview)
+                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 HStack(spacing: 0) {
                     if isOutgoing {
@@ -350,6 +362,91 @@ private struct ReplyReferenceInvitePreview: View {
         .clipShape(RoundedRectangle(cornerRadius: 10.0))
         .cachedImage(for: invite) { image in
             cachedImage = image
+        }
+    }
+}
+
+// MARK: - Link Preview
+
+private struct ReplyReferenceLinkPreview: View {
+    let preview: LinkPreview
+    @State private var cachedImage: UIImage?
+    @State private var ogTitle: String?
+    @State private var ogImageURL: String?
+
+    private var displayTitle: String {
+        ogTitle ?? preview.title ?? preview.displayHost
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let image = cachedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image(systemName: "link")
+                        .font(.title2)
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 128.0)
+            .clipped()
+            .background(.colorBackgroundInverted)
+
+            VStack(alignment: .leading, spacing: 1.0) {
+                Text(displayTitle)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.black)
+                    .font(.caption.weight(.bold))
+                    .truncationMode(.tail)
+                Text(preview.displayHost)
+                    .font(.caption2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 210.0, alignment: .leading)
+        .background(.colorLinkBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 10.0))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Link preview: \(displayTitle)")
+        .task {
+            await fetchMetadata()
+        }
+    }
+
+    private func fetchMetadata() async {
+        let metadata = await OpenGraphService.shared.fetchMetadata(for: preview.url)
+        if let metadata {
+            ogTitle = metadata.title
+
+            if let imageURLString = metadata.imageURL ?? preview.imageURL,
+               let imageURL = URL(string: imageURLString) {
+                ogImageURL = imageURLString
+                let cacheKey = imageURL.absoluteString
+                if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
+                    cachedImage = cached
+                    return
+                }
+                do {
+                    let (data, _) = try await URLSession.shared.data(from: imageURL)
+                    guard OpenGraphService.isValidImageData(data) else { return }
+                    if let image = UIImage(data: data),
+                       OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
+                        ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+                        cachedImage = image
+                    }
+                } catch {
+                    Log.error("Failed to load reply link preview image")
+                }
+            }
         }
     }
 }
