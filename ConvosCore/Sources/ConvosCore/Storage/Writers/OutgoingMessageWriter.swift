@@ -896,7 +896,16 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     // MARK: - Failed Messages
 
+    private var retryingMessageIds: Set<String> = []
+
     func retryFailedMessage(id clientMessageId: String) async throws {
+        guard !retryingMessageIds.contains(clientMessageId) else {
+            Log.debug("Retry already in progress for message \(clientMessageId), skipping")
+            return
+        }
+        retryingMessageIds.insert(clientMessageId)
+        defer { retryingMessageIds.remove(clientMessageId) }
+
         let message = try await databaseWriter.read { db in
             try DBMessage
                 .filter(DBMessage.Columns.clientMessageId == clientMessageId)
@@ -921,21 +930,63 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let text = message.text ?? message.emoji ?? ""
         guard !text.isEmpty else { return }
 
-        try await databaseWriter.write { db in
-            try message.with(status: .unpublished).save(db)
+        let wasPrepared = message.id != message.clientMessageId
+
+        if wasPrepared {
+            Log.debug("Message \(message.id) already prepared, publishing directly")
+            try await databaseWriter.write { db in
+                try message.with(status: .unpublished).save(db)
+            }
+            try await publishPreparedMessage(messageId: message.id, sentContent: text)
+        } else {
+            try await databaseWriter.write { db in
+                try message.with(status: .unpublished).save(db)
+            }
+            let queued = QueuedTextMessage(
+                clientMessageId: message.clientMessageId,
+                text: text,
+                dependsOnPhotoKey: nil,
+                replyContext: replyContext
+            )
+            messageQueue.append(.text(queued))
+            startProcessingIfNeeded()
+        }
+    }
+
+    private func publishPreparedMessage(messageId: String, sentContent: String? = nil) async throws {
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        let client = inboxReady.client
+
+        guard let sender = try await client.messageSender(for: conversationId) else {
+            try? await markMessageFailed(messageId: messageId)
+            throw OutgoingMessageWriterError.missingClientProvider
         }
 
-        let queued = QueuedTextMessage(
-            clientMessageId: message.clientMessageId,
-            text: text,
-            dependsOnPhotoKey: nil,
-            replyContext: replyContext
-        )
-        messageQueue.append(.text(queued))
-        startProcessingIfNeeded()
+        do {
+            try await sender.publishMessage(messageId: messageId)
+        } catch {
+            Log.error("Failed publishing prepared message: \(error)")
+            try? await markMessageFailed(messageId: messageId)
+            throw error
+        }
+
+        try? await markMessagePublished(messageId: messageId)
+        if let sentContent {
+            sentMessageSubject.send(sentContent)
+        }
     }
 
     private func retryFailedPhoto(message: DBMessage, replyContext: ReplyContext?) async throws {
+        let wasPrepared = message.id != message.clientMessageId
+        if wasPrepared {
+            Log.debug("Photo \(message.id) already prepared, publishing directly")
+            try await databaseWriter.write { db in
+                try message.with(status: .unpublished).save(db)
+            }
+            try await publishPreparedMessage(messageId: message.id, sentContent: message.attachmentUrls.first)
+            return
+        }
+
         guard let attachmentRef = message.attachmentUrls.first, !attachmentRef.isEmpty else {
             Log.error("Cannot retry photo: no attachment reference")
             return
