@@ -329,15 +329,17 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBConversation.creator
                             .forKey("conversationCreator")
-                            .select([DBConversationMember.Columns.role])
+                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(required: DBConversation.localState)
                     .including(
                         all: DBConversation._members
                             .forKey("conversationMembers")
-                            .select([DBConversationMember.Columns.role])
+                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .asRequest(of: DBConversationDetails.self)
                     .fetchOne(db)
@@ -473,8 +475,9 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role])
+                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(optional: DBMessage.sourceMessage)
                     .asRequest(of: MessageWithDetailsLite.self)
@@ -490,8 +493,9 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role])
+                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .asRequest(of: MessageSenderOnly.self)
                     .fetchAll(db)
@@ -550,15 +554,17 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBConversation.creator
                             .forKey("conversationCreator")
-                            .select([DBConversationMember.Columns.role])
+                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(required: DBConversation.localState)
                     .including(
                         all: DBConversation._members
                             .forKey("conversationMembers")
-                            .select([DBConversationMember.Columns.role])
+                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .asRequest(of: DBConversationDetails.self)
                     .fetchOne(db)
@@ -566,8 +572,13 @@ struct MessagesRepositoryBenchmarkTests {
 
                 _ = try DBConversationMember
                     .filter(DBConversationMember.Columns.conversationId == conversationId)
-                    .select([DBConversationMember.Columns.role])
+                    .select([
+                        DBConversationMember.Columns.role,
+                        DBConversationMember.Columns.createdAt,
+                    ])
                     .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
+                    .including(optional: DBConversationMember.inviterProfile)
                     .asRequest(of: DBConversationMemberProfileWithRole.self)
                     .fetchAll(db)
                 let t2 = CFAbsoluteTimeGetCurrent()
@@ -580,8 +591,9 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role])
+                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(all: DBMessage.reactions)
                     .including(optional: DBMessage.sourceMessage)
@@ -598,8 +610,9 @@ struct MessagesRepositoryBenchmarkTests {
                     .including(
                         required: DBMessage.sender
                             .forKey("messageSender")
-                            .select([DBConversationMember.Columns.role])
+                            .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(optional: DBMessage.sourceMessage)
                     .asRequest(of: MessageWithDetailsLite.self)
