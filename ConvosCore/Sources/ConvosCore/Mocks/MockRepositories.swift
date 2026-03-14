@@ -230,9 +230,15 @@ public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterPro
         conversationId: String,
         width: Int,
         height: Int
-    ) async throws {
-        // No-op for mock
-    }
+    ) async throws {}
+
+    public func saveWithDimensions(
+        attachmentKey: String,
+        conversationId: String,
+        width: Int,
+        height: Int,
+        mimeType: String?
+    ) async throws {}
 
     public func migrateKey(from oldKey: String, to newKey: String) async throws {
         if let conversationId = revealedAttachments.removeValue(forKey: oldKey) {

@@ -209,6 +209,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         await stateMachine.cancelEagerUpload(trackingKey: trackingKey)
     }
 
+    public func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String {
+        try await stateMachine.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
+    }
+
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
         try await stateMachine.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
     }

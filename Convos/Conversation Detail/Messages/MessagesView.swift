@@ -19,6 +19,7 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var displayName: String
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
+    var isVideoAttachment: Bool = false
     var pendingInviteCode: String?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
@@ -45,6 +46,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    let onVideoSelected: (URL) -> Void
     let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onRetryMessage: (AnyMessage) -> Void
@@ -95,6 +97,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 displayName: $displayName,
                 messageText: $messageText,
                 selectedAttachmentImage: $selectedAttachmentImage,
+                isVideoAttachment: isVideoAttachment,
                 pendingInviteCode: pendingInviteCode,
                 sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
@@ -110,6 +113,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 },
                 onClearInvite: onClearInvite,
                 onDisplayNameEndedEditing: onDisplayNameEndedEditing,
+                onVideoSelected: onVideoSelected,
                 onProfileSettings: onProfileSettings,
                 onBaseHeightChanged: { height in
                     bottomBarHeight = height

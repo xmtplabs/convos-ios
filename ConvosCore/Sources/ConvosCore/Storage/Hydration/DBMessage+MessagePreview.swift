@@ -11,7 +11,7 @@ extension DBLastMessageWithSource {
         let senderProfile = members.first { $0.memberProfile.inboxId == senderId }
         let senderName = isCurrentUser ? "You" : (senderProfile?.memberProfile.name ?? "Somebody")
         let attachmentsCount = attachmentUrls.count
-        let attachmentsString = attachmentsCount <= 1 ? "a photo" : "\(attachmentsCount) photos"
+        let attachmentsString = Self.attachmentsPreviewString(attachmentUrls: attachmentUrls, count: attachmentsCount)
 
         let otherMemberCount = members.filter { $0.memberProfile.inboxId != currentInboxId }.count
         let shouldShowSenderName = conversationKind == .group && otherMemberCount > 1
@@ -90,5 +90,16 @@ extension DBLastMessageWithSource {
             }
         }
         return .init(text: text, createdAt: date)
+    }
+
+    static func attachmentsPreviewString(attachmentUrls: [String], count: Int) -> String {
+        let hasVideo = attachmentUrls.contains { url in
+            guard let stored = try? StoredRemoteAttachment.fromJSON(url) else { return false }
+            return stored.mimeType?.hasPrefix("video/") == true
+        }
+        if count <= 1 {
+            return hasVideo ? "a video" : "a photo"
+        }
+        return hasVideo ? "\(count) attachments" : "\(count) photos"
     }
 }

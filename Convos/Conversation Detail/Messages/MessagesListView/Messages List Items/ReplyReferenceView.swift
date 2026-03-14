@@ -19,8 +19,10 @@ struct ReplyReferenceView: View {
             return String(text.prefix(80))
         case .emoji(let emoji):
             return emoji
-        case .attachment, .attachments:
-            return "photo"
+        case .attachment(let attachment):
+            return attachment.mediaType == .video ? "video" : "photo"
+        case .attachments(let attachments):
+            return attachments.first?.mediaType == .video ? "video" : "photo"
         case .invite:
             return "invite"
         case .update, .assistantJoinRequest:
@@ -83,6 +85,7 @@ struct ReplyReferenceView: View {
             if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
                     attachmentKey: attachment.key,
+                    isVideo: attachment.mediaType == .video,
                     parentMessage: parentMessage,
                     shouldBlur: shouldBlurAttachment,
                     onReveal: { onPhotoRevealed?(attachment.key) },
@@ -199,6 +202,7 @@ struct ReplyReferenceView: View {
 
 private struct ReplyReferencePhotoPreview: View {
     let attachmentKey: String
+    let isVideo: Bool
     let parentMessage: Message
     let shouldBlur: Bool
     let onReveal: () -> Void
@@ -212,12 +216,14 @@ private struct ReplyReferencePhotoPreview: View {
 
     init(
         attachmentKey: String,
+        isVideo: Bool = false,
         parentMessage: Message,
         shouldBlur: Bool,
         onReveal: @escaping () -> Void,
         onHide: @escaping () -> Void
     ) {
         self.attachmentKey = attachmentKey
+        self.isVideo = isVideo
         self.parentMessage = parentMessage
         self.shouldBlur = shouldBlur
         self.onReveal = onReveal
@@ -241,6 +247,14 @@ private struct ReplyReferencePhotoPreview: View {
                     .scaleEffect(shouldBlur ? 1.65 : 1.0)
                     .blur(radius: shouldBlur ? 96 : 0)
                     .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
+                    .overlay {
+                        if isVideo, !shouldBlur {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 20))
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                        }
+                    }
                     .opacity(isSourceForContextMenu ? 0 : 1.0)
                     .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
                     .contentShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))

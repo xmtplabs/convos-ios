@@ -278,6 +278,9 @@
 				"Shared Views/PulsingCircleView.swift",
 				"Shared Views/QRCodeView.swift",
 				"Shared Views/QuickEditView.swift",
+
+				"Shared Views/VideoFile.swift",
+				"Shared Views/VideoPlayerView.swift",
 				"Shared Views/RelativeDateLabel.swift",
 				"Shared Views/UIViewPreview.swift",
 				"Shared Views/ViewModifiers.swift",
