@@ -20,7 +20,7 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
     let role: MemberRole
     let consent: Consent
     let createdAt: Date
-    let invitedByInboxId: String?
+    var invitedByInboxId: String?
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
