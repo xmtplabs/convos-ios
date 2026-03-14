@@ -279,6 +279,9 @@ class TestableMockMessageSender: MessageSender {
     func sendExplode(expiresAt: Date) async throws {
     }
 
+    func sendReadReceipt() async throws {
+    }
+
     func prepare(text: String) async throws -> String {
         ""
     }
