@@ -607,8 +607,12 @@ fileprivate extension Database {
             .including(
                 all: DBConversation._members
                     .forKey("conversationMembers")
-                    .select([DBConversationMember.Columns.role])
+                    .select([
+                        DBConversationMember.Columns.role,
+                        DBConversationMember.Columns.createdAt,
+                    ])
                     .including(required: DBConversationMember.memberProfile)
+                    .including(optional: DBConversationMember.inviterProfile)
             )
             .asRequest(of: LightweightConversationDetails.self)
             .fetchOne(self)?
@@ -710,8 +714,12 @@ fileprivate extension Database {
 
         let activeMemberProfiles = try DBConversationMember
             .filter(DBConversationMember.Columns.conversationId == conversationId)
-            .select([DBConversationMember.Columns.role])
+            .select([
+                DBConversationMember.Columns.role,
+                DBConversationMember.Columns.createdAt,
+            ])
             .including(required: DBConversationMember.memberProfile)
+            .including(optional: DBConversationMember.inviterProfile)
             .asRequest(of: DBConversationMemberProfileWithRole.self)
             .fetchAll(self)
 

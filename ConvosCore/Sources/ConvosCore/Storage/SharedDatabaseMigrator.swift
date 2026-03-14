@@ -381,6 +381,12 @@ extension SharedDatabaseMigrator {
             )
         }
 
+        migrator.registerMigration("addInvitedByToConversationMember") { db in
+            try db.alter(table: "conversation_members") { t in
+                t.add(column: "invitedByInboxId", .text)
+            }
+        }
+
         return migrator
     }
 }

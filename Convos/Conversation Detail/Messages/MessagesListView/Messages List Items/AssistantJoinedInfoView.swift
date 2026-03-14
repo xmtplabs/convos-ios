@@ -1,10 +1,10 @@
 import SwiftUI
 
 struct AssistantJoinedInfoView: View {
-    let onAboutAssistants: () -> Void
+    let onTap: () -> Void
 
     var body: some View {
-        let action = { onAboutAssistants() }
+        let action = { onTap() }
         Button(action: action) {
             Text("See what it can do")
                 .font(.caption)
@@ -19,5 +19,5 @@ struct AssistantJoinedInfoView: View {
 }
 
 #Preview {
-    AssistantJoinedInfoView(onAboutAssistants: {})
+    AssistantJoinedInfoView(onTap: {})
 }

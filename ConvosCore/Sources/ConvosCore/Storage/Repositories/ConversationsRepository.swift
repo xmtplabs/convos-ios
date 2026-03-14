@@ -89,8 +89,12 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
             .including(
                 required: DBConversation.creator
                     .forKey("conversationCreator")
-                    .select([DBConversationMember.Columns.role])
+                    .select([
+                        DBConversationMember.Columns.role,
+                        DBConversationMember.Columns.createdAt,
+                    ])
                     .including(required: DBConversationMember.memberProfile)
+                    .including(optional: DBConversationMember.inviterProfile)
             )
             .including(required: DBConversation.localState)
             .with(DBConversation.lastMessageWithSourceCTE)
@@ -100,8 +104,12 @@ extension QueryInterfaceRequest where RowDecoder == DBConversation {
             .including(
                 all: DBConversation._members
                     .forKey("conversationMembers")
-                    .select([DBConversationMember.Columns.role])
+                    .select([
+                        DBConversationMember.Columns.role,
+                        DBConversationMember.Columns.createdAt,
+                    ])
                     .including(required: DBConversationMember.memberProfile)
+                    .including(optional: DBConversationMember.inviterProfile)
             )
             .group(DBConversation.Columns.id)
             .order(sql: "COALESCE(conversationLastMessageWithSource.date, conversation.createdAt) DESC")

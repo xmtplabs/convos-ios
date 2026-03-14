@@ -263,7 +263,13 @@ public extension ConversationUpdate {
             }
             return "\(creatorDisplayName) set this convo to explode"
         } else if !removedMembers.isEmpty {
-            return ""
+            if removedMembers.count == 1, let member = removedMembers.first {
+                if member.isCurrentUser {
+                    return "You left the convo"
+                }
+                return "\(member.profile.displayName) was removed"
+            }
+            return "\(removedMembers.formattedNamesString) were removed"
         } else {
             return ""
         }

@@ -12,6 +12,7 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
         static let role: Column = Column(CodingKeys.role)
         static let consent: Column = Column(CodingKeys.consent)
         static let createdAt: Column = Column(CodingKeys.createdAt)
+        static let invitedByInboxId: Column = Column(CodingKeys.invitedByInboxId)
     }
 
     let conversationId: String
@@ -19,6 +20,7 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
     let role: MemberRole
     let consent: Consent
     let createdAt: Date
+    let invitedByInboxId: String?
 
     static let memberForeignKey: ForeignKey = ForeignKey([Columns.inboxId], to: [DBMember.Columns.inboxId])
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
@@ -54,6 +56,17 @@ struct DBConversationMember: Codable, FetchableRecord, PersistableRecord, Hashab
         DBMemberProfile.self,
         using: memberProfileForeignKey
     )
+
+    static let inviterProfileForeignKey: ForeignKey = ForeignKey(
+        [Columns.invitedByInboxId, Columns.conversationId],
+        to: [DBMemberProfile.Columns.inboxId, DBMemberProfile.Columns.conversationId]
+    )
+
+    static let inviterProfile: BelongsToAssociation<DBConversationMember, DBMemberProfile> = belongsTo(
+        DBMemberProfile.self,
+        key: "inviterProfile",
+        using: inviterProfileForeignKey
+    )
 }
 
 // MARK: - DBConversationMember Extensions
@@ -65,7 +78,8 @@ extension DBConversationMember {
             inboxId: inboxId,
             role: role,
             consent: consent,
-            createdAt: createdAt
+            createdAt: createdAt,
+            invitedByInboxId: invitedByInboxId
         )
     }
 }
