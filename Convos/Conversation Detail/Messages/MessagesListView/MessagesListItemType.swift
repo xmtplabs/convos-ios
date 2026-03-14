@@ -16,6 +16,8 @@ struct MessagesGroup: Identifiable, Equatable, Hashable {
     let messages: [AnyMessage] // All messages in this group (published + unpublished in sortId order)
     let isLastGroup: Bool
     let isLastGroupSentByCurrentUser: Bool
+    var onlyVisibleToSender: Bool = false
+    var isLastGroupBeforeOtherMembers: Bool = false
 
     /// All messages in this group (already sorted by sortId from repository)
     var allMessages: [AnyMessage] {
@@ -27,7 +29,9 @@ struct MessagesGroup: Identifiable, Equatable, Hashable {
         lhs.sender == rhs.sender &&
         lhs.messages == rhs.messages &&
         lhs.isLastGroup == rhs.isLastGroup &&
-        lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser
+        lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser &&
+        lhs.onlyVisibleToSender == rhs.onlyVisibleToSender &&
+        lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers
     }
 }
 
@@ -149,9 +153,6 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
     /// Shows the current assistant join status (pending, error, etc.)
     case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
 
-    /// Shows info about an assistant already present when a new member joins
-    case assistantPresentInfo
-
     var id: String {
         switch self {
         case .update(let id, _, _):
@@ -168,8 +169,6 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "agent-out-of-credits-\(profile.inboxId)"
         case .assistantJoinStatus:
             return "assistant-join"
-        case .assistantPresentInfo:
-            return "assistant-present-info"
         }
     }
 
@@ -198,7 +197,7 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus:
             return nil
         }
     }
@@ -237,8 +236,6 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             return "MessagesListItemTypeCell-agentOutOfCredits"
         case .assistantJoinStatus:
             return "MessagesListItemTypeCell-assistantJoinStatus"
-        case .assistantPresentInfo:
-            return "MessagesListItemTypeCell-assistantPresentInfo"
         }
     }
 
@@ -251,8 +248,7 @@ enum MessagesListItemType: Identifiable, Equatable, Hashable {
             "MessagesListItemTypeCell-invite",
             "MessagesListItemTypeCell-conversationInfo",
             "MessagesListItemTypeCell-agentOutOfCredits",
-            "MessagesListItemTypeCell-assistantJoinStatus",
-            "MessagesListItemTypeCell-assistantPresentInfo"
+            "MessagesListItemTypeCell-assistantJoinStatus"
         ]
     }
 }

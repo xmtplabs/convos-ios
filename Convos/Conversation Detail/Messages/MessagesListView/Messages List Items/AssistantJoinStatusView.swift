@@ -25,6 +25,8 @@ struct AssistantJoinStatusView: View {
         }
     }
 
+    @State private var isPulsed: Bool = false
+
     private var pendingView: some View {
         let text = if let requesterName {
             "\(requesterName) invited an assistant to join"
@@ -34,8 +36,13 @@ struct AssistantJoinStatusView: View {
         return Text(text)
             .lineLimit(1)
             .font(.caption)
-            .foregroundStyle(.colorTextTertiary)
+            .foregroundStyle(isPulsed ? .colorTextTertiary : .colorTextSecondary)
             .frame(maxWidth: .infinity, alignment: .center)
+            .onAppear {
+                withAnimation(.easeInOut(duration: 1.2).repeatForever(autoreverses: true)) {
+                    isPulsed = true
+                }
+            }
     }
 
     @ViewBuilder

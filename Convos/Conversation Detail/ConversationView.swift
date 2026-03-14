@@ -75,9 +75,22 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
             onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
+            onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onRetryMessage: viewModel.retryMessage(_:),
             onDeleteMessage: viewModel.deleteMessage(_:),
             onRetryAssistantJoin: { viewModel.requestAssistantJoin() },
+            onCopyInviteLink: { viewModel.copyInviteLink() },
+            onConvoCode: {
+                if viewModel.isFull {
+                    showingFullInfo = true
+                } else {
+                    viewModel.presentingShareView = true
+                }
+            },
+            onInviteAssistant: { viewModel.onRequestAssistantJoin() },
+            hasAssistant: viewModel.conversation.hasAssistant,
+            isAssistantJoinPending: viewModel.isAssistantJoinPending,
+            isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
             },
@@ -165,7 +178,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                 viewModel.copyInviteLink()
                             },
                             onInviteAssistant: {
-                                viewModel.requestAssistantJoin()
+                                viewModel.onRequestAssistantJoin()
                             }
                         )
                     case .scan:
@@ -192,6 +205,13 @@ struct ConversationView<MessagesBottomBar: View>: View {
         .selfSizingSheet(isPresented: $showingAssistantsInfo) {
             AssistantsInfoView()
                 .padding(.top, 20)
+        }
+        .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
+            AssistantsInfoView(
+                isConfirmation: true,
+                onConfirm: { viewModel.requestAssistantJoin() }
+            )
+            .padding(.top, 20)
         }
         .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
             AssistantProcessingPowerInfoView()

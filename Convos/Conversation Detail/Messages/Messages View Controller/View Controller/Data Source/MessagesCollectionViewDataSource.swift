@@ -24,9 +24,16 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
     var onAboutAssistants: (() -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
+    var onTapUpdateMember: ((ConversationMember) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryAssistantJoin: (() -> Void)?
+    var onCopyInviteLink: (() -> Void)?
+    var onConvoCode: (() -> Void)?
+    var onInviteAssistant: (() -> Void)?
+    var hasAssistant: Bool = false
+    var isAssistantJoinPending: Bool = false
+    var isAssistantEnabled: Bool = false
 
     private lazy var layoutDelegate: DefaultMessagesLayoutDelegate = DefaultMessagesLayoutDelegate(sections: sections,
                                                                                                    oldSections: [])
@@ -94,12 +101,27 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             onPhotoDimensionsLoaded: { [weak self] attachmentKey, width, height in
                 self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
             },
+            onTapUpdateMember: { [weak self] member in
+                self?.onTapUpdateMember?(member)
+            },
             onRetryMessage: { [weak self] message in
                 self?.onRetryMessage?(message)
             },
             onDeleteMessage: { [weak self] message in
                 self?.onDeleteMessage?(message)
-            }
+            },
+            onCopyInviteLink: { [weak self] in
+                self?.onCopyInviteLink?()
+            },
+            onConvoCode: { [weak self] in
+                self?.onConvoCode?()
+            },
+            onInviteAssistant: { [weak self] in
+                self?.onInviteAssistant?()
+            },
+            hasAssistant: hasAssistant,
+            isAssistantJoinPending: isAssistantJoinPending,
+            isAssistantEnabled: isAssistantEnabled
         )
         return CellFactory.createCell(
             in: collectionView,

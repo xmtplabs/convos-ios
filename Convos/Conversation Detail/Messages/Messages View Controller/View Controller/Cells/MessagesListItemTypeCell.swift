@@ -66,9 +66,16 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
                 case .update(_, let update, _):
                     VStack(spacing: 0) {
-                        TextTitleContentView(title: update.summary, profile: update.profile)
+                        TextTitleContentView(
+                            title: update.summary,
+                            profile: update.profile,
+                            onTap: update.profileMember.map { member in
+                                { config.onTapUpdateMember(member) }
+                            }
+                        )
                             .id(update.differenceIdentifier)
-                            .padding(.vertical, DesignConstants.Spacing.step4x)
+                            .padding(.top, DesignConstants.Spacing.step4x)
+                            .padding(.bottom, update.addedAgent ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
                             .padding(.horizontal, DesignConstants.Spacing.step4x)
                         if update.addedAgent {
                             AssistantJoinedInfoView(onAboutAssistants: config.onAboutAssistants)
@@ -94,7 +101,14 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .invite(let invite):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
                         InviteView(invite: invite)
-                        NewConvoIdentityView()
+                        NewConvoIdentityView(
+                            onCopyLink: config.onCopyInviteLink,
+                            onConvoCode: config.onConvoCode,
+                            onInviteAssistant: config.onInviteAssistant,
+                            hasAssistant: config.hasAssistant,
+                            isAssistantJoinPending: config.isAssistantJoinPending,
+                            isAssistantEnabled: config.isAssistantEnabled
+                        )
                     }
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -102,7 +116,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                 case .conversationInfo(let conversation):
                     VStack(spacing: DesignConstants.Spacing.step4x) {
                         ConversationInfoPreview(conversation: conversation)
-                        NewConvoIdentityView()
                     }
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
@@ -124,10 +137,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
-
-                case .assistantPresentInfo:
-                    AssistantPresentInfoView(onAboutAssistants: config.onAboutAssistants)
-                        .padding(.horizontal, DesignConstants.Spacing.step4x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

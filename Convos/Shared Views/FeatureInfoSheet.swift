@@ -159,12 +159,14 @@ struct FeatureInfoParagraph: Identifiable {
     enum Size {
         case body
         case subheadline
+        case footnote
         case small
 
         var font: Font {
             switch self {
             case .body: .body
             case .subheadline: .subheadline
+            case .footnote: .footnote
             case .small: .caption
             }
         }
