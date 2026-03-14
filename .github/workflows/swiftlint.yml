@@ -1,7 +1,7 @@
 name: SwiftLint
 
 on:
-  workflow_dispatch: # ← optional, to run manually
+  workflow_dispatch: # optional, to run manually
   pull_request:
     branches: ['main', 'dev']
   push:
@@ -15,9 +15,26 @@ jobs:
     name: SwiftLint
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Detect Swift changes in PR
+        if: github.event_name == 'pull_request'
+        id: swift_changes
+        run: |
+          git fetch --no-tags --prune origin "${{ github.base_ref }}" --depth=1
+
+          if git diff --name-only "origin/${{ github.base_ref }}...${{ github.sha }}" | grep -E '\.swift$' > /dev/null; then
+            echo "has_swift=true" >> $GITHUB_OUTPUT
+            echo "Swift changes detected — linting will run"
+          else
+            echo "has_swift=false" >> $GITHUB_OUTPUT
+            echo "No Swift changes detected — linting will be skipped"
+          fi
 
       - name: Install SwiftLint ${{ env.SWIFTLINT_VERSION }}
+        if: github.event_name != 'pull_request' || steps.swift_changes.outputs.has_swift == 'true'
         run: |
           curl -sL "https://github.com/realm/SwiftLint/releases/download/${SWIFTLINT_VERSION}/portable_swiftlint.zip" -o swiftlint.zip
           unzip -o swiftlint.zip -d swiftlint
@@ -26,5 +43,10 @@ jobs:
           swiftlint version
 
       - name: Run SwiftLint
+        if: github.event_name != 'pull_request' || steps.swift_changes.outputs.has_swift == 'true'
         # --strict makes warnings fail the job
         run: swiftlint lint --strict
+
+      - name: Skip SwiftLint (no Swift changes)
+        if: github.event_name == 'pull_request' && steps.swift_changes.outputs.has_swift != 'true'
+        run: echo "No .swift changes in this PR. Marking SwiftLint job as passed."
