@@ -330,6 +330,7 @@ When migrating from `ObservableObject`:
 - **Follow existing patterns** in neighboring code
 - **Check dependencies** before using any library
 - **Run `/lint` before committing** - SwiftLint runs via `/lint` command and pre-commit hooks, not during builds (for faster compilation)
+- **Run the full test suite before pushing** - Start Docker with `./dev/up` if needed, run `swift test --package-path ConvosCore`, and verify all tests pass. Never push without a passing test run against your final code.
 
 ---
 
@@ -413,20 +414,26 @@ cp -r ~/Downloads/SamplePhotoPickerApp claude-code-resources/
 
 ### Testing
 
+**You must run the full test suite before pushing any changes.** Do not push, submit, or amend a PR without a passing test run against your final code. This applies to every push — initial commits, review feedback, and rebases.
+
 Use the `./dev/test` script for running tests. **Most tests require Docker** for the local XMTP node:
 
 ```bash
 # Full test suite (starts Docker automatically)
 ./dev/test
 
-# Isolated unit tests only (no Docker) - limited subset
-./dev/test --unit
+# Start Docker manually, run tests, then stop
+./dev/up
+swift test --package-path ConvosCore
+./dev/down
 
-# Run a single test (Docker usually required)
+# Run a single test
 ./dev/up  # Start Docker first
 swift test --filter "TestClassName" --package-path ConvosCore
 ./dev/down  # Stop when done
 ```
+
+**Docker is required.** If Docker is not running, start it with `./dev/up` before running tests. If Docker fails to start (not installed, daemon not running, port conflicts), **do not skip the tests** — stop and notify the user that Docker cannot start and tests cannot run. Never push untested code.
 
 ### PRD-Driven Development with Graphite Stacking
 

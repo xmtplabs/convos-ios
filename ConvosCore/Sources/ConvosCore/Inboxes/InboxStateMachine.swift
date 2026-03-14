@@ -113,6 +113,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private var isProcessing: Bool = false
     private var networkMonitorTask: Task<Void, Never>?
     private var appLifecycleTask: Task<Void, Never>?
+    private var foregroundRetryCount: Int = 0
+    private static let maxForegroundRetries: Int = 2
 
     // MARK: - Nonisolated State Cache (InboxStateManagerProtocol)
 
@@ -509,6 +511,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             case let (.backgrounded(clientId, result), .enterForeground):
                 try await handleEnterForeground(clientId: clientId, result: result)
 
+            case let (.error(clientId, _), .enterForeground):
+                try await handleRetryFromError(clientId: clientId)
+
             case (let .backgrounded(clientId, result), .delete):
                 try await handleDeleteFromBackgrounded(clientId: clientId, result: result)
 
@@ -529,14 +534,11 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 Log.warning("Invalid state transition: \(_state) -> \(action)")
             }
         } catch {
-            // Task cancellation is normal during shutdown, not an error
             if error is CancellationError {
                 Log.debug("Action cancelled: \(action)")
                 return
             }
 
-            // Cancel app lifecycle observation and network monitoring on error
-            stopAppLifecycleObservation()
             await stopNetworkMonitoring()
 
             Log.error(
@@ -673,6 +675,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
     private func handleAuthorized(clientId: String, result: InboxReadyResult) async throws {
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
+        foregroundRetryCount = 0
         emitStateChange(.ready(clientId: clientId, result: result))
         // Start app lifecycle observation and network monitoring after starting sync
         await startNetworkMonitoring()
@@ -862,6 +865,26 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         emitStateChange(.ready(clientId: clientId, result: result))
         Log.info("Inbox returned to ready state")
+    }
+
+    private func handleRetryFromError(clientId: String) async throws {
+        try Task.checkCancellation()
+
+        guard foregroundRetryCount < Self.maxForegroundRetries else {
+            Log.warning("Max foreground retries (\(Self.maxForegroundRetries)) reached, not retrying")
+            return
+        }
+
+        let identities = try await identityStore.loadAll()
+        guard let identity = identities.first(where: { $0.clientId == clientId }) else {
+            Log.warning("Cannot retry from error: no identity found for clientId \(clientId)")
+            return
+        }
+
+        foregroundRetryCount += 1
+        Log.info("Retrying authorization for inbox \(identity.inboxId) after foregrounding (attempt \(foregroundRetryCount)/\(Self.maxForegroundRetries))")
+        try await handleStop(clientId: clientId)
+        try await handleAuthorize(inboxId: identity.inboxId, clientId: clientId)
     }
 
     private func handleDeleteFromBackgrounded(clientId: String, result: InboxReadyResult) async throws {
@@ -1118,25 +1141,64 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         return client
     }
 
+    private static let backendAuthMaxRetries: Int = 3
+    private static let backendAuthBaseDelay: UInt64 = 2_000_000_000
+
     private func authenticateBackend() async throws {
         try Task.checkCancellation()
 
-        // When using JWT override, skip authentication
-        // We'll use the JWT token from the push notification payload
         guard overrideJWTToken == nil, !environment.isTestingEnvironment else {
             Log.info("JWT override mode: skipping authentication, will use JWT from push payload")
             return
         }
 
-        // Explicitly authenticate with backend using Firebase AppCheck
-        Log.debug("Getting Firebase AppCheck token...")
-        let appCheckToken = try await FirebaseHelperCore.getAppCheckToken()
+        var lastError: (any Error)?
+        for attempt in 0..<Self.backendAuthMaxRetries {
+            try Task.checkCancellation()
 
-        try Task.checkCancellation()
+            if attempt > 0 {
+                let connected = await networkMonitor.isConnected
+                if !connected {
+                    Log.info("Backend auth: waiting for network before retry \(attempt + 1)...")
+                    await waitForNetworkConnected()
+                }
+                let delay = Self.backendAuthBaseDelay * UInt64(1 << min(attempt - 1, 2))
+                try await Task.sleep(nanoseconds: delay)
+                Log.info("Backend auth: retry \(attempt + 1)/\(Self.backendAuthMaxRetries)...")
+            }
 
-        Log.debug("Authenticating with backend and storing JWT...")
-        _ = try await apiClient.authenticate(appCheckToken: appCheckToken, retryCount: 0)
-        Log.info("Successfully authenticated with backend")
+            do {
+                try Task.checkCancellation()
+
+                Log.debug("Getting Firebase AppCheck token...")
+                let appCheckToken = try await FirebaseHelperCore.getAppCheckToken()
+
+                try Task.checkCancellation()
+
+                Log.debug("Authenticating with backend and storing JWT...")
+                _ = try await apiClient.authenticate(appCheckToken: appCheckToken, retryCount: 0)
+                Log.info("Successfully authenticated with backend")
+                return
+            } catch is CancellationError {
+                throw CancellationError()
+            } catch {
+                lastError = error
+                Log.warning("Backend auth attempt \(attempt + 1) failed: \(error.localizedDescription)")
+            }
+        }
+
+        if let lastError {
+            throw lastError
+        }
+    }
+
+    private func waitForNetworkConnected() async {
+        await networkMonitor.start()
+        defer { Task { await networkMonitor.stop() } }
+
+        for await status in await networkMonitor.statusSequence where status.isConnected {
+            return
+        }
     }
 
     // MARK: - App Lifecycle Observation
@@ -1197,36 +1259,18 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     }
 
     private func handleNetworkStatusChange(_ status: NetworkMonitor.Status) async {
-        guard case .ready = _state else {
-            Log.debug("Ignoring network status change in non-ready state: \(_state)")
-            return
-        }
+        guard case .ready = _state else { return }
 
         switch status {
         case .connected(let type):
             Log.debug("Network connected (\(type)) - resuming sync")
-            await handleNetworkConnected()
-
+            await syncingManager?.resume()
         case .disconnected:
             Log.debug("Network disconnected - pausing sync")
-            await handleNetworkDisconnected()
-
-        case .connecting:
-            Log.debug("Network connecting...")
-
-        case .unknown:
-            Log.debug("Network status unknown...")
+            await syncingManager?.pause()
+        case .connecting, .unknown:
+            break
         }
-    }
-
-    private func handleNetworkConnected() async {
-        // Network monitoring starts in ready state, so we can always resume
-        await syncingManager?.resume()
-    }
-
-    private func handleNetworkDisconnected() async {
-        // Network monitoring starts in ready state, so we can always pause
-        await syncingManager?.pause()
     }
 }
 

@@ -15,21 +15,6 @@ public protocol NetworkMonitorProtocol: Actor {
 /// NetworkMonitor provides reactive network status updates using Apple's Network framework.
 /// It distinguishes between different connection types (WiFi, cellular, etc.) and provides
 /// information about network constraints like expensive connections and Low Data Mode.
-///
-/// Usage:
-/// ```swift
-/// let monitor = NetworkMonitor()
-/// monitor.start()
-///
-/// for await status in await monitor.statusSequence {
-///     switch status {
-///     case .connected(let type):
-///         // Handle connection
-///     case .disconnected:
-///         // Handle disconnection
-///     }
-/// }
-/// ```
 public actor NetworkMonitor: NetworkMonitorProtocol {
     public enum Status: Sendable, Equatable {
         case connected(ConnectionType)
@@ -56,6 +41,7 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
     private var _status: Status = .unknown
     private var _currentPath: NWPath?
     private var statusContinuations: [UUID: AsyncStream<Status>.Continuation] = [:]
+    private var isStarted: Bool = false
 
     public var status: Status {
         _status
@@ -77,6 +63,7 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
 
     public func start() async {
         monitor?.cancel()
+        isStarted = true
         let newMonitor = NWPathMonitor()
         monitor = newMonitor
         newMonitor.pathUpdateHandler = { [weak self] path in
@@ -92,6 +79,7 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
     public func stop() async {
         monitor?.cancel()
         monitor = nil
+        isStarted = false
         for continuation in statusContinuations.values {
             continuation.finish()
         }
@@ -102,6 +90,8 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
     }
 
     private func handlePathUpdate(_ path: NWPath) {
+        guard isStarted else { return }
+
         _currentPath = path
 
         let newStatus: Status
@@ -131,7 +121,6 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
             Log.debug("Network is constrained (Low Data Mode)")
         }
 
-        // Emit to all continuations
         for continuation in statusContinuations.values {
             continuation.yield(newStatus)
         }
@@ -149,26 +138,27 @@ public actor NetworkMonitor: NetworkMonitorProtocol {
     }
 
     public var statusSequence: AsyncStream<Status> {
-        AsyncStream { continuation in
+        let id = UUID()
+        let currentStatus = _status
+        return AsyncStream { [weak self] continuation in
+            continuation.yield(currentStatus)
+            continuation.onTermination = { [weak self] _ in
+                Task { [weak self] in
+                    await self?.removeStatusContinuation(id: id)
+                }
+            }
             Task { [weak self] in
                 guard let self else {
                     continuation.finish()
                     return
                 }
-                await self.addStatusContinuation(continuation)
+                await self.registerContinuation(continuation, id: id)
             }
         }
     }
 
-    private func addStatusContinuation(_ continuation: AsyncStream<Status>.Continuation) {
-        let id = UUID()
+    private func registerContinuation(_ continuation: AsyncStream<Status>.Continuation, id: UUID) {
         statusContinuations[id] = continuation
-        continuation.onTermination = { [weak self] _ in
-            Task {
-                await self?.removeStatusContinuation(id: id)
-            }
-        }
-        continuation.yield(_status)
     }
 
     private func removeStatusContinuation(id: UUID) {
