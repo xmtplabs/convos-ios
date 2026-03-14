@@ -30,7 +30,8 @@ struct MessagesGroup: Identifiable, Equatable, Hashable {
         lhs.messages == rhs.messages &&
         lhs.isLastGroup == rhs.isLastGroup &&
         lhs.isLastGroupSentByCurrentUser == rhs.isLastGroupSentByCurrentUser &&
-        lhs.onlyVisibleToSender == rhs.onlyVisibleToSender
+        lhs.onlyVisibleToSender == rhs.onlyVisibleToSender &&
+        lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers
     }
 }
 
