@@ -69,16 +69,23 @@ private struct FlowLayoutTextEditorExample: View {
         }
     }
 
+    private func chipLabel(for item: String) -> some View {
+        let isItemSelected: Bool = item == selectedItem
+        let textColor: Color = isItemSelected ? .colorTextPrimaryInverted : .colorTextPrimary
+        let bgColor: Color = isItemSelected ? .colorBackgroundInverted : .gray.opacity(0.2)
+        return Text(item)
+            .foregroundStyle(textColor)
+            .padding(DesignConstants.Spacing.step2x)
+            .background(bgColor)
+            .cornerRadius(DesignConstants.CornerRadius.small)
+    }
+
     var body: some View {
         GeometryReader { reader in
             ScrollView {
                 FlowLayout(spacing: DesignConstants.Spacing.step2x) {
                     ForEach(items, id: \.self) { item in
-                        Text(item)
-                            .foregroundStyle(item == selectedItem ? .colorTextPrimaryInverted : .colorTextPrimary)
-                            .padding(DesignConstants.Spacing.step2x)
-                            .background(item == selectedItem ? .colorBackgroundInverted : .gray.opacity(0.2))
-                            .cornerRadius(DesignConstants.CornerRadius.small)
+                        chipLabel(for: item)
                     }
 
                     FlowLayoutTextEditor(

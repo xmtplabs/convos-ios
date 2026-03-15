@@ -50,6 +50,72 @@ struct MessagesInputView: View {
         selectedAttachmentImage != nil || pendingInviteCode != nil
     }
 
+    private var avatarButton: some View {
+        Button {
+            onProfilePhotoTap()
+        } label: {
+            ProfileAvatarView(
+                profile: profile,
+                profileImage: profileImage,
+                useSystemPlaceholder: animateAvatarForQuickname
+            )
+        }
+        .frame(width: sendButtonSize, height: sendButtonSize)
+        .frame(alignment: .bottomLeading)
+        .scaleEffect(avatarScale)
+        .task(id: animateAvatarForQuickname) {
+            updateAnimation()
+        }
+        .hoverEffect(.lift)
+        .accessibilityLabel("Edit your profile")
+        .accessibilityIdentifier("profile-avatar-button")
+    }
+
+    private var sendButton: some View {
+        Button {
+            onSendMessage()
+        } label: {
+            Image(systemName: "arrow.up")
+                .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                .frame(width: sendButtonSize, height: sendButtonSize, alignment: .center)
+                .tint(sendButtonEnabled ? .colorTextPrimaryInverted : .colorTextPrimary)
+                .font(.callout.weight(.medium))
+        }
+        .background(sendButtonEnabled ? .colorFillPrimary : .colorFillMinimal)
+        .mask(Circle())
+        .frame(width: sendButtonSize, height: sendButtonSize, alignment: .bottomLeading)
+        .hoverEffect(.lift)
+        .hoverEffectDisabled(!sendButtonEnabled)
+        .disabled(!sendButtonEnabled)
+        .accessibilityLabel("Send message")
+        .accessibilityIdentifier("send-message-button")
+    }
+
+    private var messageTextField: some View {
+        Group {
+            TextField(
+                "Chat as \(profile.displayName)",
+                text: $messageText,
+                axis: .vertical
+            )
+            .focused($focusState, equals: focused)
+            .font(.callout)
+            .foregroundStyle(.colorTextPrimary)
+            .tint(.colorTextPrimary)
+            .frame(minHeight: Self.defaultHeight, maxHeight: 170.0, alignment: .center)
+            .padding(.leading, DesignConstants.Spacing.step2x)
+            .padding(.trailing, DesignConstants.Spacing.step3x)
+            .disabled(!messagesTextFieldEnabled)
+            .accessibilityLabel("Message input")
+            .accessibilityIdentifier("message-text-field")
+        }
+        .onSubmit {
+            onSendMessage()
+            focusState = .message
+        }
+        .frame(maxHeight: .infinity, alignment: .center)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             if hasAttachments {
@@ -57,65 +123,9 @@ struct MessagesInputView: View {
             }
 
             HStack(alignment: .bottom, spacing: 0) {
-                Button {
-                    onProfilePhotoTap()
-                } label: {
-                    ProfileAvatarView(
-                        profile: profile,
-                        profileImage: profileImage,
-                        useSystemPlaceholder: animateAvatarForQuickname
-                    )
-                }
-                .frame(width: sendButtonSize, height: sendButtonSize)
-                .frame(alignment: .bottomLeading)
-                .scaleEffect(avatarScale)
-                .task(id: animateAvatarForQuickname) {
-                    updateAnimation()
-                }
-                .hoverEffect(.lift)
-                .accessibilityLabel("Edit your profile")
-                .accessibilityIdentifier("profile-avatar-button")
-
-                Group {
-                    TextField(
-                        "Chat as \(profile.displayName)",
-                        text: $messageText,
-                        axis: .vertical
-                    )
-                    .focused($focusState, equals: focused)
-                    .font(.callout)
-                    .foregroundStyle(.colorTextPrimary)
-                    .tint(.colorTextPrimary)
-                    .frame(minHeight: Self.defaultHeight, maxHeight: 170.0, alignment: .center)
-                    .padding(.leading, DesignConstants.Spacing.step2x)
-                    .padding(.trailing, DesignConstants.Spacing.step3x)
-                    .disabled(!messagesTextFieldEnabled)
-                    .accessibilityLabel("Message input")
-                    .accessibilityIdentifier("message-text-field")
-                }
-                .onSubmit {
-                    onSendMessage()
-                    focusState = .message
-                }
-                .frame(maxHeight: .infinity, alignment: .center)
-
-                Button {
-                    onSendMessage()
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
-                        .frame(width: sendButtonSize, height: sendButtonSize, alignment: .center)
-                        .tint(sendButtonEnabled ? .colorTextPrimaryInverted : .colorTextPrimary)
-                        .font(.callout.weight(.medium))
-                }
-                .background(sendButtonEnabled ? .colorFillPrimary : .colorFillMinimal)
-                .mask(Circle())
-                .frame(width: sendButtonSize, height: sendButtonSize, alignment: .bottomLeading)
-                .hoverEffect(.lift)
-                .hoverEffectDisabled(!sendButtonEnabled)
-                .disabled(!sendButtonEnabled)
-                .accessibilityLabel("Send message")
-                .accessibilityIdentifier("send-message-button")
+                avatarButton
+                messageTextField
+                sendButton
             }
         }
         .padding(DesignConstants.Spacing.step2x)

@@ -34,20 +34,24 @@ struct ReactionIndicatorView: View {
         if reactions.isEmpty {
             EmptyView()
         } else {
-            let tapAction = { onTap() }
-            Button(action: tapAction) {
-                ReactionPillView(
-                    emojis: uniqueEmojis,
-                    count: totalCount,
-                    isSelected: currentUserHasReacted,
-                    maxWidth: UIScreen.main.bounds.width * Constant.maxWidth * 0.5 - 20
-                )
+            GeometryReader { geometry in
+                let pillMaxWidth: CGFloat = geometry.size.width * Constant.maxWidth * 0.5 - 20
+                let tapAction = { onTap() }
+                Button(action: tapAction) {
+                    ReactionPillView(
+                        emojis: uniqueEmojis,
+                        count: totalCount,
+                        isSelected: currentUserHasReacted,
+                        maxWidth: pillMaxWidth
+                    )
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(reactionAccessibilityLabel)
+                .accessibilityHint("Tap to view reactions")
             }
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: isOutgoing ? .trailing : .leading)
-            .accessibilityElement(children: .ignore)
-            .accessibilityLabel(reactionAccessibilityLabel)
-            .accessibilityHint("Tap to view reactions")
+            .frame(height: 36)
         }
     }
 }
@@ -90,87 +94,100 @@ private struct ReactionPillView: View {
 
     @State private var countBadgeWidth: CGFloat = 0
 
-    var body: some View {
+    private var scrollingContent: some View {
+        ZStack(alignment: .trailing) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                emojiContent
+            }
+            .scrollBounceBehavior(.basedOnSize)
+            .contentMargins(.trailing, countBadgeWidth, for: .scrollContent)
+            .mask(
+                HStack(spacing: 0) {
+                    Rectangle().fill(.black)
+                    LinearGradient(
+                        colors: [.black, .black.opacity(0)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                    .frame(width: 12)
+                    Rectangle().fill(.clear)
+                        .frame(width: countBadgeWidth)
+                }
+            )
+
+            Text("\(count)")
+                .font(.footnote)
+                .foregroundStyle(.colorTextSecondary)
+                .padding(.leading, DesignConstants.Spacing.stepX)
+                .padding(.trailing, DesignConstants.Spacing.step3x)
+                .fixedSize()
+                .background(GeometryReader { geo in
+                    Color.clear.preference(key: CountBadgeWidthKey.self, value: geo.size.width)
+                })
+                .onPreferenceChange(CountBadgeWidthKey.self) { width in
+                    countBadgeWidth = width
+                }
+        }
+        .frame(width: maxWidth)
+    }
+
+    private var widthMeasurement: some View {
+        emojiContent
+            .fixedSize()
+            .hidden()
+            .background(GeometryReader { geo in
+                Color.clear.preference(key: ContentWidthKey.self, value: geo.size.width)
+            })
+    }
+
+    private var pillContent: some View {
         Group {
             if needsScrolling {
-                ZStack(alignment: .trailing) {
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        emojiContent
-                    }
-                    .scrollBounceBehavior(.basedOnSize)
-                    .contentMargins(.trailing, countBadgeWidth, for: .scrollContent)
-                    .mask(
-                        HStack(spacing: 0) {
-                            Rectangle().fill(.black)
-                            LinearGradient(
-                                colors: [.black, .black.opacity(0)],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                            .frame(width: 12)
-                            Rectangle().fill(.clear)
-                                .frame(width: countBadgeWidth)
-                        }
-                    )
-
-                    Text("\(count)")
-                        .font(.footnote)
-                        .foregroundStyle(.colorTextSecondary)
-                        .padding(.leading, DesignConstants.Spacing.stepX)
-                        .padding(.trailing, DesignConstants.Spacing.step3x)
-                        .fixedSize()
-                        .background(GeometryReader { geo in
-                            Color.clear.preference(key: CountBadgeWidthKey.self, value: geo.size.width)
-                        })
-                        .onPreferenceChange(CountBadgeWidthKey.self) { width in
-                            countBadgeWidth = width
-                        }
-                }
-                .frame(width: maxWidth)
+                scrollingContent
             } else {
                 emojiContent
             }
         }
         .padding(.vertical, DesignConstants.Spacing.step2x)
-        .background(
-            emojiContent
-                .fixedSize()
-                .hidden()
-                .background(GeometryReader { geo in
-                    Color.clear.preference(key: ContentWidthKey.self, value: geo.size.width)
-                })
-        )
+        .background(widthMeasurement)
         .onPreferenceChange(ContentWidthKey.self) { width in
             contentWidth = width + DesignConstants.Spacing.step2x * 2
         }
-        .background(isSelected ? .colorFillMinimal : .clear)
-        .clipShape(Capsule())
-        .overlay(
-            Capsule()
-                .stroke(.colorBorderSubtle, lineWidth: isSelected ? 0 : 1)
-        )
-        .scaleEffect(pillAppeared ? 1.0 : 0.5)
-        .opacity(pillAppeared ? 1.0 : 0)
-        .onAppear {
-            withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
-                pillAppeared = true
+    }
+
+    var body: some View {
+        let bgColor: Color = isSelected ? .colorFillMinimal : .clear
+        let borderWidth: CGFloat = isSelected ? 0 : 1
+        pillContent
+            .background(bgColor)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(.colorBorderSubtle, lineWidth: borderWidth))
+            .scaleEffect(pillAppeared ? 1.0 : 0.5)
+            .opacity(pillAppeared ? 1.0 : 0)
+            .onAppear {
+                withAnimation(.spring(response: 0.29, dampingFraction: 0.7)) {
+                    pillAppeared = true
+                }
             }
-        }
-        .onChange(of: emojis) { _, newEmojis in
-            let newSet = Set(newEmojis)
-            let added = newSet.subtracting(appearedEmojis)
-            if !added.isEmpty {
-                for (index, emoji) in added.enumerated() {
-                    let delay = Double(index) * 0.04
-                    DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                        withAnimation(.spring(response: 0.29, dampingFraction: 0.6)) {
-                            _ = appearedEmojis.insert(emoji)
-                        }
+            .onChange(of: emojis) { _, newEmojis in
+                handleEmojiChange(newEmojis)
+            }
+    }
+
+    private func handleEmojiChange(_ newEmojis: [String]) {
+        let newSet = Set(newEmojis)
+        let added = newSet.subtracting(appearedEmojis)
+        if !added.isEmpty {
+            for (index, emoji) in added.enumerated() {
+                let delay = Double(index) * 0.04
+                DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                    withAnimation(.spring(response: 0.29, dampingFraction: 0.6)) {
+                        _ = appearedEmojis.insert(emoji)
                     }
                 }
             }
-            appearedEmojis = appearedEmojis.intersection(newSet)
         }
+        appearedEmojis = appearedEmojis.intersection(newSet)
     }
 }
 

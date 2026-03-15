@@ -22,34 +22,33 @@ struct ReactionsDrawerView: View {
         }
     }
 
-    private var maxDrawerHeight: CGFloat {
-        UIScreen.main.bounds.height * 0.7
-    }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-            Text("Reactions")
-                .font(.system(.largeTitle))
-                .fontWeight(.bold)
-                .padding(.bottom, DesignConstants.Spacing.step2x)
+        GeometryReader { geometry in
+            let maxDrawerHeight: CGFloat = geometry.size.height * 0.7
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                Text("Reactions")
+                    .font(.system(.largeTitle))
+                    .fontWeight(.bold)
+                    .padding(.bottom, DesignConstants.Spacing.step2x)
 
-            ScrollView {
-                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                    ForEach(sortedReactions, id: \.id) { reaction in
-                        ReactionRowView(
-                            reaction: reaction,
-                            onRemove: reaction.sender.isCurrentUser ? { onRemoveReaction?(reaction) } : nil
-                        )
+                ScrollView {
+                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                        ForEach(sortedReactions, id: \.id) { reaction in
+                            ReactionRowView(
+                                reaction: reaction,
+                                onRemove: reaction.sender.isCurrentUser ? { onRemoveReaction?(reaction) } : nil
+                            )
+                        }
                     }
                 }
+                .scrollBounceBehavior(.basedOnSize)
+                .scrollIndicatorsFlash(onAppear: true)
+                .scrollContentBackground(.hidden)
             }
-            .scrollBounceBehavior(.basedOnSize)
-            .scrollIndicatorsFlash(onAppear: true)
-            .scrollContentBackground(.hidden)
+            .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+            .padding(.bottom, DesignConstants.Spacing.step3x)
+            .frame(minHeight: 160, maxHeight: maxDrawerHeight)
         }
-        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
-        .padding(.bottom, DesignConstants.Spacing.step3x)
-        .frame(minHeight: 160, maxHeight: maxDrawerHeight)
     }
 }
 
