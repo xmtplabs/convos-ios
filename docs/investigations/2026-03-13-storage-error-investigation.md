@@ -313,25 +313,34 @@ accessible to the existing file descriptors but become invisible in the filesyst
 NSE's connections are later closed or when the orphaned main-app client reconnects, a new
 empty file is created at the same path.
 
-## Recommendations
+## Recommendations and Status
 
-1. **Prevent triple authorization**: Add a guard to ensure each inbox ID is only authorized
-   once per app launch. Deduplicate before creating `InboxStateMachine` instances.
+### Fixed (PR #600)
 
-2. **Coordinate cross-process database access**: Before deleting an inbox's database files,
-   either:
-   - Use a file coordination mechanism (e.g., `NSFileCoordinator`) to signal the NSE
-   - Accept that the NSE may have stale connections and ensure `reconnectLocalDatabase()`
-     validates table existence before reporting `.ready`
+1. **Prevent triple authorization**: `initializeOnAppLaunch()` now checks
+   `isUnusedInbox()` before waking each inbox, matching the existing behavior in
+   `rebalance()`. This prevents the same inbox from being authorized by both
+   `initializeOnAppLaunch` (via activity records) and `prepareUnusedConversationIfNeeded`
+   (via keychain cache).
 
-3. **Validate database health after reconnect**: In `handleEnterForeground`, after calling
-   `reconnectLocalDatabase()`, run a lightweight query (e.g., `SELECT 1 FROM identity
-   LIMIT 1`) before emitting `.ready`. If the query fails, transition to `.error` instead.
+2. **Log keychain clear failures at warning level**: `clearUnusedFromKeychain()` previously
+   logged failures at debug level (not captured in app log bundles). Now logs at warning
+   level so silent keychain failures are visible in production diagnostics.
 
-4. **Validate database health before `.ready` in unused cache**: The unused cache's
-   `consumeInboxOnlyService` should verify the consumed service's database is functional
-   before returning it.
+### XMTP SDK issues to file
 
-5. **Guard inbox deletion against orphaned clients**: The deletion flow should locate and
-   stop **all** `InboxStateMachine` instances for the target inbox, not just the one that
-   received the `.delete` action.
+3. **`reconnectLocalDatabase()` should validate schema health**: Currently succeeds even
+   when the database file has zero tables (schema wiped). Should throw an error if the
+   database is in an unrecoverable state, so callers can handle it rather than emitting
+   `.ready` for a broken database.
+
+4. **Cross-process database safety**: `deleteLocalDatabase()` deletes the `.db3` file
+   while the NSE may have active connections to it via a separate `Client` instance. The
+   SDK should either use file coordination or handle the case where the underlying file
+   disappears.
+
+### Not needed (addressed by fix #1)
+
+5. **Guard inbox deletion against orphaned clients**: With the triple authorization fix,
+   there should only be one `InboxStateMachine` per inbox. The existing `forceRemove` in
+   `InboxLifecycleManager` handles cleanup for the single service.
