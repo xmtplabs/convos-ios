@@ -470,6 +470,12 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             var awakePendingInviteCount = 0
 
             for activity in allActivities {
+                let isUnused = await unusedConversationCache.isUnusedInbox(activity.inboxId)
+                if isUnused {
+                    Log.debug("Skipping unused inbox during app launch: \(activity.clientId)")
+                    continue
+                }
+
                 let hasPendingInvite = pendingInviteClientIds.contains(activity.clientId)
 
                 if hasPendingInvite {
