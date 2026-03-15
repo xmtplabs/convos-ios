@@ -133,11 +133,11 @@ struct DeleteExpiredPendingInvitesTests {
 
             try DBConversationMember(
                 conversationId: "draft-expired", inboxId: "inbox-1",
-                role: .admin, consent: .allowed, createdAt: tenDaysAgo
+                role: .admin, consent: .allowed, createdAt: tenDaysAgo, invitedByInboxId: nil
             ).insert(db)
             try DBConversationMember(
                 conversationId: "draft-expired", inboxId: "other-inbox",
-                role: .member, consent: .allowed, createdAt: tenDaysAgo
+                role: .member, consent: .allowed, createdAt: tenDaysAgo, invitedByInboxId: nil
             ).insert(db)
         }
 

@@ -26,8 +26,8 @@ struct InboxActivityRepositoryTests {
             // Add members (required for message foreign keys)
             try DBMember(inboxId: "inbox-1").insert(db)
             try DBMember(inboxId: "inbox-2").insert(db)
-            try DBConversationMember(conversationId: "convo-1", inboxId: "inbox-1", role: .member, consent: .allowed, createdAt: Date()).insert(db)
-            try DBConversationMember(conversationId: "convo-2", inboxId: "inbox-2", role: .member, consent: .allowed, createdAt: Date()).insert(db)
+            try DBConversationMember(conversationId: "convo-1", inboxId: "inbox-1", role: .member, consent: .allowed, createdAt: Date(), invitedByInboxId: nil).insert(db)
+            try DBConversationMember(conversationId: "convo-2", inboxId: "inbox-2", role: .member, consent: .allowed, createdAt: Date(), invitedByInboxId: nil).insert(db)
 
             // Add messages with different dates
             try makeDBMessage(id: "msg-1", conversationId: "convo-1", senderId: "inbox-1", date: oldDate).save(db)
@@ -97,9 +97,9 @@ struct InboxActivityRepositoryTests {
             try DBMember(inboxId: "inbox-1").insert(db)
             try DBMember(inboxId: "inbox-2").insert(db)
             try DBMember(inboxId: "inbox-3").insert(db)
-            try DBConversationMember(conversationId: "convo-1", inboxId: "inbox-1", role: .member, consent: .allowed, createdAt: Date()).insert(db)
-            try DBConversationMember(conversationId: "convo-2", inboxId: "inbox-2", role: .member, consent: .allowed, createdAt: Date()).insert(db)
-            try DBConversationMember(conversationId: "convo-3", inboxId: "inbox-3", role: .member, consent: .allowed, createdAt: Date()).insert(db)
+            try DBConversationMember(conversationId: "convo-1", inboxId: "inbox-1", role: .member, consent: .allowed, createdAt: Date(), invitedByInboxId: nil).insert(db)
+            try DBConversationMember(conversationId: "convo-2", inboxId: "inbox-2", role: .member, consent: .allowed, createdAt: Date(), invitedByInboxId: nil).insert(db)
+            try DBConversationMember(conversationId: "convo-3", inboxId: "inbox-3", role: .member, consent: .allowed, createdAt: Date(), invitedByInboxId: nil).insert(db)
 
             // Messages (client-1 is oldest)
             try makeDBMessage(id: "msg-1", conversationId: "convo-1", senderId: "inbox-1", date: oldDate).save(db)

@@ -431,7 +431,8 @@ struct MessagesRepositoryTests {
             inboxId: currentInboxId,
             role: .superAdmin,
             consent: .allowed,
-            createdAt: now
+            createdAt: now,
+            invitedByInboxId: nil
         ).insert(db)
 
         try DBMemberProfile(
@@ -447,7 +448,8 @@ struct MessagesRepositoryTests {
                 inboxId: inboxId,
                 role: .member,
                 consent: .allowed,
-                createdAt: now
+                createdAt: now,
+                invitedByInboxId: nil
             ).insert(db)
 
             try DBMemberProfile(

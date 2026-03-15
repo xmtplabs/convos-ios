@@ -82,7 +82,8 @@ struct MessagesRepositoryBenchmarkTests {
                 inboxId: inboxId,
                 role: role,
                 consent: .allowed,
-                createdAt: now
+                createdAt: now,
+                invitedByInboxId: nil
             ).insert(db)
 
             try DBMemberProfile(
