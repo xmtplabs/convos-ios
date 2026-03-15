@@ -1128,13 +1128,14 @@ extension ConversationViewModel {
 
 extension ConversationViewModel {
     func onReaction(emoji: String, messageId: String) {
+        let conversationId = conversationStateManager.conversationId
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await reactionWriter.toggleReaction(
                     emoji: emoji,
                     to: messageId,
-                    in: conversation.id
+                    in: conversationId
                 )
             } catch {
                 Log.error("Error toggling reaction: \(error)")
@@ -1147,13 +1148,14 @@ extension ConversationViewModel {
     }
 
     func onToggleReaction(emoji: String, messageId: String) {
+        let conversationId = conversationStateManager.conversationId
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await reactionWriter.toggleReaction(
                     emoji: emoji,
                     to: messageId,
-                    in: conversation.id
+                    in: conversationId
                 )
             } catch {
                 Log.error("Error toggling reaction: \(error)")
@@ -1162,13 +1164,14 @@ extension ConversationViewModel {
     }
 
     func removeReaction(_ reaction: MessageReaction, from message: AnyMessage) {
+        let conversationId = conversationStateManager.conversationId
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await reactionWriter.removeReaction(
                     emoji: reaction.emoji,
                     from: message.base.id,
-                    in: conversation.id
+                    in: conversationId
                 )
                 await MainActor.run {
                     self.presentingReactionsForMessage = nil
