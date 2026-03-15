@@ -257,14 +257,14 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
             try keychainService.delete(account: KeychainAccount.unusedConversation)
             Log.debug("Cleared unused conversation from keychain")
         } catch {
-            Log.debug("Failed to clear unused conversation from keychain: \(error)")
+            Log.warning("Failed to clear unused conversation from keychain: \(error)")
         }
 
         do {
             try keychainService.delete(account: KeychainAccount.unusedInbox)
             Log.debug("Cleared unused inbox from keychain")
         } catch {
-            Log.debug("Failed to clear unused inbox from keychain: \(error)")
+            Log.warning("Failed to clear unused inbox from keychain: \(error)")
         }
     }
 

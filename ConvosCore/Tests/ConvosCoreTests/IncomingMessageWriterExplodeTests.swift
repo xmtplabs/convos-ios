@@ -316,7 +316,8 @@ private class ExplodeTestFixtures {
                 inboxId: crId,
                 role: .superAdmin,
                 consent: .allowed,
-                createdAt: Date()
+                createdAt: Date(),
+                invitedByInboxId: nil
             )
             try creatorMember.insert(db)
         }
@@ -331,7 +332,8 @@ private class ExplodeTestFixtures {
                 inboxId: inboxId,
                 role: role,
                 consent: .allowed,
-                createdAt: Date()
+                createdAt: Date(),
+                invitedByInboxId: nil
             )
             try member.insert(db)
         }
