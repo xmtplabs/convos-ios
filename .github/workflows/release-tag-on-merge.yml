@@ -28,8 +28,9 @@ jobs:
 
       - name: Extract tag version from PR body
         id: extract
+        env:
+          PR_BODY: ${{ github.event.pull_request.body }}
         run: |
-          PR_BODY="${{ github.event.pull_request.body }}"
           # Extract version from <!-- release-tag: X.Y.Z --> comment
           TAG=$(echo "$PR_BODY" | grep -oP '<!-- release-tag: \K[^\s]+(?= -->)' || echo "")
 
