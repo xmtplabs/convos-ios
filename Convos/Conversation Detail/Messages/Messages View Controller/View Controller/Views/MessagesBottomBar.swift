@@ -117,26 +117,40 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @ViewBuilder
     private var collapsedInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            MessagesMediaInputView(
-                isPhotoPickerPresented: $isPhotoPickerPresented,
-                isCameraPresented: $isCameraPresented,
-                isExpanded: isMessageInputFocused,
-                onCollapse: {
+            if isMessageInputFocused {
+                Button {
                     withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                         isMessageInputFocused = false
                     }
-                },
-                onConvosAction: {}
-            )
-            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
-            .frame(
-                width: isMessageInputFocused ? DesignConstants.Spacing.step12x : nil,
-                height: DesignConstants.Spacing.step12x
-            )
-            .clipShape(isMessageInputFocused ? AnyShape(.circle) : AnyShape(.capsule))
-            .glassEffect(.regular.interactive(), in: isMessageInputFocused ? AnyShape(.circle) : AnyShape(.capsule))
-            .glassEffectID("media", in: namespace)
-            .glassEffectTransition(.matchedGeometry)
+                } label: {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 18.0, weight: .medium))
+                        .foregroundStyle(Color.colorTextSecondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(.circle)
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Show media buttons")
+                .accessibilityIdentifier("collapse-input-button")
+                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+                .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
+                .clipShape(.circle)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .glassEffectID("media", in: namespace)
+                .glassEffectTransition(.matchedGeometry)
+            } else {
+                MessagesMediaButtonsView(
+                    isPhotoPickerPresented: $isPhotoPickerPresented,
+                    isCameraPresented: $isCameraPresented,
+                    onConvosAction: {}
+                )
+                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+                .frame(height: DesignConstants.Spacing.step12x)
+                .clipShape(.capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffectID("media", in: namespace)
+                .glassEffectTransition(.matchedGeometry)
+            }
 
             MessagesInputView(
                 profile: profile,

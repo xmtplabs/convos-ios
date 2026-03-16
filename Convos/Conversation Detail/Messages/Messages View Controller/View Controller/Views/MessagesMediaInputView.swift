@@ -1,36 +1,11 @@
 import SwiftUI
 
-struct MessagesMediaInputView: View {
+struct MessagesMediaButtonsView: View {
     @Binding var isPhotoPickerPresented: Bool
     @Binding var isCameraPresented: Bool
-    let isExpanded: Bool
-    let onCollapse: () -> Void
     let onConvosAction: () -> Void
 
     var body: some View {
-        if isExpanded {
-            chevronButton
-        } else {
-            actionButtons
-        }
-    }
-
-    private var chevronButton: some View {
-        Button {
-            onCollapse()
-        } label: {
-            Image(systemName: "chevron.right")
-                .font(.system(size: 18.0, weight: .medium))
-                .foregroundStyle(Color.colorTextSecondary)
-                .frame(width: Constant.buttonSize, height: Constant.buttonSize)
-                .contentShape(.circle)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Show media buttons")
-        .accessibilityIdentifier("collapse-input-button")
-    }
-
-    private var actionButtons: some View {
         HStack(spacing: DesignConstants.Spacing.stepX) {
             Button {
                 isPhotoPickerPresented = true
@@ -83,29 +58,13 @@ struct MessagesMediaInputView: View {
     }
 }
 
-#Preview("Collapsed") {
+#Preview {
     @Previewable @State var isPhotoPickerPresented: Bool = false
     @Previewable @State var isCameraPresented: Bool = false
 
-    MessagesMediaInputView(
+    MessagesMediaButtonsView(
         isPhotoPickerPresented: $isPhotoPickerPresented,
         isCameraPresented: $isCameraPresented,
-        isExpanded: false,
-        onCollapse: {},
-        onConvosAction: {}
-    )
-    .padding()
-}
-
-#Preview("Expanded") {
-    @Previewable @State var isPhotoPickerPresented: Bool = false
-    @Previewable @State var isCameraPresented: Bool = false
-
-    MessagesMediaInputView(
-        isPhotoPickerPresented: $isPhotoPickerPresented,
-        isCameraPresented: $isCameraPresented,
-        isExpanded: true,
-        onCollapse: {},
         onConvosAction: {}
     )
     .padding()
