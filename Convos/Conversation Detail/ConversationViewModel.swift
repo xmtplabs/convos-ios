@@ -49,7 +49,7 @@ class ConversationViewModel {
     private let explosionWriter: any ConversationExplosionWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
-    private let messagesListRepository: any MessagesListRepositoryProtocol
+    private var messagesListRepository: any MessagesListRepositoryProtocol
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
@@ -69,6 +69,7 @@ class ConversationViewModel {
     var showsInfoView: Bool = true
     private(set) var conversation: Conversation {
         didSet {
+            messagesListRepository.currentOtherMemberCount = conversation.membersWithoutCurrent.count
             presentingConversationForked = conversation.isForked
             if oldValue.isDraft, !conversation.isDraft {
                 // Keep the draft include-info override until remote metadata changes propagate.

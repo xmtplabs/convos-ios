@@ -168,9 +168,20 @@ final class MessagesListProcessor {
 
     private static func markOnlyVisibleToSender(
         _ items: inout [MessagesListItemType],
-        otherMemberCount initialCount: Int
+        otherMemberCount currentCount: Int
     ) {
-        var otherMemberCount: Int = initialCount
+        var startingCount: Int = currentCount
+        for item in items.reversed() {
+            if case .update(_, let update, _) = item {
+                let addedOthers = update.addedMembers.filter { !$0.isCurrentUser }.count
+                let removedOthers = update.removedMembers.filter { !$0.isCurrentUser }.count
+                startingCount -= addedOthers
+                startingCount += removedOthers
+            }
+        }
+        startingCount = max(0, startingCount)
+
+        var otherMemberCount: Int = startingCount
         var lastOnlyVisibleIndex: Int?
 
         for i in items.indices {
