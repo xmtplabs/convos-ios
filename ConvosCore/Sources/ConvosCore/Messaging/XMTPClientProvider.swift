@@ -140,6 +140,8 @@ public protocol XMTPClientProvider: AnyObject {
         signingKey: SigningKey, installationIds: [String]
     ) async throws
     func revokeAllOtherInstallations(signingKey: SigningKey) async throws
+    func createArchive(path: String, encryptionKey: Data) async throws
+    func importArchive(path: String, encryptionKey: Data) async throws
     func requestDeviceSync() async throws
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
@@ -243,6 +245,14 @@ extension XMTPiOS.Client: XMTPClientProvider {
             throw XMTPClientProviderError.conversationNotFound(id: conversationId)
         }
         try await foundConversation.updateConsentState(state: consent.consentState)
+    }
+
+    public func createArchive(path: String, encryptionKey: Data) async throws {
+        try await createArchive(path: path, encryptionKey: encryptionKey, opts: ArchiveOptions())
+    }
+
+    public func importArchive(path: String, encryptionKey: Data) async throws {
+        try await (self as XMTPiOS.Client).importArchive(path: path, encryptionKey: encryptionKey)
     }
 
     public func requestDeviceSync() async throws {
