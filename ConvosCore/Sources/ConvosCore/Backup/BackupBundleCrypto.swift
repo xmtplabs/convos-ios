@@ -1,7 +1,7 @@
 import CryptoKit
 import Foundation
 
-enum BackupBundleCrypto {
+package enum BackupBundleCrypto {
     enum CryptoError: Error, LocalizedError {
         case encryptionFailed(String)
         case decryptionFailed(String)
@@ -30,10 +30,8 @@ enum BackupBundleCrypto {
                 throw CryptoError.encryptionFailed("failed to produce combined representation")
             }
             return combined
-        } catch let error as CryptoError {
-            throw error
         } catch {
-            throw CryptoError.encryptionFailed(error.localizedDescription)
+            throw CryptoError.encryptionFailed("\(error)")
         }
     }
 
@@ -45,10 +43,8 @@ enum BackupBundleCrypto {
         do {
             let sealedBox = try AES.GCM.SealedBox(combined: data)
             return try AES.GCM.open(sealedBox, using: symmetricKey)
-        } catch let error as CryptoError {
-            throw error
         } catch {
-            throw CryptoError.decryptionFailed(error.localizedDescription)
+            throw CryptoError.decryptionFailed("\(error)")
         }
     }
 }

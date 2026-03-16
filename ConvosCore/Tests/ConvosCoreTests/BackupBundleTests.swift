@@ -206,6 +206,30 @@ struct BackupBundleTarTests {
         }
     }
 
+    @Test("Untar rejects path traversal attempts")
+    func testUntarRejectsPathTraversal() throws {
+        var maliciousArchive = Data()
+
+        let maliciousPath = Data("../../etc/evil.txt".utf8)
+        var pathLength = UInt32(maliciousPath.count).bigEndian
+        maliciousArchive.append(Data(bytes: &pathLength, count: 4))
+        maliciousArchive.append(maliciousPath)
+
+        let fileData = Data("malicious".utf8)
+        var fileLength = UInt64(fileData.count).bigEndian
+        maliciousArchive.append(Data(bytes: &fileLength, count: 8))
+        maliciousArchive.append(fileData)
+
+        let destDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("traversal-test-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: destDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: destDir) }
+
+        #expect(throws: BackupBundle.BundleError.self) {
+            try BackupBundle.untarData(maliciousArchive, to: destDir)
+        }
+    }
+
     @Test("Empty directory tars to empty data")
     func testEmptyDirectoryTar() throws {
         let sourceDir = FileManager.default.temporaryDirectory

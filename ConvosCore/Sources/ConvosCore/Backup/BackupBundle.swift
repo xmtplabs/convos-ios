@@ -78,7 +78,7 @@ public enum BackupBundle {
         try? FileManager.default.removeItem(at: directory)
     }
 
-    // MARK: - Tar archive (simple concatenation format)
+    // MARK: - Archive format: [4-byte path length][path UTF8][8-byte file length][file data]...
 
     static func tarDirectory(_ directory: URL) throws -> Data {
         var archive = Data()
@@ -97,7 +97,10 @@ public enum BackupBundle {
             guard resourceValues.isRegularFile == true else { continue }
 
             let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
-            let relativePath = resolvedFile.path.replacingOccurrences(of: resolvedDirectory.path + "/", with: "")
+            guard resolvedFile.path.hasPrefix(resolvedDirectory.path + "/") else {
+                throw BundleError.packagingFailed("file outside backup directory: \(fileURL.path)")
+            }
+            let relativePath = String(resolvedFile.path.dropFirst(resolvedDirectory.path.count + 1))
             let pathData = Data(relativePath.utf8)
             let fileData = try Data(contentsOf: fileURL)
 
@@ -114,6 +117,7 @@ public enum BackupBundle {
 
     static func untarData(_ data: Data, to directory: URL) throws {
         let fileManager = FileManager.default
+        let resolvedDirectory = directory.standardizedFileURL.resolvingSymlinksInPath()
         var offset = 0
 
         while offset < data.count {
@@ -144,6 +148,10 @@ public enum BackupBundle {
             offset += fileLength
 
             let fileURL = directory.appendingPathComponent(relativePath)
+                .standardizedFileURL.resolvingSymlinksInPath()
+            guard fileURL.path.hasPrefix(resolvedDirectory.path + "/") else {
+                throw BundleError.unpackingFailed("path traversal attempt: \(relativePath)")
+            }
             let parentDir = fileURL.deletingLastPathComponent()
             try fileManager.createDirectory(at: parentDir, withIntermediateDirectories: true)
             try fileData.write(to: fileURL)

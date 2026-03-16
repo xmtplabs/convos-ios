@@ -58,9 +58,12 @@ public actor BackupManager {
         try await createVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
 
         let conversationResults = await createConversationArchives(in: stagingDir)
-        let failedCount = conversationResults.filter { !$0.success }.count
-        if failedCount > 0 {
-            Log.warning("Failed to archive \(failedCount)/\(conversationResults.count) conversation(s)")
+        let failedResults = conversationResults.filter { !$0.success }
+        if !failedResults.isEmpty {
+            Log.warning("Failed to archive \(failedResults.count)/\(conversationResults.count) conversation(s)")
+            for result in failedResults {
+                Log.warning("  \(result.inboxId): \(result.error?.localizedDescription ?? "unknown error")")
+            }
         }
 
         try copyDatabase(to: stagingDir)
