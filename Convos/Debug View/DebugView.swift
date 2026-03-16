@@ -154,6 +154,14 @@ struct DebugViewSection: View {
                         .foregroundStyle(.colorTextPrimary)
                 }
                 .accessibilityIdentifier("vault-key-sync-debug-row")
+
+                NavigationLink {
+                    BackupDebugView(environment: environment, session: session)
+                } label: {
+                    Text("Backup")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .accessibilityIdentifier("backup-debug-row")
             }
 
             Section("Sentry Testing") {
