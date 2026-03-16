@@ -25,7 +25,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             && !viewModel.isAssistantJoinPending
             && FeatureFlags.shared.isAssistantEnabled
             && GlobalConvoDefaults.shared.assistantsEnabled
-            && scrollOverscrollAmount > 0
     }
 
     var body: some View {
@@ -113,8 +112,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             },
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
-                    bottomBarContent()
-
                     if showPullToAddAssistant {
                         PullToAddAssistantView(
                             overscrollAmount: scrollOverscrollAmount,
@@ -123,7 +120,12 @@ struct ConversationView<MessagesBottomBar: View>: View {
                                 viewModel.onRequestAssistantJoin()
                             }
                         )
+                        .fixedSize()
+                        .frame(height: 0, alignment: .bottom)
+                        .allowsHitTesting(false)
                     }
+
+                    bottomBarContent()
 
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,
