@@ -143,7 +143,7 @@ public actor BackupManager {
     private func resolveBackupDirectory() throws -> URL {
         let deviceId = DeviceInfo.deviceIdentifier
 
-        if let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: nil) {
+        if let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: environment.iCloudContainerIdentifier) {
             let backupDir = containerURL
                 .appendingPathComponent("Documents", isDirectory: true)
                 .appendingPathComponent("backups", isDirectory: true)
