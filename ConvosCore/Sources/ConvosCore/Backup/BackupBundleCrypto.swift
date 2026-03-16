@@ -24,15 +24,16 @@ package enum BackupBundleCrypto {
             throw CryptoError.invalidKeyLength
         }
         let symmetricKey = SymmetricKey(data: key)
+        let sealedBox: AES.GCM.SealedBox
         do {
-            let sealedBox = try AES.GCM.seal(data, using: symmetricKey)
-            guard let combined = sealedBox.combined else {
-                throw CryptoError.encryptionFailed("failed to produce combined representation")
-            }
-            return combined
+            sealedBox = try AES.GCM.seal(data, using: symmetricKey)
         } catch {
             throw CryptoError.encryptionFailed("\(error)")
         }
+        guard let combined = sealedBox.combined else {
+            throw CryptoError.encryptionFailed("failed to produce combined representation")
+        }
+        return combined
     }
 
     static func decrypt(data: Data, key: Data) throws -> Data {

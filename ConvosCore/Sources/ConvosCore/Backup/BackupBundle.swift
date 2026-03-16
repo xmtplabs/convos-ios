@@ -138,7 +138,12 @@ public enum BackupBundle {
             guard offset + 8 <= data.count else {
                 throw BundleError.unpackingFailed("truncated file length")
             }
-            let fileLength = Int(data.subdata(in: offset ..< offset + 8).withUnsafeBytes { $0.load(as: UInt64.self).bigEndian })
+            let fileLengthU64 = data.subdata(in: offset ..< offset + 8)
+                .withUnsafeBytes { $0.load(as: UInt64.self).bigEndian }
+            guard fileLengthU64 <= UInt64(Int.max) else {
+                throw BundleError.unpackingFailed("file length exceeds maximum: \(fileLengthU64)")
+            }
+            let fileLength = Int(fileLengthU64)
             offset += 8
 
             guard offset + fileLength <= data.count else {
