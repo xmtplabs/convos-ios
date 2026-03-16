@@ -36,7 +36,7 @@ public struct BackupBundleMetadata: Codable, Sendable, Equatable {
         try data.write(to: directory.appendingPathComponent(Constant.metadataFilename))
     }
 
-    static func read(from directory: URL) throws -> BackupBundleMetadata {
+    public static func read(from directory: URL) throws -> BackupBundleMetadata {
         let data = try Data(contentsOf: directory.appendingPathComponent(Constant.metadataFilename))
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
