@@ -147,17 +147,6 @@ struct ConversationsView: View {
                                     Text("Exploding")
                                 }
                             }
-
-                            let pendingAction = {
-                                viewModel.activeFilter = viewModel.activeFilter == .pendingInvites ? .all : .pendingInvites
-                            }
-                            Button(action: pendingAction) {
-                                if viewModel.activeFilter == .pendingInvites {
-                                    Label("Pending invites", systemImage: "checkmark")
-                                } else {
-                                    Text("Pending invites")
-                                }
-                            }
                         } label: {
                             Image(systemName: "line.3.horizontal.decrease")
                                 .foregroundStyle(viewModel.activeFilter != .all ? .colorTextPrimaryInverted : .colorFillPrimary)

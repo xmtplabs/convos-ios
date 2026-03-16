@@ -119,7 +119,6 @@ final class ConversationsViewModel {
         case all
         case unread
         case exploding
-        case pendingInvites
 
         var emptyStateMessage: String {
             switch self {
@@ -129,8 +128,6 @@ final class ConversationsViewModel {
                 return "No unread convos"
             case .exploding:
                 return "No exploding convos"
-            case .pendingInvites:
-                return "No pending invites"
             }
         }
     }
@@ -150,8 +147,6 @@ final class ConversationsViewModel {
             return baseConversations.filter { $0.isUnread }
         case .exploding:
             return baseConversations.filter { $0.scheduledExplosionDate != nil }
-        case .pendingInvites:
-            return baseConversations.filter { $0.isPendingInvite }
         }
     }
 
@@ -164,8 +159,6 @@ final class ConversationsViewModel {
             return baseConversations.filter { $0.isUnread }
         case .exploding:
             return baseConversations.filter { $0.scheduledExplosionDate != nil }
-        case .pendingInvites:
-            return baseConversations.filter { $0.isPendingInvite }
         }
     }
 
