@@ -58,6 +58,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
     let onBottomOverscrollChanged: (CGFloat) -> Void
+    let onBottomOverscrollReleased: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var bottomBarHeight: CGFloat = 0.0
@@ -98,6 +99,7 @@ struct MessagesView<BottomBarContent: View>: View {
             isAssistantEnabled: isAssistantEnabled,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: onBottomOverscrollChanged,
+            onBottomOverscrollReleased: onBottomOverscrollReleased,
             scrollToBottomTrigger: { scrollFn in
                 scrollToBottom = scrollFn
             }

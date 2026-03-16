@@ -17,7 +17,16 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingProcessingPowerInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
+    @State private var didReleasePastThreshold: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
+
+    private var showPullToAddAssistant: Bool {
+        !viewModel.conversation.hasAssistant
+            && !viewModel.isAssistantJoinPending
+            && FeatureFlags.shared.isAssistantEnabled
+            && GlobalConvoDefaults.shared.assistantsEnabled
+            && scrollOverscrollAmount > 0
+    }
 
     var body: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
@@ -93,10 +102,28 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
             onBottomOverscrollChanged: { overscroll in
                 scrollOverscrollAmount = overscroll
+                if overscroll == 0 {
+                    didReleasePastThreshold = false
+                }
+            },
+            onBottomOverscrollReleased: { overscroll in
+                if overscroll >= 100 {
+                    didReleasePastThreshold = true
+                }
             },
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     bottomBarContent()
+
+                    if showPullToAddAssistant {
+                        PullToAddAssistantView(
+                            overscrollAmount: scrollOverscrollAmount,
+                            didReleasePastThreshold: didReleasePastThreshold,
+                            onTriggered: {
+                                viewModel.onRequestAssistantJoin()
+                            }
+                        )
+                    }
 
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,

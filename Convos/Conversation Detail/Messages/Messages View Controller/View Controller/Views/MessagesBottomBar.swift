@@ -203,6 +203,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             isAssistantEnabled: true,
             bottomBarHeight: bottomBarHeight,
             onBottomOverscrollChanged: { _ in },
+            onBottomOverscrollReleased: { _ in },
             scrollToBottomTrigger: { _ in }
         )
         .ignoresSafeArea()
