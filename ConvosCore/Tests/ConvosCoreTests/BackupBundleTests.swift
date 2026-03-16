@@ -273,10 +273,16 @@ struct BackupManagerTests {
         #expect(FileManager.default.fileExists(atPath: outputURL.path))
         #expect(outputURL.lastPathComponent == "backup-latest.encrypted")
 
+        let backupDir = outputURL.deletingLastPathComponent()
+        #expect(BackupBundleMetadata.exists(in: backupDir))
+        let sidecarMetadata = try BackupBundleMetadata.read(from: backupDir)
+        #expect(sidecarMetadata.version == 1)
+        #expect(sidecarMetadata.inboxCount == 2)
+
         #expect(await archiveProvider.vaultArchiveCalls.count == 1)
         #expect(await archiveProvider.conversationArchiveCalls.count == 2)
 
-        try? FileManager.default.removeItem(at: outputURL.deletingLastPathComponent())
+        try? FileManager.default.removeItem(at: backupDir)
         try? await fixtures.cleanup()
     }
 
