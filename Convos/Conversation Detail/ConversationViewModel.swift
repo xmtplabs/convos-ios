@@ -380,7 +380,9 @@ class ConversationViewModel {
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
         self.conversationRepository = conversationStateManager.draftConversationRepository
-        self.messagesListRepository = MessagesListRepository(messagesRepository: messagesRepository)
+        let messagesListRepo = MessagesListRepository(messagesRepository: messagesRepository)
+        messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+        self.messagesListRepository = messagesListRepo
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter
@@ -449,7 +451,9 @@ class ConversationViewModel {
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
         let messagesRepository = conversationStateManager.draftConversationRepository.messagesRepository
-        self.messagesListRepository = MessagesListRepository(messagesRepository: messagesRepository)
+        let messagesListRepo2 = MessagesListRepository(messagesRepository: messagesRepository)
+        messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
+        self.messagesListRepository = messagesListRepo2
         self.outgoingMessageWriter = conversationStateManager
         self.consentWriter = conversationStateManager.conversationConsentWriter
         self.localStateWriter = conversationStateManager.conversationLocalStateWriter

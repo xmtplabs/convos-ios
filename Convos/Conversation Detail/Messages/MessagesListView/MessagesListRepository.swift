@@ -19,6 +19,8 @@ protocol MessagesListRepositoryProtocol {
 
     /// Indicates if there are more messages to load
     var hasMoreMessages: Bool { get }
+
+    var currentOtherMemberCount: Int { get set }
 }
 
 @MainActor
@@ -30,6 +32,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private var cancellables: Set<AnyCancellable> = .init()
     private var dismissCancellable: AnyCancellable?
     private var lastRawMessages: [AnyMessage] = []
+    var currentOtherMemberCount: Int = 0
 
     // MARK: - Public Properties
 
@@ -90,7 +93,8 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     private func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         lastRawMessages = messages
-        let items = MessagesListProcessor.process(messages)
+        let initialCount = messagesRepository.hasMoreMessages ? currentOtherMemberCount : 0
+        let items = MessagesListProcessor.process(messages, otherMemberCount: initialCount)
         scheduleAssistantJoinDismissIfNeeded(items)
         return items
     }
@@ -109,7 +113,8 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .delay(for: .seconds(remaining), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let reprocessed = MessagesListProcessor.process(self.lastRawMessages)
+                let initialCount = self.messagesRepository.hasMoreMessages ? self.currentOtherMemberCount : 0
+                let reprocessed = MessagesListProcessor.process(self.lastRawMessages, otherMemberCount: initialCount)
                 self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
                 self.messagesListSubject.send(reprocessed)
             }
