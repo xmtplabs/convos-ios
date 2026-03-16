@@ -42,4 +42,8 @@ public struct BackupBundleMetadata: Codable, Sendable, Equatable {
         decoder.dateDecodingStrategy = .iso8601
         return try decoder.decode(BackupBundleMetadata.self, from: data)
     }
+
+    public static func exists(in directory: URL) -> Bool {
+        FileManager.default.fileExists(atPath: directory.appendingPathComponent(Constant.metadataFilename).path)
+    }
 }

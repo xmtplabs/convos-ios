@@ -40,12 +40,12 @@ public actor BackupManager {
         let stagingDir = try BackupBundle.createStagingDirectory()
 
         do {
-            let bundleData = try await createBundleData(
+            let (bundleData, metadata) = try await createBundleData(
                 encryptionKey: encryptionKey,
                 stagingDir: stagingDir
             )
 
-            let outputURL = try writeToICloudOrLocal(bundleData: bundleData)
+            let outputURL = try writeToICloudOrLocal(bundleData: bundleData, metadata: metadata)
             BackupBundle.cleanup(directory: stagingDir)
             return outputURL
         } catch {
@@ -54,7 +54,10 @@ public actor BackupManager {
         }
     }
 
-    private func createBundleData(encryptionKey: Data, stagingDir: URL) async throws -> Data {
+    private func createBundleData(
+        encryptionKey: Data,
+        stagingDir: URL
+    ) async throws -> (Data, BackupBundleMetadata) {
         try await createVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
 
         let conversationResults = await createConversationArchives(in: stagingDir)
@@ -77,7 +80,8 @@ public actor BackupManager {
         )
         try BackupBundleMetadata.write(metadata, to: stagingDir)
 
-        return try BackupBundle.pack(directory: stagingDir, encryptionKey: encryptionKey)
+        let bundleData = try BackupBundle.pack(directory: stagingDir, encryptionKey: encryptionKey)
+        return (bundleData, metadata)
     }
 
     private func createVaultArchive(encryptionKey: Data, in directory: URL) async throws {
@@ -128,10 +132,11 @@ public actor BackupManager {
         try databaseReader.backup(to: destinationQueue)
     }
 
-    private func writeToICloudOrLocal(bundleData: Data) throws -> URL {
+    private func writeToICloudOrLocal(bundleData: Data, metadata: BackupBundleMetadata) throws -> URL {
         let backupDir = try resolveBackupDirectory()
         let bundlePath = backupDir.appendingPathComponent("backup-latest.encrypted")
         try bundleData.write(to: bundlePath)
+        try BackupBundleMetadata.write(metadata, to: backupDir)
         return bundlePath
     }
 
