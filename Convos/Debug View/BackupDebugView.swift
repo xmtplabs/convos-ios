@@ -121,8 +121,15 @@ struct BackupDebugView: View {
     }
 
     private func createBackupAction() {
+        let backupManager: BackupManager
+        do {
+            backupManager = try makeBackupManager()
+        } catch {
+            actionResultMessage = "Create backup failed: \(error.localizedDescription)"
+            showingActionResult = true
+            return
+        }
         runAction(title: "Create backup") {
-            let backupManager = try makeBackupManager()
             let outputURL = try await backupManager.createBackup()
             await refreshStatus()
             return "Backup created at:\n\(outputURL.lastPathComponent)"
