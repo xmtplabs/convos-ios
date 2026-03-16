@@ -11,6 +11,7 @@ struct BackupDebugView: View {
     @State private var lastBackupMetadata: BackupBundleMetadata?
     @State private var isLoading: Bool = true
     @State private var backupDirectoryPath: String?
+    @State private var iCloudAvailable: Bool = false
 
     var body: some View {
         List {
@@ -40,7 +41,7 @@ struct BackupDebugView: View {
             } else {
                 statusRow(
                     title: "iCloud container",
-                    value: backupDirectoryPath != nil ? "Available" : "Unavailable"
+                    value: iCloudAvailable ? "Available" : "Unavailable"
                 )
 
                 if let metadata = lastBackupMetadata {
@@ -159,6 +160,7 @@ struct BackupDebugView: View {
     private func refreshStatus() async {
         await MainActor.run { isLoading = true }
 
+        let cloudAvailable = isICloudAvailable()
         let backupDir = resolveBackupDirectory()
         let metadata: BackupBundleMetadata? = if let backupDir {
             try? BackupBundleMetadata.read(from: backupDir)
@@ -167,10 +169,15 @@ struct BackupDebugView: View {
         }
 
         await MainActor.run {
+            iCloudAvailable = cloudAvailable
             backupDirectoryPath = backupDir?.path
             lastBackupMetadata = metadata
             isLoading = false
         }
+    }
+
+    private func isICloudAvailable() -> Bool {
+        FileManager.default.url(forUbiquityContainerIdentifier: environment.iCloudContainerIdentifier) != nil
     }
 
     private func resolveBackupDirectory() -> URL? {
