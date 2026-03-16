@@ -32,7 +32,6 @@ public final class BackgroundUploadManager: NSObject, BackgroundUploadManagerPro
         config.isDiscretionary = false
         config.sessionSendsLaunchEvents = true
         config.allowsCellularAccess = true
-        config.shouldUseExtendedBackgroundIdleMode = true
 
         backgroundSession = URLSession(
             configuration: config,
