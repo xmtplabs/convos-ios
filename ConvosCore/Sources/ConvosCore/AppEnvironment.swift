@@ -236,7 +236,7 @@ public extension AppEnvironment {
         return groupUrl.appendingPathComponent("logs", isDirectory: true)
     }
 
-    var defaultDatabasesDirectoryURL: URL {
+    public var defaultDatabasesDirectoryURL: URL {
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory
         }

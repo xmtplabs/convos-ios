@@ -182,9 +182,13 @@ struct BackupDebugView: View {
                 .appendingPathComponent("Documents", isDirectory: true)
                 .appendingPathComponent("backups", isDirectory: true)
                 .appendingPathComponent(deviceId, isDirectory: true)
-            guard BackupBundleMetadata.exists(in: dir) else { return nil }
-            return dir
+            if BackupBundleMetadata.exists(in: dir) { return dir }
         }
+
+        let localDir = environment.defaultDatabasesDirectoryURL
+            .appendingPathComponent("backups", isDirectory: true)
+            .appendingPathComponent(deviceId, isDirectory: true)
+        if BackupBundleMetadata.exists(in: localDir) { return localDir }
 
         return nil
     }
