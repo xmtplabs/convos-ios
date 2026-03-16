@@ -31,7 +31,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
 
     @State private var isExpanded: Bool = false
+    @State private var isMessageInputFocused: Bool = false
     @State private var isImagePickerPresented: Bool = false
+    @State private var isCameraPresented: Bool = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var previousFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
@@ -67,7 +69,14 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             guard !isImagePickerPresented else { return }
 
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
-                isExpanded = newValue == .displayName ? true : false
+                isExpanded = newValue == .displayName
+                isMessageInputFocused = newValue == .message
+            }
+        }
+        .onChange(of: messageText) { _, _ in
+            guard !isMessageInputFocused, focusCoordinator.currentFocus != .displayName else { return }
+            withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                isMessageInputFocused = true
             }
         }
         .onChange(of: isPhotoPickerPresented) { _, newValue in
@@ -95,17 +104,39 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 }
             }
         }
+        .fullScreenCover(isPresented: $isCameraPresented) {
+            CameraPickerView { image in
+                selectedAttachmentImage = image
+                isCameraPresented = false
+                focusCoordinator.moveFocus(to: .message)
+            }
+            .ignoresSafeArea()
+        }
     }
 
     @ViewBuilder
     private var collapsedInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
-            MessagesMediaInputView(isPhotoPickerPresented: $isPhotoPickerPresented)
-                .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
-                .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
-                .clipShape(.circle)
-                .glassEffect(.regular.interactive(), in: .circle)
-                .glassEffectID("media", in: namespace)
+            MessagesMediaInputView(
+                isPhotoPickerPresented: $isPhotoPickerPresented,
+                isCameraPresented: $isCameraPresented,
+                isExpanded: isMessageInputFocused,
+                onCollapse: {
+                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                        isMessageInputFocused = false
+                    }
+                },
+                onConvosAction: {}
+            )
+            .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
+            .frame(
+                width: isMessageInputFocused ? DesignConstants.Spacing.step12x : nil,
+                height: DesignConstants.Spacing.step12x
+            )
+            .clipShape(isMessageInputFocused ? AnyShape(.circle) : AnyShape(.capsule))
+            .glassEffect(.regular.interactive(), in: isMessageInputFocused ? AnyShape(.circle) : AnyShape(.capsule))
+            .glassEffectID("media", in: namespace)
+            .glassEffectTransition(.matchedGeometry)
 
             MessagesInputView(
                 profile: profile,
@@ -129,6 +160,14 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 26.0))
             .glassEffectID("input", in: namespace)
             .glassEffectTransition(.matchedGeometry)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    guard !isMessageInputFocused else { return }
+                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                        isMessageInputFocused = true
+                    }
+                }
+            )
         }
         .disabled(!messagesTextFieldEnabled)
     }
