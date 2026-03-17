@@ -45,22 +45,15 @@ actor MockRestoreLifecycleController: RestoreLifecycleControlling {
 
 @Suite("RestoreManager Tests", .serialized)
 struct RestoreManagerTests {
-    @Test("Full restore flow decrypts bundle, imports vault, saves keys, replaces DB")
+    @Test("Full restore flow decrypts bundle, replaces DB, reaches completed state")
     func testFullRestoreFlow() async throws {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
         let archiveImporter = MockRestoreArchiveImporter()
 
-        let keyEntries: [VaultKeyEntry] = [
-            .init(inboxId: "conv-1", clientId: "client-1", conversationId: "group-1",
-                  privateKeyData: Data(repeating: 0x01, count: 32), databaseKey: Data(repeating: 0x02, count: 32)),
-            .init(inboxId: "conv-2", clientId: "client-2", conversationId: "group-2",
-                  privateKeyData: Data(repeating: 0x03, count: 32), databaseKey: Data(repeating: 0x04, count: 32)),
-        ]
-
         let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
-        _ = try await inboxWriter.save(inboxId: "old-inbox", clientId: "old-client")
+        _ = try await inboxWriter.save(inboxId: "backup-inbox", clientId: "backup-client")
 
         let bundleURL = try await createTestBundle(
             encryptionKey: vaultEncryptionKey,
@@ -69,8 +62,9 @@ struct RestoreManagerTests {
         )
         defer { try? FileManager.default.removeItem(at: bundleURL) }
 
+        _ = try await inboxWriter.save(inboxId: "post-backup-inbox", clientId: "post-backup-client")
+
         let vaultImporter = MockVaultArchiveImporter()
-        vaultImporter.keyEntriesToReturn = keyEntries
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
             vaultArchiveImporter: vaultImporter,
@@ -83,20 +77,21 @@ struct RestoreManagerTests {
         try await manager.restoreFromBackup(bundleURL: bundleURL)
 
         let finalState = await manager.state
-        guard case .completed(_, let failedKeyCount) = finalState else {
+        guard case .completed = finalState else {
             Issue.record("Expected completed state, got \(finalState)")
             try? await fixtures.cleanup()
             return
         }
 
-        #expect(failedKeyCount == 0)
+        let restoredInbox = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: "backup-inbox")
+        }
+        #expect(restoredInbox != nil)
 
-        let savedConv1 = try? await identityStore.identity(for: "conv-1")
-        #expect(savedConv1 != nil)
-        #expect(savedConv1?.clientId == "client-1")
-
-        let savedConv2 = try? await identityStore.identity(for: "conv-2")
-        #expect(savedConv2 != nil)
+        let postBackupInbox = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: "post-backup-inbox")
+        }
+        #expect(postBackupInbox == nil)
 
         try? await fixtures.cleanup()
     }
@@ -192,8 +187,8 @@ struct RestoreManagerTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Restore fails with clear error on missing vault archive")
-    func testMissingVaultArchive() async throws {
+    @Test("Restore completes even without vault archive in bundle")
+    func testMissingVaultArchiveIsNonFatal() async throws {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
@@ -215,13 +210,11 @@ struct RestoreManagerTests {
             environment: .tests
         )
 
-        await #expect(throws: (any Error).self) {
-            try await manager.restoreFromBackup(bundleURL: bundleURL)
-        }
+        try await manager.restoreFromBackup(bundleURL: bundleURL)
 
         let finalState = await manager.state
-        guard case .failed = finalState else {
-            Issue.record("Expected failed state, got \(finalState)")
+        guard case .completed = finalState else {
+            Issue.record("Expected completed state, got \(finalState)")
             try? await fixtures.cleanup()
             return
         }

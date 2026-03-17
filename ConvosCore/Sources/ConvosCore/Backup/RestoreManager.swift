@@ -82,17 +82,20 @@ public actor RestoreManager {
                 Log.info("[Restore] lifecycle prepared")
             }
 
-            Log.info("[Restore] importing vault archive")
-            let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
-            Log.info("[Restore] vault import returned \(keyEntries.count) key(s)")
+            Log.info("[Restore] replacing database")
+            try replaceDatabase(from: stagingDir)
+            Log.info("[Restore] database replaced")
+
+            Log.info("[Restore] extracting keys from restored vault messages")
+            let keyEntries = try await extractKeysFromRestoredVault()
+            Log.info("[Restore] extracted \(keyEntries.count) key(s)")
 
             Log.info("[Restore] saving keys to keychain")
             let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
             Log.info("[Restore] keys saved (\(failedKeyCount) failed)")
 
-            Log.info("[Restore] replacing database")
-            try replaceDatabase(from: stagingDir)
-            Log.info("[Restore] database replaced")
+            Log.info("[Restore] importing vault XMTP archive (best-effort)")
+            await importVaultArchiveBestEffort(encryptionKey: encryptionKey, in: stagingDir)
 
             Log.info("[Restore] importing conversation archives")
             await importConversationArchives(in: stagingDir)
@@ -121,15 +124,78 @@ public actor RestoreManager {
 
     // MARK: - Vault archive import
 
-    private func importVaultArchive(encryptionKey: Data, in directory: URL) async throws -> [VaultKeyEntry] {
+    private func extractKeysFromRestoredVault() async throws -> [VaultKeyEntry] {
         state = .importingVault
-        let vaultArchivePath = BackupBundle.vaultArchivePath(in: directory)
 
-        guard FileManager.default.fileExists(atPath: vaultArchivePath.path) else {
-            throw RestoreError.missingVaultArchive
+        let vaultInbox = try? InboxesRepository(databaseReader: databaseManager.dbReader).vaultInbox()
+        guard let vaultInbox else {
+            Log.warning("[Restore] no vault inbox in restored database, skipping key extraction")
+            return []
         }
 
-        return try await vaultArchiveImporter.importVaultArchive(from: vaultArchivePath, encryptionKey: encryptionKey)
+        Log.info("[Restore] found vault inbox: \(vaultInbox.inboxId)")
+        let vaultIdentity = try await vaultKeyStore.loadAny()
+        let api = XMTPAPIOptionsBuilder.build(environment: environment)
+        let options = ClientOptions(
+            api: api,
+            codecs: [
+                ConversationDeletedCodec(),
+                DeviceKeyBundleCodec(),
+                DeviceKeyShareCodec(),
+                DeviceRemovedCodec(),
+            ],
+            dbEncryptionKey: vaultIdentity.keys.databaseKey,
+            dbDirectory: environment.defaultDatabasesDirectory
+        )
+
+        let client: Client
+        do {
+            client = try await Client.build(
+                publicIdentity: vaultIdentity.keys.signingKey.identity,
+                options: options,
+                inboxId: vaultIdentity.inboxId
+            )
+        } catch {
+            client = try await Client.create(
+                account: vaultIdentity.keys.signingKey,
+                options: options
+            )
+        }
+
+        defer { try? client.dropLocalDatabaseConnection() }
+
+        try await client.conversations.sync()
+        let groups = try client.conversations.listGroups()
+        var allMessages: [DecodedMessage] = []
+        for group in groups {
+            try await group.sync()
+            let messages = try await group.messages()
+            allMessages.append(contentsOf: messages)
+        }
+
+        var bundles: [DeviceKeyBundleContent] = []
+        var shares: [DeviceKeyShareContent] = []
+        for message in allMessages {
+            if let bundle: DeviceKeyBundleContent = try? message.content() {
+                bundles.append(bundle)
+            } else if let share: DeviceKeyShareContent = try? message.content() {
+                shares.append(share)
+            }
+        }
+
+        return VaultManager.extractKeyEntries(bundles: bundles, shares: shares)
+    }
+
+    private func importVaultArchiveBestEffort(encryptionKey: Data, in directory: URL) async {
+        let vaultArchivePath = BackupBundle.vaultArchivePath(in: directory)
+        guard FileManager.default.fileExists(atPath: vaultArchivePath.path) else { return }
+
+        do {
+            try await vaultArchiveImporter.importVaultArchive(from: vaultArchivePath, encryptionKey: encryptionKey)
+            Log.info("[Restore] vault XMTP archive imported successfully")
+        } catch {
+            Log.warning("[Restore] vault XMTP archive import failed (non-fatal): \(error)")
+        }
     }
 
     // MARK: - Key restoration
