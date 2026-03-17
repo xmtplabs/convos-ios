@@ -69,6 +69,71 @@ struct MessagesGroupView: View {
             .accessibilityAddTraits(.isButton)
     }
 
+    private var singleTyperIndicator: some View {
+        let isTypingOnly = group.allMessages.isEmpty
+
+        return Group {
+            if isTypingOnly && !group.sender.isCurrentUser {
+                senderLabel
+            }
+
+            HStack(alignment: .bottom, spacing: avatarSpacing) {
+                if !group.sender.isCurrentUser {
+                    Color.clear
+                        .frame(width: avatarSize, height: avatarSize)
+                }
+
+                TypingIndicatorBubbleView(senderName: group.sender.profile.displayName)
+                    .overlay(alignment: .bottomLeading) {
+                        if !group.sender.isCurrentUser {
+                            avatarOverlay()
+                        }
+                    }
+            }
+            .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
+        .id("typing-indicator-\(group.id)")
+    }
+
+    private var multiTyperIndicator: some View {
+        let typers = group.allTypingMembers
+        let names = typers.compactMap(\.profile.displayName)
+        let accessibilityText: String = {
+            switch names.count {
+            case 0: return "People are typing"
+            case 1: return "\(names[0]) is typing"
+            case 2: return "\(names[0]) and \(names[1]) are typing"
+            default: return "\(names.count) people are typing"
+            }
+        }()
+
+        let visibleCount = min(typers.count, 3)
+        let overlapOffset: CGFloat = 8
+        let stackWidth = avatarSize + CGFloat(visibleCount - 1) * (avatarSize - overlapOffset)
+
+        return HStack(alignment: .bottom, spacing: avatarSpacing) {
+            HStack(spacing: -overlapOffset) {
+                ForEach(Array(typers.prefix(3).enumerated()), id: \.element.id) { index, member in
+                    MessageAvatarView(profile: member.profile, size: avatarSize)
+                        .overlay(
+                            Circle()
+                                .stroke(Color(.systemBackground), lineWidth: 2)
+                        )
+                        .zIndex(Double(index))
+                }
+            }
+            .frame(width: stackWidth, alignment: .leading)
+
+            TypingIndicatorBubbleView(senderName: nil)
+        }
+        .padding(.leading, DesignConstants.Spacing.step4x)
+        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText)
+        .id("typing-indicator-multi")
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             let allMessages = group.allMessages
@@ -212,26 +277,11 @@ struct MessagesGroupView: View {
             }
 
             if group.showsTypingIndicator {
-                if isTypingOnly && !group.sender.isCurrentUser {
-                    senderLabel
+                if group.isMultiTyper {
+                    multiTyperIndicator
+                } else {
+                    singleTyperIndicator
                 }
-
-                HStack(alignment: .bottom, spacing: avatarSpacing) {
-                    if !group.sender.isCurrentUser {
-                        Color.clear
-                            .frame(width: avatarSize, height: avatarSize)
-                    }
-
-                    TypingIndicatorBubbleView(senderName: group.sender.profile.displayName)
-                        .overlay(alignment: .bottomLeading) {
-                            if !group.sender.isCurrentUser {
-                                avatarOverlay()
-                            }
-                        }
-                }
-                .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
-                .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
-                .id("typing-indicator-\(group.id)")
             }
         }
         .id("message-group-container-\(group.id)")

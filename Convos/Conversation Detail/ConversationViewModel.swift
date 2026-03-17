@@ -192,17 +192,21 @@ class ConversationViewModel {
     var messagesWithTypingIndicator: [MessagesListItemType] {
         guard !typingMembers.isEmpty else { return messages }
 
-        let singleTyper = typingMembers.count == 1 ? typingMembers[0] : nil
+        if typingMembers.count == 1 {
+            return messagesWithSingleTyper(typingMembers[0])
+        }
+        return messagesWithMultipleTypers(typingMembers)
+    }
 
-        if let singleTyper,
-           let lastIndex = messages.lastIndex(where: { if case .messages = $0 { return true }; return false }),
+    private func messagesWithSingleTyper(_ typer: ConversationMember) -> [MessagesListItemType] {
+        if let lastIndex = messages.lastIndex(where: { if case .messages = $0 { return true }; return false }),
            case .messages(let lastGroup) = messages[lastIndex],
-           lastGroup.sender.profile.inboxId == singleTyper.profile.inboxId {
+           lastGroup.sender.profile.inboxId == typer.profile.inboxId {
             var updated = messages
             let updatedGroup = MessagesGroup(
                 id: lastGroup.id,
                 sender: lastGroup.sender,
-                messages: lastGroup.messages,
+                messages: lastGroup.rawMessages,
                 isLastGroup: lastGroup.isLastGroup,
                 isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
                 showsTypingIndicator: true
@@ -211,14 +215,26 @@ class ConversationViewModel {
             return updated
         }
 
-        let typingSender = singleTyper ?? typingMembers[0]
         let typingGroup = MessagesGroup(
             id: "typing-indicator",
-            sender: typingSender,
+            sender: typer,
             messages: [],
             isLastGroup: false,
             isLastGroupSentByCurrentUser: false,
             showsTypingIndicator: true
+        )
+        return messages + [.messages(typingGroup)]
+    }
+
+    private func messagesWithMultipleTypers(_ typers: [ConversationMember]) -> [MessagesListItemType] {
+        let typingGroup = MessagesGroup(
+            id: "typing-indicator-multi",
+            sender: typers[0],
+            messages: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false,
+            showsTypingIndicator: true,
+            allTypingMembers: typers
         )
         return messages + [.messages(typingGroup)]
     }
@@ -1714,7 +1730,7 @@ extension ConversationViewModel {
                 try? await Task.sleep(for: .seconds(Constant.typingResetInterval))
                 guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
-                    self?.isTypingSent = false
+                    self?.stopTyping()
                 }
             }
             return
@@ -1728,7 +1744,7 @@ extension ConversationViewModel {
             try? await Task.sleep(for: .seconds(Constant.typingResetInterval))
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
-                self?.isTypingSent = false
+                self?.stopTyping()
             }
         }
 

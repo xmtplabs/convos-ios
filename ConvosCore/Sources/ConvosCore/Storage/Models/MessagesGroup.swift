@@ -11,6 +11,10 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     public var onlyVisibleToSender: Bool = false
     public var isLastGroupBeforeOtherMembers: Bool = false
 
+    public var isMultiTyper: Bool {
+        allTypingMembers.count > 1
+    }
+
     public var messages: RebasedSlice<AnyMessage> {
         RebasedSlice(rawMessages)
     }
