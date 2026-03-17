@@ -84,12 +84,13 @@ struct RestoreManagerTests {
         try await manager.restoreFromBackup(bundleURL: bundleURL)
 
         let finalState = await manager.state
-        guard case .completed = finalState else {
+        guard case .completed(_, let failedKeyCount) = finalState else {
             Issue.record("Expected completed state, got \(finalState)")
             try? await fixtures.cleanup()
             return
         }
 
+        #expect(failedKeyCount == 0)
         #expect(vaultService.importedArchivePath != nil)
 
         let savedConv1 = try? await identityStore.identity(for: "conv-1")

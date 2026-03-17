@@ -9,7 +9,7 @@ public enum RestoreState: Sendable, Equatable {
     case savingKeys(completed: Int, total: Int)
     case replacingDatabase
     case importingConversations(completed: Int, total: Int)
-    case completed(inboxCount: Int)
+    case completed(inboxCount: Int, failedKeyCount: Int)
     case failed(String)
 }
 
@@ -58,13 +58,13 @@ public actor RestoreManager {
             Log.info("Restoring backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
 
             let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
-            try await saveKeysToKeychain(entries: keyEntries)
+            let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
             try replaceDatabase(from: stagingDir)
             await importConversationArchives(in: stagingDir)
 
             let restoredCount = try countRestoredInboxes()
-            state = .completed(inboxCount: restoredCount)
-            Log.info("Restore completed: \(restoredCount) inbox(es), \(keyEntries.count) key(s)")
+            state = .completed(inboxCount: restoredCount, failedKeyCount: failedKeyCount)
+            Log.info("Restore completed: \(restoredCount) inbox(es), \(keyEntries.count) key(s), \(failedKeyCount) key failure(s)")
 
             BackupBundle.cleanup(directory: stagingDir)
         } catch {
@@ -89,7 +89,9 @@ public actor RestoreManager {
 
     // MARK: - Key restoration
 
-    private func saveKeysToKeychain(entries: [VaultKeyEntry]) async throws {
+    @discardableResult
+    private func saveKeysToKeychain(entries: [VaultKeyEntry]) async -> Int {
+        var failedCount = 0
         for (index, entry) in entries.enumerated() {
             state = .savingKeys(completed: index, total: entries.count)
 
@@ -104,10 +106,12 @@ public actor RestoreManager {
                     keys: keys
                 )
             } catch {
+                failedCount += 1
                 Log.warning("Failed to save key for inbox \(entry.inboxId): \(error)")
             }
         }
         state = .savingKeys(completed: entries.count, total: entries.count)
+        return failedCount
     }
 
     // MARK: - Database replacement
