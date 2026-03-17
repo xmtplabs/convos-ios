@@ -80,6 +80,8 @@ class NewConversationViewModel: Identifiable {
     @ObservationIgnored
     nonisolated(unsafe) private var _reachedReadyState: Bool = false
     @ObservationIgnored
+    private var _cleanedUp: Bool = false
+    @ObservationIgnored
     private var inboxAcquisitionTask: Task<Void, Never>?
     @ObservationIgnored
     private var newConversationTask: Task<Void, Error>?
@@ -161,7 +163,8 @@ class NewConversationViewModel: Identifiable {
     }
 
     func cleanUpIfNeeded() {
-        guard !_reachedReadyState else { return }
+        guard !_reachedReadyState, !_cleanedUp else { return }
+        _cleanedUp = true
         deleteConversation()
     }
 
@@ -328,6 +331,7 @@ class NewConversationViewModel: Identifiable {
     }
 
     func dismissWithDeletion() {
+        _cleanedUp = true
         displayError = nil
         currentError = nil
         isCreatingConversation = false
