@@ -51,14 +51,23 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
         let backupQueue = try DatabaseQueue(path: backupPath.path)
         let rollbackQueue = try DatabaseQueue()
 
-        try dbPool.backup(to: rollbackQueue)
-
         do {
-            try backupQueue.backup(to: dbPool)
+            try dbPool.barrierWriteWithoutTransaction { liveDb in
+                try rollbackQueue.writeWithoutTransaction { rollbackDb in
+                    try liveDb.backup(to: rollbackDb)
+                }
+                try backupQueue.read { backupDb in
+                    try backupDb.backup(to: liveDb)
+                }
+            }
             try SharedDatabaseMigrator.shared.migrate(database: dbPool)
         } catch {
             do {
-                try rollbackQueue.backup(to: dbPool)
+                try dbPool.barrierWriteWithoutTransaction { liveDb in
+                    try rollbackQueue.read { rollbackDb in
+                        try rollbackDb.backup(to: liveDb)
+                    }
+                }
                 try SharedDatabaseMigrator.shared.migrate(database: dbPool)
             } catch {
                 Log.error("Failed to rollback database restore: \(error)")

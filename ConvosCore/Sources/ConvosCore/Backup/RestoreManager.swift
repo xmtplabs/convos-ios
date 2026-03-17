@@ -198,7 +198,7 @@ public actor RestoreManager {
 
     private func countRestoredInboxes() throws -> Int {
         let repo = InboxesRepository(databaseReader: databaseManager.dbReader)
-        return (try? repo.nonVaultInboxes().count) ?? 0
+        return (try? repo.nonVaultUsedInboxes().count) ?? 0
     }
 
     // MARK: - Restore detection

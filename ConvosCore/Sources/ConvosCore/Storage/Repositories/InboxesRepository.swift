@@ -54,4 +54,21 @@ public struct InboxesRepository {
                 .map { $0.toDomain() }
         }
     }
+
+    public func nonVaultUsedInboxes() throws -> [Inbox] {
+        try databaseReader.read { db in
+            let sql = """
+                SELECT i.*
+                FROM inbox i
+                WHERE i.isVault = 0
+                    AND EXISTS (
+                        SELECT 1
+                        FROM conversation c
+                        WHERE c.inboxId = i.inboxId
+                            AND c.isUnused = 0
+                    )
+                """
+            return try DBInbox.fetchAll(db, sql: sql).map { $0.toDomain() }
+        }
+    }
 }

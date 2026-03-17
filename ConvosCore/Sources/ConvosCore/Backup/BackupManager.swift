@@ -93,7 +93,7 @@ public actor BackupManager {
         let inboxes: [Inbox]
         do {
             let repo = InboxesRepository(databaseReader: databaseReader)
-            inboxes = try repo.nonVaultInboxes()
+            inboxes = try repo.nonVaultUsedInboxes()
         } catch {
             Log.warning("Failed to load inboxes for backup: \(error)")
             return []

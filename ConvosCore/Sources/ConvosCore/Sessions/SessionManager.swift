@@ -690,12 +690,17 @@ extension SessionManager: RestoreLifecycleControlling {
         await lifecycleManager.stopAll()
         await vaultService?.pauseVault()
         unusedInboxPrepTask?.cancel()
+        unusedInboxPrepTask = nil
     }
 
     public func finishRestore() async {
         await vaultService?.resumeVault()
         await importSyncDrainer.resume()
         await sleepingInboxChecker.startPeriodicChecks()
+        unusedInboxPrepTask = Task(priority: .background) { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            await self.lifecycleManager.prepareUnusedConversationIfNeeded()
+        }
         notificationChangeReporter.notifyChangesInDatabase()
     }
 }

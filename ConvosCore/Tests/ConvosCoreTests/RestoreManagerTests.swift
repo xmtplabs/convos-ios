@@ -314,6 +314,59 @@ struct RestoreManagerTests {
         try? await fixtures.cleanup()
     }
 
+    @Test("Restore completed count excludes unused conversation inboxes")
+    func testRestoreCompletedCountExcludesUnusedConversationInboxes() async throws {
+        let fixtures = TestFixtures()
+        let identityStore = MockKeychainIdentityStore()
+        let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
+        let vaultService = MockRestoreVaultService()
+        let archiveImporter = MockRestoreArchiveImporter()
+
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+        _ = try await inboxWriter.save(inboxId: "used-inbox", clientId: "used-client")
+        _ = try await inboxWriter.save(inboxId: "unused-inbox", clientId: "unused-client")
+        try await seedConversation(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            inboxId: "used-inbox",
+            clientId: "used-client",
+            isUnused: false
+        )
+        try await seedConversation(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            inboxId: "unused-inbox",
+            clientId: "unused-client",
+            isUnused: true
+        )
+
+        let bundleURL = try await createTestBundle(
+            encryptionKey: vaultEncryptionKey,
+            identityStore: identityStore,
+            databaseManager: fixtures.databaseManager
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+
+        let manager = RestoreManager(
+            vaultKeyStore: vaultKeyStore,
+            vaultService: vaultService,
+            identityStore: identityStore,
+            databaseManager: fixtures.databaseManager,
+            archiveImporter: archiveImporter,
+            environment: .tests
+        )
+
+        try await manager.restoreFromBackup(bundleURL: bundleURL)
+
+        let finalState = await manager.state
+        guard case .completed(let inboxCount, _) = finalState else {
+            Issue.record("Expected completed state, got \(finalState)")
+            try? await fixtures.cleanup()
+            return
+        }
+        #expect(inboxCount == 1)
+
+        try? await fixtures.cleanup()
+    }
+
     @Test("Restore prepares and finishes app lifecycle around database replacement")
     func testRestoreLifecycleControllerIsCalled() async throws {
         let fixtures = TestFixtures()
@@ -450,6 +503,42 @@ struct RestoreManagerTests {
             .appendingPathComponent("test-bundle-\(UUID().uuidString).encrypted")
         try bundleData.write(to: bundleURL)
         return bundleURL
+    }
+
+    private func seedConversation(
+        databaseWriter: any DatabaseWriter,
+        inboxId: String,
+        clientId: String,
+        isUnused: Bool
+    ) async throws {
+        let conversation = DBConversation(
+            id: "conversation-\(inboxId)",
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: "client-conversation-\(inboxId)",
+            inviteTag: "invite-\(inboxId)",
+            creatorId: inboxId,
+            kind: .group,
+            consent: .allowed,
+            createdAt: Date(),
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            imageLastRenewed: nil,
+            isUnused: isUnused
+        )
+
+        try await databaseWriter.write { db in
+            try conversation.save(db)
+        }
     }
 }
 
