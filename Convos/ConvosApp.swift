@@ -49,7 +49,7 @@ struct ConvosApp: App {
         }
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
-        self.conversationsViewModel = .init(session: convos.session)
+        self.conversationsViewModel = .init(session: convos.session, databaseManager: convos.databaseManager)
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
     }

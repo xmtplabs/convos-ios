@@ -188,6 +188,7 @@ final class ConversationsViewModel {
     // MARK: - Private
 
     let session: any SessionManagerProtocol
+    let databaseManager: (any DatabaseManagerProtocol)?
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     @ObservationIgnored
@@ -201,9 +202,11 @@ final class ConversationsViewModel {
 
     init(
         session: any SessionManagerProtocol,
+        databaseManager: (any DatabaseManagerProtocol)? = nil,
         horizontalSizeClass: UserInterfaceSizeClass? = nil
     ) {
         self.session = session
+        self.databaseManager = databaseManager
         self.horizontalSizeClass = horizontalSizeClass
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
