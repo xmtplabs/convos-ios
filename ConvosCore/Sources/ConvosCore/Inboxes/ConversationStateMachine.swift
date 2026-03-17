@@ -975,10 +975,65 @@ public enum ConversationStateMachineError: Error {
     case conversationExpired
     case invalidInviteCodeFormat(String)
     case timedOut
+
+    public enum NetworkErrorKind {
+        case serviceUnavailable
+        case timedOut
+        case connectionLost
+        case tlsFailure
+        case internalError
+    }
+
+    public var networkErrorKind: NetworkErrorKind? {
+        switch self {
+        case .timedOut:
+            return .timedOut
+        case .stateMachineError(let error):
+            return Self.classifyNetworkError(error)
+        default:
+            return nil
+        }
+    }
+
+    private static func classifyNetworkError(_ error: Error) -> NetworkErrorKind? {
+        let message = String(describing: error)
+
+        if message.contains("dns error")
+            || message.contains("service is currently unavailable") {
+            return .serviceUnavailable
+        }
+
+        if message.contains("request timed out")
+            || message.localizedCaseInsensitiveContains("timed out") {
+            return .timedOut
+        }
+
+        if message.contains("network connection was lost")
+            || message.contains("Internet connection appears to be offline")
+            || message.contains("data connection is not currently allowed") {
+            return .connectionLost
+        }
+
+        if message.contains("TLS error")
+            || message.contains("secure connection") {
+            return .tlsFailure
+        }
+
+        if message.contains("storage error")
+            || message.contains("SequenceId not found")
+            || message.contains("Pool needs to") {
+            return .internalError
+        }
+
+        return nil
+    }
 }
 
 extension ConversationStateMachineError: DisplayError {
     public var title: String {
+        if let kind = networkErrorKind {
+            return kind.title
+        }
         switch self {
         case .failedFindingConversation:
             return "No convo here"
@@ -993,18 +1048,21 @@ extension ConversationStateMachineError: DisplayError {
         case .invalidInviteCodeFormat:
             return "Invalid code"
         case .timedOut:
-            return "Try again"
+            return "Connection timed out"
         }
     }
 
     public var description: String {
+        if let kind = networkErrorKind {
+            return kind.description
+        }
         switch self {
         case .failedFindingConversation:
             return "Maybe it already exploded."
         case .failedVerifyingSignature:
             return "This invite couldn't be verified."
-        case .stateMachineError(let error):
-            return error.localizedDescription
+        case .stateMachineError:
+            return "An unexpected error occurred. Try again, or restart the app if it keeps happening."
         case .inviteExpired:
             return "This invite has expired."
         case .conversationExpired:
@@ -1012,7 +1070,39 @@ extension ConversationStateMachineError: DisplayError {
         case .invalidInviteCodeFormat:
             return "This code is not valid."
         case .timedOut:
-            return "Joining the convo failed."
+            return "The server took too long to respond. Try again in a moment."
+        }
+    }
+}
+
+extension ConversationStateMachineError.NetworkErrorKind {
+    var title: String {
+        switch self {
+        case .serviceUnavailable:
+            return "Can't connect"
+        case .timedOut:
+            return "Connection timed out"
+        case .connectionLost:
+            return "No connection"
+        case .tlsFailure:
+            return "Secure connection failed"
+        case .internalError:
+            return "Something went wrong"
+        }
+    }
+
+    var description: String {
+        switch self {
+        case .serviceUnavailable:
+            return "The messaging network is currently unreachable. Check your connection and try again."
+        case .timedOut:
+            return "The server took too long to respond. Try again in a moment."
+        case .connectionLost:
+            return "Your internet connection was lost. Reconnect and try again."
+        case .tlsFailure:
+            return "Couldn't establish a secure connection. Try again or switch networks."
+        case .internalError:
+            return "An unexpected error occurred. Try again, or restart the app if it keeps happening."
         }
     }
 }

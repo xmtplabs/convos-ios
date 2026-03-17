@@ -83,6 +83,8 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     private var isCreatingUnused: Bool = false
     private var backgroundCreationTask: Task<Void, Never>?
     private var cleanupTask: Task<Void, Never>?
+    private var lastPreparationFailure: Date?
+    private static let preparationCooldown: TimeInterval = 30
 
     // MARK: - Initialization
 
@@ -110,6 +112,12 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     ) async {
         guard unusedMessagingService == nil else {
             Log.debug("Unused messaging service already exists")
+            return
+        }
+
+        if let lastFailure = lastPreparationFailure,
+           Date().timeIntervalSince(lastFailure) < Self.preparationCooldown {
+            Log.debug("Skipping unused conversation preparation — cooldown active (\(Int(Self.preparationCooldown - Date().timeIntervalSince(lastFailure)))s remaining)")
             return
         }
 
@@ -803,6 +811,7 @@ extension UnusedConversationCache {
             )
         } catch {
             Log.error("Failed to create unused inbox: \(error)")
+            lastPreparationFailure = Date()
             await tempMessagingService.stopAndDelete()
         }
     }
@@ -894,6 +903,7 @@ extension UnusedConversationCache {
             Log.debug("Successfully created unused conversation with invite: \(conversationId)")
         } catch {
             Log.error("Failed to create conversation for unused inbox (keeping inbox): \(error)")
+            lastPreparationFailure = Date()
         }
     }
 }
