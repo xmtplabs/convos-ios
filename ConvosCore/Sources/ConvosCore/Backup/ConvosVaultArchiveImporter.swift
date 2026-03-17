@@ -16,38 +16,63 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         let vaultIdentity = try await vaultKeyStore.loadAny()
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
 
+        let codecs: [any ContentCodec] = [
+            ConversationDeletedCodec(),
+            DeviceKeyBundleCodec(),
+            DeviceKeyShareCodec(),
+            DeviceRemovedCodec(),
+            JoinRequestCodec(),
+            PairingMessageCodec(),
+            TextCodec(),
+        ]
+
+        let existingOptions = ClientOptions(
+            api: api,
+            codecs: codecs,
+            dbEncryptionKey: vaultIdentity.keys.databaseKey,
+            deviceSyncEnabled: false
+        )
+
+        if let existingClient = try? await Client.build(
+            publicIdentity: vaultIdentity.keys.signingKey.identity,
+            options: existingOptions,
+            inboxId: vaultIdentity.inboxId
+        ) {
+            Log.info("[Restore] vault XMTP DB already exists, extracting keys from existing vault")
+            defer { try? existingClient.dropLocalDatabaseConnection() }
+            try await existingClient.conversations.sync()
+            return try await extractKeys(from: existingClient)
+        }
+
         let importDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("xmtp-vault-import-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: importDir, withIntermediateDirectories: true)
-        Log.info("[Restore] using isolated import directory: \(importDir.lastPathComponent)")
+        Log.info("[Restore] no existing vault XMTP DB, importing archive into isolated directory")
 
-        let options = ClientOptions(
+        let importOptions = ClientOptions(
             api: api,
-            codecs: [
-                ConversationDeletedCodec(),
-                DeviceKeyBundleCodec(),
-                DeviceKeyShareCodec(),
-                DeviceRemovedCodec(),
-                JoinRequestCodec(),
-                PairingMessageCodec(),
-                TextCodec(),
-            ],
+            codecs: codecs,
             dbEncryptionKey: vaultIdentity.keys.databaseKey,
             dbDirectory: importDir.path,
             deviceSyncEnabled: false
         )
 
-        Log.info("[Restore] creating vault XMTP client in isolated directory")
         let client = try await Client.create(
             account: vaultIdentity.keys.signingKey,
-            options: options
+            options: importOptions
         )
 
-        Log.info("[Restore] importing vault archive (inboxId: \(client.inboxID), installation: \(client.installationID))")
+        Log.info("[Restore] importing vault archive (inboxId: \(client.inboxID))")
         try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
         Log.info("[Restore] vault archive import succeeded")
 
-        Log.info("[Restore] syncing vault conversations after import")
+        let entries = try await extractKeys(from: client)
+        try? client.dropLocalDatabaseConnection()
+        try? FileManager.default.removeItem(at: importDir)
+        return entries
+    }
+
+    private func extractKeys(from client: Client) async throws -> [VaultKeyEntry] {
         try await client.conversations.sync()
         let groups = try client.conversations.listGroups()
 
@@ -70,10 +95,7 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         }
 
         let entries = VaultManager.extractKeyEntries(bundles: bundles, shares: shares)
-        Log.info("[Restore] extracted \(entries.count) key entries from vault archive")
-
-        try? client.dropLocalDatabaseConnection()
-        try? FileManager.default.removeItem(at: importDir)
+        Log.info("[Restore] extracted \(entries.count) key entries")
         return entries
     }
 }
