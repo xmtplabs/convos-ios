@@ -21,9 +21,11 @@ final class MockDatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
     }
 
     func replaceDatabase(with backupPath: URL) throws {
-        try dbPool.erase()
         let backupQueue = try DatabaseQueue(path: backupPath.path)
-        try backupQueue.backup(to: dbPool)
+        let tempQueue = try DatabaseQueue()
+        try backupQueue.backup(to: tempQueue)
+        try dbPool.erase()
+        try tempQueue.backup(to: dbPool)
     }
 
     private init(migrate: Bool = true) {
