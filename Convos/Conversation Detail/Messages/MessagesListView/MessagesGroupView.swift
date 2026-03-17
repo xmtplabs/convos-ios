@@ -222,7 +222,7 @@ struct MessagesGroupView: View {
                             .frame(width: avatarSize, height: avatarSize)
                     }
 
-                    TypingIndicatorBubbleView()
+                    TypingIndicatorBubbleView(senderName: group.sender.profile.displayName)
                         .overlay(alignment: .bottomLeading) {
                             if !group.sender.isCurrentUser {
                                 avatarOverlay()

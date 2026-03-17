@@ -57,6 +57,7 @@ class ConversationViewModel {
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
     private let applyGlobalDefaultsForNewConversation: Bool
+    private let typingIndicatorManager: TypingIndicatorManager
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
@@ -476,6 +477,7 @@ class ConversationViewModel {
         self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
         self.photoPreferencesWriter = session.photoPreferencesWriter()
         self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
+        self.typingIndicatorManager = .shared
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
@@ -500,7 +502,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
-        observeTypingIndicators(TypingIndicatorManager.shared)
+        observeTypingIndicators(typingIndicatorManager)
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
@@ -548,6 +550,7 @@ class ConversationViewModel {
         self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
         self.photoPreferencesWriter = session.photoPreferencesWriter()
         self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
+        self.typingIndicatorManager = .shared
 
         do {
             self.messages = try messagesListRepository.fetchInitial()
@@ -561,7 +564,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
-        observeTypingIndicators(TypingIndicatorManager.shared)
+        observeTypingIndicators(typingIndicatorManager)
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -1636,11 +1639,11 @@ extension ConversationViewModel {
     // MARK: - Typing Indicators
 
     private func setupTypingIndicatorHandler() {
-        let typingManager = TypingIndicatorManager.shared
+        let manager = typingIndicatorManager
         Task {
             await messagingService.inboxStateManager.setTypingIndicatorHandler { conversationId, senderInboxId, isTyping in
                 Task { @MainActor in
-                    typingManager.handleTypingEvent(
+                    manager.handleTypingEvent(
                         conversationId: conversationId,
                         senderInboxId: senderInboxId,
                         isTyping: isTyping
@@ -1678,12 +1681,11 @@ extension ConversationViewModel {
               let lastItem = new.last,
               case .messages(let group) = lastItem,
               !group.sender.isCurrentUser else { return }
-        let manager = TypingIndicatorManager.shared
-        manager.handleMessageReceived(
+        typingIndicatorManager.handleMessageReceived(
             conversationId: conversation.id,
             senderInboxId: group.sender.profile.inboxId
         )
-        updateTypingMembers(from: manager)
+        updateTypingMembers(from: typingIndicatorManager)
     }
 
     func stopTyping() {
@@ -1706,7 +1708,15 @@ extension ConversationViewModel {
         }
 
         let now = Date()
-        if let lastSent = typingThrottleDate, now.timeIntervalSince(lastSent) < 5 {
+        if let lastSent = typingThrottleDate, now.timeIntervalSince(lastSent) < Constant.typingThrottleInterval {
+            typingResetTask?.cancel()
+            typingResetTask = Task { [weak self] in
+                try? await Task.sleep(for: .seconds(Constant.typingResetInterval))
+                guard !Task.isCancelled else { return }
+                await MainActor.run { [weak self] in
+                    self?.isTypingSent = false
+                }
+            }
             return
         }
 
@@ -1715,7 +1725,7 @@ extension ConversationViewModel {
 
         typingResetTask?.cancel()
         typingResetTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(10))
+            try? await Task.sleep(for: .seconds(Constant.typingResetInterval))
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.isTypingSent = false
@@ -1727,5 +1737,10 @@ extension ConversationViewModel {
             guard let self else { return }
             try? await self.messagingService.sendTypingIndicator(isTyping: true, for: conversationId)
         }
+    }
+
+    private enum Constant {
+        static let typingThrottleInterval: TimeInterval = 5
+        static let typingResetInterval: TimeInterval = 10
     }
 }

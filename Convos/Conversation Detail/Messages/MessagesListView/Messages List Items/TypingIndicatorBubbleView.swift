@@ -1,6 +1,8 @@
 import SwiftUI
 
 struct TypingIndicatorBubbleView: View {
+    var senderName: String?
+
     var body: some View {
         MessageContainer(style: .tailed, isOutgoing: false) {
             PulsingCircleView.typingIndicator
@@ -9,6 +11,7 @@ struct TypingIndicatorBubbleView: View {
                 .padding(.vertical, 10.0)
         }
         .accessibilityIdentifier("typing-indicator-bubble")
+        .accessibilityLabel("\(senderName ?? "Someone") is typing")
     }
 }
 
