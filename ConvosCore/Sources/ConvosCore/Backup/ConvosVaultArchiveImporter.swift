@@ -1,3 +1,4 @@
+import ConvosInvites
 import Foundation
 @preconcurrency import XMTPiOS
 
@@ -16,18 +17,36 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
         let options = ClientOptions(
             api: api,
+            codecs: [
+                ConversationDeletedCodec(),
+                DeviceKeyBundleCodec(),
+                DeviceKeyShareCodec(),
+                DeviceRemovedCodec(),
+                JoinRequestCodec(),
+                PairingMessageCodec(),
+                TextCodec(),
+            ],
             dbEncryptionKey: vaultIdentity.keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory
         )
 
-        Log.info("[Restore] building temporary vault XMTP client")
-        let tempClient = try await Client.build(
-            publicIdentity: vaultIdentity.keys.signingKey.identity,
-            options: options,
-            inboxId: vaultIdentity.inboxId
-        )
+        let tempClient: Client
+        do {
+            Log.info("[Restore] building vault XMTP client from local state")
+            tempClient = try await Client.build(
+                publicIdentity: vaultIdentity.keys.signingKey.identity,
+                options: options,
+                inboxId: vaultIdentity.inboxId
+            )
+        } catch {
+            Log.info("[Restore] build failed (\(error)), creating vault XMTP client with signing key")
+            tempClient = try await Client.create(
+                account: vaultIdentity.keys.signingKey,
+                options: options
+            )
+        }
 
-        Log.info("[Restore] importing vault archive into temporary client")
+        Log.info("[Restore] importing vault archive into client (inboxId: \(tempClient.inboxID))")
         try await tempClient.importArchive(path: path.path, encryptionKey: encryptionKey)
 
         Log.info("[Restore] extracting keys from imported vault messages")

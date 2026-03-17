@@ -22,11 +22,19 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporter {
             dbDirectory: environment.defaultDatabasesDirectory
         )
 
-        let client = try await Client.build(
-            publicIdentity: identity.keys.signingKey.identity,
-            options: options,
-            inboxId: inboxId
-        )
+        let client: Client
+        do {
+            client = try await Client.build(
+                publicIdentity: identity.keys.signingKey.identity,
+                options: options,
+                inboxId: inboxId
+            )
+        } catch {
+            client = try await Client.create(
+                account: identity.keys.signingKey,
+                options: options
+            )
+        }
         defer { try? client.dropLocalDatabaseConnection() }
         try await client.importArchive(path: path, encryptionKey: encryptionKey)
     }
