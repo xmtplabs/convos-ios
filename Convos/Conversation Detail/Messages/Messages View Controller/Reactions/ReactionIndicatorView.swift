@@ -62,7 +62,7 @@ private struct ReactionPillView: View {
     @State private var pillAppeared: Bool = false
     @State private var contentWidth: CGFloat = 0
 
-    private var emojiContent: some View {
+    private var emojisOnly: some View {
         HStack(spacing: DesignConstants.Spacing.stepHalf) {
             ForEach(emojis, id: \.self) { emoji in
                 let appeared = appearedEmojis.contains(emoji)
@@ -81,6 +81,17 @@ private struct ReactionPillView: View {
                     }
             }
         }
+    }
+
+    private var emojiContent: some View {
+        HStack(spacing: DesignConstants.Spacing.stepHalf) {
+            emojisOnly
+            if count > 1 {
+                Text("\(count)")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+        }
         .padding(.horizontal, DesignConstants.Spacing.step3x)
     }
 
@@ -95,7 +106,8 @@ private struct ReactionPillView: View {
             if needsScrolling {
                 ZStack(alignment: .trailing) {
                     ScrollView(.horizontal, showsIndicators: false) {
-                        emojiContent
+                        emojisOnly
+                            .padding(.horizontal, DesignConstants.Spacing.step3x)
                     }
                     .scrollBounceBehavior(.basedOnSize)
                     .contentMargins(.trailing, countBadgeWidth, for: .scrollContent)
