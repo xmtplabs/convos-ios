@@ -82,13 +82,13 @@ public actor RestoreManager {
                 Log.info("[Restore] sessions stopped")
             }
 
-            Log.info("[Restore] wiping local XMTP state for clean restore")
-            await wipeLocalXMTPState()
-            Log.info("[Restore] local XMTP state wiped")
-
             Log.info("[Restore] importing vault archive and extracting keys")
             let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
             Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault archive")
+
+            Log.info("[Restore] wiping local XMTP state for clean restore")
+            await wipeLocalXMTPState()
+            Log.info("[Restore] local XMTP state wiped")
 
             Log.info("[Restore] saving keys to keychain")
             let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
