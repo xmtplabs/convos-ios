@@ -16,6 +16,11 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         let vaultIdentity = try await vaultKeyStore.loadAny()
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
 
+        let importDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("xmtp-vault-import-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: importDir, withIntermediateDirectories: true)
+        Log.info("[Restore] using isolated import directory: \(importDir.lastPathComponent)")
+
         let options = ClientOptions(
             api: api,
             codecs: [
@@ -27,10 +32,11 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
                 PairingMessageCodec(),
                 TextCodec(),
             ],
-            dbEncryptionKey: vaultIdentity.keys.databaseKey
+            dbEncryptionKey: vaultIdentity.keys.databaseKey,
+            dbDirectory: importDir.path
         )
 
-        Log.info("[Restore] creating vault XMTP client for archive import")
+        Log.info("[Restore] creating vault XMTP client in isolated directory")
         let client = try await Client.create(
             account: vaultIdentity.keys.signingKey,
             options: options
@@ -65,6 +71,7 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         Log.info("[Restore] extracted \(entries.count) key entries from vault archive")
 
         try? client.dropLocalDatabaseConnection()
+        try? FileManager.default.removeItem(at: importDir)
         return entries
     }
 }
