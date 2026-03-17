@@ -80,8 +80,6 @@ class NewConversationViewModel: Identifiable {
     @ObservationIgnored
     nonisolated(unsafe) private var _reachedReadyState: Bool = false
     @ObservationIgnored
-    nonisolated(unsafe) private var _acquiredClientId: String?
-    @ObservationIgnored
     private var inboxAcquisitionTask: Task<Void, Never>?
     @ObservationIgnored
     private var newConversationTask: Task<Void, Error>?
@@ -163,21 +161,8 @@ class NewConversationViewModel: Identifiable {
     }
 
     func cleanUpIfNeeded() {
-        guard !_reachedReadyState, let clientId = _acquiredClientId else { return }
-        _acquiredClientId = nil
-        deleteConversationForClientId(clientId)
-    }
-
-    private func deleteConversationForClientId(_ clientId: String) {
-        // inboxId is empty because the service is still in awakeInboxes and
-        // deleteInbox looks it up by clientId via getOrCreateService.
-        Task { [session] in
-            do {
-                try await session.deleteInbox(clientId: clientId, inboxId: "")
-            } catch {
-                Log.error("Failed cleaning up inbox: \(error.localizedDescription)")
-            }
-        }
+        guard !_reachedReadyState else { return }
+        deleteConversation()
     }
 
     // MARK: - Inbox Acquisition
@@ -245,7 +230,6 @@ class NewConversationViewModel: Identifiable {
         }
         self.conversationStateManager = stateManager
         self.acquiredMessagingService = messagingService
-        self._acquiredClientId = messagingService.clientId
         let draftConversation: Conversation = .empty(
             id: stateManager.draftConversationRepository.conversationId,
             clientId: messagingService.clientId
