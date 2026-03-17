@@ -163,6 +163,17 @@ struct RestoreManagerTests {
         defer { try? FileManager.default.removeItem(at: bundleURL) }
 
         let vaultImporter = MockVaultArchiveImporter()
+        let convOkKeys = try await identityStore.generateKeys()
+        let convFailKeys = try await identityStore.generateKeys()
+        vaultImporter.keyEntriesToReturn = [
+            .init(inboxId: "conv-ok", clientId: "client-conv-ok", conversationId: "group-ok",
+                  privateKeyData: convOkKeys.privateKey.secp256K1.bytes,
+                  databaseKey: convOkKeys.databaseKey),
+            .init(inboxId: "conv-fail", clientId: "client-conv-fail", conversationId: "group-fail",
+                  privateKeyData: convFailKeys.privateKey.secp256K1.bytes,
+                  databaseKey: convFailKeys.databaseKey),
+        ]
+
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
             vaultArchiveImporter: vaultImporter,

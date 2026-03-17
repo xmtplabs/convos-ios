@@ -82,18 +82,13 @@ public actor RestoreManager {
                 Log.info("[Restore] sessions stopped")
             }
 
-            let missingInboxIds = await inboxIdsWithMissingKeys(in: stagingDir)
-            Log.info("[Restore] \(missingInboxIds.count) conversation key(s) missing from keychain")
+            Log.info("[Restore] wiping local XMTP state for clean restore")
+            await wipeLocalXMTPState()
+            Log.info("[Restore] local XMTP state wiped")
 
-            let keyEntries: [VaultKeyEntry]
-            if missingInboxIds.isEmpty {
-                Log.info("[Restore] all keys already in keychain, skipping vault archive import")
-                keyEntries = []
-            } else {
-                Log.info("[Restore] importing vault archive to recover \(missingInboxIds.count) missing key(s)")
-                keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
-                Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault archive")
-            }
+            Log.info("[Restore] importing vault archive and extracting keys")
+            let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
+            Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault archive")
 
             Log.info("[Restore] saving keys to keychain")
             let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
@@ -128,26 +123,36 @@ public actor RestoreManager {
         }
     }
 
-    // MARK: - Key presence check
+    // MARK: - Wipe
 
-    private func inboxIdsWithMissingKeys(in directory: URL) async -> [String] {
-        let conversationsDir = directory.appendingPathComponent("conversations", isDirectory: true)
-        guard let files = try? FileManager.default.contentsOfDirectory(
-            at: conversationsDir,
+    private func wipeLocalXMTPState() async {
+        try? await identityStore.deleteAll()
+        Log.info("[Restore] cleared conversation keychain identities")
+
+        deleteXMTPFiles(in: environment.defaultDatabasesDirectoryURL)
+
+        if let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
+            deleteXMTPFiles(in: documentsDir)
+        }
+    }
+
+    private func deleteXMTPFiles(in directory: URL) {
+        let fileManager = FileManager.default
+        guard let files = try? fileManager.contentsOfDirectory(
+            at: directory,
             includingPropertiesForKeys: nil,
             options: [.skipsHiddenFiles]
-        ) else {
-            return []
-        }
+        ) else { return }
 
-        var missing: [String] = []
-        for file in files where file.pathExtension == "encrypted" {
-            let inboxId = file.deletingPathExtension().lastPathComponent
-            if (try? await identityStore.identity(for: inboxId)) == nil {
-                missing.append(inboxId)
+        var count = 0
+        for file in files where file.lastPathComponent.hasPrefix("xmtp-") {
+            if (try? fileManager.removeItem(at: file)) != nil {
+                count += 1
             }
         }
-        return missing
+        if count > 0 {
+            Log.info("[Restore] deleted \(count) XMTP file(s) from \(directory.lastPathComponent)")
+        }
     }
 
     // MARK: - Vault archive import
