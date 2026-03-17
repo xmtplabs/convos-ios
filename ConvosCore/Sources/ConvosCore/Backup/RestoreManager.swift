@@ -82,9 +82,18 @@ public actor RestoreManager {
                 Log.info("[Restore] sessions stopped")
             }
 
-            Log.info("[Restore] importing vault archive and extracting keys")
-            let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
-            Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault")
+            let missingInboxIds = await inboxIdsWithMissingKeys(in: stagingDir)
+            Log.info("[Restore] \(missingInboxIds.count) conversation key(s) missing from keychain")
+
+            let keyEntries: [VaultKeyEntry]
+            if missingInboxIds.isEmpty {
+                Log.info("[Restore] all keys already in keychain, skipping vault archive import")
+                keyEntries = []
+            } else {
+                Log.info("[Restore] importing vault archive to recover \(missingInboxIds.count) missing key(s)")
+                keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
+                Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault archive")
+            }
 
             Log.info("[Restore] saving keys to keychain")
             let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
@@ -117,6 +126,28 @@ public actor RestoreManager {
             BackupBundle.cleanup(directory: stagingDir)
             throw error
         }
+    }
+
+    // MARK: - Key presence check
+
+    private func inboxIdsWithMissingKeys(in directory: URL) async -> [String] {
+        let conversationsDir = directory.appendingPathComponent("conversations", isDirectory: true)
+        guard let files = try? FileManager.default.contentsOfDirectory(
+            at: conversationsDir,
+            includingPropertiesForKeys: nil,
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var missing: [String] = []
+        for file in files where file.pathExtension == "encrypted" {
+            let inboxId = file.deletingPathExtension().lastPathComponent
+            if (try? await identityStore.identity(for: inboxId)) == nil {
+                missing.append(inboxId)
+            }
+        }
+        return missing
     }
 
     // MARK: - Vault archive import
