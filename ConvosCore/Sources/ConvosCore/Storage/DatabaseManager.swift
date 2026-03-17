@@ -37,24 +37,44 @@ public final class DatabaseManager: DatabaseManagerProtocol {
         }
     }
 
+    /// Replaces the current database with a backup copy.
+    ///
+    /// This is a destructive operation intended for restore scenarios only.
+    /// All active database connections are closed during replacement.
+    /// If the replacement fails, the original database is restored.
     public func replaceDatabase(with backupPath: URL) throws {
-        try dbPool.close()
-
         let dbURL = environment.defaultDatabasesDirectoryURL.appendingPathComponent("convos.sqlite")
-        let fileManager = FileManager.default
-
-        if fileManager.fileExists(atPath: dbURL.path) {
-            try fileManager.removeItem(at: dbURL)
-        }
-
+        let oldBackupURL = dbURL.appendingPathExtension("pre-restore")
         let walURL = URL(fileURLWithPath: dbURL.path + "-wal")
         let shmURL = URL(fileURLWithPath: dbURL.path + "-shm")
+        let fileManager = FileManager.default
+
+        // validate backup opens before touching anything
+        let testQueue = try DatabaseQueue(path: backupPath.path)
+        try testQueue.close()
+
+        try dbPool.close()
+
+        // move current DB aside as rollback safety net
+        if fileManager.fileExists(atPath: dbURL.path) {
+            try fileManager.moveItem(at: dbURL, to: oldBackupURL)
+        }
         try? fileManager.removeItem(at: walURL)
         try? fileManager.removeItem(at: shmURL)
 
-        try fileManager.copyItem(at: backupPath, to: dbURL)
-
-        dbPool = try Self.makeDatabasePool(environment: environment)
+        do {
+            try fileManager.copyItem(at: backupPath, to: dbURL)
+            dbPool = try Self.makeDatabasePool(environment: environment)
+            try? fileManager.removeItem(at: oldBackupURL)
+        } catch {
+            // rollback: restore the original DB
+            try? fileManager.removeItem(at: dbURL)
+            if fileManager.fileExists(atPath: oldBackupURL.path) {
+                try? fileManager.moveItem(at: oldBackupURL, to: dbURL)
+            }
+            dbPool = try Self.makeDatabasePool(environment: environment)
+            throw error
+        }
     }
 
     private static func makeDatabasePool(environment: AppEnvironment) throws -> DatabasePool {
