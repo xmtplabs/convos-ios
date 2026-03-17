@@ -48,29 +48,27 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
             throw CocoaError(.fileNoSuchFile)
         }
 
+        Log.info("[Restore] opening backup at: \(backupPath.lastPathComponent)")
         let backupQueue = try DatabaseQueue(path: backupPath.path)
-        let rollbackQueue = try DatabaseQueue()
 
+        Log.info("[Restore] creating rollback snapshot")
+        let rollbackQueue = try DatabaseQueue()
+        try dbPool.backup(to: rollbackQueue)
+
+        Log.info("[Restore] copying backup into live pool")
         do {
-            try dbPool.barrierWriteWithoutTransaction { liveDb in
-                try rollbackQueue.writeWithoutTransaction { rollbackDb in
-                    try liveDb.backup(to: rollbackDb)
-                }
-                try backupQueue.read { backupDb in
-                    try backupDb.backup(to: liveDb)
-                }
-            }
+            try backupQueue.backup(to: dbPool)
+            Log.info("[Restore] running migrations")
             try SharedDatabaseMigrator.shared.migrate(database: dbPool)
+            Log.info("[Restore] database replacement succeeded")
         } catch {
+            Log.warning("[Restore] replacement failed (\(error)), rolling back")
             do {
-                try dbPool.barrierWriteWithoutTransaction { liveDb in
-                    try rollbackQueue.read { rollbackDb in
-                        try rollbackDb.backup(to: liveDb)
-                    }
-                }
+                try rollbackQueue.backup(to: dbPool)
                 try SharedDatabaseMigrator.shared.migrate(database: dbPool)
+                Log.info("[Restore] rollback succeeded")
             } catch {
-                Log.error("Failed to rollback database restore: \(error)")
+                Log.error("[Restore] rollback failed: \(error)")
             }
             throw error
         }

@@ -274,9 +274,6 @@ struct BackupDebugView: View {
     }
 
     private func makeRestoreManager() throws -> RestoreManager {
-        guard let vaultManager = session.vaultService as? VaultManager else {
-            throw BackupDebugError.vaultUnavailable
-        }
         guard let databaseManager else {
             throw BackupDebugError.databaseManagerUnavailable
         }
@@ -291,7 +288,6 @@ struct BackupDebugView: View {
 
         return RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: vaultManager,
             identityStore: identityStore,
             databaseManager: databaseManager,
             archiveImporter: archiveImporter,

@@ -17,6 +17,10 @@ public protocol RestoreArchiveImporter: Sendable {
     func importConversationArchive(inboxId: String, path: String, encryptionKey: Data) async throws
 }
 
+public protocol VaultArchiveImporter: Sendable {
+    func importVaultArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry]
+}
+
 public protocol RestoreLifecycleControlling: Sendable {
     func prepareForRestore() async
     func finishRestore() async
@@ -24,7 +28,7 @@ public protocol RestoreLifecycleControlling: Sendable {
 
 public actor RestoreManager {
     private let vaultKeyStore: VaultKeyStore
-    private let vaultService: any VaultServiceProtocol
+    private let vaultArchiveImporter: any VaultArchiveImporter
     private let identityStore: any KeychainIdentityStoreProtocol
     private let databaseManager: any DatabaseManagerProtocol
     private let archiveImporter: any RestoreArchiveImporter
@@ -35,7 +39,7 @@ public actor RestoreManager {
 
     public init(
         vaultKeyStore: VaultKeyStore,
-        vaultService: any VaultServiceProtocol,
+        vaultArchiveImporter: (any VaultArchiveImporter)? = nil,
         identityStore: any KeychainIdentityStoreProtocol,
         databaseManager: any DatabaseManagerProtocol,
         archiveImporter: any RestoreArchiveImporter,
@@ -43,7 +47,10 @@ public actor RestoreManager {
         environment: AppEnvironment
     ) {
         self.vaultKeyStore = vaultKeyStore
-        self.vaultService = vaultService
+        self.vaultArchiveImporter = vaultArchiveImporter ?? ConvosVaultArchiveImporter(
+            vaultKeyStore: vaultKeyStore,
+            environment: environment
+        )
         self.identityStore = identityStore
         self.databaseManager = databaseManager
         self.archiveImporter = archiveImporter
@@ -60,30 +67,46 @@ public actor RestoreManager {
         var preparedForRestore = false
 
         do {
+            Log.info("[Restore] reading bundle (\(bundleURL.lastPathComponent))")
             let bundleData = try Data(contentsOf: bundleURL)
+            Log.info("[Restore] unpacking bundle (\(bundleData.count) bytes)")
             try BackupBundle.unpack(data: bundleData, encryptionKey: encryptionKey, to: stagingDir)
 
             let metadata = try BackupBundleMetadata.read(from: stagingDir)
-            Log.info("Restoring backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
-
-            let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
-            let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
+            Log.info("[Restore] backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
 
             if let restoreLifecycleController {
+                Log.info("[Restore] preparing lifecycle (stopping sessions)")
                 await restoreLifecycleController.prepareForRestore()
                 preparedForRestore = true
+                Log.info("[Restore] lifecycle prepared")
             }
 
+            Log.info("[Restore] importing vault archive")
+            let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
+            Log.info("[Restore] vault import returned \(keyEntries.count) key(s)")
+
+            Log.info("[Restore] saving keys to keychain")
+            let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
+            Log.info("[Restore] keys saved (\(failedKeyCount) failed)")
+
+            Log.info("[Restore] replacing database")
             try replaceDatabase(from: stagingDir)
+            Log.info("[Restore] database replaced")
+
+            Log.info("[Restore] importing conversation archives")
             await importConversationArchives(in: stagingDir)
+            Log.info("[Restore] conversation archives imported")
 
             if preparedForRestore {
+                Log.info("[Restore] finishing lifecycle (resuming sessions)")
                 await restoreLifecycleController?.finishRestore()
+                Log.info("[Restore] lifecycle finished")
             }
 
             let restoredCount = try countRestoredInboxes()
             state = .completed(inboxCount: restoredCount, failedKeyCount: failedKeyCount)
-            Log.info("Restore completed: \(restoredCount) inbox(es), \(keyEntries.count) key(s), \(failedKeyCount) key failure(s)")
+            Log.info("[Restore] completed: \(restoredCount) inbox(es), \(keyEntries.count) key(s), \(failedKeyCount) key failure(s)")
 
             BackupBundle.cleanup(directory: stagingDir)
         } catch {
@@ -106,7 +129,7 @@ public actor RestoreManager {
             throw RestoreError.missingVaultArchive
         }
 
-        return try await vaultService.importArchive(from: vaultArchivePath, encryptionKey: encryptionKey)
+        return try await vaultArchiveImporter.importVaultArchive(from: vaultArchivePath, encryptionKey: encryptionKey)
     }
 
     // MARK: - Key restoration

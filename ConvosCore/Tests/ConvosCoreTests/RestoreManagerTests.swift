@@ -20,25 +20,11 @@ final class MockRestoreArchiveImporter: RestoreArchiveImporter, @unchecked Senda
 
 // MARK: - Mock vault service for restore
 
-final class MockRestoreVaultService: VaultServiceProtocol, @unchecked Sendable {
-    var importedArchivePath: URL?
+final class MockVaultArchiveImporter: VaultArchiveImporter, @unchecked Sendable {
     var keyEntriesToReturn: [VaultKeyEntry] = []
 
-    func startVault(signingKey: any SigningKey, options: XMTPiOS.ClientOptions) async throws {}
-    func stopVault() async {}
-    func pauseVault() async {}
-    func resumeVault() async {}
-    func unpairSelf() async throws {}
-    func broadcastConversationDeleted(inboxId: String, clientId: String) async {}
-
-    func createArchive(at path: URL, encryptionKey: Data) async throws {
-        try Data("vault-archive".utf8).write(to: path)
-    }
-
-    @discardableResult
-    func importArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry] {
-        importedArchivePath = path
-        return keyEntriesToReturn
+    func importVaultArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry] {
+        keyEntriesToReturn
     }
 }
 
@@ -64,7 +50,6 @@ struct RestoreManagerTests {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
-        let vaultService = MockRestoreVaultService()
         let archiveImporter = MockRestoreArchiveImporter()
 
         let keyEntries: [VaultKeyEntry] = [
@@ -73,7 +58,6 @@ struct RestoreManagerTests {
             .init(inboxId: "conv-2", clientId: "client-2", conversationId: "group-2",
                   privateKeyData: Data(repeating: 0x03, count: 32), databaseKey: Data(repeating: 0x04, count: 32)),
         ]
-        vaultService.keyEntriesToReturn = keyEntries
 
         let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
         _ = try await inboxWriter.save(inboxId: "old-inbox", clientId: "old-client")
@@ -85,9 +69,11 @@ struct RestoreManagerTests {
         )
         defer { try? FileManager.default.removeItem(at: bundleURL) }
 
+        let vaultImporter = MockVaultArchiveImporter()
+        vaultImporter.keyEntriesToReturn = keyEntries
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: vaultService,
+            vaultArchiveImporter: vaultImporter,
             identityStore: identityStore,
             databaseManager: fixtures.databaseManager,
             archiveImporter: archiveImporter,
@@ -104,7 +90,6 @@ struct RestoreManagerTests {
         }
 
         #expect(failedKeyCount == 0)
-        #expect(vaultService.importedArchivePath != nil)
 
         let savedConv1 = try? await identityStore.identity(for: "conv-1")
         #expect(savedConv1 != nil)
@@ -121,7 +106,6 @@ struct RestoreManagerTests {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
-        let vaultService = MockRestoreVaultService()
         let archiveImporter = MockRestoreArchiveImporter()
 
         let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
@@ -140,9 +124,10 @@ struct RestoreManagerTests {
         }
         #expect(preRestoreCount == 2)
 
+        let vaultImporter = MockVaultArchiveImporter()
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: vaultService,
+            vaultArchiveImporter: vaultImporter,
             identityStore: identityStore,
             databaseManager: fixtures.databaseManager,
             archiveImporter: archiveImporter,
@@ -170,7 +155,6 @@ struct RestoreManagerTests {
         let identityStore = MockKeychainIdentityStore()
         let vaultStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: vaultStore)
-        let vaultService = MockRestoreVaultService()
         let archiveImporter = MockRestoreArchiveImporter()
 
         archiveImporter.failingInboxIds = ["conv-fail"]
@@ -183,9 +167,10 @@ struct RestoreManagerTests {
         )
         defer { try? FileManager.default.removeItem(at: bundleURL) }
 
+        let vaultImporter = MockVaultArchiveImporter()
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: vaultService,
+            vaultArchiveImporter: vaultImporter,
             identityStore: identityStore,
             databaseManager: fixtures.databaseManager,
             archiveImporter: archiveImporter,
@@ -212,7 +197,6 @@ struct RestoreManagerTests {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
-        let vaultService = MockRestoreVaultService()
         let archiveImporter = MockRestoreArchiveImporter()
 
         let bundleURL = try await createBundleWithoutVaultArchive(
@@ -221,9 +205,10 @@ struct RestoreManagerTests {
         )
         defer { try? FileManager.default.removeItem(at: bundleURL) }
 
+        let vaultImporter = MockVaultArchiveImporter()
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: vaultService,
+            vaultArchiveImporter: vaultImporter,
             identityStore: identityStore,
             databaseManager: fixtures.databaseManager,
             archiveImporter: archiveImporter,
@@ -280,7 +265,6 @@ struct RestoreManagerTests {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
-        let vaultService = MockRestoreVaultService()
         let archiveImporter = MockRestoreArchiveImporter()
 
         let bundleURL = try await createTestBundle(
@@ -290,9 +274,10 @@ struct RestoreManagerTests {
         )
         defer { try? FileManager.default.removeItem(at: bundleURL) }
 
+        let vaultImporter = MockVaultArchiveImporter()
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: vaultService,
+            vaultArchiveImporter: vaultImporter,
             identityStore: identityStore,
             databaseManager: fixtures.databaseManager,
             archiveImporter: archiveImporter,
@@ -319,7 +304,6 @@ struct RestoreManagerTests {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
-        let vaultService = MockRestoreVaultService()
         let archiveImporter = MockRestoreArchiveImporter()
 
         let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
@@ -345,9 +329,10 @@ struct RestoreManagerTests {
         )
         defer { try? FileManager.default.removeItem(at: bundleURL) }
 
+        let vaultImporter = MockVaultArchiveImporter()
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: vaultService,
+            vaultArchiveImporter: vaultImporter,
             identityStore: identityStore,
             databaseManager: fixtures.databaseManager,
             archiveImporter: archiveImporter,
@@ -372,7 +357,6 @@ struct RestoreManagerTests {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
-        let vaultService = MockRestoreVaultService()
         let archiveImporter = MockRestoreArchiveImporter()
         let lifecycleController = MockRestoreLifecycleController()
 
@@ -383,9 +367,10 @@ struct RestoreManagerTests {
         )
         defer { try? FileManager.default.removeItem(at: bundleURL) }
 
+        let vaultImporter = MockVaultArchiveImporter()
         let manager = RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: vaultService,
+            vaultArchiveImporter: vaultImporter,
             identityStore: identityStore,
             databaseManager: fixtures.databaseManager,
             archiveImporter: archiveImporter,
