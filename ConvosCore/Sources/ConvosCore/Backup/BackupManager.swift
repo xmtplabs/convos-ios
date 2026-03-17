@@ -60,7 +60,12 @@ public actor BackupManager {
         stagingDir: URL
     ) async throws -> (Data, BackupBundleMetadata) {
         Log.info("[Backup] broadcasting all conversation keys to vault")
-        try await archiveProvider.broadcastKeysToVault()
+        do {
+            try await archiveProvider.broadcastKeysToVault()
+            Log.info("[Backup] keys broadcast to vault")
+        } catch {
+            Log.warning("[Backup] failed to broadcast keys to vault (non-fatal): \(error)")
+        }
         Log.info("[Backup] creating vault archive")
         try await createVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
 
@@ -88,9 +93,13 @@ public actor BackupManager {
         return (bundleData, metadata)
     }
 
-    private func createVaultArchive(encryptionKey: Data, in directory: URL) async throws {
+    private func createVaultArchive(encryptionKey: Data, in directory: URL) async {
         let archivePath = BackupBundle.vaultArchivePath(in: directory)
-        try await archiveProvider.createVaultArchive(at: archivePath, encryptionKey: encryptionKey)
+        do {
+            try await archiveProvider.createVaultArchive(at: archivePath, encryptionKey: encryptionKey)
+        } catch {
+            Log.warning("[Backup] vault archive creation failed (non-fatal): \(error)")
+        }
     }
 
     private func createConversationArchives(in directory: URL) async -> [ConversationArchiveResult] {
