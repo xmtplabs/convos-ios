@@ -199,16 +199,18 @@ struct BackupDebugView: View {
     }
 
     private func revokeVaultInstallationsAction() {
-        guard let vaultManager = session.vaultService as? VaultManager else {
-            actionResultMessage = "Vault service unavailable"
-            showingActionResult = true
-            return
-        }
         let vaultKeyStore = makeVaultKeyStore()
-        runAction(title: "Revoke vault installations") {
+        let vaultManager = session.vaultService as? VaultManager
+        runAction(title: "Revoke vault installations") { [environment] in
             let vaultIdentity = try await vaultKeyStore.loadAny()
-            try await vaultManager.revokeAllOtherInstallations(signingKey: vaultIdentity.keys.signingKey)
-            return "Revoked all other vault installations."
+            let keepId: String? = await vaultManager?.vaultInstallationId
+            let count = try await XMTPInstallationRevoker.revokeOtherInstallations(
+                inboxId: vaultIdentity.inboxId,
+                signingKey: vaultIdentity.keys.signingKey,
+                keepInstallationId: keepId,
+                environment: environment
+            )
+            return "Revoked \(count) vault installation(s)."
         }
     }
 

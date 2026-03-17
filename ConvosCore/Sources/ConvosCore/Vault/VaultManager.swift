@@ -195,6 +195,10 @@ public actor VaultManager {
         await vaultClient.disconnect()
     }
 
+    public var vaultInstallationId: String? {
+        get async { await vaultClient.installationId }
+    }
+
     public func revokeAllOtherInstallations(signingKey: any SigningKey) async throws {
         guard let client = await vaultClient.xmtpClient else {
             throw VaultClientError.notConnected
