@@ -133,7 +133,8 @@ struct BackupDebugView: View {
         runAction(title: "Create backup") {
             let outputURL = try await backupManager.createBackup()
             await refreshStatus()
-            return "Backup created at:\n\(outputURL.lastPathComponent)"
+            let timestamp = Date().formatted(date: .abbreviated, time: .shortened)
+            return "Backup created successfully.\n\(timestamp)"
         }
     }
 

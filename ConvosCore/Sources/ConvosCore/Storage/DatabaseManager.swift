@@ -5,6 +5,7 @@ import SQLite3
 public protocol DatabaseManagerProtocol {
     var dbWriter: DatabaseWriter { get }
     var dbReader: DatabaseReader { get }
+    func replaceDatabase(with backupPath: URL) throws
 }
 
 /// Manages the SQLite database for Convos
@@ -17,7 +18,7 @@ public protocol DatabaseManagerProtocol {
 public final class DatabaseManager: DatabaseManagerProtocol {
     let environment: AppEnvironment
 
-    public let dbPool: DatabasePool
+    public private(set) var dbPool: DatabasePool
 
     public var dbWriter: DatabaseWriter {
         dbPool as DatabaseWriter
@@ -34,6 +35,26 @@ public final class DatabaseManager: DatabaseManagerProtocol {
         } catch {
             fatalError("Failed to initialize database: \(error)")
         }
+    }
+
+    public func replaceDatabase(with backupPath: URL) throws {
+        try dbPool.close()
+
+        let dbURL = environment.defaultDatabasesDirectoryURL.appendingPathComponent("convos.sqlite")
+        let fileManager = FileManager.default
+
+        if fileManager.fileExists(atPath: dbURL.path) {
+            try fileManager.removeItem(at: dbURL)
+        }
+
+        let walURL = URL(fileURLWithPath: dbURL.path + "-wal")
+        let shmURL = URL(fileURLWithPath: dbURL.path + "-shm")
+        try? fileManager.removeItem(at: walURL)
+        try? fileManager.removeItem(at: shmURL)
+
+        try fileManager.copyItem(at: backupPath, to: dbURL)
+
+        dbPool = try Self.makeDatabasePool(environment: environment)
     }
 
     private static func makeDatabasePool(environment: AppEnvironment) throws -> DatabasePool {

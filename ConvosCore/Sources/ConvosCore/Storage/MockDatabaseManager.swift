@@ -20,6 +20,12 @@ final class MockDatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
         try SharedDatabaseMigrator.shared.migrate(database: dbPool)
     }
 
+    func replaceDatabase(with backupPath: URL) throws {
+        try dbPool.erase()
+        let backupQueue = try DatabaseQueue(path: backupPath.path)
+        try backupQueue.backup(to: dbPool)
+    }
+
     private init(migrate: Bool = true) {
         do {
             dbPool = try DatabaseQueue(named: "MockDatabase")

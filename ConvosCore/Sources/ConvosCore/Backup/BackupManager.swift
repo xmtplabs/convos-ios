@@ -134,8 +134,18 @@ public actor BackupManager {
 
     private func writeToICloudOrLocal(bundleData: Data, metadata: BackupBundleMetadata) throws -> URL {
         let backupDir = try resolveBackupDirectory()
+        let fileManager = FileManager.default
         let bundlePath = backupDir.appendingPathComponent("backup-latest.encrypted")
-        try bundleData.write(to: bundlePath)
+        let tempBundlePath = backupDir.appendingPathComponent("backup-latest.encrypted.tmp")
+
+        try bundleData.write(to: tempBundlePath)
+
+        if fileManager.fileExists(atPath: bundlePath.path) {
+            _ = try fileManager.replaceItemAt(bundlePath, withItemAt: tempBundlePath)
+        } else {
+            try fileManager.moveItem(at: tempBundlePath, to: bundlePath)
+        }
+
         try BackupBundleMetadata.write(metadata, to: backupDir)
         return bundlePath
     }
