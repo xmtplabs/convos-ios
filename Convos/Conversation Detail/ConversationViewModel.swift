@@ -10,6 +10,8 @@ struct PendingInvite {
     let code: String
     let fullURL: String
     let range: Range<String.Index>
+    var linkedConversationClientId: String?
+    var linkedConversationInboxId: String?
 }
 
 @MainActor
@@ -58,6 +60,8 @@ class ConversationViewModel {
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored
+    private var convosButtonCancellable: AnyCancellable?
     @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
@@ -1505,6 +1509,50 @@ extension ConversationViewModel {
     }
 
     func clearPendingInvite() {
+        guard let invite = pendingInvite else { return }
         pendingInvite = nil
+        if let clientId = invite.linkedConversationClientId {
+            let inboxId = invite.linkedConversationInboxId ?? ""
+            Task { [session] in
+                try? await session.deleteInbox(clientId: clientId, inboxId: inboxId)
+            }
+        }
+    }
+
+    func onConvosButtonTapped() {
+        guard pendingInvite == nil else { return }
+        Task {
+            let (messagingService, existingConversationId) = await session.addInbox()
+            guard !Task.isCancelled else { return }
+
+            let stateManager: any ConversationStateManagerProtocol
+            if let existingConversationId {
+                stateManager = messagingService.conversationStateManager(for: existingConversationId)
+            } else {
+                stateManager = messagingService.conversationStateManager()
+                try? await stateManager.createConversation()
+            }
+
+            guard !Task.isCancelled else { return }
+
+            let clientId = messagingService.clientId
+            convosButtonCancellable = stateManager.draftConversationRepository.conversationPublisher
+                .compactMap { $0 }
+                .first { $0.invite?.urlSlug.isEmpty == false }
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] convo in
+                    guard let self, let convoInvite = convo.invite else { return }
+                    let urlString = convoInvite.inviteURLString
+                    let emptyRange = urlString.startIndex ..< urlString.startIndex
+                    self.pendingInvite = PendingInvite(
+                        code: convoInvite.urlSlug,
+                        fullURL: urlString,
+                        range: emptyRange,
+                        linkedConversationClientId: clientId,
+                        linkedConversationInboxId: convo.inboxId
+                    )
+                    self.convosButtonCancellable = nil
+                }
+        }
     }
 }

@@ -29,6 +29,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onDisplayNameEndedEditing: () -> Void
     let onVideoSelected: (URL) -> Void
     let onProfileSettings: () -> Void
+    let onConvosAction: () -> Void
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
@@ -160,7 +161,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
-                    onConvosAction: {}
+                    onConvosAction: onConvosAction
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(height: DesignConstants.Spacing.step12x)
@@ -306,6 +307,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             },
             onVideoSelected: { _ in },
             onProfileSettings: {},
+            onConvosAction: {},
             onBaseHeightChanged: { height in
                 bottomBarHeight = height
             },

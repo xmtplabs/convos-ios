@@ -33,22 +33,21 @@ struct MessagesMediaButtonsView: View {
             .accessibilityLabel("Camera")
             .accessibilityIdentifier("camera-button")
 
-            // Convos action button (hidden until feature is ready)
-            // Button {
-            //     onConvosAction()
-            // } label: {
-            //     Image("convosOrangeIcon")
-            //         .renderingMode(.template)
-            //         .resizable()
-            //         .scaledToFit()
-            //         .frame(height: 18)
-            //         .foregroundStyle(Color.colorTextSecondary)
-            //         .frame(width: Constant.buttonSize, height: Constant.buttonSize)
-            //         .contentShape(.circle)
-            // }
-            // .buttonStyle(.plain)
-            // .accessibilityLabel("Convos")
-            // .accessibilityIdentifier("convos-action-button")
+            Button {
+                onConvosAction()
+            } label: {
+                Image("convosOrangeIcon")
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(height: 18)
+                    .foregroundStyle(Color.colorTextSecondary)
+                    .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Convos")
+            .accessibilityIdentifier("convos-action-button")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Media buttons")

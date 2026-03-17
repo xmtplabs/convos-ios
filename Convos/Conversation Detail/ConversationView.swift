@@ -115,6 +115,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                     didReleasePastThreshold = true
                 }
             },
+            onConvosAction: { viewModel.onConvosButtonTapped() },
             bottomBarContent: {
                 VStack(spacing: DesignConstants.Spacing.step3x) {
                     if showPullToAddAssistant {
