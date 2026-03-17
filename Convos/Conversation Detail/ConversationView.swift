@@ -106,7 +106,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 }
             },
             onBottomOverscrollReleased: { overscroll in
-                if overscroll >= 100 {
+                if overscroll >= PullToAddAssistantView.activationThreshold,
+                   !viewModel.isAssistantJoinPending {
                     didReleasePastThreshold = true
                 }
             },
