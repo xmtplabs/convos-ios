@@ -43,8 +43,9 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
             options: options
         )
 
-        Log.info("[Restore] importing vault archive (inboxId: \(client.inboxID))")
+        Log.info("[Restore] importing vault archive (inboxId: \(client.inboxID), installation: \(client.installationID))")
         try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
+        Log.info("[Restore] vault archive import succeeded")
 
         Log.info("[Restore] syncing vault conversations after import")
         try await client.conversations.sync()
