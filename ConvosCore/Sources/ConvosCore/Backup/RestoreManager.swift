@@ -129,11 +129,10 @@ public actor RestoreManager {
         try? await identityStore.deleteAll()
         Log.info("[Restore] cleared conversation keychain identities")
 
+        // Only wipe conversation XMTP databases (AppGroup container).
+        // The vault XMTP database (Documents) is preserved — it was already
+        // used to extract keys and will be reconnected after restore.
         deleteXMTPFiles(in: environment.defaultDatabasesDirectoryURL)
-
-        if let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first {
-            deleteXMTPFiles(in: documentsDir)
-        }
     }
 
     private func deleteXMTPFiles(in directory: URL) {

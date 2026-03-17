@@ -99,10 +99,17 @@ struct BackupDebugView: View {
             }
             .accessibilityIdentifier("backup-debug-create-button")
             .disabled(isPerformingAction)
+
+            let revokeAction = { revokeVaultInstallationsAction() }
+            Button(role: .destructive, action: revokeAction) {
+                actionLabel("Revoke all other vault installations")
+            }
+            .accessibilityIdentifier("backup-debug-revoke-vault-button")
+            .disabled(isPerformingAction)
         } header: {
             Text("Actions")
         } footer: {
-            Text("Creates an encrypted backup bundle containing the vault archive, conversation archives, and database.")
+            Text("Use 'Revoke' to clear extra vault installations accumulated during testing (max 10 per inboxId).")
         }
     }
 
@@ -188,6 +195,20 @@ struct BackupDebugView: View {
                 return message
             }
             return "Restore completed."
+        }
+    }
+
+    private func revokeVaultInstallationsAction() {
+        guard let vaultManager = session.vaultService as? VaultManager else {
+            actionResultMessage = "Vault service unavailable"
+            showingActionResult = true
+            return
+        }
+        let vaultKeyStore = makeVaultKeyStore()
+        runAction(title: "Revoke vault installations") {
+            let vaultIdentity = try await vaultKeyStore.loadAny()
+            try await vaultManager.revokeAllOtherInstallations(signingKey: vaultIdentity.keys.signingKey)
+            return "Revoked all other vault installations."
         }
     }
 
