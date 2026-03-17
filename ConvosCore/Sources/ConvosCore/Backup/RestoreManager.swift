@@ -94,9 +94,6 @@ public actor RestoreManager {
             let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
             Log.info("[Restore] keys saved (\(failedKeyCount) failed)")
 
-            Log.info("[Restore] importing vault XMTP archive (best-effort)")
-            await importVaultArchiveBestEffort(encryptionKey: encryptionKey, in: stagingDir)
-
             Log.info("[Restore] importing conversation archives")
             await importConversationArchives(in: stagingDir)
             Log.info("[Restore] conversation archives imported")
