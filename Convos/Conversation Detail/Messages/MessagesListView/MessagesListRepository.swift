@@ -93,8 +93,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     private func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         lastRawMessages = messages
-        let initialCount = messagesRepository.hasMoreMessages ? currentOtherMemberCount : 0
-        let items = MessagesListProcessor.process(messages, otherMemberCount: initialCount)
+        let items = MessagesListProcessor.process(messages, otherMemberCount: currentOtherMemberCount)
         scheduleAssistantJoinDismissIfNeeded(items)
         return items
     }
@@ -113,8 +112,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .delay(for: .seconds(remaining), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let initialCount = self.messagesRepository.hasMoreMessages ? self.currentOtherMemberCount : 0
-                let reprocessed = MessagesListProcessor.process(self.lastRawMessages, otherMemberCount: initialCount)
+                let reprocessed = MessagesListProcessor.process(self.lastRawMessages, otherMemberCount: self.currentOtherMemberCount)
                 self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
                 self.messagesListSubject.send(reprocessed)
             }
