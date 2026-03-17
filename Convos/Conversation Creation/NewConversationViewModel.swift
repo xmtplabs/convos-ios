@@ -160,15 +160,22 @@ class NewConversationViewModel: Identifiable {
         joinConversationTask?.cancel()
         resetTask?.cancel()
         stateObservationTask?.cancel()
+    }
 
-        if !_reachedReadyState, let clientId = _acquiredClientId {
-            let session = session
-            Task {
-                do {
-                    try await session.deleteInbox(clientId: clientId, inboxId: "")
-                } catch {
-                    Log.error("Failed cleaning up inbox on deinit: \(error.localizedDescription)")
-                }
+    func cleanUpIfNeeded() {
+        guard !_reachedReadyState, let clientId = _acquiredClientId else { return }
+        _acquiredClientId = nil
+        deleteConversationForClientId(clientId)
+    }
+
+    private func deleteConversationForClientId(_ clientId: String) {
+        // inboxId is empty because the service is still in awakeInboxes and
+        // deleteInbox looks it up by clientId via getOrCreateService.
+        Task { [session] in
+            do {
+                try await session.deleteInbox(clientId: clientId, inboxId: "")
+            } catch {
+                Log.error("Failed cleaning up inbox: \(error.localizedDescription)")
             }
         }
     }
@@ -373,8 +380,8 @@ class NewConversationViewModel: Identifiable {
             }
         case .joinConversation(let inviteCode):
             if delay > 0 {
-                newConversationTask?.cancel()
-                newConversationTask = Task { [weak self] in
+                joinConversationTask?.cancel()
+                joinConversationTask = Task { [weak self] in
                     try? await Task.sleep(for: .seconds(delay))
                     guard !Task.isCancelled else { return }
                     await MainActor.run { [weak self] in
