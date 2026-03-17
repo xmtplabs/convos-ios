@@ -8,6 +8,7 @@ public struct ConversationArchiveResult: Sendable {
 }
 
 public protocol BackupArchiveProvider: Sendable {
+    func broadcastKeysToVault() async throws
     func createVaultArchive(at path: URL, encryptionKey: Data) async throws
     func createConversationArchive(inboxId: String, at path: String, encryptionKey: Data) async throws
 }
@@ -58,6 +59,9 @@ public actor BackupManager {
         encryptionKey: Data,
         stagingDir: URL
     ) async throws -> (Data, BackupBundleMetadata) {
+        Log.info("[Backup] broadcasting all conversation keys to vault")
+        try await archiveProvider.broadcastKeysToVault()
+        Log.info("[Backup] creating vault archive")
         try await createVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
 
         let conversationResults = await createConversationArchives(in: stagingDir)

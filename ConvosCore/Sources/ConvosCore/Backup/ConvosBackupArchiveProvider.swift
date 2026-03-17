@@ -16,6 +16,11 @@ public struct ConvosBackupArchiveProvider: BackupArchiveProvider {
         self.environment = environment
     }
 
+    public func broadcastKeysToVault() async throws {
+        guard let vaultManager = vaultService as? VaultManager else { return }
+        try await vaultManager.shareAllKeys()
+    }
+
     public func createVaultArchive(at path: URL, encryptionKey: Data) async throws {
         try await vaultService.createArchive(at: path, encryptionKey: encryptionKey)
     }

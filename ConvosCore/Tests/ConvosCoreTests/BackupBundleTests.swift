@@ -14,6 +14,8 @@ actor MockBackupArchiveProvider: BackupArchiveProvider {
         failingInboxIds = ids
     }
 
+    func broadcastKeysToVault() async throws {}
+
     func createVaultArchive(at path: URL, encryptionKey: Data) async throws {
         vaultArchiveCalls.append((path, encryptionKey))
         try Data("vault-archive-data".utf8).write(to: path)
