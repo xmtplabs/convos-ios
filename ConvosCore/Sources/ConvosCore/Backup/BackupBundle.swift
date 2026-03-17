@@ -158,11 +158,13 @@ public enum BackupBundle {
             let fileData = data.subdata(in: offset ..< offset + fileLength)
             offset += fileLength
 
-            let resolvedFilePath = resolvedPath(directory.appendingPathComponent(relativePath))
+            let resolvedFileURL = URL(fileURLWithPath: resolvedDirPath)
+                .appendingPathComponent(relativePath)
+            let resolvedFilePath = resolvedFileURL.standardizedFileURL.path
             guard resolvedFilePath.hasPrefix(resolvedDirPath + "/") else {
                 throw BundleError.unpackingFailed("path traversal attempt: \(relativePath)")
             }
-            let fileURL = URL(fileURLWithPath: resolvedFilePath)
+            let fileURL = resolvedFileURL
             let parentDir = fileURL.deletingLastPathComponent()
             try fileManager.createDirectory(at: parentDir, withIntermediateDirectories: true)
             try fileData.write(to: fileURL)
