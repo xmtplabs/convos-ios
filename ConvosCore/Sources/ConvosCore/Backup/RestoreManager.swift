@@ -28,7 +28,6 @@ public protocol RestoreLifecycleControlling: Sendable {
 
 public actor RestoreManager {
     private let vaultKeyStore: VaultKeyStore
-    private let vaultService: (any VaultServiceProtocol)?
     private let vaultArchiveImporter: any VaultArchiveImporter
     private let identityStore: any KeychainIdentityStoreProtocol
     private let databaseManager: any DatabaseManagerProtocol
@@ -40,7 +39,6 @@ public actor RestoreManager {
 
     public init(
         vaultKeyStore: VaultKeyStore,
-        vaultService: (any VaultServiceProtocol)? = nil,
         vaultArchiveImporter: (any VaultArchiveImporter)? = nil,
         identityStore: any KeychainIdentityStoreProtocol,
         databaseManager: any DatabaseManagerProtocol,
@@ -49,7 +47,6 @@ public actor RestoreManager {
         environment: AppEnvironment
     ) {
         self.vaultKeyStore = vaultKeyStore
-        self.vaultService = vaultService
         self.vaultArchiveImporter = vaultArchiveImporter ?? ConvosVaultArchiveImporter(
             vaultKeyStore: vaultKeyStore,
             environment: environment
@@ -78,33 +75,33 @@ public actor RestoreManager {
             let metadata = try BackupBundleMetadata.read(from: stagingDir)
             Log.info("[Restore] backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
 
-            Log.info("[Restore] extracting keys from live vault")
-            let keyEntries = try await extractKeysFromLiveVault()
-            Log.info("[Restore] extracted \(keyEntries.count) key(s)")
-
             if let restoreLifecycleController {
-                Log.info("[Restore] preparing lifecycle (stopping sessions)")
+                Log.info("[Restore] stopping sessions")
                 await restoreLifecycleController.prepareForRestore()
                 preparedForRestore = true
-                Log.info("[Restore] lifecycle prepared")
+                Log.info("[Restore] sessions stopped")
             }
 
-            Log.info("[Restore] replacing database")
-            try replaceDatabase(from: stagingDir)
-            Log.info("[Restore] database replaced")
+            Log.info("[Restore] importing vault archive and extracting keys")
+            let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
+            Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault")
 
             Log.info("[Restore] saving keys to keychain")
             let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
             Log.info("[Restore] keys saved (\(failedKeyCount) failed)")
+
+            Log.info("[Restore] replacing database")
+            try replaceDatabase(from: stagingDir)
+            Log.info("[Restore] database replaced")
 
             Log.info("[Restore] importing conversation archives")
             await importConversationArchives(in: stagingDir)
             Log.info("[Restore] conversation archives imported")
 
             if preparedForRestore {
-                Log.info("[Restore] finishing lifecycle (resuming sessions)")
+                Log.info("[Restore] resuming sessions")
                 await restoreLifecycleController?.finishRestore()
-                Log.info("[Restore] lifecycle finished")
+                Log.info("[Restore] sessions resumed")
             }
 
             let restoredCount = try countRestoredInboxes()
@@ -124,22 +121,16 @@ public actor RestoreManager {
 
     // MARK: - Vault archive import
 
-    private func extractKeysFromLiveVault() async throws -> [VaultKeyEntry] {
+    private func importVaultArchive(encryptionKey: Data, in directory: URL) async throws -> [VaultKeyEntry] {
         state = .importingVault
+        let vaultArchivePath = BackupBundle.vaultArchivePath(in: directory)
 
-        guard let vaultManager = vaultService as? VaultManager else {
-            Log.warning("[Restore] vault service unavailable, skipping key extraction")
+        guard FileManager.default.fileExists(atPath: vaultArchivePath.path) else {
+            Log.warning("[Restore] no vault archive in bundle, skipping key extraction")
             return []
         }
 
-        do {
-            let entries = try await vaultManager.extractKeys()
-            Log.info("[Restore] extracted \(entries.count) key(s) from live vault")
-            return entries
-        } catch {
-            Log.warning("[Restore] vault key extraction failed: \(error)")
-            return []
-        }
+        return try await vaultArchiveImporter.importVaultArchive(from: vaultArchivePath, encryptionKey: encryptionKey)
     }
 
     // MARK: - Key restoration

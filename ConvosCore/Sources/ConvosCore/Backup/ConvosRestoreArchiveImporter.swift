@@ -16,26 +16,21 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporter {
     public func importConversationArchive(inboxId: String, path: String, encryptionKey: Data) async throws {
         let identity = try await identityStore.identity(for: inboxId)
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
+
         let options = ClientOptions(
             api: api,
             dbEncryptionKey: identity.keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory
         )
 
-        let client: Client
-        do {
-            client = try await Client.build(
-                publicIdentity: identity.keys.signingKey.identity,
-                options: options,
-                inboxId: inboxId
-            )
-        } catch {
-            client = try await Client.create(
-                account: identity.keys.signingKey,
-                options: options
-            )
-        }
+        Log.info("[Restore] creating XMTP client for conversation \(inboxId)")
+        let client = try await Client.create(
+            account: identity.keys.signingKey,
+            options: options
+        )
         defer { try? client.dropLocalDatabaseConnection() }
+
+        Log.info("[Restore] importing conversation archive for \(inboxId)")
         try await client.importArchive(path: path, encryptionKey: encryptionKey)
     }
 }

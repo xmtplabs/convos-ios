@@ -12,9 +12,10 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
     }
 
     public func importVaultArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry] {
-        Log.info("[Restore] loading vault identity for temporary client")
+        Log.info("[Restore] loading vault identity")
         let vaultIdentity = try await vaultKeyStore.loadAny()
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
+
         let options = ClientOptions(
             api: api,
             codecs: [
@@ -26,32 +27,23 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
                 PairingMessageCodec(),
                 TextCodec(),
             ],
-            dbEncryptionKey: vaultIdentity.keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory
+            dbEncryptionKey: vaultIdentity.keys.databaseKey
         )
 
-        let tempClient: Client
-        do {
-            Log.info("[Restore] building vault XMTP client from local state")
-            tempClient = try await Client.build(
-                publicIdentity: vaultIdentity.keys.signingKey.identity,
-                options: options,
-                inboxId: vaultIdentity.inboxId
-            )
-        } catch {
-            Log.info("[Restore] build failed (\(error)), creating vault XMTP client with signing key")
-            tempClient = try await Client.create(
-                account: vaultIdentity.keys.signingKey,
-                options: options
-            )
-        }
+        Log.info("[Restore] creating vault XMTP client for archive import")
+        let client = try await Client.create(
+            account: vaultIdentity.keys.signingKey,
+            options: options
+        )
 
-        Log.info("[Restore] importing vault archive into client (inboxId: \(tempClient.inboxID))")
-        try await tempClient.importArchive(path: path.path, encryptionKey: encryptionKey)
+        Log.info("[Restore] importing vault archive (inboxId: \(client.inboxID))")
+        try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
 
-        Log.info("[Restore] extracting keys from imported vault messages")
-        try await tempClient.conversations.sync()
-        let groups = try tempClient.conversations.listGroups()
+        Log.info("[Restore] syncing vault conversations after import")
+        try await client.conversations.sync()
+        let groups = try client.conversations.listGroups()
+
+        Log.info("[Restore] reading messages from \(groups.count) vault group(s)")
         var allMessages: [DecodedMessage] = []
         for group in groups {
             try await group.sync()
@@ -70,9 +62,9 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         }
 
         let entries = VaultManager.extractKeyEntries(bundles: bundles, shares: shares)
-        Log.info("[Restore] extracted \(entries.count) key entries from vault")
+        Log.info("[Restore] extracted \(entries.count) key entries from vault archive")
 
-        try? tempClient.dropLocalDatabaseConnection()
+        try? client.dropLocalDatabaseConnection()
         return entries
     }
 }

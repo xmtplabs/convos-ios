@@ -288,7 +288,6 @@ struct BackupDebugView: View {
 
         return RestoreManager(
             vaultKeyStore: vaultKeyStore,
-            vaultService: session.vaultService,
             identityStore: identityStore,
             databaseManager: databaseManager,
             archiveImporter: archiveImporter,
