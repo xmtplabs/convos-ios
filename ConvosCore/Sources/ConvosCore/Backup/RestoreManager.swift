@@ -186,7 +186,9 @@ public actor RestoreManager {
             let backupsDir = containerURL
                 .appendingPathComponent("Documents", isDirectory: true)
                 .appendingPathComponent("backups", isDirectory: true)
-            return findNewestBackup(in: backupsDir)
+            if let backup = findNewestBackup(in: backupsDir) {
+                return backup
+            }
         }
 
         let localBackupsDir = environment.defaultDatabasesDirectoryURL
