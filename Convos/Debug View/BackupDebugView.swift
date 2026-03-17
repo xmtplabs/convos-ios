@@ -295,6 +295,7 @@ struct BackupDebugView: View {
             identityStore: identityStore,
             databaseManager: databaseManager,
             archiveImporter: archiveImporter,
+            restoreLifecycleController: session as? any RestoreLifecycleControlling,
             environment: environment
         )
     }

@@ -40,39 +40,29 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
     /// Replaces the current database with a backup copy.
     ///
     /// This is a destructive operation intended for restore scenarios only.
-    /// All active database connections are closed during replacement.
-    /// If the replacement fails, the original database is restored.
+    /// The existing `DatabasePool` instance is preserved so any long-lived
+    /// readers and writers held elsewhere in the app remain valid after restore.
+    /// If the replacement fails, the original database contents are restored.
     public func replaceDatabase(with backupPath: URL) throws {
-        let dbURL = environment.defaultDatabasesDirectoryURL.appendingPathComponent("convos.sqlite")
-        let oldBackupURL = dbURL.appendingPathExtension("pre-restore")
-        let walURL = URL(fileURLWithPath: dbURL.path + "-wal")
-        let shmURL = URL(fileURLWithPath: dbURL.path + "-shm")
-        let fileManager = FileManager.default
-
-        // validate backup opens before touching anything
-        let testQueue = try DatabaseQueue(path: backupPath.path)
-        try testQueue.close()
-
-        try dbPool.close()
-
-        // move current DB aside as rollback safety net
-        if fileManager.fileExists(atPath: dbURL.path) {
-            try fileManager.moveItem(at: dbURL, to: oldBackupURL)
+        guard FileManager.default.fileExists(atPath: backupPath.path) else {
+            throw CocoaError(.fileNoSuchFile)
         }
-        try? fileManager.removeItem(at: walURL)
-        try? fileManager.removeItem(at: shmURL)
+
+        let backupQueue = try DatabaseQueue(path: backupPath.path)
+        let rollbackQueue = try DatabaseQueue()
+
+        try dbPool.backup(to: rollbackQueue)
 
         do {
-            try fileManager.copyItem(at: backupPath, to: dbURL)
-            dbPool = try Self.makeDatabasePool(environment: environment)
-            try? fileManager.removeItem(at: oldBackupURL)
+            try backupQueue.backup(to: dbPool)
+            try SharedDatabaseMigrator.shared.migrate(database: dbPool)
         } catch {
-            // rollback: restore the original DB
-            try? fileManager.removeItem(at: dbURL)
-            if fileManager.fileExists(atPath: oldBackupURL.path) {
-                try? fileManager.moveItem(at: oldBackupURL, to: dbURL)
+            do {
+                try rollbackQueue.backup(to: dbPool)
+                try SharedDatabaseMigrator.shared.migrate(database: dbPool)
+            } catch {
+                Log.error("Failed to rollback database restore: \(error)")
             }
-            dbPool = try Self.makeDatabasePool(environment: environment)
             throw error
         }
     }

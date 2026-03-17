@@ -17,12 +17,18 @@ public protocol RestoreArchiveImporter: Sendable {
     func importConversationArchive(inboxId: String, path: String, encryptionKey: Data) async throws
 }
 
+public protocol RestoreLifecycleControlling: Sendable {
+    func prepareForRestore() async
+    func finishRestore() async
+}
+
 public actor RestoreManager {
     private let vaultKeyStore: VaultKeyStore
     private let vaultService: any VaultServiceProtocol
     private let identityStore: any KeychainIdentityStoreProtocol
     private let databaseManager: any DatabaseManagerProtocol
     private let archiveImporter: any RestoreArchiveImporter
+    private let restoreLifecycleController: (any RestoreLifecycleControlling)?
     private let environment: AppEnvironment
 
     public private(set) var state: RestoreState = .idle
@@ -33,6 +39,7 @@ public actor RestoreManager {
         identityStore: any KeychainIdentityStoreProtocol,
         databaseManager: any DatabaseManagerProtocol,
         archiveImporter: any RestoreArchiveImporter,
+        restoreLifecycleController: (any RestoreLifecycleControlling)? = nil,
         environment: AppEnvironment
     ) {
         self.vaultKeyStore = vaultKeyStore
@@ -40,6 +47,7 @@ public actor RestoreManager {
         self.identityStore = identityStore
         self.databaseManager = databaseManager
         self.archiveImporter = archiveImporter
+        self.restoreLifecycleController = restoreLifecycleController
         self.environment = environment
     }
 
@@ -49,6 +57,7 @@ public actor RestoreManager {
 
         state = .decrypting
         let stagingDir = try BackupBundle.createStagingDirectory()
+        var preparedForRestore = false
 
         do {
             let bundleData = try Data(contentsOf: bundleURL)
@@ -59,8 +68,18 @@ public actor RestoreManager {
 
             let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
             let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
+
+            if let restoreLifecycleController {
+                await restoreLifecycleController.prepareForRestore()
+                preparedForRestore = true
+            }
+
             try replaceDatabase(from: stagingDir)
             await importConversationArchives(in: stagingDir)
+
+            if preparedForRestore {
+                await restoreLifecycleController?.finishRestore()
+            }
 
             let restoredCount = try countRestoredInboxes()
             state = .completed(inboxCount: restoredCount, failedKeyCount: failedKeyCount)
@@ -68,6 +87,9 @@ public actor RestoreManager {
 
             BackupBundle.cleanup(directory: stagingDir)
         } catch {
+            if preparedForRestore {
+                await restoreLifecycleController?.finishRestore()
+            }
             state = .failed(error.localizedDescription)
             BackupBundle.cleanup(directory: stagingDir)
             throw error

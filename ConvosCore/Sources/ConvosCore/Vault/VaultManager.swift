@@ -258,14 +258,18 @@ public actor VaultManager {
         )
 
         try await vaultClient.send(removal, codec: DeviceRemovedCodec())
-        await cleanupLocalVaultState(inboxId: selfInboxId)
+        await cleanupLocalVaultState(inboxId: selfInboxId, preserveICloudBackupKey: true)
     }
 
-    private func cleanupLocalVaultState(inboxId: String?) async {
+    private func cleanupLocalVaultState(inboxId: String?, preserveICloudBackupKey: Bool) async {
         await vaultClient.disconnect()
 
         if let inboxId {
-            try? await vaultKeyStore?.delete(inboxId: inboxId)
+            if preserveICloudBackupKey {
+                try? await vaultKeyStore?.deleteLocal(inboxId: inboxId)
+            } else {
+                try? await vaultKeyStore?.delete(inboxId: inboxId)
+            }
         }
 
         if let databaseWriter {
@@ -280,7 +284,7 @@ public actor VaultManager {
     func handleSelfRemoved() async {
         Log.info("This device was removed from the vault by another device")
         let selfInboxId = await vaultInboxId
-        await cleanupLocalVaultState(inboxId: selfInboxId)
+        await cleanupLocalVaultState(inboxId: selfInboxId, preserveICloudBackupKey: false)
     }
 
     public static var preview: VaultManager {

@@ -42,6 +42,19 @@ final class MockRestoreVaultService: VaultServiceProtocol, @unchecked Sendable {
     }
 }
 
+actor MockRestoreLifecycleController: RestoreLifecycleControlling {
+    private(set) var prepareCallCount: Int = 0
+    private(set) var finishCallCount: Int = 0
+
+    func prepareForRestore() {
+        prepareCallCount += 1
+    }
+
+    func finishRestore() {
+        finishCallCount += 1
+    }
+}
+
 // MARK: - Tests
 
 @Suite("RestoreManager Tests", .serialized)
@@ -301,6 +314,40 @@ struct RestoreManagerTests {
         try? await fixtures.cleanup()
     }
 
+    @Test("Restore prepares and finishes app lifecycle around database replacement")
+    func testRestoreLifecycleControllerIsCalled() async throws {
+        let fixtures = TestFixtures()
+        let identityStore = MockKeychainIdentityStore()
+        let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
+        let vaultService = MockRestoreVaultService()
+        let archiveImporter = MockRestoreArchiveImporter()
+        let lifecycleController = MockRestoreLifecycleController()
+
+        let bundleURL = try await createTestBundle(
+            encryptionKey: vaultEncryptionKey,
+            identityStore: identityStore,
+            databaseManager: fixtures.databaseManager
+        )
+        defer { try? FileManager.default.removeItem(at: bundleURL) }
+
+        let manager = RestoreManager(
+            vaultKeyStore: vaultKeyStore,
+            vaultService: vaultService,
+            identityStore: identityStore,
+            databaseManager: fixtures.databaseManager,
+            archiveImporter: archiveImporter,
+            restoreLifecycleController: lifecycleController,
+            environment: .tests
+        )
+
+        try await manager.restoreFromBackup(bundleURL: bundleURL)
+
+        #expect(await lifecycleController.prepareCallCount == 1)
+        #expect(await lifecycleController.finishCallCount == 1)
+
+        try? await fixtures.cleanup()
+    }
+
     // MARK: - Helpers
 
     private func seedVaultKey(store: MockKeychainIdentityStore) async throws -> (VaultKeyStore, Data) {
@@ -403,5 +450,59 @@ struct RestoreManagerTests {
             .appendingPathComponent("test-bundle-\(UUID().uuidString).encrypted")
         try bundleData.write(to: bundleURL)
         return bundleURL
+    }
+}
+
+@Suite("DatabaseManager Restore Tests", .serialized)
+struct DatabaseManagerRestoreTests {
+    @Test("replaceDatabase keeps captured readers valid after restore")
+    func replaceDatabaseKeepsCapturedReadersValid() async throws {
+        let environment: AppEnvironment = .tests
+        let dbURL = environment.defaultDatabasesDirectoryURL.appendingPathComponent("convos.sqlite")
+        let walURL = URL(fileURLWithPath: dbURL.path + "-wal")
+        let shmURL = URL(fileURLWithPath: dbURL.path + "-shm")
+        let backupPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("database-restore-\(UUID().uuidString).sqlite")
+
+        try? FileManager.default.removeItem(at: dbURL)
+        try? FileManager.default.removeItem(at: walURL)
+        try? FileManager.default.removeItem(at: shmURL)
+        try? FileManager.default.removeItem(at: backupPath)
+
+        let manager = DatabaseManager(environment: environment)
+        defer {
+            try? manager.dbPool.close()
+            try? FileManager.default.removeItem(at: dbURL)
+            try? FileManager.default.removeItem(at: walURL)
+            try? FileManager.default.removeItem(at: shmURL)
+            try? FileManager.default.removeItem(at: backupPath)
+        }
+
+        let inboxWriter = InboxWriter(dbWriter: manager.dbWriter)
+        _ = try await inboxWriter.save(inboxId: "backup-inbox", clientId: "backup-client")
+
+        let backupQueue = try DatabaseQueue(path: backupPath.path)
+        defer { try? backupQueue.close() }
+        try manager.dbReader.backup(to: backupQueue)
+
+        _ = try await inboxWriter.save(inboxId: "post-backup-inbox", clientId: "post-backup-client")
+
+        let capturedReader = manager.dbReader
+        let preRestoreCount = try await capturedReader.read { db in
+            try DBInbox.fetchCount(db)
+        }
+        #expect(preRestoreCount == 2)
+
+        try manager.replaceDatabase(with: backupPath)
+
+        let restoredCount = try await capturedReader.read { db in
+            try DBInbox.fetchCount(db)
+        }
+        #expect(restoredCount == 1)
+
+        let restoredInbox = try await capturedReader.read { db in
+            try DBInbox.fetchOne(db, id: "backup-inbox")
+        }
+        #expect(restoredInbox != nil)
     }
 }

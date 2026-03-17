@@ -680,3 +680,22 @@ extension SessionManager: VaultEventHandler {
         }
     }
 }
+
+// MARK: - RestoreLifecycleControlling
+
+extension SessionManager: RestoreLifecycleControlling {
+    public func prepareForRestore() async {
+        await importSyncDrainer.pause()
+        await sleepingInboxChecker.stopPeriodicChecks()
+        await lifecycleManager.stopAll()
+        await vaultService?.pauseVault()
+        unusedInboxPrepTask?.cancel()
+    }
+
+    public func finishRestore() async {
+        await vaultService?.resumeVault()
+        await importSyncDrainer.resume()
+        await sleepingInboxChecker.startPeriodicChecks()
+        notificationChangeReporter.notifyChangesInDatabase()
+    }
+}

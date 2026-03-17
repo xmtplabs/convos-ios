@@ -84,6 +84,49 @@ struct VaultKeyStoreTests {
         #expect(await store.exists() == false)
     }
 
+    @Test("Delete local preserves iCloud vault key copy")
+    func deleteLocalPreservesICloudCopy() async throws {
+        let localStore = MockKeychainIdentityStore()
+        let iCloudStore = MockKeychainIdentityStore()
+        let dualStore = ICloudIdentityStore(localStore: localStore, icloudStore: iCloudStore)
+        let store = VaultKeyStore(store: dualStore)
+
+        let keys = try KeychainIdentityKeys.generate()
+        try await store.save(inboxId: vaultInboxId, clientId: vaultClientId, keys: keys)
+
+        try await store.deleteLocal(inboxId: vaultInboxId)
+
+        await #expect(throws: KeychainIdentityStoreError.self) {
+            _ = try await localStore.identity(for: self.vaultInboxId)
+        }
+
+        let iCloudIdentity = try await iCloudStore.identity(for: vaultInboxId)
+        #expect(iCloudIdentity.inboxId == vaultInboxId)
+
+        let reloaded = try await store.loadAny()
+        #expect(reloaded.keys.databaseKey == keys.databaseKey)
+    }
+
+    @Test("Delete removes both local and iCloud vault key copies")
+    func deleteRemovesBothCopies() async throws {
+        let localStore = MockKeychainIdentityStore()
+        let iCloudStore = MockKeychainIdentityStore()
+        let dualStore = ICloudIdentityStore(localStore: localStore, icloudStore: iCloudStore)
+        let store = VaultKeyStore(store: dualStore)
+
+        let keys = try KeychainIdentityKeys.generate()
+        try await store.save(inboxId: vaultInboxId, clientId: vaultClientId, keys: keys)
+
+        try await store.delete(inboxId: vaultInboxId)
+
+        await #expect(throws: KeychainIdentityStoreError.self) {
+            _ = try await localStore.identity(for: self.vaultInboxId)
+        }
+        await #expect(throws: KeychainIdentityStoreError.self) {
+            _ = try await iCloudStore.identity(for: self.vaultInboxId)
+        }
+    }
+
     @Test("DeleteAll clears everything")
     func deleteAll() async throws {
         let mock = MockKeychainIdentityStore()
