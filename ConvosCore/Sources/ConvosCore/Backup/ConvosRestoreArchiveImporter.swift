@@ -20,7 +20,8 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporter {
         let options = ClientOptions(
             api: api,
             dbEncryptionKey: identity.keys.databaseKey,
-            dbDirectory: environment.defaultDatabasesDirectory
+            dbDirectory: environment.defaultDatabasesDirectory,
+            deviceSyncEnabled: false
         )
 
         Log.info("[Restore] creating XMTP client for conversation \(inboxId)")

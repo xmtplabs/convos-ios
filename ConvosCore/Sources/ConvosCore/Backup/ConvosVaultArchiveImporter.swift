@@ -33,7 +33,8 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
                 TextCodec(),
             ],
             dbEncryptionKey: vaultIdentity.keys.databaseKey,
-            dbDirectory: importDir.path
+            dbDirectory: importDir.path,
+            deviceSyncEnabled: false
         )
 
         Log.info("[Restore] creating vault XMTP client in isolated directory")
