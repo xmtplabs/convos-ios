@@ -216,13 +216,13 @@ public final class MessagesListProcessor: Sendable {
                GlobalConvoDefaults.shared.sendReadReceipts {
                 let msgDateNs = Int64(lastMsg.date.timeIntervalSince1970 * 1_000_000_000)
                 let senderInboxId = group.sender.profile.inboxId
-                let readInboxIds = Set(
-                    readReceipts
-                        .filter { $0.readAtNs >= msgDateNs && $0.inboxId != senderInboxId }
-                        .map(\.inboxId)
-                )
-                if !readInboxIds.isEmpty {
-                    let profiles: [Profile] = readInboxIds.compactMap { inboxId in
+                var seen = Set<String>()
+                let sortedInboxIds = readReceipts
+                    .filter { $0.readAtNs >= msgDateNs && $0.inboxId != senderInboxId }
+                    .sorted { $0.readAtNs != $1.readAtNs ? $0.readAtNs > $1.readAtNs : $0.inboxId < $1.inboxId }
+                    .compactMap { seen.insert($0.inboxId).inserted ? $0.inboxId : nil }
+                if !sortedInboxIds.isEmpty {
+                    let profiles: [Profile] = sortedInboxIds.compactMap { inboxId in
                         if let info = memberProfiles[inboxId] {
                             return Profile(inboxId: info.inboxId, name: info.name, avatar: info.avatar)
                         }
