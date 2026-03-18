@@ -44,7 +44,7 @@ public actor AgentKeyset: AgentKeysetProviding {
     private static let cacheDuration: TimeInterval = 86400
 
     // swiftlint:disable:next force_unwrapping
-    private static let defaultEndpointURL: URL = URL(string: "https://convos.org/.well-known/agents.json")!
+    public static let defaultEndpointURL: URL = URL(string: "https://convos.org/.well-known/agents.json")!
 
     public init(
         endpointURL: URL = AgentKeyset.defaultEndpointURL,

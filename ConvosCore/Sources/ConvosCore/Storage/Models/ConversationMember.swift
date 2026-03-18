@@ -44,6 +44,16 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.invitedBy = try container.decodeIfPresent(Profile.self, forKey: .invitedBy)
         self.joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
     }
+
+    public var displayName: String {
+        if let name = profile.name, !name.isEmpty {
+            return name
+        }
+        if isAgent && !isVerifiedAssistant {
+            return "Agent"
+        }
+        return profile.displayName
+    }
 }
 
 public extension Array where Element == ConversationMember {
