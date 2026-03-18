@@ -801,6 +801,7 @@ extension UnusedConversationCache {
 
             saveUnusedInboxToKeychain(inboxId)
             unusedMessagingService = tempMessagingService
+            lastPreparationFailure = nil
 
             Log.debug("Successfully created unused inbox: \(inboxId)")
 
@@ -900,6 +901,7 @@ extension UnusedConversationCache {
             }
 
             saveUnusedConversationToKeychain(conversationId)
+            lastPreparationFailure = nil
             Log.debug("Successfully created unused conversation with invite: \(conversationId)")
         } catch {
             Log.error("Failed to create conversation for unused inbox (keeping inbox): \(error)")
