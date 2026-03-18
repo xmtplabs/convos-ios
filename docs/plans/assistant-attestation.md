@@ -16,11 +16,11 @@ Cryptographically verify that a member claiming to be an assistant was provision
 
 The backend signs the agent's `inboxId` with an Ed25519 private key. The agent includes the signature in its profile metadata. The iOS client verifies the signature against the backend's public key, fetched from a JWKS endpoint.
 
-**What is signed:** `inboxId || timestamp` (Ed25519 handles hashing internally)
+**What is signed:** `sha256(inboxId || timestamp)`
 - `inboxId`: the agent's XMTP inbox ID (hex string)
 - `timestamp`: ISO 8601 UTC string (e.g. `2026-03-11T20:00:00Z`)
 - `||`: string concatenation (no separator)
-- The message bytes are the UTF-8 encoding of the concatenated string
+- The SHA-256 digest of the UTF-8 encoded concatenation is signed with Ed25519
 
 **Why signing just `inboxId + timestamp` is sufficient:**
 - Each agent gets a fresh per-conversation identity (unique `inboxId` per conversation)
@@ -55,7 +55,7 @@ These fields flow through the existing profile pipeline:
 4. Look up the public key by `kid` from the cached JWKS (fetch if not cached)
 5. If `kid` not found in cache, re-fetch JWKS once; if still not found → unverified
 6. If the key has an `exp` and it is in the past → unverified
-7. Reconstruct message: UTF-8 bytes of `inboxId || attestation_ts`
+7. Reconstruct message: `sha256(inboxId || attestation_ts)`
 8. Verify Ed25519 signature using the resolved public key
 9. If valid and timestamp is within 24 hours of the profile message date → verified assistant
 10. Cache the result per `(inboxId, conversationId)` — re-verify only on profile update or JWKS refresh
@@ -183,7 +183,7 @@ Current assistant UI (`.colorLava`, branded features) becomes the verified treat
 The CLI can generate attestations locally for end-to-end testing without the backend.
 
 1. Add a CLI command to generate an Ed25519 key pair (for testing)
-2. Add a CLI command or flag to sign `inboxId || timestamp` with a local Ed25519 private key
+2. Add a CLI command or flag to sign `sha256(inboxId || timestamp)` with a local Ed25519 private key
 3. Agent includes `attestation`, `attestation_ts`, `attestation_kid` in its `ProfileUpdate` metadata
 
 This lets us test the full iOS verification flow with real XMTP conversations.
@@ -193,7 +193,7 @@ This lets us test the full iOS verification flow with real XMTP conversations.
 Once iOS and CLI are validated:
 
 1. Host the JWKS endpoint at `https://convos.org/.well-known/agents.json` with the production signing key(s)
-2. After provisioning, sign `inboxId || timestamp` with the active Ed25519 private key
+2. After provisioning, sign `sha256(inboxId || timestamp)` with the active Ed25519 private key
 3. Pass the signature, timestamp, and `kid` to the agent as part of its configuration
 4. The agent includes them in its `ProfileUpdate` metadata when joining
 
