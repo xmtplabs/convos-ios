@@ -228,7 +228,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    if await processReadReceipt(message, conversationId: conversation.id) {
+                    if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
                         return
                     }
 
@@ -271,13 +271,18 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     // MARK: - Read Receipts
 
-    private func processReadReceipt(_ message: DecodedMessage, conversationId: String) async -> Bool {
+    private func processReadReceipt(_ message: DecodedMessage, conversationId: String, currentInboxId: String) async -> Bool {
         guard let contentType = try? message.encodedContent.type,
               contentType == ContentTypeReadReceipt else {
             return false
         }
 
         let senderInboxId = message.senderInboxId
+
+        guard senderInboxId != currentInboxId else {
+            return true
+        }
+
         let sentAtNs = message.sentAtNs
         Log.info("Received read receipt from \(senderInboxId) for conversation \(conversationId)")
 
