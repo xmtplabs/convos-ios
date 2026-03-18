@@ -77,6 +77,12 @@ public actor VaultImportSyncDrainer {
 
             sortedQueue = await fetchAndSortByActivity(inboxIds: remaining)
 
+            if sortedQueue.isEmpty {
+                Log.warning("VaultImportSyncDrainer: no inboxes found in database for \(remaining.count) pending ID(s), skipping")
+                syncedInboxIds.formUnion(remaining)
+                break
+            }
+
             let total = pendingInboxIds.count
             Log.info("VaultImportSyncDrainer: draining \(sortedQueue.count) inboxes (\(syncedInboxIds.count)/\(total) already synced)")
 

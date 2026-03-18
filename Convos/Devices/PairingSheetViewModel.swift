@@ -46,7 +46,9 @@ final class PairingSheetViewModel {
             let vaultInboxId = await vaultManager.vaultInboxId ?? ""
 
             let domain = ConfigManager.shared.associatedDomain
-            let encodedName = DeviceInfo.deviceName.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? ""
+            var allowedChars: CharacterSet = .urlQueryAllowed
+            allowedChars.remove(charactersIn: "&=")
+            let encodedName = DeviceInfo.deviceName.addingPercentEncoding(withAllowedCharacters: allowedChars) ?? ""
             let inviteURL = "https://\(domain)/pair/\(slug)?expires=\(expiresAtUnix)&name=\(encodedName)"
 
             try await coordinator.startPairing(inviteURL: inviteURL, initiatorInboxId: vaultInboxId)
@@ -87,7 +89,8 @@ final class PairingSheetViewModel {
         do {
             try await coordinator.receivedJoinRequest(joinerInboxId: joinerInboxId, deviceName: deviceName)
             let state = await coordinator.currentState
-            if case let .showingPin(pin, _, _) = state {
+            if case let .showingPin(pin, _, expectedJoiner) = state,
+               expectedJoiner == joinerInboxId {
                 try await vaultManager.sendPinToJoiner(pin, joinerInboxId: joinerInboxId)
                 flowState = .showingPin(pin: pin, deviceName: deviceName)
             }
