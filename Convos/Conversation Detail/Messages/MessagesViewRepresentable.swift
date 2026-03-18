@@ -34,6 +34,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let isAssistantEnabled: Bool
     let bottomBarHeight: CGFloat
     let onBottomOverscrollChanged: (CGFloat) -> Void
+    let onBottomOverscrollReleased: (CGFloat) -> Void
     let scrollToBottomTrigger: (@escaping () -> Void) -> Void
 
     class Coordinator {
@@ -76,6 +77,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
             self.onPhotoHidden(key)
         }
         messagesViewController.onBottomOverscrollChanged = onBottomOverscrollChanged
+        messagesViewController.onBottomOverscrollReleased = onBottomOverscrollReleased
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
@@ -153,6 +155,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         isAssistantEnabled: true,
         bottomBarHeight: bottomBarHeight,
         onBottomOverscrollChanged: { _ in },
+        onBottomOverscrollReleased: { _ in },
         scrollToBottomTrigger: { _ in }
     )
     .ignoresSafeArea()

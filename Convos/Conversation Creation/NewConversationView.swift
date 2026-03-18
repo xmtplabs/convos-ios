@@ -81,6 +81,7 @@ struct NewConversationView: View {
                 }
             }
         }
+        .interactiveDismissDisabled()
         .onAppear {
             focusCoordinator.horizontalSizeClass = horizontalSizeClass
             viewModel.setDismissAction(dismiss)
