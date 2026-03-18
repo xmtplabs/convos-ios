@@ -32,6 +32,25 @@ public protocol AgentKeysetProviding: Sendable {
     func cachedPublicKey(for kid: String) -> Curve25519.Signing.PublicKey?
 }
 
+public final class AgentKeysetStore: @unchecked Sendable {
+    public static let instance: AgentKeysetStore = .init()
+
+    private let lock: NSLock = .init()
+    private var _shared: (any AgentKeysetProviding)?
+
+    public var shared: (any AgentKeysetProviding)? {
+        lock.lock()
+        defer { lock.unlock() }
+        return _shared
+    }
+
+    public func configure(_ keyset: any AgentKeysetProviding) {
+        lock.lock()
+        defer { lock.unlock() }
+        _shared = keyset
+    }
+}
+
 public actor AgentKeyset: AgentKeysetProviding {
     private var cachedResponse: AgentKeysetResponse?
     private var lastFetchDate: Date?

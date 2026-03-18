@@ -12,11 +12,15 @@ struct DBConversationMemberProfileWithRole: Codable, FetchableRecord, Hashable {
 
 extension DBConversationMemberProfileWithRole {
     func hydrateConversationMember(currentInboxId: String) -> ConversationMember {
-        .init(
-            profile: memberProfile.hydrateProfile(),
+        let profile = memberProfile.hydrateProfile()
+        let isAgent = memberProfile.isAgent
+        let isVerified = isAgent && profile.verifyCachedAssistantAttestation()
+        return .init(
+            profile: profile,
             role: role,
             isCurrentUser: memberProfile.inboxId == currentInboxId,
-            isAgent: memberProfile.isAgent,
+            isAgent: isAgent,
+            isVerifiedAssistant: isVerified,
             invitedBy: inviterProfile?.hydrateProfile(),
             joinedAt: createdAt
         )
