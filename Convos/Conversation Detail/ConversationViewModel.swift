@@ -326,6 +326,7 @@ class ConversationViewModel {
 
     var autoRevealPhotos: Bool = false
     var sendReadReceipts: Bool = true
+    private(set) var isViewingConversation: Bool = false
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -519,7 +520,6 @@ class ConversationViewModel {
         observe()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
-        sendReadReceiptIfNeeded()
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
@@ -594,7 +594,6 @@ class ConversationViewModel {
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
         scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
-        sendReadReceiptIfNeeded()
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -1885,7 +1884,17 @@ extension ConversationViewModel {
 
     // MARK: - Read Receipts
 
+    func onConversationAppeared() {
+        isViewingConversation = true
+        sendReadReceiptIfNeeded()
+    }
+
+    func onConversationDisappeared() {
+        isViewingConversation = false
+    }
+
     private func sendReadReceiptIfNeeded() {
+        guard isViewingConversation else { return }
         guard !conversation.isDraft, !conversation.isPendingInvite else { return }
         guard sendReadReceipts else { return }
 
