@@ -58,7 +58,7 @@ public enum AssistantAttestationVerifier {
             return false
         }
 
-        guard let timestampDate = ISO8601DateFormatter().date(from: attestationTimestamp) else {
+        guard let timestampDate = Self.parseISO8601(attestationTimestamp) else {
             return false
         }
 
@@ -66,7 +66,18 @@ public enum AssistantAttestationVerifier {
             return false
         }
 
-        let message = Data((inboxId + attestationTimestamp).utf8)
-        return publicKey.isValidSignature(signatureData, for: message)
+        let rawMessage = Data((inboxId + attestationTimestamp).utf8)
+        let digest = SHA256.hash(data: rawMessage)
+        let digestData = Data(digest)
+        return publicKey.isValidSignature(signatureData, for: digestData)
+    }
+
+    private static func parseISO8601(_ string: String) -> Date? {
+        let formatter = ISO8601DateFormatter()
+        if let date = formatter.date(from: string) {
+            return date
+        }
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: string)
     }
 }
