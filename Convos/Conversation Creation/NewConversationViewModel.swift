@@ -63,13 +63,24 @@ class NewConversationViewModel: Identifiable {
 
     private(set) var isCreatingConversation: Bool = false
     private(set) var currentError: Error?
-    private(set) var conversationState: ConversationStateMachine.State = .uninitialized
+    private(set) var conversationState: ConversationStateMachine.State = .uninitialized {
+        didSet {
+            if case .ready = conversationState {
+                _reachedReadyState = true
+            }
+        }
+    }
     private var cachedInviteCode: String?
+    private var consecutiveFailureCount: Int = 0
 
     // MARK: - Private
 
     private var conversationStateManager: (any ConversationStateManagerProtocol)?
     private var acquiredMessagingService: AnyMessagingService?
+    @ObservationIgnored
+    nonisolated(unsafe) private var _reachedReadyState: Bool = false
+    @ObservationIgnored
+    private var _cleanedUp: Bool = false
     @ObservationIgnored
     private var inboxAcquisitionTask: Task<Void, Never>?
     @ObservationIgnored
@@ -149,6 +160,12 @@ class NewConversationViewModel: Identifiable {
         joinConversationTask?.cancel()
         resetTask?.cancel()
         stateObservationTask?.cancel()
+    }
+
+    func cleanUpIfNeeded() {
+        guard !_reachedReadyState, !_cleanedUp else { return }
+        _cleanedUp = true
+        deleteConversation()
     }
 
     // MARK: - Inbox Acquisition
@@ -314,6 +331,7 @@ class NewConversationViewModel: Identifiable {
     }
 
     func dismissWithDeletion() {
+        _cleanedUp = true
         displayError = nil
         currentError = nil
         isCreatingConversation = false
@@ -325,6 +343,7 @@ class NewConversationViewModel: Identifiable {
 
     func retryAction(_ action: RetryAction) {
         displayError = nil
+        let delay = retryDelay
         switch action {
         case .createConversation:
             guard let conversationStateManager else { return }
@@ -332,6 +351,10 @@ class NewConversationViewModel: Identifiable {
             newConversationTask = Task { [weak self, conversationStateManager] in
                 guard self != nil else { return }
                 guard !Task.isCancelled else { return }
+                if delay > 0 {
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled else { return }
+                }
                 do {
                     try await conversationStateManager.createConversation()
                     await self?.applyGlobalConversationDefaultsIfNeeded(using: conversationStateManager)
@@ -344,7 +367,27 @@ class NewConversationViewModel: Identifiable {
                 }
             }
         case .joinConversation(let inviteCode):
-            joinConversation(inviteCode: inviteCode)
+            if delay > 0 {
+                joinConversationTask?.cancel()
+                joinConversationTask = Task { [weak self] in
+                    try? await Task.sleep(for: .seconds(delay))
+                    guard !Task.isCancelled else { return }
+                    await MainActor.run { [weak self] in
+                        self?.joinConversation(inviteCode: inviteCode)
+                    }
+                }
+            } else {
+                joinConversation(inviteCode: inviteCode)
+            }
+        }
+    }
+
+    private var retryDelay: TimeInterval {
+        switch consecutiveFailureCount {
+        case 0: return 0
+        case 1: return Constant.retryDelayShort
+        case 2: return Constant.retryDelayMedium
+        default: return Constant.retryDelayMax
         }
     }
 
@@ -448,6 +491,7 @@ class NewConversationViewModel: Identifiable {
             Log.info("Waiting for invite acceptance...")
 
         case .ready(let result):
+            consecutiveFailureCount = 0
             conversationViewModel?.startOnboarding()
 
             if result.origin == .joined {
@@ -473,9 +517,11 @@ class NewConversationViewModel: Identifiable {
             currentError = nil
 
         case .joinFailed(_, let error):
+            consecutiveFailureCount += 1
             handleJoinFailedState(error)
 
         case .error(let error):
+            consecutiveFailureCount += 1
             handleErrorState(error)
         }
     }
@@ -542,8 +588,7 @@ class NewConversationViewModel: Identifiable {
         case .timedOut, .stateMachineError:
             showRetryableError(for: stateMachineError)
         default:
-            displayError = (error as? DisplayError).map { IdentifiableError(error: $0) }
-                ?? IdentifiableError(title: "Failed creating", description: "Please try again.")
+            displayError = IdentifiableError(error: stateMachineError)
         }
     }
 
@@ -562,28 +607,16 @@ class NewConversationViewModel: Identifiable {
     private func showRetryableError(for error: ConversationStateMachineError) {
         let inviteCode = cachedInviteCode ?? qrScannerViewModel.scannedCode
 
-        guard let inviteCode else {
-            displayError = IdentifiableError(
-                title: "Couldn't create",
-                description: "Failed to create conversation. Please try again.",
-                retryAction: .createConversation
-            )
-            return
-        }
-
-        let description = switch error {
-        case .timedOut:
-            "Connection timed out. Please check your network and try again."
-        case .stateMachineError:
-            "Something went wrong. Please try again."
-        default:
-            "Please try again."
+        let retryAction: RetryAction = if let inviteCode {
+            .joinConversation(inviteCode: inviteCode)
+        } else {
+            .createConversation
         }
 
         displayError = IdentifiableError(
-            title: "Couldn't join",
-            description: description,
-            retryAction: .joinConversation(inviteCode: inviteCode)
+            title: error.title,
+            description: error.description,
+            retryAction: retryAction
         )
 
         if startedWithFullscreenScanner {
@@ -634,6 +667,12 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItem = .share
         }
         .store(in: &cancellables)
+    }
+
+    private enum Constant {
+        static let retryDelayShort: TimeInterval = 2
+        static let retryDelayMedium: TimeInterval = 4
+        static let retryDelayMax: TimeInterval = 8
     }
 }
 

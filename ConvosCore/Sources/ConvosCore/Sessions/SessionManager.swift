@@ -512,6 +512,33 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         return deletedCount
     }
 
+    public func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
+        let repository = OrphanedInboxRepository(databaseReader: databaseReader)
+        return try repository.allOrphanedInboxes()
+    }
+
+    public func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {
+        await lifecycleManager.forceRemove(clientId: clientId)
+
+        do {
+            let identity = try await identityStore.delete(clientId: clientId)
+            Log.debug("Deleted keychain identity for orphaned inbox: \(identity.inboxId)")
+        } catch {
+            Log.warning("Could not delete keychain identity for orphaned clientId \(clientId): \(error)")
+        }
+
+        let inboxWriter = InboxWriter(dbWriter: databaseWriter)
+        try await inboxWriter.delete(clientId: clientId)
+
+        try await databaseWriter.write { db in
+            try DBConversation
+                .filter(DBConversation.Columns.clientId == clientId)
+                .deleteAll(db)
+        }
+
+        Log.info("Deleted orphaned inbox: clientId=\(clientId), inboxId=\(inboxId)")
+    }
+
     // MARK: Helpers
 
     public func inboxId(for conversationId: String) async -> String? {

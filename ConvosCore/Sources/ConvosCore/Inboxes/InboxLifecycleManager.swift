@@ -454,6 +454,7 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
         Log.debug("Initializing InboxLifecycleManager on app launch")
 
         await cleanupStalePendingInvites()
+        await cleanupOrphanedInboxes()
 
         do {
             let allActivities = try activityRepository.allInboxActivities()
@@ -477,6 +478,11 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
                 }
 
                 let hasPendingInvite = pendingInviteClientIds.contains(activity.clientId)
+
+                if activity.conversationCount == 0 && !hasPendingInvite {
+                    Log.debug("Skipping inbox with no conversations: \(activity.clientId)")
+                    continue
+                }
 
                 if hasPendingInvite {
                     if awakePendingInviteCount < maxAwakePendingInvites {
@@ -621,6 +627,43 @@ public actor InboxLifecycleManager: InboxLifecycleManagerProtocol {
             Log.info("Deleted \(deletedCount) expired pending invite(s), cleaned up \(safeToDeleteClientIds.count) inbox(es)")
         } catch {
             Log.error("Failed to cleanup stale pending invites: \(error)")
+        }
+    }
+
+    private func cleanupOrphanedInboxes() async {
+        do {
+            let repository = OrphanedInboxRepository(databaseReader: databaseReader)
+            let orphans = try repository.allOrphanedInboxes()
+            guard !orphans.isEmpty else { return }
+
+            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
+
+            for orphan in orphans {
+                await forceRemove(clientId: orphan.clientId)
+
+                do {
+                    let identity = try await identityStore.delete(clientId: orphan.clientId)
+                    Log.debug("Deleted keychain identity for orphaned inbox: \(identity.inboxId)")
+                } catch {
+                    Log.warning("Could not delete keychain identity for orphaned clientId \(orphan.clientId): \(error)")
+                }
+
+                do {
+                    try await inboxWriter.delete(clientId: orphan.clientId)
+                } catch {
+                    Log.warning("Could not delete inbox record for orphaned clientId \(orphan.clientId): \(error)")
+                }
+
+                try await databaseWriter.write { db in
+                    try DBConversation
+                        .filter(DBConversation.Columns.clientId == orphan.clientId)
+                        .deleteAll(db)
+                }
+            }
+
+            Log.info("Cleaned up \(orphans.count) orphaned inbox(es)")
+        } catch {
+            Log.error("Failed to cleanup orphaned inboxes: \(error)")
         }
     }
 

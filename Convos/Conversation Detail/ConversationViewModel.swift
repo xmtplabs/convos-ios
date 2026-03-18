@@ -227,7 +227,9 @@ class ConversationViewModel {
     var presentingConversationSettings: Bool = false
     var presentingProfileSettings: Bool = false
     var presentingProfileForMember: ConversationMember?
-    var presentingNewConversationForInvite: NewConversationViewModel?
+    var presentingNewConversationForInvite: NewConversationViewModel? {
+        didSet { oldValue?.cleanUpIfNeeded() }
+    }
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var replyingToMessage: AnyMessage?

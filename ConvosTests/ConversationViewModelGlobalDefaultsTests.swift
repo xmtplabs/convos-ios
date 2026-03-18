@@ -256,6 +256,14 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         try await base.deleteExpiredPendingInvites()
     }
 
+    func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
+        try base.orphanedInboxDetails()
+    }
+
+    func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {
+        try await base.deleteOrphanedInbox(clientId: clientId, inboxId: inboxId)
+    }
+
     func makeAssetRenewalManager() async -> AssetRenewalManager {
         await base.makeAssetRenewalManager()
     }

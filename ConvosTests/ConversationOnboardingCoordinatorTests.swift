@@ -65,6 +65,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     func testInviteWasAccepted_NotificationsAlreadyGranted_GoesToQuickname() async {
         mockNotificationCenter.authStatus = .authorized
+        coordinator.isWaitingForInviteAcceptance = true
 
         await coordinator.inviteWasAccepted(for: testConversationId)
 
@@ -74,6 +75,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     func testInviteWasAccepted_NotificationsNotDetermined_ShowsRequest() async {
         mockNotificationCenter.authStatus = .notDetermined
+        coordinator.isWaitingForInviteAcceptance = true
 
         await coordinator.inviteWasAccepted(for: testConversationId)
 
@@ -83,6 +85,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     func testInviteWasAccepted_GrantNotifications_ThenQuickname() async {
         mockNotificationCenter.authStatus = .notDetermined
+        coordinator.isWaitingForInviteAcceptance = true
 
         await coordinator.inviteWasAccepted(for: testConversationId)
         XCTAssertEqual(coordinator.state, .requestNotifications)
@@ -91,6 +94,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     func testInviteWasAccepted_NotificationsDenied_ShowsDenied() async {
         mockNotificationCenter.authStatus = .denied
+        coordinator.isWaitingForInviteAcceptance = true
 
         await coordinator.inviteWasAccepted(for: testConversationId)
 
@@ -268,6 +272,7 @@ final class ConversationOnboardingCoordinatorTests: XCTestCase {
 
     func testAppBecomesActive_DeniedState_EnabledAfterInviteFlow_ContinuesToQuickname() async {
         mockNotificationCenter.authStatus = .denied
+        coordinator.isWaitingForInviteAcceptance = true
 
         await coordinator.inviteWasAccepted(for: testConversationId)
         XCTAssertEqual(coordinator.state, .notificationsDenied)

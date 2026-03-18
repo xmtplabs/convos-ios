@@ -88,6 +88,7 @@ final class ConversationsViewModel {
 
     var newConversationViewModel: NewConversationViewModel? {
         didSet {
+            oldValue?.cleanUpIfNeeded()
             if newConversationViewModel == nil {
                 // New conversation dismissed - notify observers and reset active client ID
                 NotificationCenter.default.post(

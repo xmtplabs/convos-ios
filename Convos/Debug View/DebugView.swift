@@ -138,6 +138,12 @@ struct DebugViewSection: View {
                     Text("View Pending Invites")
                         .foregroundStyle(.colorTextPrimary)
                 }
+                NavigationLink {
+                    OrphanedInboxDebugView(session: session)
+                } label: {
+                    Text("View Orphaned Inboxes")
+                        .foregroundStyle(.colorTextPrimary)
+                }
             }
 
             Section("Asset Renewal") {
