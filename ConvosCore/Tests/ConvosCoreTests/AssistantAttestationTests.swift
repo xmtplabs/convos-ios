@@ -5,13 +5,21 @@ import Foundation
 import Testing
 
 struct MockAgentKeyset: AgentKeysetProviding {
-    let keys: [String: Curve25519.Signing.PublicKey]
+    let keys: [String: ResolvedKey]
 
-    func publicKey(for kid: String) async -> Curve25519.Signing.PublicKey? {
+    init(keys: [String: ResolvedKey]) {
+        self.keys = keys
+    }
+
+    init(keys: [String: Curve25519.Signing.PublicKey], issuer: AgentVerification.Issuer = .convos) {
+        self.keys = keys.mapValues { ResolvedKey(publicKey: $0, issuer: issuer) }
+    }
+
+    func resolveKey(for kid: String) async -> ResolvedKey? {
         keys[kid]
     }
 
-    func cachedPublicKey(for kid: String) -> Curve25519.Signing.PublicKey? {
+    func cachedResolveKey(for kid: String) -> ResolvedKey? {
         keys[kid]
     }
 }
@@ -45,7 +53,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == true)
+        #expect(result == .verified(.convos))
     }
 
     @Test("Wrong inboxId fails verification")
@@ -61,7 +69,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
     }
 
     @Test("Wrong timestamp fails verification")
@@ -79,7 +87,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
     }
 
     @Test("Tampered signature fails verification")
@@ -101,7 +109,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
     }
 
     @Test("Wrong key fails verification")
@@ -121,7 +129,7 @@ struct AssistantAttestationVerifierTests {
             keyset: wrongKeyset
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
     }
 
     @Test("Unknown kid fails verification")
@@ -138,7 +146,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
     }
 
     @Test("Expired timestamp fails verification")
@@ -156,7 +164,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
     }
 
     @Test("Future timestamp within window succeeds")
@@ -174,7 +182,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == true)
+        #expect(result == .verified(.convos))
     }
 
     @Test("Invalid base64 signature fails gracefully")
@@ -187,7 +195,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
     }
 
     @Test("Invalid timestamp format fails gracefully")
@@ -203,7 +211,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
     }
 
     @Test("Cached verification works synchronously")
@@ -220,7 +228,7 @@ struct AssistantAttestationVerifierTests {
             keyset: keyset
         )
 
-        #expect(result == true)
+        #expect(result == .verified(.convos))
     }
 }
 
@@ -237,7 +245,8 @@ struct AgentKeysetEntryTests {
             crv: "Ed25519",
             x: base64url,
             use: "sig",
-            exp: nil
+            exp: nil,
+            issuer: nil
         )
 
         #expect(entry.publicKey != nil)
@@ -252,7 +261,8 @@ struct AgentKeysetEntryTests {
             crv: "Ed25519",
             x: "AAAA",
             use: "sig",
-            exp: nil
+            exp: nil,
+            issuer: nil
         )
 
         #expect(entry.publicKey == nil)
@@ -266,7 +276,8 @@ struct AgentKeysetEntryTests {
             crv: "X25519",
             x: "AAAA",
             use: "sig",
-            exp: nil
+            exp: nil,
+            issuer: nil
         )
 
         #expect(entry.publicKey == nil)
@@ -280,7 +291,8 @@ struct AgentKeysetEntryTests {
             crv: "Ed25519",
             x: "AAAA",
             use: "sig",
-            exp: "2027-03-01T00:00:00Z"
+            exp: "2027-03-01T00:00:00Z",
+            issuer: nil
         )
 
         #expect(entry.expirationDate != nil)
@@ -294,7 +306,8 @@ struct AgentKeysetEntryTests {
             crv: "Ed25519",
             x: "AAAA",
             use: "sig",
-            exp: nil
+            exp: nil,
+            issuer: nil
         )
 
         #expect(entry.expirationDate == nil)
@@ -329,7 +342,7 @@ struct CLICrossImplementationTests {
             referenceDate: referenceDate
         )
 
-        #expect(result == true)
+        #expect(result == .verified(.convos))
     }
 
     @Test("CLI attestation fails with wrong inboxId")
@@ -357,7 +370,38 @@ struct CLICrossImplementationTests {
             referenceDate: referenceDate
         )
 
-        #expect(result == false)
+        #expect(result == .unverified)
+    }
+
+    @Test("Verification returns correct issuer from keyset")
+    func issuerResolution() async throws {
+        let inboxId = "test-inbox-abc123"
+        let attestation = "tVonj7Tfvb0b5D77Pg421DBgWix9dbD-Yj9Y264SuQBzvzSkLYTsThXEZuU2hEiXnpIcnbENmKnhXxIy3jUqDQ"
+        let attestationTs = "2026-03-18T20:06:46.776Z"
+        let attestationKid = "convos-agents-test"
+        let publicKeyBase64url = "xJhoGKv6rsPn58S7VxFPVN8Z6XDerW_nr6UDZ_qjuB4"
+
+        let publicKey = try Curve25519.Signing.PublicKey(
+            rawRepresentation: publicKeyBase64url.base64URLDecoded()
+        )
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let referenceDate = try #require(formatter.date(from: attestationTs))
+
+        let oauthKeyset = MockAgentKeyset(keys: [attestationKid: publicKey], issuer: .userOAuth)
+        let oauthResult = await AssistantAttestationVerifier.verify(
+            inboxId: inboxId,
+            attestation: attestation,
+            attestationTimestamp: attestationTs,
+            kid: attestationKid,
+            keyset: oauthKeyset,
+            referenceDate: referenceDate
+        )
+        #expect(oauthResult == .verified(.userOAuth))
+        #expect(oauthResult.isVerified)
+        #expect(oauthResult.isUserOAuthAgent)
+        #expect(!oauthResult.isConvosAssistant)
     }
 
     @Test("CLI JWKS entry parses correctly")
@@ -368,7 +412,8 @@ struct CLICrossImplementationTests {
             crv: "Ed25519",
             x: "xJhoGKv6rsPn58S7VxFPVN8Z6XDerW_nr6UDZ_qjuB4",
             use: "sig",
-            exp: nil
+            exp: nil,
+            issuer: nil
         )
 
         #expect(entry.publicKey != nil)

@@ -67,7 +67,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         name ?? "Somebody"
     }
 
-    public func verifyAssistantAttestation(keyset: any AgentKeysetProviding) async -> Bool {
+    public func verifyAgentAttestation(keyset: any AgentKeysetProviding) async -> AgentVerification {
         guard isAgent,
               let attestation = metadata?["attestation"],
               let timestamp = metadata?["attestation_ts"],
@@ -75,7 +75,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
               case .string(let sig) = attestation,
               case .string(let ts) = timestamp,
               case .string(let keyId) = kid
-        else { return false }
+        else { return .unverified }
         return await AssistantAttestationVerifier.verify(
             inboxId: inboxId,
             attestation: sig,
@@ -85,7 +85,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         )
     }
 
-    public func verifyCachedAssistantAttestation(keyset: any AgentKeysetProviding) -> Bool {
+    public func verifyCachedAgentAttestation(keyset: any AgentKeysetProviding) -> AgentVerification {
         guard isAgent,
               let attestation = metadata?["attestation"],
               let timestamp = metadata?["attestation_ts"],
@@ -93,7 +93,7 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
               case .string(let sig) = attestation,
               case .string(let ts) = timestamp,
               case .string(let keyId) = kid
-        else { return false }
+        else { return .unverified }
         return AssistantAttestationVerifier.verifyCached(
             inboxId: inboxId,
             attestation: sig,
@@ -103,9 +103,9 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         )
     }
 
-    public func verifyCachedAssistantAttestation() -> Bool {
-        guard let keyset = AgentKeysetStore.instance.shared else { return false }
-        return verifyCachedAssistantAttestation(keyset: keyset)
+    public func verifyCachedAgentAttestation() -> AgentVerification {
+        guard let keyset = AgentKeysetStore.instance.shared else { return .unverified }
+        return verifyCachedAgentAttestation(keyset: keyset)
     }
 
     public var isOutOfCredits: Bool {

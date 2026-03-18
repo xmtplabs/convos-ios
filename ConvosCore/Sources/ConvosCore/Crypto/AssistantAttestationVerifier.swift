@@ -10,18 +10,19 @@ public enum AssistantAttestationVerifier {
         keyset: any AgentKeysetProviding,
         referenceDate: Date = Date(),
         maxAge: TimeInterval = 86400
-    ) async -> Bool {
-        guard let publicKey = await keyset.publicKey(for: kid) else {
-            return false
+    ) async -> AgentVerification {
+        guard let resolved = await keyset.resolveKey(for: kid) else {
+            return .unverified
         }
-        return verifySignature(
+        let valid = verifySignature(
             inboxId: inboxId,
             attestation: attestation,
             attestationTimestamp: attestationTimestamp,
-            publicKey: publicKey,
+            publicKey: resolved.publicKey,
             referenceDate: referenceDate,
             maxAge: maxAge
         )
+        return valid ? .verified(resolved.issuer) : .unverified
     }
 
     public static func verifyCached(
@@ -32,18 +33,19 @@ public enum AssistantAttestationVerifier {
         keyset: any AgentKeysetProviding,
         referenceDate: Date = Date(),
         maxAge: TimeInterval = 86400
-    ) -> Bool {
-        guard let publicKey = keyset.cachedPublicKey(for: kid) else {
-            return false
+    ) -> AgentVerification {
+        guard let resolved = keyset.cachedResolveKey(for: kid) else {
+            return .unverified
         }
-        return verifySignature(
+        let valid = verifySignature(
             inboxId: inboxId,
             attestation: attestation,
             attestationTimestamp: attestationTimestamp,
-            publicKey: publicKey,
+            publicKey: resolved.publicKey,
             referenceDate: referenceDate,
             maxAge: maxAge
         )
+        return valid ? .verified(resolved.issuer) : .unverified
     }
 
     private static func verifySignature(
@@ -58,7 +60,7 @@ public enum AssistantAttestationVerifier {
             return false
         }
 
-        guard let timestampDate = Self.parseISO8601(attestationTimestamp) else {
+        guard let timestampDate = parseISO8601(attestationTimestamp) else {
             return false
         }
 

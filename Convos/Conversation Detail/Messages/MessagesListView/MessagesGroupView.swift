@@ -59,7 +59,7 @@ struct MessagesGroupView: View {
                     )
                     .blur(radius: isAppearing ? 10.0 : 0.0)
                     .font(.footnote)
-                    .foregroundColor(group.sender.isVerifiedAssistant ? .colorLava : group.sender.isAgent ? .colorFillTertiary : .secondary)
+                    .foregroundColor(group.sender.isAgent ? group.sender.agentVerification.nameColor : .secondary)
                     .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
                     .padding(.bottom, DesignConstants.Spacing.stepHalf)
                 }
@@ -99,7 +99,7 @@ struct MessagesGroupView: View {
                     )
                     .overlay(alignment: .bottomLeading) {
                         if isLast && !group.sender.isCurrentUser {
-                            MessageAvatarView(profile: group.sender.profile, size: avatarSize, isVerifiedAssistant: group.sender.isVerifiedAssistant)
+                            MessageAvatarView(profile: group.sender.profile, size: avatarSize, agentVerification: group.sender.agentVerification)
                                 .offset(x: -(avatarSize + avatarSpacing))
                                 .onTapGesture {
                                     onTapAvatar(message)
