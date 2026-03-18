@@ -14,7 +14,7 @@ Cryptographically verify that a member claiming to be an assistant was provision
 
 ### Attestation scheme
 
-The backend signs the agent's `inboxId` with an Ed25519 private key. The agent includes the signature in its profile metadata. The iOS client verifies the signature against a pinned public key.
+The backend signs the agent's `inboxId` with an Ed25519 private key. The agent includes the signature in its profile metadata. The iOS client verifies the signature against the backend's public key, fetched from a JWKS endpoint.
 
 **What is signed:** `sha256(inboxId || timestamp)`
 - `inboxId`: the agent's XMTP inbox ID (hex string)
@@ -33,12 +33,13 @@ The backend signs the agent's `inboxId` with an Ed25519 private key. The agent i
 
 ### Profile metadata fields
 
-The agent sets two metadata fields in its `ProfileUpdate` message:
+The agent sets three metadata fields in its `ProfileUpdate` message:
 
 | Key | Type | Value |
 |-----|------|-------|
-| `attestation` | string | Base64-encoded Ed25519 signature (64 bytes → 88 chars) |
+| `attestation` | string | Base64url-encoded Ed25519 signature (64 bytes) |
 | `attestation_ts` | string | ISO 8601 UTC timestamp used in signature |
+| `attestation_kid` | string | Key ID from the JWKS endpoint (e.g. `convos-agents-2026-03`) |
 
 These fields flow through the existing profile pipeline:
 - `ProfileUpdate` → stored in `DBProfile` → hydrated into `Profile.metadata`
@@ -48,19 +49,67 @@ These fields flow through the existing profile pipeline:
 ### Verification flow (iOS)
 
 1. Observe a member with `isAgent == true`
-2. Read `metadata["attestation"]` and `metadata["attestation_ts"]`
-3. If either is missing → unverified
-4. Reconstruct message: `sha256(inboxId || attestation_ts)`
-5. Verify Ed25519 signature using pinned public key
-6. If valid and timestamp is within 24 hours of the profile message date → verified assistant
-7. Cache the result per `(inboxId, conversationId)` — re-verify only on profile update
+2. Read `metadata["attestation"]`, `metadata["attestation_ts"]`, and `metadata["attestation_kid"]`
+3. If any is missing → unverified
+4. Look up the public key by `kid` from the cached JWKS (fetch if not cached)
+5. If `kid` not found in cache, re-fetch JWKS once; if still not found → unverified
+6. If the key has an `exp` and it is in the past → unverified
+7. Reconstruct message: `sha256(inboxId || attestation_ts)`
+8. Verify Ed25519 signature using the resolved public key
+9. If valid and timestamp is within 24 hours of the profile message date → verified assistant
+10. Cache the result per `(inboxId, conversationId)` — re-verify only on profile update or JWKS refresh
 
 ### Key management
 
-- **Ed25519 key pair** generated once, stored securely on the backend
-- **Public key** pinned in the iOS app as a constant (base64 string)
-- **Key rotation**: if needed, bundle multiple public keys with validity periods; try each until one verifies
-- The public key is not secret — it only verifies, never signs
+Public keys are hosted at a well-known URL using a JWKS-like format, rather than pinned in the app binary. This enables key rotation, multiple active keys, and reuse by other apps (Android, web).
+
+**Endpoint:** `https://convos.org/.well-known/agents.json`
+
+**Response format** (modeled on [JSON Web Key Sets](https://auth0.com/docs/secure/tokens/json-web-tokens/json-web-key-sets)):
+
+```json
+{
+  "keys": [
+    {
+      "kid": "convos-agents-2026-03",
+      "kty": "OKP",
+      "crv": "Ed25519",
+      "x": "<base64url-encoded public key>",
+      "use": "sig",
+      "exp": "2027-03-01T00:00:00Z"
+    }
+  ]
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `kid` | Key ID — referenced in attestations so clients know which key to verify with |
+| `kty` | Key type — `OKP` (Octet Key Pair) per RFC 8037 for Ed25519 |
+| `crv` | Curve — `Ed25519` |
+| `x` | Base64url-encoded 32-byte public key |
+| `use` | Key use — `sig` (signing) |
+| `exp` | Optional expiry — clients should reject signatures from expired keys |
+
+**Attestation references the key:** the agent includes `attestation_kid` in its profile metadata so clients know which key to verify against without trying all keys.
+
+**Client-side caching:**
+- Fetch and cache the JWKS on first verification (or app launch)
+- Cache duration: 24 hours, with background refresh
+- If a `kid` is not in the cache, re-fetch once before failing
+- Fallback: if the endpoint is unreachable, use the most recently cached keyset
+
+**Key rotation workflow:**
+1. Generate a new key pair, add to the JWKS endpoint with a new `kid`
+2. Start signing new attestations with the new key
+3. Both old and new keys are active during the transition period
+4. After all old agents have expired (ephemeral identities are short-lived), remove the old key
+
+**Security considerations for JWKS:**
+- The endpoint is served over HTTPS from `convos.org` — TLS protects against MITM
+- An attacker who compromises the domain could substitute keys, but that is the same threat model as any web-based key distribution (and no worse than a compromised app update)
+- The client caches keys, so a transient compromise does not retroactively affect previously verified agents
+- For defense in depth, the app ships with a hardcoded fallback key that is always trusted, ensuring verification works even if the endpoint is unreachable on first launch
 
 ## Implementation
 
@@ -68,23 +117,39 @@ These fields flow through the existing profile pipeline:
 
 The backend already provisions agents and knows their `inboxId`. Changes:
 
-1. After provisioning, sign `sha256(inboxId || timestamp)` with the Ed25519 private key
-2. Pass the signature and timestamp to the agent as part of its configuration
-3. The agent includes them in its `ProfileUpdate` metadata when joining
+1. Host the JWKS endpoint at `https://convos.org/.well-known/agents.json` with the current signing key(s)
+2. After provisioning, sign `sha256(inboxId || timestamp)` with the active Ed25519 private key
+3. Pass the signature, timestamp, and `kid` to the agent as part of its configuration
+4. The agent includes them in its `ProfileUpdate` metadata when joining
 
-The signing is a single crypto operation — no new endpoints or data stores needed.
+The signing is a single crypto operation. The JWKS endpoint is a static JSON file that only changes during key rotation.
 
 ### CLI / Agent changes
 
 The agent's `ProfileUpdate` already supports `--metadata key=value`. Changes:
 
-1. Accept `attestation` and `attestation_ts` from backend config
+1. Accept `attestation`, `attestation_ts`, and `attestation_kid` from backend config
 2. Include them in the `update-profile` call after joining:
    ```
-   --metadata attestation=<base64sig> --metadata attestation_ts=<iso8601>
+   --metadata attestation=<base64url_sig> --metadata attestation_ts=<iso8601> --metadata attestation_kid=<kid>
    ```
 
 ### iOS changes
+
+#### New: `AgentKeyset`
+
+Fetches and caches the JWKS from `https://convos.org/.well-known/agents.json`:
+
+```swift
+public actor AgentKeyset {
+    public func publicKey(for kid: String) async -> Curve25519.Signing.PublicKey?
+}
+```
+
+- Caches for 24 hours, refreshes in background
+- Re-fetches on cache miss for unknown `kid`
+- Falls back to last cached keyset if endpoint is unreachable
+- Ships with a hardcoded fallback key for offline first-launch
 
 #### New: `AssistantAttestationVerifier`
 
@@ -96,29 +161,35 @@ public enum AssistantAttestationVerifier {
         inboxId: String,
         attestation: String,
         attestationTimestamp: String,
+        kid: String,
+        keyset: AgentKeyset,
         referenceDate: Date = Date()
-    ) -> Bool
+    ) async -> Bool
 }
 ```
 
-Uses `CryptoKit.Curve25519.Signing.PublicKey` — no external dependencies.
+Uses `CryptoKit.Curve25519.Signing.PublicKey` — no external dependencies beyond CryptoKit.
 
 #### Modified: `Profile`
 
-Add a computed property:
+Add a method (async due to keyset lookup):
 
 ```swift
-public var isVerifiedAssistant: Bool {
+public func verifyAssistantAttestation(keyset: AgentKeyset) async -> Bool {
     guard isAgent,
           let attestation = metadata?["attestation"],
           let timestamp = metadata?["attestation_ts"],
+          let kid = metadata?["attestation_kid"],
           case .string(let sig) = attestation,
-          case .string(let ts) = timestamp
+          case .string(let ts) = timestamp,
+          case .string(let keyId) = kid
     else { return false }
-    return AssistantAttestationVerifier.verify(
+    return await AssistantAttestationVerifier.verify(
         inboxId: inboxId,
         attestation: sig,
-        attestationTimestamp: ts
+        attestationTimestamp: ts,
+        kid: keyId,
+        keyset: keyset
     )
 }
 ```
@@ -135,22 +206,26 @@ Show a verified badge (e.g. checkmark overlay) only when `isVerifiedAssistant ==
 
 | File | Change |
 |------|--------|
+| `ConvosCore/.../AgentKeyset.swift` | **New** — JWKS fetch, cache, and key lookup |
 | `ConvosCore/.../AssistantAttestationVerifier.swift` | **New** — Ed25519 verification logic |
-| `ConvosCore/.../Profile.swift` | Add `isVerifiedAssistant` computed property |
-| `ConvosCore/.../ConversationMember.swift` | Expose `isVerifiedAssistant` from profile |
+| `ConvosCore/.../Profile.swift` | Add `verifyAssistantAttestation` method |
+| `ConvosCore/.../ConversationMember.swift` | Expose verified status from profile |
 | `ConvosCore/.../Conversation.swift` | Use verified status for assistant count/checks |
 | `Convos/.../AssistantBadgeView.swift` | Verified vs unverified visual treatment |
 
 ## Security considerations
 
-- **Public key pinning**: the Ed25519 public key is compiled into the app binary. An attacker would need to modify the binary to substitute their own key, which is infeasible on non-jailbroken devices.
+- **HTTPS key distribution**: public keys are fetched over TLS from `convos.org`. An attacker would need to compromise the domain or obtain a valid TLS certificate to substitute keys.
+- **Hardcoded fallback key**: a single key is compiled into the app as a last resort, ensuring verification works on first launch without network access. This key can be rotated via app updates.
+- **Client-side caching**: keys are cached for 24 hours. A transient endpoint compromise does not affect previously verified agents, and the attacker's window is limited to the cache refresh interval.
 - **No private key on device**: the device only verifies — it never signs. Compromising a device does not compromise the attestation system.
 - **Timestamp window**: rejecting attestations older than 24 hours limits the window for replay, though replay is already prevented by inbox ID uniqueness.
 - **Backward compatibility**: agents provisioned before this feature have no attestation. They still show as agents (`isAgent == true`) but not as verified. This is a graceful degradation — no breakage.
+- **Multi-platform**: the JWKS endpoint can be consumed by Android, web, or any other client — not tied to iOS app releases.
 
 ## Out of scope
 
-- Key rotation UI or OTA key updates (future enhancement)
 - Revoking individual attestations (the agent identity is ephemeral — just deprovision it)
 - Verifying assistants in push notifications (attestation is in profile metadata, not in the notification payload)
 - Server-side attestation verification (only the client verifies)
+- Certificate transparency or key pinning beyond the hardcoded fallback
