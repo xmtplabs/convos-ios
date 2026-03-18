@@ -24,7 +24,7 @@ struct ConversationMembersListView: View {
                 VStack(spacing: 0) {
                     Text(viewModel.conversation.membersCountStringCapitalized)
                         .font(.headline)
-                    if let assistantString = viewModel.conversation.assistantCountString {
+                    if let assistantString = viewModel.conversation.agentCountString {
                         Text(assistantString)
                             .font(.caption)
                             .foregroundStyle(.colorTextSecondary)
@@ -34,7 +34,7 @@ struct ConversationMembersListView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 AddToConversationMenu(
                     isFull: viewModel.isFull,
-                    hasAssistant: viewModel.conversation.hasAssistant,
+                    hasAssistant: viewModel.conversation.hasAgent,
                     isEnabled: true,
                     onConvoCode: {
                         viewModel.presentingShareView = true

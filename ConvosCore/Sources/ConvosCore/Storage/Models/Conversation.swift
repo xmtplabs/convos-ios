@@ -109,13 +109,30 @@ public extension Conversation {
         members.filter(\.isAgent).count
     }
 
-    var hasAssistant: Bool {
+    var verifiedAssistantCount: Int {
+        members.filter(\.isVerifiedAssistant).count
+    }
+
+    var hasAgent: Bool {
         agentCount > 0
     }
 
-    var assistantCountString: String? {
-        guard agentCount > 0 else { return nil }
-        return "\(agentCount) \(agentCount == 1 ? "Assistant" : "Assistants")"
+    var hasVerifiedAssistant: Bool {
+        verifiedAssistantCount > 0
+    }
+
+    var agentCountString: String? {
+        let verified = verifiedAssistantCount
+        let unverified = agentCount - verified
+        var parts: [String] = []
+        if verified > 0 {
+            parts.append("\(verified) \(verified == 1 ? "Assistant" : "Assistants")")
+        }
+        if unverified > 0 {
+            parts.append("\(unverified) \(unverified == 1 ? "Agent" : "Agents")")
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: ", ")
     }
 
     public var hasAgentOutOfCredits: Bool {

@@ -67,6 +67,42 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         name ?? "Somebody"
     }
 
+    public func verifyAssistantAttestation(keyset: any AgentKeysetProviding) async -> Bool {
+        guard isAgent,
+              let attestation = metadata?["attestation"],
+              let timestamp = metadata?["attestation_ts"],
+              let kid = metadata?["attestation_kid"],
+              case .string(let sig) = attestation,
+              case .string(let ts) = timestamp,
+              case .string(let keyId) = kid
+        else { return false }
+        return await AssistantAttestationVerifier.verify(
+            inboxId: inboxId,
+            attestation: sig,
+            attestationTimestamp: ts,
+            kid: keyId,
+            keyset: keyset
+        )
+    }
+
+    public func verifyCachedAssistantAttestation(keyset: any AgentKeysetProviding) -> Bool {
+        guard isAgent,
+              let attestation = metadata?["attestation"],
+              let timestamp = metadata?["attestation_ts"],
+              let kid = metadata?["attestation_kid"],
+              case .string(let sig) = attestation,
+              case .string(let ts) = timestamp,
+              case .string(let keyId) = kid
+        else { return false }
+        return AssistantAttestationVerifier.verifyCached(
+            inboxId: inboxId,
+            attestation: sig,
+            attestationTimestamp: ts,
+            kid: keyId,
+            keyset: keyset
+        )
+    }
+
     public var isOutOfCredits: Bool {
         guard let credits = metadata?["credits"] else { return false }
         switch credits {
