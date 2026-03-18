@@ -3,15 +3,24 @@ import SwiftUI
 struct MonogramView: View {
     private let initials: String
     private let isAgent: Bool
+    private let isVerifiedAssistant: Bool
 
-    init(text: String, isAgent: Bool = false) {
+    init(text: String, isAgent: Bool = false, isVerifiedAssistant: Bool = false) {
         self.initials = text
         self.isAgent = isAgent
+        self.isVerifiedAssistant = isVerifiedAssistant
     }
 
-    init(name: String, isAgent: Bool = false) {
+    init(name: String, isAgent: Bool = false, isVerifiedAssistant: Bool = false) {
         self.initials = Self.initials(from: name)
         self.isAgent = isAgent
+        self.isVerifiedAssistant = isVerifiedAssistant
+    }
+
+    private var backgroundColor: Color {
+        if isVerifiedAssistant { return .colorLava }
+        if isAgent { return .colorFillSecondary }
+        return .colorFillTertiary
     }
 
     var body: some View {
@@ -30,7 +39,7 @@ struct MonogramView: View {
             }
             .frame(width: side, height: side)
             .background {
-                if !isAgent {
+                if !isAgent && !isVerifiedAssistant {
                     LinearGradient(
                         gradient: Gradient(colors: [.clear, .black.opacity(0.2)]),
                         startPoint: .top,
@@ -38,7 +47,7 @@ struct MonogramView: View {
                     )
                 }
             }
-            .background(isAgent ? .colorLava : .colorFillTertiary)
+            .background(backgroundColor)
             .clipShape(Circle())
         }
         .aspectRatio(1.0, contentMode: .fit)

@@ -56,12 +56,12 @@ private struct MemberRow: View {
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
-            ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
+            ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false, isVerifiedAssistant: member.isVerifiedAssistant)
                 .frame(width: DesignConstants.ImageSizes.mediumAvatar, height: DesignConstants.ImageSizes.mediumAvatar)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text(member.profile.displayName)
+                Text(member.displayName)
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
                 if member.isCurrentUser {
@@ -94,8 +94,11 @@ private struct MemberRow: View {
 
 private extension ConversationMember {
     var roleLabel: String? {
-        if isAgent {
+        if isVerifiedAssistant {
             return "Assistant"
+        }
+        if isAgent {
+            return "Agent"
         }
         switch role {
         case .superAdmin:

@@ -41,7 +41,7 @@ struct MessagesGroupView: View {
             let tapNameAction = { onTapAvatar(message) }
             Button(action: tapNameAction) {
                 HStack(spacing: DesignConstants.Spacing.stepX) {
-                    Text(group.sender.profile.displayName)
+                    Text(group.sender.displayName)
                     if group.sender.isAgent && group.sender.profile.isOutOfCredits {
                         Image(systemName: "battery.0percent")
                     }
@@ -55,7 +55,7 @@ struct MessagesGroupView: View {
             )
             .blur(radius: isAppearing ? 10.0 : 0.0)
             .font(.footnote)
-            .foregroundColor(group.sender.isAgent ? .colorLava : .secondary)
+            .foregroundColor(group.sender.isVerifiedAssistant ? .colorLava : group.sender.isAgent ? .colorFillTertiary : .secondary)
             .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
             .padding(.bottom, DesignConstants.Spacing.stepHalf)
         }
@@ -97,7 +97,7 @@ struct MessagesGroupView: View {
             )
             .overlay(alignment: .bottomLeading) {
                 if isLast && !group.sender.isCurrentUser {
-                    MessageAvatarView(profile: group.sender.profile, size: avatarSize)
+                    MessageAvatarView(profile: group.sender.profile, size: avatarSize, isVerifiedAssistant: group.sender.isVerifiedAssistant)
                         .offset(x: -(avatarSize + avatarSpacing))
                         .onTapGesture {
                             onTapAvatar(message)
