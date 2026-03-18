@@ -139,6 +139,12 @@ public final class MockInboxesService: SessionManagerProtocol {
         0
     }
 
+    public func orphanedInboxDetails() throws -> [OrphanedInboxDetail] {
+        []
+    }
+
+    public func deleteOrphanedInbox(clientId: String, inboxId: String) async throws {}
+
     // MARK: - Asset Renewal
 
     public func makeAssetRenewalManager() async -> AssetRenewalManager {

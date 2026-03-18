@@ -72,6 +72,8 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func pendingInviteDetails() throws -> [PendingInviteDetail]
     func deleteExpiredPendingInvites() async throws -> Int
+    func orphanedInboxDetails() throws -> [OrphanedInboxDetail]
+    func deleteOrphanedInbox(clientId: String, inboxId: String) async throws
 
     // MARK: Asset Renewal
 

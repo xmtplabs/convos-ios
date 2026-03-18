@@ -222,5 +222,7 @@ private final class SpySessionManager: SessionManagerProtocol, @unchecked Sendab
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse { try await base.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode) }
     func pendingInviteDetails() throws -> [PendingInviteDetail] { try base.pendingInviteDetails() }
     func deleteExpiredPendingInvites() async throws -> Int { try await base.deleteExpiredPendingInvites() }
+    func orphanedInboxDetails() throws -> [OrphanedInboxDetail] { try base.orphanedInboxDetails() }
+    func deleteOrphanedInbox(clientId: String, inboxId: String) async throws { try await base.deleteOrphanedInbox(clientId: clientId, inboxId: inboxId) }
     func makeAssetRenewalManager() async -> AssetRenewalManager { await base.makeAssetRenewalManager() }
 }
