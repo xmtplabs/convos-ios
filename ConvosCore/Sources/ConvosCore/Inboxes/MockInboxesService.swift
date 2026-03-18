@@ -93,6 +93,18 @@ public final class MockInboxesService: SessionManagerProtocol {
         return .init(success: true, joined: true)
     }
 
+    public func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse {
+        .init(success: true, email: "mock@mail.convos.org", provisioned: true)
+    }
+
+    public func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse {
+        .init(success: true, phone: "+12025551234", provisioned: true)
+    }
+
+    public func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse {
+        .init(success: true, instanceId: instanceId, email: nil, phone: nil)
+    }
+
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }

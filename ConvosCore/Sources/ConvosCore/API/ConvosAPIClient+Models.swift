@@ -152,6 +152,38 @@ public enum ConvosAPI {
         }
     }
 
+    // MARK: - v2/agents/provision
+    // POST /v2/agents/provision/email
+    // POST /v2/agents/provision/sms
+    // GET  /v2/agents/provision/status
+
+    public struct ProvisionRequest: Codable {
+        public let instanceId: String
+
+        public init(instanceId: String) {
+            self.instanceId = instanceId
+        }
+    }
+
+    public struct ProvisionEmailResponse: Codable {
+        public let success: Bool
+        public let email: String
+        public let provisioned: Bool
+    }
+
+    public struct ProvisionSmsResponse: Codable {
+        public let success: Bool
+        public let phone: String
+        public let provisioned: Bool
+    }
+
+    public struct ProvisionStatusResponse: Codable {
+        public let success: Bool
+        public let instanceId: String
+        public let email: String?
+        public let phone: String?
+    }
+
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {

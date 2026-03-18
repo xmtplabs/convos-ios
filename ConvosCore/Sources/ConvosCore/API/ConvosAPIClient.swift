@@ -51,6 +51,11 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func unsubscribeFromTopics(clientId: String, topics: [String]) async throws
     func unregisterInstallation(clientId: String) async throws
 
+    // Agent service provisioning
+    func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse
+    func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse
+    func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse
+
     // Asset renewal
     func renewAssetsBatch(assetKeys: [String]) async throws -> AssetRenewalResult
 
@@ -582,6 +587,33 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         default:
             throw APIError.serverError(parseErrorMessage(from: data))
         }
+    }
+
+    // MARK: - Agent Service Provisioning
+
+    func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse {
+        var request = try authenticatedRequest(for: "v2/agents/provision/email", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 35
+        request.httpBody = try JSONEncoder().encode(ConvosAPI.ProvisionRequest(instanceId: instanceId))
+        return try await performRequest(request)
+    }
+
+    func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse {
+        var request = try authenticatedRequest(for: "v2/agents/provision/sms", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 35
+        request.httpBody = try JSONEncoder().encode(ConvosAPI.ProvisionRequest(instanceId: instanceId))
+        return try await performRequest(request)
+    }
+
+    func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse {
+        let request = try authenticatedRequest(
+            for: "v2/agents/provision/status",
+            method: "GET",
+            queryParameters: ["instanceId": instanceId]
+        )
+        return try await performRequest(request)
     }
 
     // MARK: - Helper Methods

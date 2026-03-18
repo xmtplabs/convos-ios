@@ -248,6 +248,18 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         try await base.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
     }
 
+    func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse {
+        try await base.provisionEmail(instanceId: instanceId)
+    }
+
+    func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse {
+        try await base.provisionSms(instanceId: instanceId)
+    }
+
+    func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse {
+        try await base.provisionStatus(instanceId: instanceId)
+    }
+
     func pendingInviteDetails() throws -> [PendingInviteDetail] {
         try base.pendingInviteDetails()
     }

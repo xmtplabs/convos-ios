@@ -307,6 +307,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await apiClient.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
     }
 
+    public func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse {
+        try await apiClient.provisionEmail(instanceId: instanceId)
+    }
+
+    public func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse {
+        try await apiClient.provisionSms(instanceId: instanceId)
+    }
+
+    public func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse {
+        try await apiClient.provisionStatus(instanceId: instanceId)
+    }
+
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
         let messagingService = try await messagingService(for: clientId, inboxId: inboxId)
         return ConversationRepository(

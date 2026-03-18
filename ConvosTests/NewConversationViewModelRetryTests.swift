@@ -220,6 +220,9 @@ private final class SpySessionManager: SessionManagerProtocol, @unchecked Sendab
     func notifyChangesInDatabase() { base.notifyChangesInDatabase() }
     func inboxId(for conversationId: String) async -> String? { await base.inboxId(for: conversationId) }
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse { try await base.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode) }
+    func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse { try await base.provisionEmail(instanceId: instanceId) }
+    func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse { try await base.provisionSms(instanceId: instanceId) }
+    func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse { try await base.provisionStatus(instanceId: instanceId) }
     func pendingInviteDetails() throws -> [PendingInviteDetail] { try base.pendingInviteDetails() }
     func deleteExpiredPendingInvites() async throws -> Int { try await base.deleteExpiredPendingInvites() }
     func orphanedInboxDetails() throws -> [OrphanedInboxDetail] { try base.orphanedInboxDetails() }

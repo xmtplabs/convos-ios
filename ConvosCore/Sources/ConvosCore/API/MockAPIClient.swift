@@ -83,4 +83,18 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
+
+    // MARK: - Agent Service Provisioning
+
+    func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse {
+        .init(success: true, email: "mock@mail.convos.org", provisioned: true)
+    }
+
+    func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse {
+        .init(success: true, phone: "+12025551234", provisioned: true)
+    }
+
+    func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse {
+        .init(success: true, instanceId: instanceId, email: nil, phone: nil)
+    }
 }

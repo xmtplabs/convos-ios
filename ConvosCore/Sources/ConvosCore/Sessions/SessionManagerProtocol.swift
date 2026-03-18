@@ -28,6 +28,11 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
 
+    // Agent service provisioning
+    func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse
+    func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse
+    func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse
+
     func conversationRepository(
         for conversationId: String,
         inboxId: String,

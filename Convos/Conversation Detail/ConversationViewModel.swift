@@ -1409,3 +1409,19 @@ extension ConversationViewModel {
         pendingInvite = nil
     }
 }
+
+// MARK: - Agent Service Provisioning
+
+extension ConversationViewModel {
+    func provisionEmail(instanceId: String) async throws -> ConvosAPI.ProvisionEmailResponse {
+        try await session.provisionEmail(instanceId: instanceId)
+    }
+
+    func provisionSms(instanceId: String) async throws -> ConvosAPI.ProvisionSmsResponse {
+        try await session.provisionSms(instanceId: instanceId)
+    }
+
+    func provisionStatus(instanceId: String) async throws -> ConvosAPI.ProvisionStatusResponse {
+        try await session.provisionStatus(instanceId: instanceId)
+    }
+}

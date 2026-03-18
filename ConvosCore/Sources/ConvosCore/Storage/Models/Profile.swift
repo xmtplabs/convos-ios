@@ -138,6 +138,24 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         }
     }
 
+    public var instanceId: String? {
+        guard let value = metadata?["instanceId"] else { return nil }
+        if case .string(let id) = value { return id }
+        return nil
+    }
+
+    public var email: String? {
+        guard let value = metadata?["email"] else { return nil }
+        if case .string(let email) = value { return email }
+        return nil
+    }
+
+    public var phone: String? {
+        guard let value = metadata?["phone"] else { return nil }
+        if case .string(let phone) = value { return phone }
+        return nil
+    }
+
     public func with(inboxId: String) -> Profile {
         .init(
             inboxId: inboxId,

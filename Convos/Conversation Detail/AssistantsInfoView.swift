@@ -73,7 +73,6 @@ struct AssistantsInfoView: View {
     private var abilitiesScroller: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: DesignConstants.Spacing.step2x) {
-                abilityPill(icon: "message.fill", label: "Texting", color: .colorTexting)
                 abilityPill(icon: "envelope.fill", label: "Email", color: .colorEmail)
                 abilityPill(icon: "pointer.arrow", label: "Internet", color: .colorInternet)
                 abilityPill(icon: "checklist", label: "Organize", color: .colorOrganize)
