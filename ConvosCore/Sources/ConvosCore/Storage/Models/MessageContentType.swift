@@ -4,7 +4,7 @@ import Foundation
 
 public enum MessageContentType: String, Codable, Sendable {
     case text, emoji, attachments, update, invite
-    case linkPreview = "link_preview"
+    case linkPreview // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
     case assistantJoinRequest // swiftlint:disable:this raw_value_for_camel_cased_codable_enum
 
     var marksConversationAsUnread: Bool {

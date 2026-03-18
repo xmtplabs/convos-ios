@@ -50,7 +50,7 @@ struct LinkPreviewCardView: View {
                 if let image = cachedImage {
                     Image(uiImage: image)
                         .resizable()
-                        .aspectRatio(contentMode: .fit)
+                        .aspectRatio(contentMode: .fill)
                         .blendMode(.multiply)
                 } else if hasFetchedMetadata {
                     EmptyView()
