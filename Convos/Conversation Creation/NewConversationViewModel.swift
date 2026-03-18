@@ -385,9 +385,9 @@ class NewConversationViewModel: Identifiable {
     private var retryDelay: TimeInterval {
         switch consecutiveFailureCount {
         case 0: return 0
-        case 1: return 2
-        case 2: return 4
-        default: return 8
+        case 1: return Constant.retryDelayShort
+        case 2: return Constant.retryDelayMedium
+        default: return Constant.retryDelayMax
         }
     }
 
@@ -667,6 +667,12 @@ class NewConversationViewModel: Identifiable {
             messagesTopBarTrailingItem = .share
         }
         .store(in: &cancellables)
+    }
+
+    private enum Constant {
+        static let retryDelayShort: TimeInterval = 2
+        static let retryDelayMedium: TimeInterval = 4
+        static let retryDelayMax: TimeInterval = 8
     }
 }
 
