@@ -16,10 +16,11 @@ Cryptographically verify that a member claiming to be an assistant was provision
 
 The backend signs the agent's `inboxId` with an Ed25519 private key. The agent includes the signature in its profile metadata. The iOS client verifies the signature against the backend's public key, fetched from a JWKS endpoint.
 
-**What is signed:** `sha256(inboxId || timestamp)`
+**What is signed:** `inboxId || timestamp` (Ed25519 handles hashing internally)
 - `inboxId`: the agent's XMTP inbox ID (hex string)
 - `timestamp`: ISO 8601 UTC string (e.g. `2026-03-11T20:00:00Z`)
 - `||`: string concatenation (no separator)
+- The message bytes are the UTF-8 encoding of the concatenated string
 
 **Why signing just `inboxId + timestamp` is sufficient:**
 - Each agent gets a fresh per-conversation identity (unique `inboxId` per conversation)
@@ -54,7 +55,7 @@ These fields flow through the existing profile pipeline:
 4. Look up the public key by `kid` from the cached JWKS (fetch if not cached)
 5. If `kid` not found in cache, re-fetch JWKS once; if still not found → unverified
 6. If the key has an `exp` and it is in the past → unverified
-7. Reconstruct message: `sha256(inboxId || attestation_ts)`
+7. Reconstruct message: UTF-8 bytes of `inboxId || attestation_ts`
 8. Verify Ed25519 signature using the resolved public key
 9. If valid and timestamp is within 24 hours of the profile message date → verified assistant
 10. Cache the result per `(inboxId, conversationId)` — re-verify only on profile update or JWKS refresh
@@ -113,28 +114,9 @@ Public keys are hosted at a well-known URL using a JWKS-like format, rather than
 
 ## Implementation
 
-### Backend changes
+### Phase 1: iOS — Crypto & verification (no backend dependency)
 
-The backend already provisions agents and knows their `inboxId`. Changes:
-
-1. Host the JWKS endpoint at `https://convos.org/.well-known/agents.json` with the current signing key(s)
-2. After provisioning, sign `sha256(inboxId || timestamp)` with the active Ed25519 private key
-3. Pass the signature, timestamp, and `kid` to the agent as part of its configuration
-4. The agent includes them in its `ProfileUpdate` metadata when joining
-
-The signing is a single crypto operation. The JWKS endpoint is a static JSON file that only changes during key rotation.
-
-### CLI / Agent changes
-
-The agent's `ProfileUpdate` already supports `--metadata key=value`. Changes:
-
-1. Accept `attestation`, `attestation_ts`, and `attestation_kid` from backend config
-2. Include them in the `update-profile` call after joining:
-   ```
-   --metadata attestation=<base64url_sig> --metadata attestation_ts=<iso8601> --metadata attestation_kid=<kid>
-   ```
-
-### iOS changes
+All iOS work can be built and tested with locally generated test key pairs before the backend signs anything.
 
 #### New: `AgentKeyset`
 
@@ -175,32 +157,47 @@ Uses `CryptoKit.Curve25519.Signing.PublicKey` — no external dependencies beyon
 Add a method (async due to keyset lookup):
 
 ```swift
-public func verifyAssistantAttestation(keyset: AgentKeyset) async -> Bool {
-    guard isAgent,
-          let attestation = metadata?["attestation"],
-          let timestamp = metadata?["attestation_ts"],
-          let kid = metadata?["attestation_kid"],
-          case .string(let sig) = attestation,
-          case .string(let ts) = timestamp,
-          case .string(let keyId) = kid
-    else { return false }
-    return await AssistantAttestationVerifier.verify(
-        inboxId: inboxId,
-        attestation: sig,
-        attestationTimestamp: ts,
-        kid: keyId,
-        keyset: keyset
-    )
-}
+public func verifyAssistantAttestation(keyset: AgentKeyset) async -> Bool
 ```
 
 #### Modified: `ConversationMember`
 
-Replace `isAgent` usage with `isVerifiedAssistant` where trust matters (badge display, assistant-specific UI). Keep `isAgent` for non-security uses (UI layout, counting).
+Add `isVerifiedAssistant: Bool` field, populated during hydration. Two tiers of trust:
 
-#### Modified: Assistant badge UI
+- `isAgent` — XMTP `MEMBER_KIND_AGENT`, self-declared. Used for layout and generic agent treatment (different color, "Agent" label).
+- `isVerifiedAssistant` — attestation verified. Used for Convos assistant branding (`.colorLava`, "Assistant" label, full assistant UI).
 
-Show a verified badge (e.g. checkmark overlay) only when `isVerifiedAssistant == true`. Unverified agents still show as agents (for backward compatibility) but without the trust badge.
+#### Modified: UI — verified vs unverified visual treatment
+
+| Property | `isAgent` (unverified) | `isVerifiedAssistant` (verified) |
+|----------|----------------------|--------------------------------|
+| Display name | "Agent" (generic) | Assistant name from profile |
+| Accent color | TBD (not `.colorLava`) | `.colorLava` |
+| Badge | Generic agent indicator | Convos assistant badge |
+| Capabilities UI | Hidden | Full assistant info (tools, about, etc.) |
+
+Current assistant UI (`.colorLava`, branded features) becomes the verified treatment. Unverified agents get a distinct, downgraded visual treatment.
+
+### Phase 2: CLI — Testable attestation generation (no backend dependency)
+
+The CLI can generate attestations locally for end-to-end testing without the backend.
+
+1. Add a CLI command to generate an Ed25519 key pair (for testing)
+2. Add a CLI command or flag to sign `inboxId || timestamp` with a local Ed25519 private key
+3. Agent includes `attestation`, `attestation_ts`, `attestation_kid` in its `ProfileUpdate` metadata
+
+This lets us test the full iOS verification flow with real XMTP conversations.
+
+### Phase 3: Backend — Production key management & signing
+
+Once iOS and CLI are validated:
+
+1. Host the JWKS endpoint at `https://convos.org/.well-known/agents.json` with the production signing key(s)
+2. After provisioning, sign `inboxId || timestamp` with the active Ed25519 private key
+3. Pass the signature, timestamp, and `kid` to the agent as part of its configuration
+4. The agent includes them in its `ProfileUpdate` metadata when joining
+
+The signing is a single crypto operation. The JWKS endpoint is a static JSON file that only changes during key rotation.
 
 ### Files changed
 
@@ -209,9 +206,9 @@ Show a verified badge (e.g. checkmark overlay) only when `isVerifiedAssistant ==
 | `ConvosCore/.../AgentKeyset.swift` | **New** — JWKS fetch, cache, and key lookup |
 | `ConvosCore/.../AssistantAttestationVerifier.swift` | **New** — Ed25519 verification logic |
 | `ConvosCore/.../Profile.swift` | Add `verifyAssistantAttestation` method |
-| `ConvosCore/.../ConversationMember.swift` | Expose verified status from profile |
-| `ConvosCore/.../Conversation.swift` | Use verified status for assistant count/checks |
-| `Convos/.../AssistantBadgeView.swift` | Verified vs unverified visual treatment |
+| `ConvosCore/.../ConversationMember.swift` | Add `isVerifiedAssistant`, wire through hydration |
+| `ConvosCore/.../Conversation.swift` | Use verified status for assistant-specific checks |
+| UI files (various) | Bifurcate agent vs verified assistant visual treatment |
 
 ## Security considerations
 

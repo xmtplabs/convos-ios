@@ -8,11 +8,12 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
     public let role: MemberRole
     public let isCurrentUser: Bool
     public let isAgent: Bool
+    public let isVerifiedAssistant: Bool
     public let invitedBy: Profile?
     public let joinedAt: Date?
 
     private enum CodingKeys: String, CodingKey {
-        case profile, role, isCurrentUser, isAgent, invitedBy, joinedAt
+        case profile, role, isCurrentUser, isAgent, isVerifiedAssistant, invitedBy, joinedAt
     }
 
     public init(
@@ -20,6 +21,7 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         role: MemberRole,
         isCurrentUser: Bool,
         isAgent: Bool = false,
+        isVerifiedAssistant: Bool = false,
         invitedBy: Profile? = nil,
         joinedAt: Date? = nil
     ) {
@@ -27,6 +29,7 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.role = role
         self.isCurrentUser = isCurrentUser
         self.isAgent = isAgent
+        self.isVerifiedAssistant = isVerifiedAssistant
         self.invitedBy = invitedBy
         self.joinedAt = joinedAt
     }
@@ -37,6 +40,7 @@ public struct ConversationMember: Codable, Hashable, Identifiable, Sendable {
         self.role = try container.decode(MemberRole.self, forKey: .role)
         self.isCurrentUser = try container.decode(Bool.self, forKey: .isCurrentUser)
         self.isAgent = try container.decodeIfPresent(Bool.self, forKey: .isAgent) ?? false
+        self.isVerifiedAssistant = try container.decodeIfPresent(Bool.self, forKey: .isVerifiedAssistant) ?? false
         self.invitedBy = try container.decodeIfPresent(Profile.self, forKey: .invitedBy)
         self.joinedAt = try container.decodeIfPresent(Date.self, forKey: .joinedAt)
     }
@@ -49,11 +53,9 @@ public extension Array where Element == ConversationMember {
 
     func sortedByRole() -> [ConversationMember] {
         sorted { member1, member2 in
-            // Show current user first
             if member1.isCurrentUser { return true }
             if member2.isCurrentUser { return false }
 
-            // Sort by role hierarchy: superAdmin > admin > member
             let priority1 = member1.role.priority
             let priority2 = member2.role.priority
 
@@ -61,7 +63,6 @@ public extension Array where Element == ConversationMember {
                 return priority1 < priority2
             }
 
-            // Same role, sort alphabetically by name
             return member1.profile.displayName < member2.profile.displayName
         }
     }
