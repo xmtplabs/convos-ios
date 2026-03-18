@@ -8,12 +8,16 @@ struct PullToAddAssistantView: View {
     @State private var hasPlayedHaptic: Bool = false
     private let hapticGenerator: UIImpactFeedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
+    private var adjustedOverscroll: CGFloat {
+        max(0.0, overscrollAmount - Constant.deadZone)
+    }
+
     private var progress: CGFloat {
-        min(1.0, max(0.0, overscrollAmount / Self.activationThreshold))
+        min(1.0, adjustedOverscroll / Self.activationThreshold)
     }
 
     private var isPastThreshold: Bool {
-        overscrollAmount >= Self.activationThreshold
+        adjustedOverscroll >= Self.activationThreshold
     }
 
     private var subtitleText: String {
@@ -84,6 +88,7 @@ struct PullToAddAssistantView: View {
     static let activationThreshold: CGFloat = 100
 
     private enum Constant {
+        static let deadZone: CGFloat = 75
         static let startOffset: CGFloat = 60
         static let startScale: CGFloat = 0.6
     }
