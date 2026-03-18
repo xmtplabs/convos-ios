@@ -48,6 +48,10 @@ struct ConvosApp: App {
             }
         }
 
+        let agentKeyset = AgentKeyset()
+        AgentKeysetStore.instance.configure(agentKeyset)
+        Task { await agentKeyset.prefetch() }
+
         self.convos = .client(environment: environment, platformProviders: .iOS)
         self.conversationsViewModel = .init(session: convos.session)
         appDelegate.session = convos.session

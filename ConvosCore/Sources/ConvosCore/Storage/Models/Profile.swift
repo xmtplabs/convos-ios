@@ -103,6 +103,11 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         )
     }
 
+    public func verifyCachedAssistantAttestation() -> Bool {
+        guard let keyset = AgentKeysetStore.instance.shared else { return false }
+        return verifyCachedAssistantAttestation(keyset: keyset)
+    }
+
     public var isOutOfCredits: Bool {
         guard let credits = metadata?["credits"] else { return false }
         switch credits {

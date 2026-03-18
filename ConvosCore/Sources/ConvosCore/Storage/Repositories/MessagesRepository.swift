@@ -565,11 +565,14 @@ struct MemberProfileCache {
         }
 
         for profile in allProfiles where map[profile.inboxId] == nil {
+            let hydratedProfile = profile.hydrateProfile()
+            let isAgent = profile.isAgent
             map[profile.inboxId] = ConversationMember(
-                profile: profile.hydrateProfile(),
+                profile: hydratedProfile,
                 role: .member,
                 isCurrentUser: profile.inboxId == currentInboxId,
-                isAgent: profile.isAgent
+                isAgent: isAgent,
+                isVerifiedAssistant: isAgent && hydratedProfile.verifyCachedAssistantAttestation()
             )
         }
 
@@ -652,11 +655,14 @@ private extension LightweightConversationDetails {
         }
         let creator: ConversationMember
         if let creatorDetails = conversationCreator, let profile = creatorDetails.memberProfile {
+            let hydratedProfile = profile.hydrateProfile()
+            let isAgent = profile.isAgent
             creator = ConversationMember(
-                profile: profile.hydrateProfile(),
+                profile: hydratedProfile,
                 role: creatorDetails.role,
                 isCurrentUser: profile.inboxId == conversation.inboxId,
-                isAgent: profile.isAgent
+                isAgent: isAgent,
+                isVerifiedAssistant: isAgent && hydratedProfile.verifyCachedAssistantAttestation()
             )
         } else {
             creator = ConversationMember(
