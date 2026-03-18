@@ -8,6 +8,7 @@ public struct AgentKeysetEntry: Codable, Sendable {
     public let x: String
     public let use: String
     public let exp: String?
+    public let issuer: String?
 
     public var publicKey: Curve25519.Signing.PublicKey? {
         guard kty == "OKP", crv == "Ed25519",
@@ -21,15 +22,29 @@ public struct AgentKeysetEntry: Codable, Sendable {
         guard let exp else { return nil }
         return ISO8601DateFormatter().date(from: exp)
     }
+
+    public var resolvedIssuer: AgentVerification.Issuer {
+        AgentVerification.Issuer(rawValue: issuer ?? "") ?? .unknown
+    }
 }
 
 public struct AgentKeysetResponse: Codable, Sendable {
     public let keys: [AgentKeysetEntry]
 }
 
+public struct ResolvedKey: Sendable {
+    public let publicKey: Curve25519.Signing.PublicKey
+    public let issuer: AgentVerification.Issuer
+
+    public init(publicKey: Curve25519.Signing.PublicKey, issuer: AgentVerification.Issuer) {
+        self.publicKey = publicKey
+        self.issuer = issuer
+    }
+}
+
 public protocol AgentKeysetProviding: Sendable {
-    func publicKey(for kid: String) async -> Curve25519.Signing.PublicKey?
-    func cachedPublicKey(for kid: String) -> Curve25519.Signing.PublicKey?
+    func resolveKey(for kid: String) async -> ResolvedKey?
+    func cachedResolveKey(for kid: String) -> ResolvedKey?
 }
 
 public final class AgentKeysetStore: @unchecked Sendable {
@@ -75,29 +90,29 @@ public actor AgentKeyset: AgentKeysetProviding {
         self.urlSession = urlSession
     }
 
-    public func publicKey(for kid: String) async -> Curve25519.Signing.PublicKey? {
-        if let key = lookupKey(kid: kid) {
-            return key
+    public func resolveKey(for kid: String) async -> ResolvedKey? {
+        if let resolved = lookupKey(kid: kid) {
+            return resolved
         }
 
         await refreshCache()
 
-        if let key = lookupKey(kid: kid) {
-            return key
+        if let resolved = lookupKey(kid: kid) {
+            return resolved
         }
 
-        if let fallbackKey, fallbackKey.kid == kid {
-            return fallbackKey.publicKey
+        if let fallbackKey, fallbackKey.kid == kid, let key = fallbackKey.publicKey {
+            return ResolvedKey(publicKey: key, issuer: fallbackKey.resolvedIssuer)
         }
 
         return nil
     }
 
-    nonisolated public func cachedPublicKey(for kid: String) -> Curve25519.Signing.PublicKey? {
+    nonisolated public func cachedResolveKey(for kid: String) -> ResolvedKey? {
         keyCache.get(kid)
     }
 
-    private func lookupKey(kid: String) -> Curve25519.Signing.PublicKey? {
+    private func lookupKey(kid: String) -> ResolvedKey? {
         guard let response = cachedResponse else { return nil }
         guard let entry = response.keys.first(where: { $0.kid == kid }) else { return nil }
 
@@ -106,8 +121,9 @@ public actor AgentKeyset: AgentKeysetProviding {
         }
 
         guard let key = entry.publicKey else { return nil }
-        keyCache.set(kid, key: key)
-        return key
+        let resolved = ResolvedKey(publicKey: key, issuer: entry.resolvedIssuer)
+        keyCache.set(kid, resolved: resolved)
+        return resolved
     }
 
     public func prefetch() async {
@@ -146,7 +162,7 @@ public actor AgentKeyset: AgentKeysetProviding {
                 if let key = entry.publicKey {
                     let isExpired = entry.expirationDate.map { $0 < Date() } ?? false
                     if !isExpired {
-                        keyCache.set(entry.kid, key: key)
+                        keyCache.set(entry.kid, resolved: ResolvedKey(publicKey: key, issuer: entry.resolvedIssuer))
                     }
                 }
             }
@@ -156,17 +172,17 @@ public actor AgentKeyset: AgentKeysetProviding {
 
 private final class KeyCache: @unchecked Sendable {
     private let lock: NSLock = .init()
-    private var cache: [String: Curve25519.Signing.PublicKey] = [:]
+    private var cache: [String: ResolvedKey] = [:]
 
-    func get(_ kid: String) -> Curve25519.Signing.PublicKey? {
+    func get(_ kid: String) -> ResolvedKey? {
         lock.lock()
         defer { lock.unlock() }
         return cache[kid]
     }
 
-    func set(_ kid: String, key: Curve25519.Signing.PublicKey) {
+    func set(_ kid: String, resolved: ResolvedKey) {
         lock.lock()
         defer { lock.unlock() }
-        cache[kid] = key
+        cache[kid] = resolved
     }
 }

@@ -1,26 +1,22 @@
+import ConvosCore
 import SwiftUI
 
 struct MonogramView: View {
     private let initials: String
-    private let isAgent: Bool
-    private let isVerifiedAssistant: Bool
+    private let agentVerification: AgentVerification
 
-    init(text: String, isAgent: Bool = false, isVerifiedAssistant: Bool = false) {
+    init(text: String, agentVerification: AgentVerification = .unverified) {
         self.initials = text
-        self.isAgent = isAgent
-        self.isVerifiedAssistant = isVerifiedAssistant
+        self.agentVerification = agentVerification
     }
 
-    init(name: String, isAgent: Bool = false, isVerifiedAssistant: Bool = false) {
+    init(name: String, agentVerification: AgentVerification = .unverified) {
         self.initials = Self.initials(from: name)
-        self.isAgent = isAgent
-        self.isVerifiedAssistant = isVerifiedAssistant
+        self.agentVerification = agentVerification
     }
 
-    private var backgroundColor: Color {
-        if isVerifiedAssistant { return .colorLava }
-        if isAgent { return .colorFillSecondary }
-        return .colorFillTertiary
+    private var isAgent: Bool {
+        agentVerification != .unverified
     }
 
     var body: some View {
@@ -39,7 +35,7 @@ struct MonogramView: View {
             }
             .frame(width: side, height: side)
             .background {
-                if !isAgent && !isVerifiedAssistant {
+                if !isAgent {
                     LinearGradient(
                         gradient: Gradient(colors: [.clear, .black.opacity(0.2)]),
                         startPoint: .top,
@@ -47,7 +43,7 @@ struct MonogramView: View {
                     )
                 }
             }
-            .background(backgroundColor)
+            .background(agentVerification.avatarBackgroundColor)
             .clipShape(Circle())
         }
         .aspectRatio(1.0, contentMode: .fit)

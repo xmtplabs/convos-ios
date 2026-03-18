@@ -110,7 +110,7 @@ public extension Conversation {
     }
 
     var verifiedAssistantCount: Int {
-        members.filter(\.isVerifiedAssistant).count
+        members.filter(\.agentVerification.isConvosAssistant).count
     }
 
     var hasAgent: Bool {
@@ -118,7 +118,11 @@ public extension Conversation {
     }
 
     var hasVerifiedAssistant: Bool {
-        verifiedAssistantCount > 0
+        members.contains(where: \.agentVerification.isConvosAssistant)
+    }
+
+    var hasVerifiedAgent: Bool {
+        members.contains(where: \.agentVerification.isVerified)
     }
 
     var agentCountString: String? {

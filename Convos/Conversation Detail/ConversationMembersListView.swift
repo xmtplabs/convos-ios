@@ -56,7 +56,7 @@ private struct MemberRow: View {
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
-            ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false, isVerifiedAssistant: member.isVerifiedAssistant)
+            ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false, agentVerification: member.agentVerification)
                 .frame(width: DesignConstants.ImageSizes.mediumAvatar, height: DesignConstants.ImageSizes.mediumAvatar)
                 .accessibilityHidden(true)
 
@@ -94,8 +94,8 @@ private struct MemberRow: View {
 
 private extension ConversationMember {
     var roleLabel: String? {
-        if isVerifiedAssistant {
-            return "Assistant"
+        if let agentLabel = agentVerification.roleLabel {
+            return agentLabel
         }
         if isAgent {
             return "Agent"

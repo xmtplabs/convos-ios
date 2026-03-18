@@ -6,8 +6,7 @@ struct AvatarView: View {
     let cacheableObject: any ImageCacheable
     let placeholderImage: UIImage?
     let placeholderImageName: String?
-    let isAgent: Bool
-    let isVerifiedAssistant: Bool
+    let agentVerification: AgentVerification
     @State private var cachedImage: UIImage?
 
     init(
@@ -15,22 +14,14 @@ struct AvatarView: View {
         cacheableObject: any ImageCacheable,
         placeholderImage: UIImage?,
         placeholderImageName: String?,
-        isAgent: Bool = false,
-        isVerifiedAssistant: Bool = false
+        agentVerification: AgentVerification = .unverified
     ) {
         self.fallbackName = fallbackName
         self.cacheableObject = cacheableObject
         self.placeholderImage = placeholderImage
         self.placeholderImageName = placeholderImageName
-        self.isAgent = isAgent
-        self.isVerifiedAssistant = isVerifiedAssistant
+        self.agentVerification = agentVerification
         _cachedImage = State(initialValue: ImageCache.shared.image(for: cacheableObject))
-    }
-
-    private var placeholderBackgroundColor: Color {
-        if isVerifiedAssistant { return .colorLava }
-        if isAgent { return .colorFillSecondary }
-        return .colorFillTertiary
     }
 
     var body: some View {
@@ -48,9 +39,9 @@ struct AvatarView: View {
                     .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
                     .padding(DesignConstants.Spacing.step2x)
                     .foregroundStyle(.colorTextPrimaryInverted)
-                    .background(placeholderBackgroundColor)
+                    .background(agentVerification.avatarBackgroundColor)
             } else {
-                MonogramView(name: fallbackName, isAgent: isAgent, isVerifiedAssistant: isVerifiedAssistant)
+                MonogramView(name: fallbackName, agentVerification: agentVerification)
             }
         }
         .aspectRatio(1.0, contentMode: .fit)
@@ -64,7 +55,7 @@ struct ProfileAvatarView: View {
     let profile: Profile
     let profileImage: UIImage?
     let useSystemPlaceholder: Bool
-    var isVerifiedAssistant: Bool = false
+    var agentVerification: AgentVerification = .unverified
 
     var body: some View {
         AvatarView(
@@ -72,8 +63,7 @@ struct ProfileAvatarView: View {
             cacheableObject: profile,
             placeholderImage: profileImage,
             placeholderImageName: useSystemPlaceholder ? "person.crop.circle.fill" : nil,
-            isAgent: profile.isAgent,
-            isVerifiedAssistant: isVerifiedAssistant
+            agentVerification: profile.isAgent ? agentVerification : .unverified
         )
     }
 }
@@ -111,7 +101,7 @@ struct ConversationAvatarView: View {
         case .customImage:
             MonogramView(name: conversation.computedDisplayName)
         case .profile(let profile):
-            MonogramView(name: profile.displayName, isAgent: profile.isAgent, isVerifiedAssistant: false)
+            MonogramView(name: profile.displayName, agentVerification: profile.isAgent ? .verified(.unknown) : .unverified)
         case .clustered(let profiles):
             ClusteredAvatarView(profiles: profiles)
         case .emoji(let emoji):
@@ -127,7 +117,7 @@ struct ConversationAvatarView: View {
 struct MessageAvatarView: View {
     let profile: Profile
     let size: CGFloat
-    var isVerifiedAssistant: Bool = false
+    var agentVerification: AgentVerification = .unverified
 
     @State private var cachedImage: UIImage?
 
@@ -138,7 +128,7 @@ struct MessageAvatarView: View {
                     .resizable()
                     .aspectRatio(contentMode: .fill)
             } else {
-                MonogramView(name: profile.displayName, isAgent: profile.isAgent, isVerifiedAssistant: isVerifiedAssistant)
+                MonogramView(name: profile.displayName, agentVerification: profile.isAgent ? agentVerification : .unverified)
             }
         }
         .frame(width: size, height: size)

@@ -572,7 +572,7 @@ struct MemberProfileCache {
                 role: .member,
                 isCurrentUser: profile.inboxId == currentInboxId,
                 isAgent: isAgent,
-                isVerifiedAssistant: isAgent && hydratedProfile.verifyCachedAssistantAttestation()
+                agentVerification: isAgent ? hydratedProfile.verifyCachedAgentAttestation() : .unverified
             )
         }
 
@@ -662,7 +662,7 @@ private extension LightweightConversationDetails {
                 role: creatorDetails.role,
                 isCurrentUser: profile.inboxId == conversation.inboxId,
                 isAgent: isAgent,
-                isVerifiedAssistant: isAgent && hydratedProfile.verifyCachedAssistantAttestation()
+                agentVerification: isAgent ? hydratedProfile.verifyCachedAgentAttestation() : .unverified
             )
         } else {
             creator = ConversationMember(
