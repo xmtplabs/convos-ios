@@ -17,7 +17,14 @@ public struct InboxKeyInfo: Sendable {
     }
 }
 
+public protocol VaultEventHandler: AnyObject, Sendable {
+    func vaultDidImportInbox(inboxId: String, clientId: String) async
+    func vaultDidImportKeyBundle(inboxIds: Set<String>, count: Int) async
+    func vaultDidDeleteConversation(inboxId: String, clientId: String) async
+}
+
 public protocol VaultServiceProtocol: Sendable {
+    func setEventHandler(_ handler: any VaultEventHandler) async
     func startVault(signingKey: SigningKey, options: ClientOptions) async throws
     func stopVault() async
     func pauseVault() async
@@ -30,8 +37,6 @@ public protocol VaultServiceProtocol: Sendable {
 }
 
 public extension Notification.Name {
-    static let vaultDidImportInbox: Notification.Name = .init("ConvosVaultDidImportInbox")
-    static let vaultDidDeleteConversation: Notification.Name = .init("ConvosVaultDidDeleteConversation")
     static let vaultDidReceiveKeyBundle: Notification.Name = .init("ConvosVaultDidReceiveKeyBundle")
     static let vaultPairingError: Notification.Name = .init("ConvosVaultPairingError")
     static let vaultDidReceivePin: Notification.Name = .init("ConvosVaultDidReceivePin")

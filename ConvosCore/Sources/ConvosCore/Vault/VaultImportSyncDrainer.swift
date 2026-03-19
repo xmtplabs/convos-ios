@@ -2,55 +2,98 @@ import Foundation
 import GRDB
 @preconcurrency import XMTPiOS
 
+struct PendingInboxEntry: Sendable {
+    let inboxId: String
+    let clientId: String
+    let attempts: Int
+}
+
 public actor VaultImportSyncDrainer {
     private let lifecycleManager: any InboxLifecycleManagerProtocol
     private let databaseReader: any DatabaseReader
+    private let databaseWriter: (any DatabaseWriter)?
     private let environment: AppEnvironment
     private let xmtpStaticOperations: SendableXMTPOperations
 
     private var drainTask: Task<Void, Never>?
-    private var pendingInboxIds: Set<String> = []
-    private var syncedInboxIds: Set<String> = []
-    private var sortedQueue: [(inboxId: String, clientId: String)] = []
-
-    private static let settleDelay: TimeInterval = 3
-    private static let betweenInboxDelay: TimeInterval = 1
-    private static let perInboxTimeout: TimeInterval = 30
-    private static let maxRetries: Int = 2
-    private var failureCounts: [String: Int] = [:]
     private var hasPendingHighPriority: Bool = false
 
-    public var remainingCount: Int { pendingInboxIds.subtracting(syncedInboxIds).count }
-    public var isDraining: Bool { drainTask?.isCancelled == false }
+    private static let maxConcurrent: Int = 3
+    private static let perInboxTimeout: TimeInterval = 30
+    private static let maxAttempts: Int = 3
+    private static let retryDelays: [TimeInterval] = [5, 15]
+
+    public var remainingCount: Int {
+        get async {
+            (try? await databaseReader.read { db in
+                try DBInbox
+                    .filter(DBInbox.Columns.vaultSyncState == VaultSyncState.pending)
+                    .fetchCount(db)
+            }) ?? 0
+        }
+    }
+
+    public var isDraining: Bool { drainTask != nil && drainTask?.isCancelled == false }
 
     public init(
         lifecycleManager: any InboxLifecycleManagerProtocol,
         databaseReader: any DatabaseReader,
+        databaseWriter: (any DatabaseWriter)? = nil,
         environment: AppEnvironment,
         xmtpStaticOperations: any XMTPStaticOperations.Type = Client.self
     ) {
         self.lifecycleManager = lifecycleManager
         self.databaseReader = databaseReader
+        self.databaseWriter = databaseWriter
         self.environment = environment
         self.xmtpStaticOperations = SendableXMTPOperations(xmtpStaticOperations)
     }
 
-    public func startDraining(importedInboxIds: Set<String>) {
-        let newIds = importedInboxIds.subtracting(syncedInboxIds)
+    public func startDraining(importedInboxIds: Set<String>) async {
+        guard let databaseWriter else { return }
+        let newIds = importedInboxIds
         guard !newIds.isEmpty else { return }
 
-        pendingInboxIds.formUnion(newIds)
-        hasPendingHighPriority = true
-
-        if drainTask == nil || drainTask?.isCancelled == true {
-            sortedQueue = []
-            resumeDraining()
+        do {
+            try await databaseWriter.write { db in
+                for inboxId in newIds {
+                    try db.execute(
+                        sql: """
+                            UPDATE inbox SET vaultSyncState = ?, vaultSyncAttempts = 0
+                            WHERE inboxId = ? AND vaultSyncState IN (?, ?)
+                            """,
+                        arguments: [
+                            VaultSyncState.pending.rawValue,
+                            inboxId,
+                            VaultSyncState.none.rawValue,
+                            VaultSyncState.failed.rawValue,
+                        ]
+                    )
+                }
+            }
+        } catch {
+            Log.error("VaultImportSyncDrainer: failed to mark inboxes as pending: \(error)")
         }
+
+        hasPendingHighPriority = true
+        ensureDraining()
     }
 
-    public func resume() {
-        guard !pendingInboxIds.subtracting(syncedInboxIds).isEmpty else { return }
-        resumeDraining()
+    public func resumeFromDatabase() async {
+        let hasPending: Bool = (try? await databaseReader.read { db in
+            try DBInbox
+                .filter([VaultSyncState.pending, .failed].map(\.rawValue).contains(DBInbox.Columns.vaultSyncState))
+                .filter(DBInbox.Columns.vaultSyncAttempts < Self.maxAttempts)
+                .fetchCount(db) > 0
+        }) ?? false
+
+        guard hasPending else { return }
+        Log.info("VaultImportSyncDrainer: found pending inboxes in database, resuming")
+        ensureDraining()
+    }
+
+    public func resume() async {
+        await resumeFromDatabase()
     }
 
     public func pause() {
@@ -61,14 +104,10 @@ public actor VaultImportSyncDrainer {
     public func stop() {
         drainTask?.cancel()
         drainTask = nil
-        pendingInboxIds.removeAll()
-        syncedInboxIds.removeAll()
-        failureCounts.removeAll()
         hasPendingHighPriority = false
-        sortedQueue = []
     }
 
-    private func resumeDraining() {
+    private func ensureDraining() {
         guard drainTask == nil || drainTask?.isCancelled == true else { return }
         drainTask = Task { [weak self] in
             guard let self else { return }
@@ -77,155 +116,184 @@ public actor VaultImportSyncDrainer {
     }
 
     private func drain() async {
-        while true {
-            let remaining = pendingInboxIds.subtracting(syncedInboxIds)
-            guard !remaining.isEmpty else { break }
+        while !Task.isCancelled {
+            let batch = await fetchPendingBatch()
+            guard !batch.isEmpty else { break }
 
-            sortedQueue = await fetchAndSortByActivity(inboxIds: remaining)
-
-            if sortedQueue.isEmpty {
-                Log.warning("VaultImportSyncDrainer: no inboxes found in database for \(remaining.count) pending ID(s), skipping")
-                syncedInboxIds.formUnion(remaining)
-                break
-            }
-
-            let total = pendingInboxIds.count
-            Log.info("VaultImportSyncDrainer: draining \(sortedQueue.count) inboxes (\(syncedInboxIds.count)/\(total) already synced)")
+            let total = batch.count
+            Log.info("VaultImportSyncDrainer: processing \(total) inbox(es) concurrently (max \(Self.maxConcurrent))")
 
             hasPendingHighPriority = false
 
-            while let inbox = sortedQueue.first {
-                guard !Task.isCancelled else { return }
-                if hasPendingHighPriority {
-                    Log.info("VaultImportSyncDrainer: new inbox(es) arrived, re-prioritizing queue")
-                    break
-                }
-                sortedQueue.removeFirst()
-
-                if syncedInboxIds.contains(inbox.inboxId) { continue }
-
-                if await lifecycleManager.isAwake(clientId: inbox.clientId) {
-                    syncedInboxIds.insert(inbox.inboxId)
-                    continue
-                }
-
-                do {
-                    Log.debug("VaultImportSyncDrainer: syncing inbox \(inbox.inboxId)")
-                    try await withTimeout(seconds: Self.perInboxTimeout) {
-                        let service = try await self.lifecycleManager.wake(
-                            clientId: inbox.clientId,
-                            inboxId: inbox.inboxId,
-                            reason: .activityRanking
-                        )
-                        _ = try await service.inboxStateManager.waitForInboxReadyResult()
+            await withTaskGroup(of: Void.self) { group in
+                var inflight: Int = 0
+                for inbox in batch {
+                    guard !Task.isCancelled else { break }
+                    if hasPendingHighPriority {
+                        Log.info("VaultImportSyncDrainer: new inbox(es) arrived, will re-evaluate after current batch")
+                        break
                     }
 
-                    try? await Task.sleep(for: .seconds(Self.settleDelay))
-                    guard !Task.isCancelled else { return }
-
-                    await lifecycleManager.sleep(clientId: inbox.clientId)
-                    syncedInboxIds.insert(inbox.inboxId)
-                    Log.debug("VaultImportSyncDrainer: finished inbox \(inbox.inboxId)")
-
-                    let synced = syncedInboxIds.count
-                    if synced.isMultiple(of: 10) {
-                        Log.info("VaultImportSyncDrainer: progress \(synced)/\(total)")
+                    if inflight >= Self.maxConcurrent {
+                        await group.next()
+                        inflight -= 1
                     }
 
-                    try? await Task.sleep(for: .seconds(Self.betweenInboxDelay))
-                } catch {
-                    await lifecycleManager.sleep(clientId: inbox.clientId)
-                    let attempts = (failureCounts[inbox.inboxId] ?? 0) + 1
-                    failureCounts[inbox.inboxId] = attempts
-                    if attempts >= Self.maxRetries {
-                        Log.warning("VaultImportSyncDrainer: giving up on inbox \(inbox.inboxId) after \(attempts) attempts: \(error)")
-                        syncedInboxIds.insert(inbox.inboxId)
-                    } else {
-                        Log.warning("VaultImportSyncDrainer: failed to sync inbox \(inbox.inboxId) (attempt \(attempts)/\(Self.maxRetries)): \(error)")
+                    group.addTask { [weak self] in
+                        guard let self else { return }
+                        await self.syncOneInbox(inbox)
                     }
+                    inflight += 1
                 }
             }
 
             guard !Task.isCancelled else { return }
         }
 
-        Log.info("VaultImportSyncDrainer: completed \(syncedInboxIds.count)/\(pendingInboxIds.count)")
-        pendingInboxIds.removeAll()
-        syncedInboxIds.removeAll()
-        failureCounts.removeAll()
-        hasPendingHighPriority = false
-        sortedQueue = []
+        Log.info("VaultImportSyncDrainer: drain complete")
         drainTask = nil
     }
 
-    private struct InboxRow {
-        let inboxId: String
-        let clientId: String
-        let conversationId: String?
+    private func syncOneInbox(_ inbox: PendingInboxEntry) async {
+        let inboxId = inbox.inboxId
+        let clientId = inbox.clientId
+
+        if await lifecycleManager.isAwake(clientId: clientId) {
+            await markSynced(inboxId: inboxId)
+            return
+        }
+
+        do {
+            try await withTimeout(seconds: Self.perInboxTimeout) {
+                let service = try await self.lifecycleManager.wake(
+                    clientId: clientId,
+                    inboxId: inboxId,
+                    reason: .activityRanking
+                )
+                _ = try await service.inboxStateManager.waitForInboxReadyResult()
+            }
+
+            await lifecycleManager.sleep(clientId: clientId)
+            await markSynced(inboxId: inboxId)
+            Log.debug("VaultImportSyncDrainer: synced inbox \(inboxId)")
+        } catch {
+            await lifecycleManager.sleep(clientId: clientId)
+            let nextAttempt = inbox.attempts + 1
+            if nextAttempt >= Self.maxAttempts {
+                Log.warning("VaultImportSyncDrainer: giving up on inbox \(inboxId) after \(nextAttempt) attempts: \(error)")
+                await markFailed(inboxId: inboxId, attempts: nextAttempt)
+            } else {
+                Log.warning("VaultImportSyncDrainer: inbox \(inboxId) attempt \(nextAttempt)/\(Self.maxAttempts) failed: \(error)")
+                await markFailed(inboxId: inboxId, attempts: nextAttempt)
+            }
+        }
     }
 
-    private func fetchAndSortByActivity(inboxIds: Set<String>) async -> [(inboxId: String, clientId: String)] {
-        let inboxRows: [InboxRow]
+    private func markSynced(inboxId: String) async {
+        guard let databaseWriter else { return }
+        try? await databaseWriter.write { db in
+            try db.execute(
+                sql: "UPDATE inbox SET vaultSyncState = ? WHERE inboxId = ?",
+                arguments: [VaultSyncState.synced.rawValue, inboxId]
+            )
+        }
+    }
+
+    private func markFailed(inboxId: String, attempts: Int) async {
+        guard let databaseWriter else { return }
+        try? await databaseWriter.write { db in
+            try db.execute(
+                sql: "UPDATE inbox SET vaultSyncState = ?, vaultSyncAttempts = ? WHERE inboxId = ?",
+                arguments: [VaultSyncState.failed.rawValue, attempts, inboxId]
+            )
+        }
+    }
+
+    private func fetchPendingBatch() async -> [PendingInboxEntry] {
+        let pendingRows: [PendingInboxEntry]
         do {
-            inboxRows = try await databaseReader.read { db in
-                let placeholders = inboxIds.map { _ in "?" }.joined(separator: ",")
+            pendingRows = try await databaseReader.read { db in
                 let sql = """
-                    SELECT i.inboxId, i.clientId, c.id as conversationId
+                    SELECT i.inboxId, i.clientId, i.vaultSyncAttempts, c.id as conversationId
                     FROM inbox i
                     LEFT JOIN conversation c ON c.clientId = i.clientId
                         AND c.id NOT LIKE 'draft-%'
-                    WHERE i.inboxId IN (\(placeholders))
+                    WHERE i.vaultSyncState IN (?, ?)
+                        AND i.vaultSyncAttempts < ?
                     """
-                return try Row.fetchAll(db, sql: sql, arguments: StatementArguments(Array(inboxIds))).map { row in
-                    InboxRow(
+                let rows = try Row.fetchAll(db, sql: sql, arguments: [
+                    VaultSyncState.pending.rawValue,
+                    VaultSyncState.failed.rawValue,
+                    Self.maxAttempts,
+                ])
+                return rows.map { row in
+                    PendingInboxEntry(
                         inboxId: row["inboxId"],
                         clientId: row["clientId"],
-                        conversationId: row["conversationId"]
+                        attempts: row["vaultSyncAttempts"]
                     )
                 }
             }
         } catch {
-            Log.error("VaultImportSyncDrainer: failed to fetch inbox rows: \(error)")
+            Log.error("VaultImportSyncDrainer: failed to fetch pending inboxes: \(error)")
             return []
         }
 
-        let conversationIds = inboxRows.compactMap { $0.conversationId }
+        let uniqueInboxes = Dictionary(grouping: pendingRows, by: { $0.inboxId })
+            .compactMap { _, rows in rows.first }
+
+        guard !uniqueInboxes.isEmpty else { return [] }
+
+        return await sortByActivity(inboxes: uniqueInboxes)
+    }
+
+    private func sortByActivity(
+        inboxes: [PendingInboxEntry]
+    ) async -> [PendingInboxEntry] {
+        let conversationIds: [String: String]
+        do {
+            let inboxIds = inboxes.map { $0.clientId }
+            conversationIds = try await databaseReader.read { db in
+                let placeholders = inboxIds.map { _ in "?" }.joined(separator: ",")
+                let sql = """
+                    SELECT clientId, id as conversationId FROM conversation
+                    WHERE clientId IN (\(placeholders)) AND id NOT LIKE 'draft-%'
+                    """
+                var mapping: [String: String] = [:]
+                for row in try Row.fetchAll(db, sql: sql, arguments: StatementArguments(inboxIds)) {
+                    let clientId: String = row["clientId"]
+                    let convId: String = row["conversationId"]
+                    mapping[clientId] = convId
+                }
+                return mapping
+            }
+        } catch {
+            return inboxes
+        }
+
+        let allConvIds = Array(conversationIds.values)
+        guard !allConvIds.isEmpty else { return inboxes }
 
         var activityByConversation: [String: Int64] = [:]
-        if !conversationIds.isEmpty {
-            do {
-                let api = XMTPAPIOptionsBuilder.build(environment: environment)
-                let metadata = try await xmtpStaticOperations.getNewestMessageMetadata(
-                    groupIds: conversationIds,
-                    api: api
-                )
-                for (id, meta) in metadata {
-                    activityByConversation[id] = meta.createdNs
-                }
-            } catch {
-                Log.warning("VaultImportSyncDrainer: failed to fetch message metadata, using unsorted order: \(error)")
+        do {
+            let api = XMTPAPIOptionsBuilder.build(environment: environment)
+            let metadata = try await xmtpStaticOperations.getNewestMessageMetadata(
+                groupIds: allConvIds,
+                api: api
+            )
+            for (id, meta) in metadata {
+                activityByConversation[id] = meta.createdNs
             }
+        } catch {
+            Log.warning("VaultImportSyncDrainer: failed to fetch activity metadata, using unsorted order: \(error)")
+            return inboxes
         }
 
-        var inboxActivity: [String: Int64] = [:]
-        for row in inboxRows {
-            guard let conversationId = row.conversationId,
-                  let ns = activityByConversation[conversationId] else { continue }
-            let existing = inboxActivity[row.inboxId] ?? 0
-            if ns > existing {
-                inboxActivity[row.inboxId] = ns
-            }
-        }
-
-        let uniqueInboxes = Dictionary(grouping: inboxRows, by: { $0.inboxId })
-            .compactMap { _, rows -> (inboxId: String, clientId: String)? in
-                guard let first = rows.first else { return nil }
-                return (inboxId: first.inboxId, clientId: first.clientId)
-            }
-
-        return uniqueInboxes.sorted { a, b in
-            let aActivity = inboxActivity[a.inboxId] ?? 0
-            let bActivity = inboxActivity[b.inboxId] ?? 0
+        return inboxes.sorted { a, b in
+            let aConv = conversationIds[a.clientId]
+            let bConv = conversationIds[b.clientId]
+            let aActivity = aConv.flatMap { activityByConversation[$0] } ?? 0
+            let bActivity = bConv.flatMap { activityByConversation[$0] } ?? 0
             return aActivity > bActivity
         }
     }
