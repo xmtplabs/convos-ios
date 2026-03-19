@@ -33,6 +33,11 @@ public actor VaultClient {
     }
 
     public var currentState: VaultClientState { state }
+
+    public var isConnected: Bool {
+        if case .connected = state { return true }
+        return false
+    }
     public var inboxId: String? { client?.inboxID }
     public var installationId: String? { client?.installationID }
     public var vaultGroup: XMTPiOS.Group? { group }
