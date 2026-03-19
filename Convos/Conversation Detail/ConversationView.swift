@@ -154,6 +154,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
+            viewModel.checkForPastedLink()
         }
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)

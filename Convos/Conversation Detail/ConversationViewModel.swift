@@ -160,27 +160,19 @@ class ConversationViewModel {
         }
     }
     var isConversationImageDirty: Bool = false
-    var messageText: String = "" {
-        didSet {
-            if messageText.isEmpty {
-                pastedLinkPreview = nil
-            } else if messageText != oldValue {
-                checkForPastedLink(oldText: oldValue)
-            }
-        }
-    }
+    var messageText: String = ""
+    private var previousMessageTextLength: Int = 0
     var pastedLinkPreview: LinkPreview?
 
-    private func checkForPastedLink(oldText: String) {
-        let inserted = messageText.count - oldText.count
-        guard inserted > 1 else {
-            if pastedLinkPreview != nil, LinkPreview.from(text: messageText) == nil {
-                pastedLinkPreview = nil
-            }
-            return
-        }
+    func checkForPastedLink() {
+        let inserted = messageText.count - previousMessageTextLength
+        previousMessageTextLength = messageText.count
+        guard inserted > 1, pastedLinkPreview == nil else { return }
+        guard InviteURLDetector.detectInviteURL(in: messageText) == nil else { return }
         guard let preview = LinkPreview.from(text: messageText) else { return }
         pastedLinkPreview = preview
+        messageText = ""
+        previousMessageTextLength = 0
     }
     var selectedAttachmentImage: UIImage? {
         didSet {
@@ -240,7 +232,7 @@ class ConversationViewModel {
     var pendingInvite: PendingInvite?
 
     var sendButtonEnabled: Bool {
-        !messageText.isEmpty || selectedAttachmentImage != nil || pendingInvite != nil
+        !messageText.isEmpty || selectedAttachmentImage != nil || pendingInvite != nil || pastedLinkPreview != nil
     }
     private(set) var isSendingPhoto: Bool = false
     var explodeState: ExplodeState = .ready
@@ -741,8 +733,9 @@ extension ConversationViewModel {
         let hasText = !messageText.isEmpty
         let hasAttachment = selectedAttachmentImage != nil
         let hasInvite = pendingInvite != nil
+        let hasLinkPreview = pastedLinkPreview != nil
 
-        guard hasText || hasAttachment || hasInvite else { return }
+        guard hasText || hasAttachment || hasInvite || hasLinkPreview else { return }
 
         onboardingCoordinator.skipAddQuickname()
 
@@ -751,12 +744,14 @@ extension ConversationViewModel {
         let prevAttachmentImage = selectedAttachmentImage
         let eagerUploadKey = currentEagerUploadKey
         let prevInviteURL = pendingInvite?.fullURL
+        let prevLinkURL = pastedLinkPreview?.url
 
         messageText = ""
         replyingToMessage = nil
         selectedAttachmentImage = nil
         currentEagerUploadKey = nil
         pendingInvite = nil
+        pastedLinkPreview = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
         let messageWriter = cachedMessageWriter
@@ -797,6 +792,15 @@ extension ConversationViewModel {
                         try await messageWriter.sendReply(text: inviteURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
                     } else {
                         try await messageWriter.send(text: inviteURL, afterPhoto: photoTrackingKey)
+                    }
+                }
+
+                if let linkURL = prevLinkURL {
+                    let linkIsReply = replyTarget != nil && !hasAttachment && !hasText && !hasInvite
+                    if linkIsReply, let replyTarget {
+                        try await messageWriter.sendReply(text: linkURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
+                    } else {
+                        try await messageWriter.send(text: linkURL, afterPhoto: photoTrackingKey)
                     }
                 }
 
