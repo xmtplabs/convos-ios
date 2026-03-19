@@ -203,8 +203,8 @@ struct ConversationsView: View {
                         onScanInviteCode: {},
                         onDeleteConversation: {},
                         messagesTopBarTrailingItem: .share,
-                        messagesTopBarTrailingItemEnabled: !conversationViewModel.conversation.isPendingInvite,
-                        messagesTextFieldEnabled: !conversationViewModel.conversation.isPendingInvite,
+                        messagesTopBarTrailingItemEnabled: !conversationViewModel.conversation.isPendingInvite && conversationViewModel.conversation.isActive,
+                        messagesTextFieldEnabled: !conversationViewModel.conversation.isPendingInvite && conversationViewModel.conversation.isActive,
                         bottomBarContent: { EmptyView() }
                     )
                 } else if horizontalSizeClass != .compact {

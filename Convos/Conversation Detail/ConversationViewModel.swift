@@ -214,6 +214,10 @@ class ConversationViewModel {
         conversation.isLocked
     }
 
+    var isInactive: Bool {
+        !conversation.isActive
+    }
+
     var isFull: Bool {
         conversation.isFull
     }

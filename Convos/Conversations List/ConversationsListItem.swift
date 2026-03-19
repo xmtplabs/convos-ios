@@ -77,10 +77,12 @@ struct ConversationsListItem: View {
     private var createdAt: Date { conversation.createdAt }
 
     private var isPendingInvite: Bool { conversation.isPendingInvite }
+    private var isInactive: Bool { !conversation.isActive }
 
     private var accessibilityDescription: String {
         var parts: [String] = [title]
         if isPendingInvite { parts.append("verifying") }
+        if isInactive { parts.append("awaiting") }
         if isUnread { parts.append("unread") }
         if isMuted { parts.append("muted") }
         if let message = lastMessage {
@@ -89,11 +91,13 @@ struct ConversationsListItem: View {
         return parts.joined(separator: ", ")
     }
 
+    private var isInteractionDisabled: Bool { isPendingInvite || isInactive }
+
     var body: some View {
         ListItemView(
             title: title,
-            isMuted: isPendingInvite ? false : isMuted,
-            isUnread: isPendingInvite ? false : isUnread,
+            isMuted: isInteractionDisabled ? false : isMuted,
+            isUnread: isInteractionDisabled ? false : isUnread,
             leadingContent: {
                 ConversationAvatarView(conversation: conversation, conversationImage: nil)
             },
@@ -103,6 +107,10 @@ struct ConversationsListItem: View {
                         RelativeDateLabel(date: createdAt)
                         Text("·").foregroundStyle(.colorTextTertiary)
                         Text("Verifying")
+                    } else if isInactive {
+                        RelativeDateLabel(date: lastMessage?.createdAt ?? createdAt)
+                        Text("·").foregroundStyle(.colorTextTertiary)
+                        Text("Awaiting")
                     } else if let message = lastMessage {
                         RelativeDateLabel(date: message.createdAt)
                         Text("·").foregroundStyle(.colorTextTertiary)
