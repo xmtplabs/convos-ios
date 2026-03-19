@@ -213,10 +213,21 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    let dbConversation = try await conversationWriter.store(
-                        conversation: conversation,
-                        inboxId: params.client.inboxId
-                    )
+                    let dbConversation: DBConversation
+                    do {
+                        dbConversation = try await conversationWriter.store(
+                            conversation: conversation,
+                            inboxId: params.client.inboxId
+                        )
+                    } catch {
+                        Log.warning("conversationWriter.store failed, retrying without sync: \(error)")
+                        guard let existing = try await databaseReader.read({ db in
+                            try DBConversation.fetchOne(db, id: conversation.id)
+                        }) else {
+                            throw error
+                        }
+                        dbConversation = existing
+                    }
 
                     // Handle ExplodeSettings - skip storing message if this is an explode message
                     let explodeSettings = messageWriter.decodeExplodeSettings(from: message)
@@ -288,30 +299,33 @@ actor StreamProcessor: StreamProcessorProtocol {
             }
             guard isInactive else { return }
 
-            try await databaseWriter.write { db in
-                let sql = """
-                    SELECT id FROM message
-                    WHERE conversationId = ?
-                      AND contentType = 'update'
-                    ORDER BY date DESC
-                    LIMIT 5
-                    """
-                let messageIds = try String.fetchAll(db, sql: sql, arguments: [conversationId])
-                for messageId in messageIds {
-                    guard var dbMessage = try DBMessage.fetchOne(db, key: messageId),
-                          var update = dbMessage.update else { continue }
-                    if !update.isReconnection {
-                        update.isReconnection = true
-                        dbMessage = dbMessage.with(update: update)
-                        try dbMessage.save(db)
-                    }
-                }
-            }
-
+            try await markRecentUpdatesAsReconnection(conversationId: conversationId)
             try await localStateWriter.setActive(true, for: conversationId)
             Log.info("Reactivated conversation \(conversationId) during sync")
         } catch {
             Log.warning("reactivateIfNeeded failed for \(conversationId): \(error)")
+        }
+    }
+
+    private func markRecentUpdatesAsReconnection(conversationId: String) async throws {
+        try await databaseWriter.write { db in
+            let sql = """
+                SELECT id FROM message
+                WHERE conversationId = ?
+                  AND contentType = 'update'
+                ORDER BY date DESC
+                LIMIT 5
+                """
+            let messageIds = try String.fetchAll(db, sql: sql, arguments: [conversationId])
+            for messageId in messageIds {
+                guard var dbMessage = try DBMessage.fetchOne(db, key: messageId),
+                      var update = dbMessage.update else { continue }
+                if !update.isReconnection {
+                    update.isReconnection = true
+                    dbMessage = dbMessage.with(update: update)
+                    try dbMessage.save(db)
+                }
+            }
         }
     }
 
