@@ -234,7 +234,10 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
-                    await reactivateIfNeeded(conversationId: conversation.id)
+                    await markReconnectionIfNeeded(
+                        messageId: message.id,
+                        conversationId: conversation.id
+                    )
 
                     // Mark unread if needed
                     if result.contentType.marksConversationAsUnread,
@@ -273,7 +276,7 @@ actor StreamProcessor: StreamProcessorProtocol {
 
     // MARK: - Reactivation
 
-    private func reactivateIfNeeded(conversationId: String) async {
+    private func markReconnectionIfNeeded(messageId: String, conversationId: String) async {
         do {
             let isInactive = try await databaseReader.read { db in
                 try ConversationLocalState
@@ -282,10 +285,20 @@ actor StreamProcessor: StreamProcessorProtocol {
                     .fetchOne(db) != nil
             }
             guard isInactive else { return }
+
+            try await databaseWriter.write { db in
+                if var dbMessage = try DBMessage.fetchOne(db, key: messageId),
+                   var update = dbMessage.update {
+                    update.isReconnection = true
+                    dbMessage = dbMessage.with(update: update)
+                    try dbMessage.save(db)
+                }
+            }
+
             try await localStateWriter.setActive(true, for: conversationId)
             Log.info("Reactivated conversation \(conversationId) after receiving message")
         } catch {
-            Log.warning("reactivateIfNeeded failed for \(conversationId): \(error)")
+            Log.warning("markReconnectionIfNeeded failed for \(conversationId): \(error)")
         }
     }
 

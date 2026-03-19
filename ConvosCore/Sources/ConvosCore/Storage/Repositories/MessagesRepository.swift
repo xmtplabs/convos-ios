@@ -394,7 +394,8 @@ extension Array where Element == DBMessage {
                             creator: initiatedByMember,
                             addedMembers: addedMembers,
                             removedMembers: removedMembers,
-                            metadataChanges: metadataChanges
+                            metadataChanges: metadataChanges,
+                            isReconnection: update.isReconnection
                         )
                     )
                 case .assistantJoinRequest:

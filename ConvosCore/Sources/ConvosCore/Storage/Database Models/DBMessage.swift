@@ -18,6 +18,7 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
         let removedInboxIds: [String]
         let metadataChanges: [MetadataChange]
         let expiresAt: Date?
+        var isReconnection: Bool = false
     }
 
     enum Columns {
@@ -270,6 +271,28 @@ extension DBMessage {
     }
 
     func with(sortId: Int64?) -> DBMessage {
+        .init(
+            id: id,
+            clientMessageId: clientMessageId,
+            conversationId: conversationId,
+            senderId: senderId,
+            dateNs: dateNs,
+            date: date,
+            sortId: sortId,
+            status: status,
+            messageType: messageType,
+            contentType: contentType,
+            text: text,
+            emoji: emoji,
+            invite: invite,
+            linkPreview: linkPreview,
+            sourceMessageId: sourceMessageId,
+            attachmentUrls: attachmentUrls,
+            update: update
+        )
+    }
+
+    func with(update: Update?) -> DBMessage {
         .init(
             id: id,
             clientMessageId: clientMessageId,
