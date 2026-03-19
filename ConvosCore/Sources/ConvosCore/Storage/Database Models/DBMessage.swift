@@ -18,7 +18,33 @@ struct DBMessage: FetchableRecord, PersistableRecord, Hashable, Codable, Sendabl
         let removedInboxIds: [String]
         let metadataChanges: [MetadataChange]
         let expiresAt: Date?
-        var isReconnection: Bool = false
+        var isReconnection: Bool
+
+        init(
+            initiatedByInboxId: String,
+            addedInboxIds: [String],
+            removedInboxIds: [String],
+            metadataChanges: [MetadataChange],
+            expiresAt: Date?,
+            isReconnection: Bool = false
+        ) {
+            self.initiatedByInboxId = initiatedByInboxId
+            self.addedInboxIds = addedInboxIds
+            self.removedInboxIds = removedInboxIds
+            self.metadataChanges = metadataChanges
+            self.expiresAt = expiresAt
+            self.isReconnection = isReconnection
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            initiatedByInboxId = try container.decode(String.self, forKey: .initiatedByInboxId)
+            addedInboxIds = try container.decode([String].self, forKey: .addedInboxIds)
+            removedInboxIds = try container.decode([String].self, forKey: .removedInboxIds)
+            metadataChanges = try container.decode([MetadataChange].self, forKey: .metadataChanges)
+            expiresAt = try container.decodeIfPresent(Date.self, forKey: .expiresAt)
+            isReconnection = try container.decodeIfPresent(Bool.self, forKey: .isReconnection) ?? false
+        }
     }
 
     enum Columns {
