@@ -287,6 +287,27 @@ actor StreamProcessor: StreamProcessorProtocol {
                     .fetchOne(db) != nil
             }
             guard isInactive else { return }
+
+            try await databaseWriter.write { db in
+                let sql = """
+                    SELECT id FROM message
+                    WHERE conversationId = ?
+                      AND contentType = 'update'
+                    ORDER BY date DESC
+                    LIMIT 5
+                    """
+                let messageIds = try String.fetchAll(db, sql: sql, arguments: [conversationId])
+                for messageId in messageIds {
+                    guard var dbMessage = try DBMessage.fetchOne(db, key: messageId),
+                          var update = dbMessage.update else { continue }
+                    if !update.isReconnection {
+                        update.isReconnection = true
+                        dbMessage = dbMessage.with(update: update)
+                        try dbMessage.save(db)
+                    }
+                }
+            }
+
             try await localStateWriter.setActive(true, for: conversationId)
             Log.info("Reactivated conversation \(conversationId) during sync")
         } catch {
