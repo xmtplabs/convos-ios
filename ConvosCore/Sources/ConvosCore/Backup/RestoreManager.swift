@@ -104,8 +104,12 @@ public actor RestoreManager {
 
             Log.info("[Restore] marking all conversations inactive")
             let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseManager.dbWriter)
-            try? await localStateWriter.markAllConversationsInactive()
-            Log.info("[Restore] conversations marked inactive")
+            do {
+                try await localStateWriter.markAllConversationsInactive()
+                Log.info("[Restore] conversations marked inactive")
+            } catch {
+                Log.error("[Restore] failed to mark conversations inactive: \(error)")
+            }
 
             if preparedForRestore {
                 Log.info("[Restore] resuming sessions")

@@ -448,11 +448,17 @@ actor SyncingManager: SyncingManagerProtocol {
 
         for row in inactiveRows {
             guard let xmtpConversation = try? await params.client.conversation(with: row.clientConversationId) else {
+                Log.debug("reactivateInactiveConversations: no XMTP conversation for \(row.conversationId)")
                 continue
             }
-            guard let isActive = try? xmtpConversation.isActive() else {
+            let isActive: Bool
+            do {
+                isActive = try xmtpConversation.isActive()
+            } catch {
+                Log.debug("reactivateInactiveConversations: isActive() failed for \(row.conversationId): \(error)")
                 continue
             }
+            Log.debug("reactivateInactiveConversations: \(row.conversationId) isActive=\(isActive)")
             if isActive {
                 try? await writer.setActive(true, for: row.conversationId)
                 reactivatedCount += 1
@@ -461,6 +467,8 @@ actor SyncingManager: SyncingManagerProtocol {
 
         if reactivatedCount > 0 {
             Log.info("Reactivated \(reactivatedCount) conversation(s)")
+        } else {
+            Log.info("No inactive conversations reactivated")
         }
     }
 
