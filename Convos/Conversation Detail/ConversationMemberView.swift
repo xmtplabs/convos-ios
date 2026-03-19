@@ -105,7 +105,7 @@ struct ConversationMemberView: View {
 
             if member.isAgent {
                 Section {
-                    let url = URL(string: "https://learn.convos.org/assistants-trust-and-security")
+                    let url = URL(string: "https://learn.convos.org/assistants")
                     let action = { if let url { openURL(url) } }
                     Button(action: action) {
                         HStack {
