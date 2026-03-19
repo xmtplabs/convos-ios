@@ -54,7 +54,8 @@ public extension Conversation {
             expiresAt: nil,
             debugInfo: ConversationDebugInfo.empty,
             isLocked: false,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            isActive: true
         )
     }
 
@@ -99,7 +100,8 @@ public extension Conversation {
             expiresAt: .distantFuture,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            isActive: true
         )
     }
 }

@@ -707,7 +707,8 @@ private extension LightweightConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            isActive: conversationLocalState.isActive
         )
     }
 }

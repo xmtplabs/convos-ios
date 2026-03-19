@@ -42,7 +42,8 @@ struct BackupDebugView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if let backup = availableBackup {
-                Text("This will replace all current conversations and data with the backup from \(backup.metadata.deviceName) (\(backup.metadata.createdAt.formatted(date: .abbreviated, time: .shortened))).")
+                let date = backup.metadata.createdAt.formatted(date: .abbreviated, time: .shortened)
+                Text("This will replace all current conversations and data with the backup from \(backup.metadata.deviceName) (\(date)).")
             }
         }
     }

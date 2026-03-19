@@ -102,6 +102,11 @@ public actor RestoreManager {
             await importConversationArchives(in: stagingDir)
             Log.info("[Restore] conversation archives imported")
 
+            Log.info("[Restore] marking all conversations inactive")
+            let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseManager.dbWriter)
+            try? await localStateWriter.markAllConversationsInactive()
+            Log.info("[Restore] conversations marked inactive")
+
             if preparedForRestore {
                 Log.info("[Restore] resuming sessions")
                 await restoreLifecycleController?.finishRestore()
@@ -300,7 +305,7 @@ public actor RestoreManager {
             let bundleURL = deviceDir.appendingPathComponent("backup-latest.encrypted")
             guard fileManager.fileExists(atPath: bundleURL.path) else { continue }
 
-            if newest == nil || metadata.createdAt > newest!.metadata.createdAt {
+            if newest == nil || metadata.createdAt > newest?.metadata.createdAt ?? .distantPast {
                 newest = (url: bundleURL, metadata: metadata)
             }
         }

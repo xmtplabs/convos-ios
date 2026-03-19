@@ -433,6 +433,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addIsActiveToConversationLocalState") { db in
+            try db.alter(table: "conversationLocalState") { t in
+                t.add(column: "isActive", .boolean).notNull().defaults(to: true)
+            }
+        }
+
         return migrator
     }
 }
