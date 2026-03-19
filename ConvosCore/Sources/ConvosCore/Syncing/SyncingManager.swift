@@ -708,12 +708,19 @@ actor SyncingManager: SyncingManagerProtocol {
                         isFirstMessage = false
                     }
 
-                    // Process message
-                    await streamProcessor.processMessage(
-                        message,
-                        params: params,
-                        activeConversationId: activeConversationId
-                    )
+                    // Process message without blocking the stream iteration.
+                    // Blocking here (with await) causes the stream to miss messages
+                    // during rapid delivery (e.g., when members join simultaneously),
+                    // because libxmtp's internal sync consumes messages while the
+                    // stream callback is blocked on processing.
+                    let capturedActiveConversationId = activeConversationId
+                    Task {
+                        await streamProcessor.processMessage(
+                            message,
+                            params: params,
+                            activeConversationId: capturedActiveConversationId
+                        )
+                    }
                 }
 
                 // Stream ended (onClose was called and continuation finished)

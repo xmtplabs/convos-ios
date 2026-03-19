@@ -91,7 +91,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         return try await _store(
             conversation: conversation,
             inboxId: inboxId,
-            clientConversationId: clientConversationId
+            clientConversationId: clientConversationId,
+            skipSync: true
         )
     }
 
@@ -195,10 +196,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         conversation: XMTPiOS.Group,
         inboxId: String,
         withLatestMessages: Bool = false,
-        clientConversationId: String? = nil
+        clientConversationId: String? = nil,
+        skipSync: Bool = false
     ) async throws -> DBConversation {
-        // Sync group to get latest state including member permission levels
-        try await conversation.sync()
+        if !skipSync {
+            try await conversation.sync()
+        }
 
         // Extract conversation metadata
         let metadata = try await extractConversationMetadata(from: conversation)
