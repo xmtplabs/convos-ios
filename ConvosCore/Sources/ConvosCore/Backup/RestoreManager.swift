@@ -59,9 +59,6 @@ public actor RestoreManager {
     }
 
     public func restoreFromBackup(bundleURL: URL) async throws {
-        let vaultIdentity = try await vaultKeyStore.loadAny()
-        let encryptionKey = vaultIdentity.keys.databaseKey
-
         state = .decrypting
         let stagingDir = try BackupBundle.createStagingDirectory()
         var preparedForRestore = false
@@ -69,8 +66,11 @@ public actor RestoreManager {
         do {
             Log.info("[Restore] reading bundle (\(bundleURL.lastPathComponent))")
             let bundleData = try Data(contentsOf: bundleURL)
-            Log.info("[Restore] unpacking bundle (\(bundleData.count) bytes)")
-            try BackupBundle.unpack(data: bundleData, encryptionKey: encryptionKey, to: stagingDir)
+
+            let (encryptionKey, _) = try await decryptBundle(
+                bundleData: bundleData,
+                to: stagingDir
+            )
 
             let metadata = try BackupBundleMetadata.read(from: stagingDir)
             Log.info("[Restore] backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
@@ -161,6 +161,34 @@ public actor RestoreManager {
         if count > 0 {
             Log.info("[Restore] deleted \(count) XMTP file(s) from \(directory.lastPathComponent)")
         }
+    }
+
+    // MARK: - Bundle decryption
+
+    private func decryptBundle(
+        bundleData: Data,
+        to stagingDir: URL
+    ) async throws -> (encryptionKey: Data, identity: KeychainIdentity) {
+        let identities = try await vaultKeyStore.loadAll()
+        guard !identities.isEmpty else {
+            throw RestoreError.noVaultKey
+        }
+
+        for identity in identities {
+            let key = identity.keys.databaseKey
+            do {
+                Log.info("[Restore] trying vault key (inboxId=\(identity.inboxId))")
+                try BackupBundle.unpack(data: bundleData, encryptionKey: key, to: stagingDir)
+                Log.info("[Restore] decryption succeeded with vault key (inboxId=\(identity.inboxId))")
+                return (key, identity)
+            } catch {
+                Log.info("[Restore] vault key (inboxId=\(identity.inboxId)) failed: \(error)")
+                BackupBundle.cleanup(directory: stagingDir)
+                try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+            }
+        }
+
+        throw RestoreError.decryptionFailed
     }
 
     // MARK: - Vault archive import
@@ -317,11 +345,17 @@ public actor RestoreManager {
     }
 
     private enum RestoreError: LocalizedError {
+        case noVaultKey
+        case decryptionFailed
         case missingVaultArchive
         case missingDatabase
 
         var errorDescription: String? {
             switch self {
+            case .noVaultKey:
+                return "No vault key found in keychain"
+            case .decryptionFailed:
+                return "None of the available vault keys could decrypt this backup"
             case .missingVaultArchive:
                 return "Backup bundle does not contain a vault archive"
             case .missingDatabase:

@@ -28,6 +28,10 @@ public actor VaultKeyStore {
         return first
     }
 
+    public func loadAll() async throws -> [KeychainIdentity] {
+        try await store.loadAll()
+    }
+
     public func exists() async -> Bool {
         guard let identities = try? await store.loadAll() else { return false }
         return !identities.isEmpty
