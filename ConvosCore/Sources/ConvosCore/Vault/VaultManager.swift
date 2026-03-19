@@ -44,6 +44,7 @@ public actor VaultManager {
     let deviceName: String
     let keyCoordinator: VaultKeyCoordinator
     let deviceManager: VaultDeviceManager
+    public private(set) var healthCheck: VaultHealthCheck?
 
     public weak var delegate: (any VaultManagerDelegate)?
     public weak var eventHandler: (any VaultEventHandler)?
@@ -160,6 +161,15 @@ public actor VaultManager {
             bootstrapState = .ready
             Log.info("Vault bootstrapped: inboxId=\(inboxId)")
             await keyCoordinator.startObservingInboxes()
+
+            healthCheck = VaultHealthCheck(
+                vaultClient: vaultClient,
+                keyCoordinator: keyCoordinator,
+                deviceManager: deviceManager,
+                identityStore: identityStore,
+                databaseReader: databaseReader,
+                databaseWriter: databaseWriter
+            )
         } catch {
             let message = "Failed to bootstrap vault: \(error)"
             bootstrapState = .failed(message)
