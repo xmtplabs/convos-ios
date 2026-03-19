@@ -49,7 +49,7 @@ struct AssistantsInfoView: View {
                     .convosButtonStyle(.rounded(fullWidth: true))
                 }
 
-                let learnMoreURL = URL(string: "https://learn.convos.org/assistants-trust-and-security")
+                let learnMoreURL = URL(string: "https://learn.convos.org/assistants")
                 let learnMoreAction = { if let learnMoreURL { openURL(learnMoreURL) } }
                 Button(action: learnMoreAction) {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
