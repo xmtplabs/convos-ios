@@ -81,6 +81,8 @@ public actor VaultClient {
         stopLifecycleObservation()
         streamTask?.cancel()
         streamTask = nil
+        periodicSyncTask?.cancel()
+        periodicSyncTask = nil
         client = nil
         group = nil
         updateState(.disconnected)
@@ -89,6 +91,8 @@ public actor VaultClient {
     public func pause() {
         streamTask?.cancel()
         streamTask = nil
+        periodicSyncTask?.cancel()
+        periodicSyncTask = nil
         try? client?.dropLocalDatabaseConnection()
     }
 
@@ -280,9 +284,12 @@ public actor VaultClient {
     }
 
     private var lastStreamDate: Date?
+    private var periodicSyncTask: Task<Void, Never>?
+    private static let periodicSyncInterval: TimeInterval = 300
 
     private func startStreaming(client: Client, group: XMTPiOS.Group) {
         streamTask?.cancel()
+        periodicSyncTask?.cancel()
         let clientInboxId = client.inboxID
         streamTask = Task { [weak self] in
             guard let self else { return }
@@ -311,6 +318,24 @@ public actor VaultClient {
 
                 try? await Task.sleep(nanoseconds: reconnectDelay)
                 reconnectDelay = min(reconnectDelay * 2, maxDelay)
+            }
+        }
+        startPeriodicSync(group: group, clientInboxId: clientInboxId)
+    }
+
+    private func startPeriodicSync(group: XMTPiOS.Group, clientInboxId: String) {
+        periodicSyncTask?.cancel()
+        periodicSyncTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(Self.periodicSyncInterval))
+                guard !Task.isCancelled, let self else { return }
+                do {
+                    try await group.sync()
+                    await self.processMissedMessages(group: group, clientInboxId: clientInboxId)
+                    await self.updateLastStreamDate(Date())
+                } catch {
+                    Log.debug("Vault: periodic sync failed (non-fatal): \(error)")
+                }
             }
         }
     }
