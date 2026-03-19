@@ -8,14 +8,18 @@ public final class MessagesListProcessor: Sendable {
         voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:],
         readReceipts: [ReadReceiptEntry] = [],
         memberProfiles: [String: MemberProfileInfo] = [:],
-        currentOtherMemberCount: Int = 0
+        currentOtherMemberCount: Int = 0,
+        sendReadReceipts: Bool = true,
+        previousReadByProfiles: [Profile] = []
     ) -> [MessagesListItemType] {
         return processMessages(
             messages,
             voiceMemoTranscripts: voiceMemoTranscripts,
             readReceipts: readReceipts,
             memberProfiles: memberProfiles,
-            currentOtherMemberCount: currentOtherMemberCount
+            currentOtherMemberCount: currentOtherMemberCount,
+            sendReadReceipts: sendReadReceipts,
+            previousReadByProfiles: previousReadByProfiles
         )
     }
 
@@ -25,7 +29,9 @@ public final class MessagesListProcessor: Sendable {
         voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:],
         readReceipts: [ReadReceiptEntry] = [],
         memberProfiles: [String: MemberProfileInfo] = [:],
-        currentOtherMemberCount: Int = 0
+        currentOtherMemberCount: Int = 0,
+        sendReadReceipts: Bool = true,
+        previousReadByProfiles: [Profile] = []
     ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
@@ -213,23 +219,35 @@ public final class MessagesListProcessor: Sendable {
             if let lastMsg = group.messages.last,
                lastMsg.status == .published,
                !readReceipts.isEmpty,
-               GlobalConvoDefaults.shared.sendReadReceipts {
+               sendReadReceipts {
                 let msgDateNs = Int64(lastMsg.date.timeIntervalSince1970 * 1_000_000_000)
                 let senderInboxId = group.sender.profile.inboxId
-                var seen = Set<String>()
-                let sortedInboxIds = readReceipts
-                    .filter { $0.readAtNs >= msgDateNs && $0.inboxId != senderInboxId }
-                    .sorted { $0.readAtNs != $1.readAtNs ? $0.readAtNs > $1.readAtNs : $0.inboxId < $1.inboxId }
-                    .compactMap { seen.insert($0.inboxId).inserted ? $0.inboxId : nil }
-                if !sortedInboxIds.isEmpty {
-                    let profiles: [Profile] = sortedInboxIds.compactMap { inboxId in
-                        if let info = memberProfiles[inboxId] {
-                            return Profile(inboxId: info.inboxId, name: info.name, avatar: info.avatar)
-                        }
-                        return messages.lazy
-                            .compactMap { $0.sender.profile.inboxId == inboxId ? $0.sender.profile : nil }
-                            .first
+                let currentReaderInboxIds = Set(
+                    readReceipts
+                        .filter { $0.readAtNs >= msgDateNs && $0.inboxId != senderInboxId }
+                        .map(\.inboxId)
+                )
+
+                let resolveProfile: (String) -> Profile? = { inboxId in
+                    if let info = memberProfiles[inboxId] {
+                        return Profile(inboxId: info.inboxId, name: info.name, avatar: info.avatar)
                     }
+                    return messages.lazy
+                        .compactMap { $0.sender.profile.inboxId == inboxId ? $0.sender.profile : nil }
+                        .first
+                }
+
+                if !currentReaderInboxIds.isEmpty {
+                    var kept = previousReadByProfiles.filter { currentReaderInboxIds.contains($0.inboxId) }
+                    let keptIds = Set(kept.map(\.inboxId))
+                    let newInboxIds = currentReaderInboxIds.subtracting(keptIds)
+                        .sorted { lhs, rhs in
+                            let lhsNs = readReceipts.first { $0.inboxId == lhs }?.readAtNs ?? 0
+                            let rhsNs = readReceipts.first { $0.inboxId == rhs }?.readAtNs ?? 0
+                            return lhsNs != rhsNs ? lhsNs > rhsNs : lhs < rhs
+                        }
+                    let newProfiles = newInboxIds.compactMap(resolveProfile)
+                    let profiles: [Profile] = kept + newProfiles
                     group = MessagesGroup(
                         id: group.id,
                         sender: group.sender,

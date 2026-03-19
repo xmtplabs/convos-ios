@@ -103,6 +103,7 @@ extension MessagesGroup: Hashable {
         hasher.combine(isLastGroup)
         hasher.combine(isLastGroupSentByCurrentUser)
         hasher.combine(showsTypingIndicator)
+        hasher.combine(allTypingMembers)
         hasher.combine(readByProfiles)
         hasher.combine(onlyVisibleToSender)
         hasher.combine(isLastGroupBeforeOtherMembers)
