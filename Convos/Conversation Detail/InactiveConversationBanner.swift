@@ -9,7 +9,7 @@ struct InactiveConversationBanner: View {
             VStack(spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "cloud.fill")
-                        .foregroundStyle(.colorTextSecondary)
+                        .foregroundStyle(.colorLava)
                         .font(.callout)
                     Text("Restored from backup")
                         .font(.callout)
