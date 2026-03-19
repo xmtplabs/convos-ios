@@ -4,24 +4,25 @@ struct InactiveConversationBanner: View {
     let onTap: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            HStack(spacing: 10) {
-                Image(systemName: "clock.badge.checkmark.fill")
-                    .foregroundStyle(.red)
-                    .font(.title3)
-                VStack(alignment: .leading, spacing: 2) {
+        let action = onTap
+        Button(action: action) {
+            VStack(spacing: 8) {
+                HStack(spacing: 6) {
+                    Image(systemName: "clock.badge.checkmark.fill")
+                        .foregroundStyle(.colorLava)
+                        .font(.callout)
                     Text("History restored")
-                        .font(.subheadline)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.primary)
-                    Text("You can see and send new messages after another member sends a message")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .font(.callout)
+                        .foregroundStyle(.colorTextPrimary)
                 }
-                Spacer(minLength: 0)
+                Text("You can see and send new messages after another member sends a message")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.colorTextSecondary)
+                    .multilineTextAlignment(.center)
             }
-            .padding(12)
-            .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .frame(maxWidth: .infinity)
+            .padding(24)
+            .background(Color.colorFillMinimal, in: RoundedRectangle(cornerRadius: 24))
         }
         .buttonStyle(.plain)
         .accessibilityLabel("History restored. You can see and send new messages after another member sends a message.")
