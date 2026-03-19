@@ -18,6 +18,7 @@ public actor VaultImportSyncDrainer {
     private static let perInboxTimeout: TimeInterval = 30
     private static let maxRetries: Int = 2
     private var failureCounts: [String: Int] = [:]
+    private var hasPendingHighPriority: Bool = false
 
     public var remainingCount: Int { pendingInboxIds.subtracting(syncedInboxIds).count }
     public var isDraining: Bool { drainTask?.isCancelled == false }
@@ -39,6 +40,7 @@ public actor VaultImportSyncDrainer {
         guard !newIds.isEmpty else { return }
 
         pendingInboxIds.formUnion(newIds)
+        hasPendingHighPriority = true
 
         if drainTask == nil || drainTask?.isCancelled == true {
             sortedQueue = []
@@ -62,6 +64,7 @@ public actor VaultImportSyncDrainer {
         pendingInboxIds.removeAll()
         syncedInboxIds.removeAll()
         failureCounts.removeAll()
+        hasPendingHighPriority = false
         sortedQueue = []
     }
 
@@ -89,8 +92,14 @@ public actor VaultImportSyncDrainer {
             let total = pendingInboxIds.count
             Log.info("VaultImportSyncDrainer: draining \(sortedQueue.count) inboxes (\(syncedInboxIds.count)/\(total) already synced)")
 
+            hasPendingHighPriority = false
+
             while let inbox = sortedQueue.first {
                 guard !Task.isCancelled else { return }
+                if hasPendingHighPriority {
+                    Log.info("VaultImportSyncDrainer: new inbox(es) arrived, re-prioritizing queue")
+                    break
+                }
                 sortedQueue.removeFirst()
 
                 if syncedInboxIds.contains(inbox.inboxId) { continue }
@@ -144,6 +153,7 @@ public actor VaultImportSyncDrainer {
         pendingInboxIds.removeAll()
         syncedInboxIds.removeAll()
         failureCounts.removeAll()
+        hasPendingHighPriority = false
         sortedQueue = []
         drainTask = nil
     }
