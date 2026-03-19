@@ -1,3 +1,4 @@
+import ConvosCore
 import DifferenceKit
 import Foundation
 
