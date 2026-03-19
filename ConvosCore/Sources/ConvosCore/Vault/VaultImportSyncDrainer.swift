@@ -13,9 +13,11 @@ public actor VaultImportSyncDrainer {
     private var syncedInboxIds: Set<String> = []
     private var sortedQueue: [(inboxId: String, clientId: String)] = []
 
-    private static let settleDelay: TimeInterval = 8
+    private static let settleDelay: TimeInterval = 3
     private static let betweenInboxDelay: TimeInterval = 1
     private static let perInboxTimeout: TimeInterval = 30
+    private static let maxRetries: Int = 2
+    private var failureCounts: [String: Int] = [:]
 
     public var remainingCount: Int { pendingInboxIds.subtracting(syncedInboxIds).count }
     public var isDraining: Bool { drainTask?.isCancelled == false }
@@ -59,6 +61,7 @@ public actor VaultImportSyncDrainer {
         drainTask = nil
         pendingInboxIds.removeAll()
         syncedInboxIds.removeAll()
+        failureCounts.removeAll()
         sortedQueue = []
     }
 
@@ -122,9 +125,15 @@ public actor VaultImportSyncDrainer {
 
                     try? await Task.sleep(for: .seconds(Self.betweenInboxDelay))
                 } catch {
-                    Log.warning("VaultImportSyncDrainer: failed to sync inbox \(inbox.inboxId): \(error)")
                     await lifecycleManager.sleep(clientId: inbox.clientId)
-                    syncedInboxIds.insert(inbox.inboxId)
+                    let attempts = (failureCounts[inbox.inboxId] ?? 0) + 1
+                    failureCounts[inbox.inboxId] = attempts
+                    if attempts >= Self.maxRetries {
+                        Log.warning("VaultImportSyncDrainer: giving up on inbox \(inbox.inboxId) after \(attempts) attempts: \(error)")
+                        syncedInboxIds.insert(inbox.inboxId)
+                    } else {
+                        Log.warning("VaultImportSyncDrainer: failed to sync inbox \(inbox.inboxId) (attempt \(attempts)/\(Self.maxRetries)): \(error)")
+                    }
                 }
             }
 
@@ -134,6 +143,7 @@ public actor VaultImportSyncDrainer {
         Log.info("VaultImportSyncDrainer: completed \(syncedInboxIds.count)/\(pendingInboxIds.count)")
         pendingInboxIds.removeAll()
         syncedInboxIds.removeAll()
+        failureCounts.removeAll()
         sortedQueue = []
         drainTask = nil
     }
