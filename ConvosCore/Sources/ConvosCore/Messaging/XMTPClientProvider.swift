@@ -252,7 +252,7 @@ extension XMTPiOS.Client: XMTPClientProvider {
     }
 
     public func importArchive(path: String, encryptionKey: Data) async throws {
-        try await (self as XMTPiOS.Client).importArchive(path: path, encryptionKey: encryptionKey)
+        try await ffiClient.importArchive(path: path, key: encryptionKey)
     }
 
     public func requestDeviceSync() async throws {
