@@ -152,13 +152,15 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let perfStart = CFAbsoluteTimeGetCurrent()
         Log.info("Syncing conversation: \(conversation.id)")
-        try await conversationWriter.storeWithLatestMessages(
+        let dbConversation = try await conversationWriter.storeWithLatestMessages(
             conversation: conversation,
             inboxId: params.client.inboxId,
             clientConversationId: clientConversationId
         )
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)")
+
+        await reactivateIfNeeded(conversationId: dbConversation.id)
 
         if creatorInboxId == params.client.inboxId {
             await sendInitialProfileSnapshot(group: conversation)
@@ -275,6 +277,22 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Reactivation
+
+    private func reactivateIfNeeded(conversationId: String) async {
+        do {
+            let isInactive = try await databaseReader.read { db in
+                try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                    .filter(ConversationLocalState.Columns.isActive == false)
+                    .fetchOne(db) != nil
+            }
+            guard isInactive else { return }
+            try await localStateWriter.setActive(true, for: conversationId)
+            Log.info("Reactivated conversation \(conversationId) during sync")
+        } catch {
+            Log.warning("reactivateIfNeeded failed for \(conversationId): \(error)")
+        }
+    }
 
     private func markReconnectionIfNeeded(messageId: String, conversationId: String) async {
         do {
