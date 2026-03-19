@@ -121,6 +121,15 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // Resume any interrupted vault sync from previous launch
             await self.importSyncDrainer.resumeFromDatabase()
 
+            // Run vault health check to detect and repair inconsistencies
+            if let vaultManager = self.vaultService as? VaultManager,
+               let healthCheck = await vaultManager.healthCheck {
+                let issues = await healthCheck.runCheckAndRepair()
+                if !issues.isEmpty {
+                    await self.importSyncDrainer.resumeFromDatabase()
+                }
+            }
+
             // Initialize inbox lifecycle manager
             await self.lifecycleManager.initializeOnAppLaunch()
 
