@@ -7,6 +7,7 @@ struct BackupDebugView: View {
     var databaseManager: (any DatabaseManagerProtocol)?
 
     @State private var isPerformingAction: Bool = false
+    @State private var activeAction: String?
     @State private var actionResultMessage: String?
     @State private var showingActionResult: Bool = false
     @State private var lastBackupMetadata: BackupBundleMetadata?
@@ -19,7 +20,9 @@ struct BackupDebugView: View {
     var body: some View {
         List {
             statusSection
-            actionsSection
+            if activeAction != "Restore" {
+                actionsSection
+            }
             restoreSection
         }
         .navigationTitle("Backup")
@@ -148,7 +151,7 @@ struct BackupDebugView: View {
         HStack {
             Text(title)
             Spacer()
-            if isPerformingAction {
+            if activeAction == title {
                 ProgressView()
                     .scaleEffect(0.85)
             }
@@ -235,6 +238,7 @@ struct BackupDebugView: View {
     private func runAction(title: String, operation: @escaping @Sendable () async throws -> String) {
         guard !isPerformingAction else { return }
         isPerformingAction = true
+        activeAction = title
 
         Task {
             let message: String
@@ -248,6 +252,7 @@ struct BackupDebugView: View {
                 actionResultMessage = message
                 showingActionResult = true
                 isPerformingAction = false
+                activeAction = nil
             }
         }
     }
