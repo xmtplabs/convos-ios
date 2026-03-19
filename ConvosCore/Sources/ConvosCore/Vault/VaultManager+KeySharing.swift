@@ -136,7 +136,7 @@ extension VaultManager {
                 try await inboxWriter.save(inboxId: identity.inboxId, clientId: identity.clientId)
             }
 
-            postImportNotification(inboxId: identity.inboxId, clientId: identity.clientId)
+            await postImportNotification(inboxId: identity.inboxId, clientId: identity.clientId)
         } catch {
             Log.error("Vault: failed to import key share for \(share.inboxId): \(error)")
         }
@@ -172,23 +172,13 @@ extension VaultManager {
         if !importedEntries.isEmpty {
             let importedInboxIds = Set(importedEntries.map { $0.inboxId })
             Log.info("Vault: imported \(importedEntries.count) key(s) from bundle")
-            NotificationCenter.default.post(
-                name: .vaultDidReceiveKeyBundle,
-                object: nil,
-                userInfo: [
-                    "importedCount": importedEntries.count,
-                    "importedInboxIds": importedInboxIds,
-                ]
-            )
+            await eventHandler?.vaultDidImportKeyBundle(inboxIds: importedInboxIds, count: importedEntries.count)
+            NotificationCenter.default.post(name: .vaultDidReceiveKeyBundle, object: nil)
         }
     }
 
-    func postImportNotification(inboxId: String, clientId: String) {
-        NotificationCenter.default.post(
-            name: .vaultDidImportInbox,
-            object: nil,
-            userInfo: ["inboxId": inboxId, "clientId": clientId]
-        )
+    func postImportNotification(inboxId: String, clientId: String) async {
+        await eventHandler?.vaultDidImportInbox(inboxId: inboxId, clientId: clientId)
     }
 
     func hasIdentity(for inboxId: String) async -> Bool {

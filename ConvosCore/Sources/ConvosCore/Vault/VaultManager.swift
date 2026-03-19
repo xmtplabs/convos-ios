@@ -46,6 +46,7 @@ public actor VaultManager {
     var inboxObservationCancellable: AnyCancellable?
 
     public weak var delegate: (any VaultManagerDelegate)?
+    public weak var eventHandler: (any VaultEventHandler)?
 
     var dmStreamTask: Task<Void, Never>?
     var activePairingSlug: String?
@@ -85,6 +86,10 @@ public actor VaultManager {
 
     public func setDelegate(_ delegate: any VaultManagerDelegate) {
         self.delegate = delegate
+    }
+
+    public func setEventHandler(_ handler: any VaultEventHandler) {
+        self.eventHandler = handler
     }
 
     public func connect(signingKey: SigningKey, options: ClientOptions) async throws {
@@ -434,14 +439,9 @@ extension VaultManager: VaultClientDelegate {
 
     nonisolated public func vaultClient(_ client: VaultClient, didReceiveConversationDeleted deletion: ConversationDeletedContent, from senderInboxId: String) {
         Log.info("Received conversation deletion from vault: inboxId=\(deletion.inboxId), clientId=\(deletion.clientId)")
-        NotificationCenter.default.post(
-            name: .vaultDidDeleteConversation,
-            object: nil,
-            userInfo: [
-                "inboxId": deletion.inboxId,
-                "clientId": deletion.clientId,
-            ]
-        )
+        Task {
+            await self.eventHandler?.vaultDidDeleteConversation(inboxId: deletion.inboxId, clientId: deletion.clientId)
+        }
     }
 
     nonisolated public func vaultClient(_ client: VaultClient, didChangeState state: VaultClientState) {}

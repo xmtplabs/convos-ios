@@ -408,6 +408,13 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addVaultSyncStateToInbox") { db in
+            try db.alter(table: "inbox") { t in
+                t.add(column: "vaultSyncState", .text).notNull().defaults(to: "none")
+                t.add(column: "vaultSyncAttempts", .integer).notNull().defaults(to: 0)
+            }
+        }
+
         return migrator
     }
 }
