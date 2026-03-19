@@ -6,12 +6,13 @@ struct LinkPreviewBubbleView: View {
     let style: MessageBubbleType
     let isOutgoing: Bool
     let profile: Profile
+    var messageId: String?
 
     @Environment(\.messagePressed) private var isPressed: Bool
 
     var body: some View {
         MessageContainer(style: style, isOutgoing: isOutgoing) {
-            LinkPreviewCardView(preview: preview)
+            LinkPreviewCardView(preview: preview, messageId: messageId)
                 .opacity(isPressed ? 0.7 : 1.0)
                 .animation(.easeOut(duration: 0.15), value: isPressed)
         }
@@ -20,6 +21,7 @@ struct LinkPreviewBubbleView: View {
 
 struct LinkPreviewCardView: View {
     let preview: LinkPreview
+    var messageId: String?
     @State private var ogTitle: String?
     @State private var ogImageURL: String?
     @State private var ogSiteName: String?
@@ -28,7 +30,7 @@ struct LinkPreviewCardView: View {
     @State private var hasFetchedMetadata: Bool = false
 
     private var clampedAspectRatio: CGFloat {
-        let ratio = imageAspectRatio ?? 1.91
+        let ratio = imageAspectRatio ?? preview.imageAspectRatio ?? 1.91
         return min(max(ratio, 0.75), 2.0)
     }
 
@@ -63,7 +65,7 @@ struct LinkPreviewCardView: View {
                 }
             }
             .frame(maxWidth: .infinity)
-            .modifier(ImageAreaModifier(hasImage: cachedImage != nil, aspectRatio: clampedAspectRatio))
+            .modifier(ImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
             .clipped()
             .background(.colorFillMinimal)
 
@@ -103,6 +105,10 @@ struct LinkPreviewCardView: View {
             ogTitle = metadata.title
             ogSiteName = metadata.siteName
 
+            if let w = metadata.imageWidth, let h = metadata.imageHeight, w > 0, h > 0 {
+                imageAspectRatio = CGFloat(w) / CGFloat(h)
+            }
+
             if let imageURLString = metadata.imageURL ?? preview.imageURL,
                let imageURL = URL(string: imageURLString) {
                 ogImageURL = imageURLString
@@ -114,6 +120,18 @@ struct LinkPreviewCardView: View {
         }
 
         hasFetchedMetadata = true
+
+        if let metadata, let messageId,
+           preview.imageWidth == nil || preview.title == nil {
+            let enriched = preview.enriched(
+                title: metadata.title,
+                imageURL: metadata.imageURL,
+                siteName: metadata.siteName,
+                imageWidth: metadata.imageWidth,
+                imageHeight: metadata.imageHeight
+            )
+            await LinkPreviewWriter.shared?.updateLinkPreview(enriched, forMessageId: messageId)
+        }
     }
 
     private func loadImage(from url: URL) async {
@@ -143,11 +161,11 @@ struct LinkPreviewCardView: View {
 }
 
 private struct ImageAreaModifier: ViewModifier {
-    let hasImage: Bool
+    let hasKnownRatio: Bool
     let aspectRatio: CGFloat
 
     func body(content: Content) -> some View {
-        if hasImage {
+        if hasKnownRatio {
             content.aspectRatio(aspectRatio, contentMode: .fit)
         } else {
             content

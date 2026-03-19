@@ -167,7 +167,8 @@ struct MessagesGroupItemView: View {
                 preview: preview,
                 style: bubbleType,
                 isOutgoing: message.base.source == .outgoing,
-                profile: message.base.sender.profile
+                profile: message.base.sender.profile,
+                messageId: message.base.id
             )
             .messageGesture(
                 message: message,

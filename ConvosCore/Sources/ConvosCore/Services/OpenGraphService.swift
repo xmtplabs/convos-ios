@@ -13,6 +13,8 @@ public actor OpenGraphService {
         public let title: String?
         public let imageURL: String?
         public let siteName: String?
+        public let imageWidth: Int?
+        public let imageHeight: Int?
     }
 
     private struct CacheEntry {
@@ -131,13 +133,17 @@ public actor OpenGraphService {
             ?? extractHTMLTitle(from: html)
         let imageURL = extractMetaContent(property: "og:image", from: html)
         let siteName = extractMetaContent(property: "og:site_name", from: html)
+        let imageWidth = extractMetaContent(property: "og:image:width", from: html).flatMap { Int($0) }
+        let imageHeight = extractMetaContent(property: "og:image:height", from: html).flatMap { Int($0) }
 
         guard title != nil || imageURL != nil else { return nil }
 
         return OpenGraphMetadata(
             title: title,
             imageURL: imageURL,
-            siteName: siteName
+            siteName: siteName,
+            imageWidth: imageWidth,
+            imageHeight: imageHeight
         )
     }
 

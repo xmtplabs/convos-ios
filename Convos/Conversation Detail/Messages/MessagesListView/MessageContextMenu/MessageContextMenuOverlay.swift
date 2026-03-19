@@ -268,14 +268,10 @@ struct MessageContextMenuOverlay: View {
                     .padding(.horizontal, C.padding)
                 }
                 .frame(height: reader.size.height)
+                .scrollBounceBehavior(.basedOnSize)
                 .contentMargins(.trailing, readerHeight, for: .scrollContent)
                 .mask(
                     HStack(spacing: 0) {
-                        LinearGradient(
-                            colors: [.black.opacity(0), .black],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: C.padding)
                         Rectangle().fill(.black)
                         LinearGradient(
                             colors: [.black, .black.opacity(0)],
