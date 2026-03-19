@@ -32,7 +32,7 @@ public struct ConvosBackupArchiveProvider: BackupArchiveProvider {
         try await client.createArchive(path: path, encryptionKey: encryptionKey)
     }
 
-    private func buildClient(identity: KeychainIdentity, inboxId: String) async throws -> any XMTPClientProvider {
+    private func buildClient(identity: KeychainIdentity, inboxId: String) async throws -> Client {
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
         let options = ClientOptions(
             api: api,

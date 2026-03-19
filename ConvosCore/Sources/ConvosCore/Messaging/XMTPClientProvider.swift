@@ -140,8 +140,6 @@ public protocol XMTPClientProvider: AnyObject {
         signingKey: SigningKey, installationIds: [String]
     ) async throws
     func revokeAllOtherInstallations(signingKey: SigningKey) async throws
-    func createArchive(path: String, encryptionKey: Data) async throws
-    func importArchive(path: String, encryptionKey: Data) async throws
     func requestDeviceSync() async throws
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
