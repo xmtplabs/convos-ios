@@ -313,8 +313,7 @@ extension Array where Element == DBMessage {
                 )
             let source: MessageSource = sender.isCurrentUser ? .outgoing : .incoming
             let reactions = (reactionsBySourceId[dbMessage.id] ?? []).hydrateReactions(
-                cache: memberProfileCache,
-                conversation: conversation
+                cache: memberProfileCache
             )
             let origin = Self.resolveOrigin(
                 for: dbMessage.clientMessageId,
@@ -399,7 +398,6 @@ extension Array where Element == DBMessage {
 
                 let message = Message(
                     id: dbMessage.clientMessageId,
-                    conversation: conversation,
                     sender: sender,
                     source: source,
                     status: dbMessage.status,
@@ -412,7 +410,7 @@ extension Array where Element == DBMessage {
                 let sourceMessage = dbMessage.sourceMessageId.flatMap { sourceMessagesById[$0] }
                 return Self.composeReplyMessage(
                     sourceMessage: sourceMessage, dbMessage: dbMessage,
-                    in: conversation, memberProfileCache: memberProfileCache,
+                    memberProfileCache: memberProfileCache,
                     attachmentLocalStates: attachmentLocalStates,
                     sender: sender, source: source, reactions: reactions, origin: origin
                 )
@@ -428,7 +426,6 @@ extension Array where Element == DBMessage {
     private static func composeReplyMessage(
         sourceMessage: DBMessage?,
         dbMessage: DBMessage,
-        in conversation: Conversation,
         memberProfileCache: MemberProfileCache,
         attachmentLocalStates: [String: AttachmentLocalState],
         sender: ConversationMember,
@@ -466,7 +463,7 @@ extension Array where Element == DBMessage {
         guard let sourceDBMessage = sourceMessage,
               let parentSender = memberProfileCache.member(for: sourceDBMessage.senderId) else {
             let message = Message(
-                id: dbMessage.clientMessageId, conversation: conversation,
+                id: dbMessage.clientMessageId,
                 sender: sender, source: source, status: dbMessage.status,
                 content: replyContent, date: dbMessage.date, reactions: reactions
             )
@@ -502,13 +499,13 @@ extension Array where Element == DBMessage {
         }
 
         let parentMessage = Message(
-            id: sourceDBMessage.clientMessageId, conversation: conversation,
+            id: sourceDBMessage.clientMessageId,
             sender: parentSender, source: parentSource, status: sourceDBMessage.status,
             content: parentContent, date: sourceDBMessage.date, reactions: []
         )
 
         let messageReply = MessageReply(
-            id: dbMessage.clientMessageId, conversation: conversation,
+            id: dbMessage.clientMessageId,
             sender: sender, source: source, status: dbMessage.status,
             content: replyContent, date: dbMessage.date,
             parentMessage: parentMessage, reactions: reactions
@@ -568,8 +565,7 @@ struct MemberProfileCache {
 
 private extension Array where Element == DBMessage {
     func hydrateReactions(
-        cache: MemberProfileCache,
-        conversation: Conversation
+        cache: MemberProfileCache
     ) -> [MessageReaction] {
         compactMap { dbReaction -> MessageReaction? in
             guard let reactionSender = cache.member(for: dbReaction.senderId) else {
@@ -579,7 +575,6 @@ private extension Array where Element == DBMessage {
             let reactionSource: MessageSource = reactionSender.isCurrentUser ? .outgoing : .incoming
             return MessageReaction(
                 id: dbReaction.clientMessageId,
-                conversation: conversation,
                 sender: reactionSender,
                 source: reactionSource,
                 status: dbReaction.status,

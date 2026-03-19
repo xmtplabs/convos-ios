@@ -4,20 +4,18 @@ import Foundation
 
 public struct MessageReaction: MessageType, Hashable, Codable, Sendable {
     public let id: String
-    public let conversation: Conversation
     public let sender: ConversationMember
     public let source: MessageSource
     public let status: MessageStatus
     public let content: MessageContent
     public let date: Date
 
-    public let emoji: String // same as content.text
+    public let emoji: String
 
     public var reactions: [MessageReaction] { [] }
 
     public init(
         id: String,
-        conversation: Conversation,
         sender: ConversationMember,
         source: MessageSource,
         status: MessageStatus,
@@ -26,7 +24,6 @@ public struct MessageReaction: MessageType, Hashable, Codable, Sendable {
         emoji: String
     ) {
         self.id = id
-        self.conversation = conversation
         self.sender = sender
         self.source = source
         self.status = status
@@ -44,7 +41,6 @@ public extension MessageReaction {
         let mockSender = sender ?? .mock(isCurrentUser: false)
         return MessageReaction(
             id: "mock-reaction-\(UUID().uuidString)",
-            conversation: .mock(),
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: .published,

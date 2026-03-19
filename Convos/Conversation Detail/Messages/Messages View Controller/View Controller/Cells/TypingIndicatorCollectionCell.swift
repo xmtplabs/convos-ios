@@ -1,3 +1,4 @@
+import ConvosCore
 import SwiftUI
 import UIKit
 
