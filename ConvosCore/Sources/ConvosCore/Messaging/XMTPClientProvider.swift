@@ -248,7 +248,7 @@ extension XMTPiOS.Client: XMTPClientProvider {
     }
 
     public func createArchive(path: String, encryptionKey: Data) async throws {
-        try await createArchive(path: path, encryptionKey: encryptionKey, opts: ArchiveOptions())
+        try await (self as XMTPiOS.Client).createArchive(path: path, encryptionKey: encryptionKey, opts: ArchiveOptions())
     }
 
     public func importArchive(path: String, encryptionKey: Data) async throws {
