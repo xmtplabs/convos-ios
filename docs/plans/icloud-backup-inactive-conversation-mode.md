@@ -72,25 +72,22 @@ When the user taps any element that would normally trigger an interaction (send,
 - Body: "You can see and send new messages, reactions and more after another member comes online."
 - Button: "Got it"
 
+## Design Decisions
+
+Resolved from Figma (second/refined frame) and Loom transcript:
+
+- **Banner title**: "History restored"
+- **Banner icon**: `􀢔` — likely `clock.badge.checkmark.fill`, verify in SF Symbols app before coding
+- **Banner subtext**: "You can see and send new messages after another member comes online"
+- **Composer tap**: entire composer area is intercepted — transcript says "anything you try to do... we just catch stuff that should work but can't work yet"
+- **Learn site URL**: `https://learn.convos.org/`
+- **Conversations list label**: "Awaiting" — short single word, consistent with "Verifying" pattern
+- **Reactivation transition**: silent — banner disappears with no animation
+- **Historical messages**: out of scope — Figma layer is hidden, transcript refers to fading interactive elements not messages
+
 ## Open Questions for Courter
 
-These need designer sign-off before implementation begins.
-
-- [ ] **Banner title wording**: Two frames show different copy — "History restored" vs "Restored from backup". The Loom transcript also mentions "Awaiting reconnection" (used only in the alert). What is the final intended title for the banner?
-
-- [ ] **Banner icon**: The first Figma frame uses `cloud.fill` (`􀇃`), the second uses a different symbol that appears to be a checkmark badge or clock (`􀢔`). Which SF Symbol is intended?
-
-- [ ] **Subtext wording**: "See and send messages after another member comes online" vs "You can see and send new messages after another member comes online" — which is the intended copy for the banner subtext?
-
-- [ ] **Composer tap behavior**: The design shows the composer area visually muted. Should tapping anywhere in the composer (including the text field) trigger the "Awaiting reconnection" alert? Or should the text field remain interactive and only the send button be blocked?
-
-- [ ] **Learn site URL**: Tapping the banner takes the user to a "learn site". What is the URL?
-
-- [ ] **Conversations list indicator wording**: Should the inactive subtitle label match the banner title ("History restored"), use something shorter like "Restoring", or match the existing short-word pattern ("Verifying")?
-
-- [ ] **Reactivation transition**: When the conversation becomes active and the banner disappears, should this be a silent removal, or should there be any visual feedback (e.g., a brief animation, a toast)?
-
-- [ ] **Historical message interactivity**: The design has a hidden Figma layer labelled "Restored messages are not interactive yet". Is fading or otherwise treating individual historical messages in scope for this feature, or is it explicitly out of scope?
+- [ ] **Banner icon**: Confirm the SF Symbol name for `􀢔` (likely `clock.badge.checkmark.fill`)
 
 ## Technical Implementation Plan
 
