@@ -95,7 +95,7 @@ extension VaultManager {
             }
 
             if let request {
-                pendingPeerDeviceNames[request.joinerInboxId] = request.deviceName
+                await deviceManager.registerPeerDeviceName(request.deviceName, for: request.joinerInboxId)
                 await lockVault()
                 self.activePairingSlug = nil
 
@@ -193,7 +193,7 @@ extension VaultManager {
                         for message in messages {
                             if let bundle: DeviceKeyBundleContent = try? message.content(),
                                !bundle.keys.isEmpty {
-                                await self.importKeyBundle(bundle)
+                                await self.keyCoordinator.importKeyBundle(bundle)
                                 return
                             }
                         }
