@@ -237,8 +237,7 @@ public extension ConversationUpdate {
         } else if !addedMembers.isEmpty {
             if addedMembers.count == 1, let member = addedMembers.first,
                member.isCurrentUser {
-                let asString = "as \(member.profile.displayName)"
-                return "You joined \(asString)"
+                return "Reconnected"
             }
             if addedMembers.count == 1, let member = addedMembers.first {
                 return "\(member.profile.displayName) joined · Invited by \(creatorDisplayName)"

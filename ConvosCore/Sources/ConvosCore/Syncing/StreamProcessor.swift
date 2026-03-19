@@ -234,6 +234,8 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
+                    await reactivateIfNeeded(conversationId: conversation.id)
+
                     // Mark unread if needed
                     if result.contentType.marksConversationAsUnread,
                        conversation.id != activeConversationId,
@@ -267,6 +269,24 @@ actor StreamProcessor: StreamProcessorProtocol {
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
         Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
+    }
+
+    // MARK: - Reactivation
+
+    private func reactivateIfNeeded(conversationId: String) async {
+        do {
+            let isInactive = try await databaseReader.read { db in
+                try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                    .filter(ConversationLocalState.Columns.isActive == false)
+                    .fetchOne(db) != nil
+            }
+            guard isInactive else { return }
+            try await localStateWriter.setActive(true, for: conversationId)
+            Log.info("Reactivated conversation \(conversationId) after receiving message")
+        } catch {
+            Log.warning("reactivateIfNeeded failed for \(conversationId): \(error)")
+        }
     }
 
     // MARK: - Profile Messages

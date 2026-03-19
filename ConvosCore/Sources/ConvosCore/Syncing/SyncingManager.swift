@@ -133,7 +133,6 @@ actor SyncingManager: SyncingManagerProtocol {
 
     // MARK: - Initialization
 
-    private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
 
     init(identityStore: any KeychainIdentityStoreProtocol,
@@ -142,7 +141,6 @@ actor SyncingManager: SyncingManagerProtocol {
          deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)? = nil,
          notificationCenter: any UserNotificationCenterProtocol) {
         self.identityStore = identityStore
-        self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.streamProcessor = StreamProcessor(
             identityStore: identityStore,
@@ -407,8 +405,6 @@ actor SyncingManager: SyncingManagerProtocol {
             // This handles the race condition where a joiner sends a DM before the message
             // stream has fully subscribed to the XMTP network.
             await processJoinRequestsAfterSync(params: params)
-
-            await reactivateInactiveConversations(params: params)
         }
     }
 
@@ -416,59 +412,6 @@ actor SyncingManager: SyncingManagerProtocol {
         let results = await joinRequestsManager.processJoinRequests(since: nil, client: params.client)
         if !results.isEmpty {
             Log.info("Processed \(results.count) join requests after sync complete")
-        }
-    }
-
-    private func reactivateInactiveConversations(params: SyncClientParams) async {
-        let inactiveRows: [(conversationId: String, clientConversationId: String)]
-        do {
-            inactiveRows = try await databaseReader.read { db in
-                let sql = """
-                    SELECT c.id as conversationId, c.clientConversationId
-                    FROM conversation c
-                    INNER JOIN conversationLocalState cls ON cls.conversationId = c.id
-                    WHERE cls.isActive = 0
-                      AND c.id NOT LIKE 'draft-%'
-                    """
-                return try Row.fetchAll(db, sql: sql).map { row in
-                    (conversationId: row["conversationId"], clientConversationId: row["clientConversationId"])
-                }
-            }
-        } catch {
-            Log.warning("reactivateInactiveConversations: failed to fetch inactive conversations: \(error)")
-            return
-        }
-
-        guard !inactiveRows.isEmpty else { return }
-
-        Log.info("Checking \(inactiveRows.count) inactive conversation(s) for reactivation")
-
-        let writer = ConversationLocalStateWriter(databaseWriter: databaseWriter)
-        var reactivatedCount = 0
-
-        for row in inactiveRows {
-            guard let xmtpConversation = try? await params.client.conversation(with: row.clientConversationId) else {
-                Log.debug("reactivateInactiveConversations: no XMTP conversation for \(row.conversationId)")
-                continue
-            }
-            let isActive: Bool
-            do {
-                isActive = try xmtpConversation.isActive()
-            } catch {
-                Log.debug("reactivateInactiveConversations: isActive() failed for \(row.conversationId): \(error)")
-                continue
-            }
-            Log.debug("reactivateInactiveConversations: \(row.conversationId) isActive=\(isActive)")
-            if isActive {
-                try? await writer.setActive(true, for: row.conversationId)
-                reactivatedCount += 1
-            }
-        }
-
-        if reactivatedCount > 0 {
-            Log.info("Reactivated \(reactivatedCount) conversation(s)")
-        } else {
-            Log.info("No inactive conversations reactivated")
         }
     }
 
@@ -675,7 +618,6 @@ actor SyncingManager: SyncingManagerProtocol {
 
         await discoverNewConversations(params: params)
         await processJoinRequestsAfterSync(params: params)
-        await reactivateInactiveConversations(params: params)
     }
 
     func requestDiscovery() async {
@@ -689,7 +631,6 @@ actor SyncingManager: SyncingManagerProtocol {
             let syncElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - syncStart) * 1000)
             Log.info("[PERF] sync.requestDiscovery: \(syncElapsed)ms")
             await discoverNewConversations(params: params)
-            await reactivateInactiveConversations(params: params)
         } catch {
             Log.error("requestDiscovery failed: \(error)")
         }
