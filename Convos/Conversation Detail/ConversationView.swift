@@ -42,6 +42,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
             selectedAttachmentImage: $viewModel.selectedAttachmentImage,
+            composerLinkPreview: viewModel.pastedLinkPreview,
             pendingInviteCode: viewModel.pendingInvite?.code,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
@@ -61,6 +62,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.onSendMessage(focusCoordinator: focusCoordinator)
             },
             onClearInvite: viewModel.clearPendingInvite,
+            onClearLinkPreview: { viewModel.pastedLinkPreview = nil },
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onReaction: viewModel.onReaction(emoji:messageId:),

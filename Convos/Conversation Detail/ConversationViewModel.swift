@@ -160,7 +160,28 @@ class ConversationViewModel {
         }
     }
     var isConversationImageDirty: Bool = false
-    var messageText: String = ""
+    var messageText: String = "" {
+        didSet {
+            if messageText.isEmpty {
+                pastedLinkPreview = nil
+            } else if messageText != oldValue {
+                checkForPastedLink(oldText: oldValue)
+            }
+        }
+    }
+    var pastedLinkPreview: LinkPreview?
+
+    private func checkForPastedLink(oldText: String) {
+        let inserted = messageText.count - oldText.count
+        guard inserted > 1 else {
+            if pastedLinkPreview != nil, LinkPreview.from(text: messageText) == nil {
+                pastedLinkPreview = nil
+            }
+            return
+        }
+        guard let preview = LinkPreview.from(text: messageText) else { return }
+        pastedLinkPreview = preview
+    }
     var selectedAttachmentImage: UIImage? {
         didSet {
             if selectedAttachmentImage != nil, oldValue == nil {

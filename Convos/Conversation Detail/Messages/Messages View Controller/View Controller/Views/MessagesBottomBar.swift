@@ -12,6 +12,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
+    var composerLinkPreview: LinkPreview?
     var pendingInviteCode: String?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
@@ -23,6 +24,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
+    let onClearLinkPreview: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onBaseHeightChanged: (CGFloat) -> Void
@@ -114,6 +116,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
                 selectedAttachmentImage: $selectedAttachmentImage,
+                composerLinkPreview: composerLinkPreview,
                 pendingInviteCode: pendingInviteCode,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
@@ -121,7 +124,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
-                onClearInvite: onClearInvite
+                onClearInvite: onClearInvite,
+                onClearLinkPreview: onClearLinkPreview
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -227,6 +231,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             },
             onSendMessage: {},
             onClearInvite: { pendingInviteCodePreview = nil },
+            onClearLinkPreview: {},
             onDisplayNameEndedEditing: {
                 focusCoordinator.endEditing(for: .displayName)
             },
