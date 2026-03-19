@@ -150,6 +150,14 @@ struct ConversationView<MessagesBottomBar: View>: View {
 
                     bottomBarContent()
 
+                    if viewModel.isInactive {
+                        InactiveConversationBanner {
+                            if let url = URL(string: "https://learn.convos.org/") {
+                                openURL(url)
+                            }
+                        }
+                    }
+
                     ConversationOnboardingView(
                         coordinator: onboardingCoordinator,
                         focusCoordinator: focusCoordinator,
@@ -198,18 +206,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             }
             .onDisappear {
                 viewModel.onProfileSettingsDismissed(focusCoordinator: focusCoordinator)
-            }
-        }
-        .overlay(alignment: .bottom) {
-            if viewModel.isInactive {
-                InactiveConversationBanner {
-                    if let url = URL(string: "https://learn.convos.org/") {
-                        openURL(url)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.bottom, 80)
-                .transition(.opacity)
             }
         }
         .alert(

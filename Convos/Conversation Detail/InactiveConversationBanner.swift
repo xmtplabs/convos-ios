@@ -8,10 +8,10 @@ struct InactiveConversationBanner: View {
         Button(action: action) {
             VStack(spacing: 8) {
                 HStack(spacing: 6) {
-                    Image(systemName: "clock.badge.checkmark.fill")
-                        .foregroundStyle(.colorLava)
+                    Image(systemName: "cloud.fill")
+                        .foregroundStyle(.colorTextSecondary)
                         .font(.callout)
-                    Text("History restored")
+                    Text("Restored from backup")
                         .font(.callout)
                         .foregroundStyle(.colorTextPrimary)
                 }
@@ -25,7 +25,7 @@ struct InactiveConversationBanner: View {
             .background(Color.colorFillMinimal, in: RoundedRectangle(cornerRadius: 24))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("History restored. You can see and send new messages after another member sends a message.")
+        .accessibilityLabel("Restored from backup. You can see and send new messages after another member sends a message.")
         .accessibilityIdentifier("inactive-conversation-banner")
     }
 }
