@@ -358,7 +358,8 @@ struct BackupDebugView: View {
         let iCloudStore = KeychainIdentityStore(
             accessGroup: accessGroup,
             service: "org.convos.vault-identity.icloud",
-            accessibility: kSecAttrAccessibleAfterFirstUnlock
+            accessibility: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
         let dualStore = ICloudIdentityStore(localStore: localStore, icloudStore: iCloudStore)
         return VaultKeyStore(store: dualStore)

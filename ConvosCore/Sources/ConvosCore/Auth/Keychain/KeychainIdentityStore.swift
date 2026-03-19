@@ -142,6 +142,7 @@ private struct KeychainQuery {
     let service: String
     let accessGroup: String
     let accessible: CFString
+    let synchronizable: Bool
     let clientId: String?
 
     init(
@@ -149,12 +150,14 @@ private struct KeychainQuery {
         service: String,
         accessGroup: String,
         accessible: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        synchronizable: Bool = false,
         clientId: String? = nil
     ) {
         self.account = account
         self.service = service
         self.accessGroup = accessGroup
         self.accessible = accessible
+        self.synchronizable = synchronizable
         self.clientId = clientId
     }
 
@@ -164,7 +167,8 @@ private struct KeychainQuery {
             kSecAttrAccount as String: account,
             kSecAttrService as String: service,
             kSecAttrAccessGroup as String: accessGroup,
-            kSecAttrAccessible as String: accessible
+            kSecAttrAccessible as String: accessible,
+            kSecAttrSynchronizable as String: synchronizable ? kCFBooleanTrue as Any : kCFBooleanFalse as Any
         ]
 
         if let clientId = clientId, let clientIdData = clientId.data(using: .utf8) {
@@ -218,14 +222,18 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
     // MARK: - Initialization
 
+    private let synchronizable: Bool
+
     public init(
         accessGroup: String,
         service: String = KeychainIdentityStore.defaultService,
-        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        synchronizable: Bool = false
     ) {
         self.keychainAccessGroup = accessGroup
         self.keychainService = service
         self.accessibility = accessibility
+        self.synchronizable = synchronizable
     }
 
     /// Migrates existing keychain items from `SecAccessControl` to plain `kSecAttrAccessible`.
@@ -445,7 +453,8 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             account: inboxId,
             service: keychainService,
             accessGroup: keychainAccessGroup,
-            accessible: accessibility
+            accessible: accessibility,
+            synchronizable: synchronizable
         )
         let data = try loadData(with: query)
         return try JSONDecoder().decode(KeychainIdentity.self, from: data)
@@ -458,7 +467,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             throw KeychainIdentityStoreError.identityNotFound("Invalid clientId encoding: \(clientId)")
         }
 
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccessGroup as String: keychainAccessGroup,
@@ -466,6 +475,9 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll
         ]
+        if synchronizable {
+            query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+        }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -495,13 +507,16 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func loadAll() throws -> [KeychainIdentity] {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccessGroup as String: keychainAccessGroup,
             kSecMatchLimit as String: kSecMatchLimitAll,
             kSecReturnData as String: true
         ]
+        if synchronizable {
+            query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+        }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -531,7 +546,8 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             account: inboxId,
             service: keychainService,
             accessGroup: keychainAccessGroup,
-            accessible: accessibility
+            accessible: accessibility,
+            synchronizable: synchronizable
         )
 
         try deleteData(with: query)
@@ -544,11 +560,14 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func deleteAll() throws {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccessGroup as String: keychainAccessGroup
         ]
+        if synchronizable {
+            query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+        }
 
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
@@ -579,6 +598,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             service: keychainService,
             accessGroup: keychainAccessGroup,
             accessible: accessibility,
+            synchronizable: synchronizable,
             clientId: identity.clientId
         )
 

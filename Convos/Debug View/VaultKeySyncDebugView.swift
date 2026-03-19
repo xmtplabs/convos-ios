@@ -474,7 +474,8 @@ struct VaultKeySyncDebugView: View {
         KeychainIdentityStore(
             accessGroup: environment.keychainAccessGroup,
             service: Constant.vaultICloudIdentityService,
-            accessibility: kSecAttrAccessibleAfterFirstUnlock
+            accessibility: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
     }
 }
