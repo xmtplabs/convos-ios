@@ -151,15 +151,15 @@ The existing tech debt doc (item 9) calls out integration tests. These should be
 
 ## Priority Order
 
-| Priority | Item | Risk if deferred |
-|----------|------|-----------------|
-| 1 | Concurrent sync drainer | Sync takes minutes for 10+ conversations, user sees incomplete list |
-| 2 | Crash recovery / DB persistence | App kill during sync means inboxes never sync, user has to re-pair |
-| 3 | Replace NotificationCenter with delegate | Silent failures when observers miss events, hard to debug |
-| 4 | Split VaultManager | Every new feature increases cognitive load, harder to review |
-| 5 | Pairing error recovery | Failed pairing leaves vault in inconsistent state |
-| 6 | Integration tests | All of the above risks are invisible without test coverage |
-| 7 | VaultClient reconnection hardening | Missed vault messages during stream gaps |
+| Priority | Item | Status | Commit |
+|----------|------|--------|--------|
+| 1 | Concurrent sync drainer | ✅ Done | `025dab3a` |
+| 2 | Crash recovery / DB persistence | ✅ Done | `025dab3a` |
+| 3 | Replace NotificationCenter with delegate | ✅ Done | `025dab3a` |
+| 4 | Split VaultManager | ✅ Done | `d0ff3403` |
+| 5 | Pairing error recovery | ✅ Done | `f9ab50c7` |
+| 6 | Integration tests | Deferred | Requires Docker/XMTP node |
+| 7 | VaultClient reconnection hardening | ✅ Done | `12c82eac` |
 
 ## Non-Goals
 
