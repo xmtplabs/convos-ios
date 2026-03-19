@@ -122,6 +122,24 @@ struct VaultKeySyncDebugView: View {
                                 .foregroundStyle(key.isICloud ? .green : .red)
                             }
                             .font(.caption2)
+                            HStack(spacing: 12) {
+                                if key.isLocal {
+                                    let deleteLocalAction = { deleteLocalKey(inboxId: key.inboxId) }
+                                    Button("Delete local", role: .destructive, action: deleteLocalAction)
+                                        .font(.caption)
+                                }
+                                if key.isICloud {
+                                    let deleteICloudAction = { deleteICloudKey(inboxId: key.inboxId) }
+                                    Button("Delete iCloud", role: .destructive, action: deleteICloudAction)
+                                        .font(.caption)
+                                }
+                                if key.isICloud && !key.isLocal {
+                                    let adoptAction = { adoptICloudKey(inboxId: key.inboxId) }
+                                    Button("Adopt locally", action: adoptAction)
+                                        .font(.caption)
+                                }
+                            }
+                            .disabled(isPerformingAction)
                         }
                         .padding(.vertical, 2)
                     }
@@ -242,6 +260,33 @@ struct VaultKeySyncDebugView: View {
                 .font(monospaced ? .system(.footnote, design: .monospaced) : .footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func deleteLocalKey(inboxId: String) {
+        let store = makeLocalVaultStore()
+        runAction(title: "Delete local key") {
+            try await store.delete(inboxId: inboxId)
+            await refreshStatus()
+            return "Deleted local key: \(inboxId)"
+        }
+    }
+
+    private func deleteICloudKey(inboxId: String) {
+        let store = makeICloudVaultStore()
+        runAction(title: "Delete iCloud key") {
+            try await store.delete(inboxId: inboxId)
+            await refreshStatus()
+            return "Deleted iCloud key: \(inboxId)"
+        }
+    }
+
+    private func adoptICloudKey(inboxId: String) {
+        let dualStore = ICloudIdentityStore(localStore: makeLocalVaultStore(), icloudStore: makeICloudVaultStore())
+        runAction(title: "Adopt iCloud key") {
+            _ = try await dualStore.identity(for: inboxId)
+            await refreshStatus()
+            return "Adopted iCloud key locally: \(inboxId)"
         }
     }
 
