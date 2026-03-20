@@ -57,21 +57,29 @@ public enum AssistantAttestationVerifier {
         maxAge: TimeInterval
     ) -> Bool {
         guard let signatureData = try? attestation.base64URLDecoded() else {
+            Log.info("[Attestation] failed to decode signature base64url for \(inboxId.prefix(8))")
             return false
         }
 
         guard let timestampDate = parseISO8601(attestationTimestamp) else {
+            Log.info("[Attestation] failed to parse timestamp '\(attestationTimestamp)' for \(inboxId.prefix(8))")
             return false
         }
 
-        if abs(referenceDate.timeIntervalSince(timestampDate)) > maxAge {
+        let age = abs(referenceDate.timeIntervalSince(timestampDate))
+        if age > maxAge {
+            Log.info("[Attestation] timestamp too old for \(inboxId.prefix(8)): age=\(Int(age))s, max=\(Int(maxAge))s")
             return false
         }
 
         let rawMessage = Data((inboxId + attestationTimestamp).utf8)
         let digest = SHA256.hash(data: rawMessage)
         let digestData = Data(digest)
-        return publicKey.isValidSignature(signatureData, for: digestData)
+        let valid = publicKey.isValidSignature(signatureData, for: digestData)
+        if !valid {
+            Log.info("[Attestation] signature invalid for \(inboxId.prefix(8)), msg_len=\(rawMessage.count), sig_len=\(signatureData.count)")
+        }
+        return valid
     }
 
     private static func parseISO8601(_ string: String) -> Date? {

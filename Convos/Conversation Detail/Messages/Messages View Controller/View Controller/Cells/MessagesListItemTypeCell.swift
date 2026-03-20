@@ -69,6 +69,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         TextTitleContentView(
                             title: update.summary,
                             profile: update.profile,
+                            agentVerification: update.profileMember?.agentVerification ?? .unverified,
                             onTap: update.profileMember.map { member in
                                 { config.onTapUpdateMember(member) }
                             }

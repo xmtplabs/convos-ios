@@ -150,9 +150,13 @@ public actor AgentKeyset: AgentKeysetProviding {
 
         let task = Task<AgentKeysetResponse?, Never> { [endpointURL, urlSession] in
             do {
+                Log.info("[AgentKeyset] fetching from \(endpointURL)")
                 let (data, _) = try await urlSession.data(from: endpointURL)
-                return try JSONDecoder().decode(AgentKeysetResponse.self, from: data)
+                let response = try JSONDecoder().decode(AgentKeysetResponse.self, from: data)
+                Log.info("[AgentKeyset] fetched \(response.keys.count) key(s): \(response.keys.map(\.kid))")
+                return response
             } catch {
+                Log.warning("[AgentKeyset] fetch failed: \(error)")
                 return nil
             }
         }

@@ -67,6 +67,7 @@ struct MessagesListView: View {
                                     TextTitleContentView(
                                         title: update.summary,
                                         profile: update.profile,
+                                        agentVerification: update.profileMember?.agentVerification ?? .unverified,
                                         onTap: update.profileMember.map { member in
                                             { onTapUpdateMember(member) }
                                         }
