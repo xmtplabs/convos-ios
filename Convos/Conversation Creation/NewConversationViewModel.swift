@@ -65,8 +65,13 @@ class NewConversationViewModel: Identifiable {
     private(set) var currentError: Error?
     private(set) var conversationState: ConversationStateMachine.State = .uninitialized {
         didSet {
-            if case .ready = conversationState {
+            switch conversationState {
+            case .ready:
                 _reachedReadyState = true
+            case .joining:
+                _reachedJoiningState = true
+            default:
+                break
             }
         }
     }
@@ -79,6 +84,8 @@ class NewConversationViewModel: Identifiable {
     private var acquiredMessagingService: AnyMessagingService?
     @ObservationIgnored
     nonisolated(unsafe) private var _reachedReadyState: Bool = false
+    @ObservationIgnored
+    nonisolated(unsafe) private var _reachedJoiningState: Bool = false
     @ObservationIgnored
     private var _cleanedUp: Bool = false
     @ObservationIgnored
@@ -163,7 +170,7 @@ class NewConversationViewModel: Identifiable {
     }
 
     func cleanUpIfNeeded() {
-        guard !_reachedReadyState, !_cleanedUp else { return }
+        guard !_reachedReadyState, !_reachedJoiningState, !_cleanedUp else { return }
         _cleanedUp = true
         deleteConversation()
     }
