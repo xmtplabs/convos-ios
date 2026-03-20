@@ -449,7 +449,9 @@ class ConversationViewModel {
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
         }
-        startOnboarding()
+        if !isInactive {
+            startOnboarding()
+        }
     }
 
     // Alternative initializer for draft conversations with pre-loaded dependencies
