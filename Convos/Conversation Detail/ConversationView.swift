@@ -20,7 +20,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @Environment(\.dismiss) private var dismiss: DismissAction
 
     private var showPullToAddAssistant: Bool {
-        !viewModel.conversation.hasAssistant
+        !viewModel.conversation.hasAgent
             && !viewModel.isAssistantJoinPending
             && FeatureFlags.shared.isAssistantEnabled
             && GlobalConvoDefaults.shared.assistantsEnabled
@@ -96,7 +96,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 }
             },
             onInviteAssistant: { viewModel.onRequestAssistantJoin() },
-            hasAssistant: viewModel.conversation.hasAssistant,
+            hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,
             onBottomOverscrollChanged: { overscroll in
