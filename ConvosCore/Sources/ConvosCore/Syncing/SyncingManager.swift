@@ -782,10 +782,14 @@ actor SyncingManager: SyncingManagerProtocol {
 
                     // Dispatch without blocking the stream iteration, same as messages.
                     Task {
-                        try await streamProcessor.processConversation(
-                            conversation,
-                            params: params
-                        )
+                        do {
+                            try await streamProcessor.processConversation(
+                                conversation,
+                                params: params
+                            )
+                        } catch {
+                            Log.error("Failed processing streamed conversation \(conversation.id): \(error)")
+                        }
                     }
                 }
 
