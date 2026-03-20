@@ -20,7 +20,7 @@ struct BackupDebugView: View {
     var body: some View {
         List {
             statusSection
-            if activeAction != "Restore" {
+            if activeAction != "Restore from backup" {
                 actionsSection
             }
             restoreSection
@@ -188,7 +188,7 @@ struct BackupDebugView: View {
             showingActionResult = true
             return
         }
-        runAction(title: "Restore") {
+        runAction(title: "Restore from backup") {
             try await restoreManager.restoreFromBackup(bundleURL: backup.url)
             let state = await restoreManager.state
             if case .completed(let inboxCount, let failedKeyCount) = state {
