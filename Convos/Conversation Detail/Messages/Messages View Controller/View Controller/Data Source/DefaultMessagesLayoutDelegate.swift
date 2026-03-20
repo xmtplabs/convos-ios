@@ -41,6 +41,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 return .estimated(CGSize(width: width, height: 48.0))
             case .assistantJoinStatus:
                 return .estimated(CGSize(width: width, height: 48.0))
+            case .assistantPresentInfo:
+                return .estimated(CGSize(width: width, height: 48.0))
             }
         case .footer, .header:
             return .exact(.zero)
