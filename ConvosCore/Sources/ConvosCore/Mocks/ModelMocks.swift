@@ -140,7 +140,6 @@ public extension Message {
 
         return Message(
             id: id,
-            conversation: .mock(),
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: status,
@@ -162,7 +161,6 @@ public extension Message {
 
         return Message(
             id: id,
-            conversation: .mock(),
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: status,
@@ -183,7 +181,6 @@ public extension Message {
 
         return Message(
             id: id,
-            conversation: .mock(),
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: status,
@@ -204,7 +201,6 @@ public extension Message {
 
         return Message(
             id: id,
-            conversation: .mock(),
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: status,
@@ -303,11 +299,9 @@ public extension MessageReply {
     ) -> MessageReply {
         let mockSender = sender ?? .mock(isCurrentUser: true)
         let mockParentSender = parentSender ?? .mock(isCurrentUser: false, name: "Jane")
-        let conversation = Conversation.mock()
 
         let parentMessage = Message(
             id: "parent-\(UUID().uuidString)",
-            conversation: conversation,
             sender: mockParentSender,
             source: mockParentSender.isCurrentUser ? .outgoing : .incoming,
             status: .published,
@@ -318,7 +312,6 @@ public extension MessageReply {
 
         return MessageReply(
             id: "reply-\(UUID().uuidString)",
-            conversation: conversation,
             sender: mockSender,
             source: mockSender.isCurrentUser ? .outgoing : .incoming,
             status: status,

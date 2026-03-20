@@ -3,13 +3,7 @@ import DifferenceKit
 import Foundation
 import UIKit
 
-struct DateGroup: Hashable {
-    var value: String
-
-    init(date: Date) {
-        self.value = MessagesDateFormatter.shared.string(from: date)
-    }
-}
+// DateGroup has been moved to ConvosCore.
 
 extension ConversationUpdate: @retroactive Differentiable {
     public var differenceIdentifier: Int {
@@ -22,12 +16,12 @@ extension ConversationUpdate: @retroactive Differentiable {
 }
 
 extension DateGroup: Differentiable {
-    var differenceIdentifier: Int {
-        value.hashValue
+    public var differenceIdentifier: Int {
+        date.hashValue
     }
 
-    func isContentEqual(to source: DateGroup) -> Bool {
-        self.value == source.value
+    public func isContentEqual(to source: DateGroup) -> Bool {
+        self == source
     }
 }
 

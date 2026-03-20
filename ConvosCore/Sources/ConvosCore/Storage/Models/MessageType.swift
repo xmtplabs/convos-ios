@@ -4,7 +4,6 @@ import Foundation
 
 public protocol MessageType: Sendable {
     var id: String { get }
-    var conversation: Conversation { get }
     var sender: ConversationMember { get }
     var source: MessageSource { get }
     var status: MessageStatus { get }
