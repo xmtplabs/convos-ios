@@ -50,9 +50,14 @@ struct ConvosApp: App {
 
         let agentKeyset = AgentKeyset(endpointURL: AgentKeyset.endpointURL(for: environment))
         AgentKeysetStore.instance.configure(agentKeyset)
-        Task { await agentKeyset.prefetch() }
 
         self.convos = .client(environment: environment, platformProviders: .iOS)
+
+        let dbWriter = convos.databaseWriter
+        Task {
+            await agentKeyset.prefetch()
+            try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
+        }
         self.conversationsViewModel = .init(session: convos.session)
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
