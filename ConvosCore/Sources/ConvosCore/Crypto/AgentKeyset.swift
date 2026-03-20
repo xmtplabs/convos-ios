@@ -108,6 +108,9 @@ public actor AgentKeyset: AgentKeysetProviding {
         }
 
         if let fallbackKey, fallbackKey.kid == kid, let key = fallbackKey.publicKey {
+            if let expDate = fallbackKey.expirationDate, expDate < Date() {
+                return nil
+            }
             return ResolvedKey(publicKey: key, issuer: fallbackKey.resolvedIssuer)
         }
 
@@ -145,7 +148,7 @@ public actor AgentKeyset: AgentKeysetProviding {
 
         if let existingTask = fetchTask {
             _ = await existingTask.value
-            return
+            if cachedResponse != nil { return }
         }
 
         let task = Task<AgentKeysetResponse?, Never> { [endpointURL, urlSession] in

@@ -29,7 +29,7 @@ enum DBMemberKind: String, Codable, Hashable {
             return .verifiedConvos
         case .verified(.userOAuth):
             return .verifiedUserOAuth
-        case .verified:
+        case .verified(.unknown):
             return .agent
         }
     }
