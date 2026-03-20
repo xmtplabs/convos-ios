@@ -125,21 +125,6 @@ struct InboxWriter {
 
     func deleteAll() async throws {
         try await dbWriter.write { db in
-            // Delete children before parents to respect foreign keys.
-            //
-            // Dependency graph (child → parent):
-            //   message → conversation
-            //   attachmentLocalState → conversation
-            //   conversationLocalState → conversation
-            //   invite → conversation_members  (FK: creatorInboxId + conversationId)
-            //   conversation_members → conversation, member
-            //   memberProfile → conversation, member
-            //   conversation → (no app-level parents)
-            //   member → (no app-level parents)
-            //   inbox, vaultDevice, photoPreferences, pendingPhotoUpload → independent
-            //
-            // Cascades are set on FKs, but we still delete children first for
-            // defensive safety if cascades are ever removed.
             let tables = [
                 "message",
                 "attachmentLocalState",
