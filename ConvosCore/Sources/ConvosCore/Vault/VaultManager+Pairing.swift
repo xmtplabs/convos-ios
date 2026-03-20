@@ -169,47 +169,53 @@ extension VaultManager {
         joinerDmStreamTask = Task { [weak self] in
             guard let self else { return }
 
-            async let dmStream: Void = {
-                do {
-                    let stream = await self.vaultClient.streamAllDmMessages()
-                    for try await message in stream {
-                        guard !Task.isCancelled else { break }
-                        await self.handleJoinerDmMessage(message)
-                    }
-                } catch {
-                    if !Task.isCancelled {
-                        Log.error("Joiner DM stream error: \(error)")
-                    }
-                }
-            }()
-
-            async let vaultPoll: Void = {
-                while !Task.isCancelled {
-                    try? await Task.sleep(for: .seconds(Self.joinerPollInterval))
-                    guard !Task.isCancelled else { break }
+            await withTaskGroup(of: Bool.self) { group in
+                group.addTask {
                     do {
-                        try await self.vaultClient.resyncVaultGroup()
-                        guard await self.vaultClient.vaultGroup != nil else {
-                            Log.debug("Joiner vault poll: vault group not found yet, retrying...")
-                            continue
-                        }
-                        let messages = try await self.vaultClient.vaultGroupMessages()
-                        for message in messages {
-                            if let bundle: DeviceKeyBundleContent = try? message.content(),
-                               !bundle.keys.isEmpty {
-                                Log.info("Joiner vault poll: found key bundle with \(bundle.keys.count) key(s)")
-                                await self.keyCoordinator.importKeyBundle(bundle)
-                                return
-                            }
+                        let stream = await self.vaultClient.streamAllDmMessages()
+                        for try await message in stream {
+                            guard !Task.isCancelled else { break }
+                            await self.handleJoinerDmMessage(message)
                         }
                     } catch {
-                        Log.debug("Joiner vault poll error: \(error)")
-                        continue
+                        if !Task.isCancelled {
+                            Log.error("Joiner DM stream error: \(error)")
+                        }
                     }
+                    return false
                 }
-            }()
 
-            _ = await (dmStream, vaultPoll)
+                group.addTask {
+                    while !Task.isCancelled {
+                        try? await Task.sleep(for: .seconds(Self.joinerPollInterval))
+                        guard !Task.isCancelled else { break }
+                        do {
+                            try await self.vaultClient.resyncVaultGroup()
+                            guard await self.vaultClient.vaultGroup != nil else {
+                                Log.debug("Joiner vault poll: vault group not found yet, retrying...")
+                                continue
+                            }
+                            let messages = try await self.vaultClient.vaultGroupMessages()
+                            for message in messages {
+                                if let bundle: DeviceKeyBundleContent = try? message.content(),
+                                   !bundle.keys.isEmpty {
+                                    Log.info("Joiner vault poll: found key bundle with \(bundle.keys.count) key(s)")
+                                    await self.keyCoordinator.importKeyBundle(bundle)
+                                    return true
+                                }
+                            }
+                        } catch {
+                            Log.debug("Joiner vault poll error: \(error)")
+                            continue
+                        }
+                    }
+                    return false
+                }
+
+                if let foundBundle = await group.next(), foundBundle {
+                    group.cancelAll()
+                }
+            }
         }
     }
 
