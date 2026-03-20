@@ -780,6 +780,8 @@ actor SyncingManager: SyncingManagerProtocol {
                         isFirstConversation = false
                     }
 
+                    Log.info("Conversation stream delivered group: \(conversation.id)")
+
                     // Dispatch without blocking the stream iteration, same as messages.
                     Task {
                         do {

@@ -688,21 +688,24 @@ public actor ConversationStateMachine {
             inviteTag: invite.invitePayload.tag
         )
 
-        // The XMTP conversation stream does not call sync_welcomes() on startup,
-        // so it cannot discover groups the client is added to after subscription.
-        // Run a discovery loop that periodically syncs welcomes and processes any
-        // newly discovered groups. The DB observation above fires as soon as the
-        // group is written to the database by discoverNewConversations.
+        // The conversation stream subscribes to welcome messages and usually
+        // delivers the group within ~1s of approval. Run a discovery loop as a
+        // fallback in case the stream misses the welcome (e.g., subscription
+        // race or network issue). The DB observation fires as soon as the group
+        // is written by either the stream or the discovery sync.
         discoveryTask = Task { [weak self] in
-            var interval: Duration = .seconds(3)
-            let maxInterval: Duration = .seconds(15)
+            let interval: Duration = .seconds(3)
+            // Trigger an immediate discovery before starting the polling loop,
+            // in case the welcome arrived before we started observing.
+            Log.info("Join flow: triggering initial discovery sync...")
+            await self?.inboxStateManager.requestDiscovery()
+
             while !Task.isCancelled {
                 do {
                     try await Task.sleep(for: interval)
                     try Task.checkCancellation()
                     Log.info("Join flow: triggering discovery sync...")
                     await self?.inboxStateManager.requestDiscovery()
-                    interval = min(interval * 2, maxInterval)
                 } catch {
                     break
                 }
