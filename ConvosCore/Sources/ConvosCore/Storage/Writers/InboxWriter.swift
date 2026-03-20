@@ -112,8 +112,19 @@ struct InboxWriter {
     }
 
     func deleteAll() async throws {
-        _ = try await dbWriter.write { db in
-            try DBInbox.deleteAll(db)
+        try await dbWriter.write { db in
+            try db.execute(sql: "DELETE FROM message")
+            try db.execute(sql: "DELETE FROM attachmentLocalState")
+            try db.execute(sql: "DELETE FROM conversationLocalState")
+            try db.execute(sql: "DELETE FROM invite")
+            try db.execute(sql: "DELETE FROM conversation_members")
+            try db.execute(sql: "DELETE FROM memberProfile")
+            try db.execute(sql: "DELETE FROM photoPreferences")
+            try db.execute(sql: "DELETE FROM pendingPhotoUpload")
+            try db.execute(sql: "DELETE FROM conversation")
+            try db.execute(sql: "DELETE FROM member")
+            try db.execute(sql: "DELETE FROM vaultDevice")
+            try db.execute(sql: "DELETE FROM inbox")
         }
     }
 }
