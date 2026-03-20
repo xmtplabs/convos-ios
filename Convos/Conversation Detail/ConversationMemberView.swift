@@ -39,8 +39,7 @@ struct ConversationMemberView: View {
             HStack {
                 Spacer()
                 VStack(spacing: DesignConstants.Spacing.step4x) {
-                    ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
-                        .frame(width: 160.0, height: 160.0)
+                    MessageAvatarView(profile: member.profile, size: 160.0, agentVerification: member.agentVerification)
 
                     VStack(spacing: DesignConstants.Spacing.step2x) {
                         Text(member.profile.displayName)
