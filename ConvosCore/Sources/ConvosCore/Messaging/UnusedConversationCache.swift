@@ -296,7 +296,7 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         }
 
         if let unusedService = unusedMessagingService {
-            Log.debug("Consuming cached inbox only, leaving pre-created conversation as unused until inbox cleanup")
+            Log.debug("Consuming cached inbox only")
             unusedMessagingService = nil
 
             clearUnusedFromKeychain()
@@ -309,7 +309,14 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
                 try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
                 Log.debug("Saved consumed inbox-only: \(inboxId)")
             } catch {
-                Log.error("Failed to save consumed inbox-only: \(error)")
+                Log.error("Cached inbox failed, discarding and creating fresh: \(error)")
+                await unusedService.stopAndDelete()
+                let fresh = await createFreshMessagingService(
+                    databaseWriter: databaseWriter,
+                    databaseReader: databaseReader,
+                    environment: environment
+                )
+                return fresh
             }
 
             scheduleBackgroundCreation(
@@ -492,7 +499,14 @@ extension UnusedConversationCache {
             try await inboxWriter.save(inboxId: inboxId, clientId: identity.clientId)
             Log.debug("Saved consumed unused inbox: \(inboxId)")
         } catch {
-            Log.error("Failed to save consumed inbox: \(error)")
+            Log.error("Cached inbox failed, discarding and creating fresh: \(error)")
+            await service.stopAndDelete()
+            let fresh = await createFreshMessagingService(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader,
+                environment: environment
+            )
+            return (service: fresh, conversationId: nil)
         }
 
         scheduleBackgroundCreation(
