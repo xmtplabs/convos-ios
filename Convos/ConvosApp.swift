@@ -48,7 +48,7 @@ struct ConvosApp: App {
             }
         }
 
-        let agentKeyset = AgentKeyset()
+        let agentKeyset = AgentKeyset(endpointURL: AgentKeyset.endpointURL(for: environment))
         AgentKeysetStore.instance.configure(agentKeyset)
         Task { await agentKeyset.prefetch() }
 

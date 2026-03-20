@@ -64,7 +64,7 @@ These fields flow through the existing profile pipeline:
 
 Public keys are hosted at a well-known URL using a JWKS-like format, rather than pinned in the app binary. This enables key rotation, multiple active keys, and reuse by other apps (Android, web).
 
-**Endpoint:** `https://convos.org/.well-known/agents.json`
+**Endpoint:** `<apiDomain>/.well-known/agents.json` (e.g., `https://api.convos.org/.well-known/agents.json`). The URL is derived per environment from the backend API base URL. The backend proxies this from the agent pool (see [convos-backend#181](https://github.com/xmtplabs/convos-backend/pull/181)).
 
 **Response format** (modeled on [JSON Web Key Sets](https://auth0.com/docs/secure/tokens/json-web-tokens/json-web-key-sets)):
 
@@ -107,7 +107,7 @@ Public keys are hosted at a well-known URL using a JWKS-like format, rather than
 4. After all old agents have expired (ephemeral identities are short-lived), remove the old key
 
 **Security considerations for JWKS:**
-- The endpoint is served over HTTPS from `convos.org` — TLS protects against MITM
+- The endpoint is served over HTTPS from the API domain — TLS protects against MITM
 - An attacker who compromises the domain could substitute keys, but that is the same threat model as any web-based key distribution (and no worse than a compromised app update)
 - The client caches keys, so a transient compromise does not retroactively affect previously verified agents
 - For defense in depth, the app ships with a hardcoded fallback key that is always trusted, ensuring verification works even if the endpoint is unreachable on first launch
@@ -120,7 +120,7 @@ All iOS work can be built and tested with locally generated test key pairs befor
 
 #### New: `AgentKeyset`
 
-Fetches and caches the JWKS from `https://convos.org/.well-known/agents.json`:
+Fetches and caches the JWKS from `<apiDomain>/.well-known/agents.json`:
 
 ```swift
 public actor AgentKeyset {
@@ -192,7 +192,7 @@ This lets us test the full iOS verification flow with real XMTP conversations.
 
 Once iOS and CLI are validated:
 
-1. Host the JWKS endpoint at `https://convos.org/.well-known/agents.json` with the production signing key(s)
+1. Host the JWKS endpoint at `<apiDomain>/.well-known/agents.json` with the production signing key(s)
 2. After provisioning, sign `sha256(inboxId || timestamp)` with the active Ed25519 private key
 3. Pass the signature, timestamp, and `kid` to the agent as part of its configuration
 4. The agent includes them in its `ProfileUpdate` metadata when joining
@@ -212,7 +212,7 @@ The signing is a single crypto operation. The JWKS endpoint is a static JSON fil
 
 ## Security considerations
 
-- **HTTPS key distribution**: public keys are fetched over TLS from `convos.org`. An attacker would need to compromise the domain or obtain a valid TLS certificate to substitute keys.
+- **HTTPS key distribution**: public keys are fetched over TLS from the API domain. An attacker would need to compromise the API domain or obtain a valid TLS certificate to substitute keys.
 - **Hardcoded fallback key**: a single key is compiled into the app as a last resort, ensuring verification works on first launch without network access. This key can be rotated via app updates.
 - **Client-side caching**: keys are cached for 24 hours. A transient endpoint compromise does not affect previously verified agents, and the attacker's window is limited to the cache refresh interval.
 - **No private key on device**: the device only verifies — it never signs. Compromising a device does not compromise the attestation system.
