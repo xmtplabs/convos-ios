@@ -158,17 +158,32 @@ extension MessagingService {
             Log.info("We were added to a new group: \(newGroup.conversationId)")
             setLastWelcomeProcessed(processTime, for: client.inboxId)
 
-            let displayName = (try? await getComputedDisplayName(
-                conversationId: newGroup.conversationId,
-                currentInboxId: client.inboxId
-            )) ?? newGroup.conversationName.orUntitled
+            // Store the conversation to the shared GRDB database so the main app's
+            // join flow ValueObservation fires immediately. This bridges the NSE's
+            // welcome discovery to the main app without needing polling.
+            do {
+                let dbConversation = try await storeConversation(newGroup.group, inboxId: client.inboxId)
 
-            return .init(
-                title: displayName,
-                body: "Your invite was approved",
-                conversationId: newGroup.conversationId,
-                userInfo: userInfo
-            )
+                let displayName = (try? await getComputedDisplayName(
+                    conversationId: dbConversation.id,
+                    currentInboxId: client.inboxId
+                )) ?? newGroup.conversationName.orUntitled
+
+                return .init(
+                    title: displayName,
+                    body: "Your invite was verified",
+                    conversationId: dbConversation.id,
+                    userInfo: userInfo
+                )
+            } catch {
+                Log.error("Failed to store conversation in NSE: \(error.localizedDescription)")
+                return .init(
+                    title: newGroup.conversationName.orUntitled,
+                    body: "Your invite was verified",
+                    conversationId: newGroup.conversationId,
+                    userInfo: userInfo
+                )
+            }
         }
 
         // No actionable welcome message
@@ -189,6 +204,7 @@ extension MessagingService {
     }
 
     private struct NewGroupInfo {
+        let group: XMTPiOS.Group
         let conversationId: String
         let conversationName: String?
     }
@@ -207,13 +223,11 @@ extension MessagingService {
             orderBy: .createdAt
         )
 
-        // Find groups that are new (not in our existing set)
         for group in currentGroups where !existingGroupIds.contains(group.id) {
-            // Check if we're NOT the creator (meaning we were added)
             let creatorInboxId = try await group.creatorInboxId()
             if creatorInboxId != client.inboxId {
                 let name = try? group.name()
-                return NewGroupInfo(conversationId: group.id, conversationName: name)
+                return NewGroupInfo(group: group, conversationId: group.id, conversationName: name)
             }
         }
 

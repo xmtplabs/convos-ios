@@ -323,7 +323,7 @@ class NewConversationViewModel: Identifiable {
         joinConversationTask?.cancel()
         let clientId = conversationViewModel?.conversation.clientId ?? acquiredMessagingService?.clientId
         let inboxId = conversationViewModel?.conversation.inboxId
-        guard let clientId else { return }
+        guard let clientId, !clientId.isEmpty else { return }
         Task { [session] in
             do {
                 try await session.deleteInbox(clientId: clientId, inboxId: inboxId ?? "")
