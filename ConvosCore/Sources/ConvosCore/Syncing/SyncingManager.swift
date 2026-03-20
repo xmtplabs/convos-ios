@@ -708,12 +708,19 @@ actor SyncingManager: SyncingManagerProtocol {
                         isFirstMessage = false
                     }
 
-                    // Process message
-                    await streamProcessor.processMessage(
-                        message,
-                        params: params,
-                        activeConversationId: activeConversationId
-                    )
+                    // Dispatch message processing without blocking the stream iteration.
+                    // Awaiting heavy processing here (GRDB writes, SDK calls like
+                    // findConversation/members/sync) causes the stream to miss messages
+                    // during rapid delivery, because libxmtp's internal sync consumes
+                    // messages while the callback is blocked.
+                    let capturedActiveConversationId = activeConversationId
+                    Task {
+                        await streamProcessor.processMessage(
+                            message,
+                            params: params,
+                            activeConversationId: capturedActiveConversationId
+                        )
+                    }
                 }
 
                 // Stream ended (onClose was called and continuation finished)
@@ -773,11 +780,17 @@ actor SyncingManager: SyncingManagerProtocol {
                         isFirstConversation = false
                     }
 
-                    // Process conversation
-                    try await streamProcessor.processConversation(
-                        conversation,
-                        params: params
-                    )
+                    // Dispatch without blocking the stream iteration, same as messages.
+                    Task {
+                        do {
+                            try await streamProcessor.processConversation(
+                                conversation,
+                                params: params
+                            )
+                        } catch {
+                            Log.error("Failed processing streamed conversation \(conversation.id): \(error)")
+                        }
+                    }
                 }
 
                 // Stream ended (onClose was called and continuation finished)

@@ -520,6 +520,10 @@ When the app launches for the first time (or after a reset), the conversation cr
 
 Unless the test is specifically about onboarding, complete or dismiss onboarding steps as quickly as possible to get to the feature being tested.
 
+### Never Disable Host Networking
+
+**Never turn off Wi-Fi, Ethernet, or any host network interface.** The QA agent communicates with the simulator, CLI, Docker, and other services over the network. Disabling Wi-Fi kills the agent's own connection and halts the test run. Tests that require network failure (e.g., test 26 - Failed Message Send) must use simulator-level network blocking (e.g., `pfctl` rules targeting simulator traffic) or be skipped if no simulator-only network isolation is available. Do not use `networksetup`, `ifconfig down`, or airplane mode on the host.
+
 ### No Sleep Calls
 
 Never use `sleep` between test steps. All simulator tools (`sim_tap_id`, `sim_find_elements`, `sim_wait_for_element`) have built-in timeouts and polling. After a CLI action (e.g., `send-text`), immediately check for the result in the app using `sim_find_elements` — if the message hasn't arrived yet, the tool returns empty and you can retry. The only acceptable blocking wait is the CLI `conversations join` command (without `--no-wait`), which blocks until the app processes the join request.
