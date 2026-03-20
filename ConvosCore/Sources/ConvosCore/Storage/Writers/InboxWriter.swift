@@ -50,6 +50,14 @@ struct InboxWriter {
 
             if let existingInbox = try DBInbox.fetchOne(db, id: inboxId) {
                 if existingInbox.clientId != clientId {
+                    if isVault {
+                        Log.info("Vault clientId changed (new installation): \(existingInbox.clientId) → \(clientId)")
+                        try db.execute(
+                            sql: "UPDATE inbox SET clientId = ? WHERE inboxId = ?",
+                            arguments: [clientId, inboxId]
+                        )
+                        return try DBInbox.fetchOne(db, id: inboxId) ?? existingInbox
+                    }
                     Log.error("""
                         ClientId mismatch detected!
                         InboxId: \(inboxId)

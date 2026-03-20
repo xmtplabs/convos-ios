@@ -147,8 +147,12 @@ public actor VaultManager {
                 throw VaultClientError.notConnected
             }
 
-            if identity.inboxId == "vault-pending" {
-                try? await vaultKeyStore.delete(inboxId: "vault-pending")
+            if identity.inboxId == "vault-pending" || identity.clientId != installationId {
+                if identity.inboxId == "vault-pending" {
+                    try? await vaultKeyStore.delete(inboxId: "vault-pending")
+                } else {
+                    try? await vaultKeyStore.delete(inboxId: inboxId)
+                }
                 _ = try? await vaultKeyStore.save(
                     inboxId: inboxId,
                     clientId: installationId,
