@@ -14,13 +14,12 @@ extension DBConversationMemberProfileWithRole {
     func hydrateConversationMember(currentInboxId: String) -> ConversationMember {
         let profile = memberProfile.hydrateProfile()
         let isAgent = memberProfile.isAgent
-        let verification: AgentVerification = isAgent ? profile.verifyCachedAgentAttestation() : .unverified
         return .init(
             profile: profile,
             role: role,
             isCurrentUser: memberProfile.inboxId == currentInboxId,
             isAgent: isAgent,
-            agentVerification: verification,
+            agentVerification: memberProfile.agentVerification,
             invitedBy: inviterProfile?.hydrateProfile(),
             joinedAt: createdAt
         )

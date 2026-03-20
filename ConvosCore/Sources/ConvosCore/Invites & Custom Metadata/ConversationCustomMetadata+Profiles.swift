@@ -27,7 +27,7 @@ extension MemberKind {
 extension DBMemberKind {
     var protoMemberKind: MemberKind {
         switch self {
-        case .agent: return .agent
+        case .agent, .verifiedConvos, .verifiedUserOAuth: return .agent
         }
     }
 }

@@ -95,10 +95,25 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
         let metadata = result.metadata
         guard profile?.name != nil || profile?.imageURL != nil || profile?.memberKind != nil || metadata != nil else { return }
 
-        let memberKind: DBMemberKind? = profile?.memberKind == "agent" ? .agent : nil
+        let baseMemberKind: DBMemberKind? = profile?.memberKind == "agent" ? .agent : nil
         let profileMetadata: ProfileMetadata? = metadata.flatMap { dict in
             let mapped = dict.compactMapValues { ProfileMetadataValue.string($0) }
             return mapped.isEmpty ? nil : mapped
+        }
+
+        let memberKind: DBMemberKind?
+        if baseMemberKind != nil, let profileMetadata {
+            let tempProfile = Profile(
+                inboxId: result.joinerInboxId,
+                name: profile?.name,
+                avatar: profile?.imageURL,
+                isAgent: true,
+                metadata: profileMetadata
+            )
+            let verification = tempProfile.verifyCachedAgentAttestation()
+            memberKind = DBMemberKind.from(agentVerification: verification)
+        } else {
+            memberKind = baseMemberKind
         }
 
         do {
@@ -106,7 +121,7 @@ final class InviteJoinRequestsManager: InviteJoinRequestsManagerProtocol, Sendab
                 let member = DBMember(inboxId: result.joinerInboxId)
                 try member.save(db)
 
-                var dbProfile = DBMemberProfile(
+                let dbProfile = DBMemberProfile(
                     conversationId: result.conversationId,
                     inboxId: result.joinerInboxId,
                     name: profile?.name,

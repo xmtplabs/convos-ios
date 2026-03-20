@@ -323,6 +323,11 @@ actor StreamProcessor: StreamProcessorProtocol {
                 let profileMetadata = update.profileMetadata
                 profile = profile.with(metadata: profileMetadata.isEmpty ? nil : profileMetadata)
 
+                if profile.isAgent {
+                    let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
+                    profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                }
+
                 try profile.save(db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
@@ -380,6 +385,11 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     let snapshotMetadata = memberProfile.profileMetadata
                     profile = profile.with(metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata)
+
+                    if profile.isAgent {
+                        let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
+                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                    }
 
                     try profile.save(db)
                 }

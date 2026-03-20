@@ -550,14 +550,12 @@ struct MemberProfileCache {
         }
 
         for profile in allProfiles where map[profile.inboxId] == nil {
-            let hydratedProfile = profile.hydrateProfile()
-            let isAgent = profile.isAgent
             map[profile.inboxId] = ConversationMember(
-                profile: hydratedProfile,
+                profile: profile.hydrateProfile(),
                 role: .member,
                 isCurrentUser: profile.inboxId == currentInboxId,
-                isAgent: isAgent,
-                agentVerification: isAgent ? hydratedProfile.verifyCachedAgentAttestation() : .unverified
+                isAgent: profile.isAgent,
+                agentVerification: profile.agentVerification
             )
         }
 
@@ -649,7 +647,7 @@ private extension LightweightConversationDetails {
                 role: creatorDetails.role,
                 isCurrentUser: profile.inboxId == conversation.inboxId,
                 isAgent: isAgent,
-                agentVerification: isAgent ? hydratedProfile.verifyCachedAgentAttestation() : .unverified
+                agentVerification: profile.agentVerification
             )
         } else {
             creator = ConversationMember(
