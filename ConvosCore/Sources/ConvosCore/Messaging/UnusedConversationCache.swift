@@ -186,6 +186,20 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
         databaseReader: any DatabaseReader,
         environment: AppEnvironment
     ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
+        let result = await _consumeOrCreateMessagingService(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment
+        )
+        await result.service.inboxStateManager.ensureForeground()
+        return result
+    }
+
+    private func _consumeOrCreateMessagingService(
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader,
+        environment: AppEnvironment
+    ) async -> (service: any MessagingServiceProtocol, conversationId: String?) {
         if isCreatingUnused {
             if let task = backgroundCreationTask {
                 Log.debug("Waiting for in-flight unused conversation creation to complete...")
@@ -277,6 +291,20 @@ public actor UnusedConversationCache: UnusedConversationCacheProtocol {
     }
 
     public func consumeInboxOnly(
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader,
+        environment: AppEnvironment
+    ) async -> any MessagingServiceProtocol {
+        let service = await _consumeInboxOnly(
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment
+        )
+        await service.inboxStateManager.ensureForeground()
+        return service
+    }
+
+    private func _consumeInboxOnly(
         databaseWriter: any DatabaseWriter,
         databaseReader: any DatabaseReader,
         environment: AppEnvironment
