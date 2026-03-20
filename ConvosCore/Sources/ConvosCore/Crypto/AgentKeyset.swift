@@ -77,11 +77,17 @@ public actor AgentKeyset: AgentKeysetProviding {
 
     private static let cacheDuration: TimeInterval = 86400
 
-    // swiftlint:disable:next force_unwrapping
-    public static let defaultEndpointURL: URL = URL(string: "https://convos.org/.well-known/agents.json")!
+    public static func endpointURL(for environment: AppEnvironment) -> URL {
+        let apiBase = environment.apiBaseURL
+        let domainBase = apiBase.hasSuffix("/api")
+            ? String(apiBase.dropLast(4))
+            : apiBase
+        // swiftlint:disable:next force_unwrapping
+        return URL(string: "\(domainBase)/.well-known/agents.json")!
+    }
 
     public init(
-        endpointURL: URL = AgentKeyset.defaultEndpointURL,
+        endpointURL: URL,
         fallbackKey: AgentKeysetEntry? = nil,
         urlSession: URLSession = .shared
     ) {
