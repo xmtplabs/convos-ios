@@ -189,15 +189,21 @@ extension VaultManager {
                     guard !Task.isCancelled else { break }
                     do {
                         try await self.vaultClient.resyncVaultGroup()
+                        guard await self.vaultClient.vaultGroup != nil else {
+                            Log.debug("Joiner vault poll: vault group not found yet, retrying...")
+                            continue
+                        }
                         let messages = try await self.vaultClient.vaultGroupMessages()
                         for message in messages {
                             if let bundle: DeviceKeyBundleContent = try? message.content(),
                                !bundle.keys.isEmpty {
+                                Log.info("Joiner vault poll: found key bundle with \(bundle.keys.count) key(s)")
                                 await self.keyCoordinator.importKeyBundle(bundle)
                                 return
                             }
                         }
                     } catch {
+                        Log.debug("Joiner vault poll error: \(error)")
                         continue
                     }
                 }
