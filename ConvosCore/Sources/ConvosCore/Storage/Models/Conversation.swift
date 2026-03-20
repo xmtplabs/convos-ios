@@ -81,10 +81,11 @@ public extension Conversation {
         if imageURL != nil {
             return .customImage
         }
-        let otherProfiles = membersWithoutCurrent.map(\.profile)
-        if otherProfiles.count == 1, let otherMember = otherProfiles.first {
-            return .profile(otherMember)
+        let otherMembers = membersWithoutCurrent
+        if otherMembers.count == 1, let member = otherMembers.first {
+            return .profile(member.profile, member.agentVerification)
         }
+        let otherProfiles = otherMembers.map(\.profile)
         if otherProfiles.isEmpty || !otherProfiles.hasAnyAvatar {
             return .emoji(defaultEmoji)
         }
