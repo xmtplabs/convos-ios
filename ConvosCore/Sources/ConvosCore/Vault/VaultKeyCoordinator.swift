@@ -214,6 +214,9 @@ actor VaultKeyCoordinator {
             let importedInboxIds = Set(importedEntries.map { $0.inboxId })
             Log.info("Vault: imported \(importedEntries.count) key(s) from bundle")
             await eventHandler?.vaultDidImportKeyBundle(inboxIds: importedInboxIds, count: importedEntries.count)
+        }
+
+        if !bundle.keys.isEmpty {
             NotificationCenter.default.post(name: .vaultDidReceiveKeyBundle, object: nil)
         }
     }
