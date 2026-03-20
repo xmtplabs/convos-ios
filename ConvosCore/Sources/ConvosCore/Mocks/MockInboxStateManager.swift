@@ -49,6 +49,9 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
     public func requestDiscovery() async {
     }
 
+    public func ensureForeground() async {
+    }
+
     public func addObserver(_ observer: any InboxStateObserver) {
         observers.removeAll { $0.observer == nil }
         observers.append(WeakStateObserver(observer: observer))

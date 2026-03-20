@@ -245,6 +245,7 @@ extension URL {
     public var convosInviteCode: String? {
         let pathComponents = pathComponents.filter { $0 != "/" }
 
+        // Handle convos:// and convos-{env}:// schemes
         if let scheme, scheme == "convos" || scheme.hasPrefix("convos-") {
             // convos://join/{code} (legacy)
             if host == "join", pathComponents.count >= 1 {

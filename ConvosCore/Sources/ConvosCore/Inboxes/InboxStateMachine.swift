@@ -385,7 +385,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     public func waitForInboxReadyResult() async throws -> InboxReadyResult {
         for await state in stateSequence {
             switch state {
-            case .ready(_, let result):
+            case .ready(_, let result),
+                 .backgrounded(_, let result):
                 return result
             case .error(_, let error):
                 throw error
@@ -394,6 +395,12 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             }
         }
         throw InboxStateError.inboxNotReady
+    }
+
+    public func ensureForeground() {
+        if case .backgrounded = currentState {
+            enqueueAction(.enterForeground)
+        }
     }
 
     public func reauthorize(inboxId: String, clientId: String) async throws -> InboxReadyResult {

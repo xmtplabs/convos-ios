@@ -16,6 +16,7 @@ public protocol InboxStateManagerProtocol: AnyObject, Sendable {
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async
 
     func requestDiscovery() async
+    func ensureForeground() async
 
     func addObserver(_ observer: InboxStateObserver)
     func removeObserver(_ observer: InboxStateObserver)
