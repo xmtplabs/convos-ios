@@ -209,7 +209,10 @@ class ConversationViewModel {
                 messages: lastGroup.rawMessages,
                 isLastGroup: lastGroup.isLastGroup,
                 isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
-                showsTypingIndicator: true
+                showsTypingIndicator: true,
+                allTypingMembers: [typer],
+                onlyVisibleToSender: lastGroup.onlyVisibleToSender,
+                isLastGroupBeforeOtherMembers: lastGroup.isLastGroupBeforeOtherMembers
             )
             updated[lastIndex] = .messages(updatedGroup)
             return updated
