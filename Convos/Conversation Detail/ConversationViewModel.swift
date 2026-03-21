@@ -1918,14 +1918,12 @@ extension ConversationViewModel {
         }
     }
 
-    private func sendReadReceipt(for conversationId: String) {
+    private func sendReadReceipt(for conversationId: String) async {
         lastReadReceiptSentAt = Date()
-        Task {
-            do {
-                try await readReceiptWriter.sendReadReceipt(for: conversationId)
-            } catch {
-                Log.warning("Failed to send read receipt: \(error.localizedDescription)")
-            }
+        do {
+            try await readReceiptWriter.sendReadReceipt(for: conversationId)
+        } catch {
+            Log.warning("Failed to send read receipt: \(error.localizedDescription)")
         }
     }
 }

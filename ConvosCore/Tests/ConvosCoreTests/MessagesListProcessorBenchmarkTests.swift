@@ -333,7 +333,7 @@ struct MessagesListProcessorBenchmarkTests {
         var times: [Double] = []
         for _ in 0..<100 {
             let start = CFAbsoluteTimeGetCurrent()
-            let result = MessagesListProcessor.process(messages, otherMemberCount: 0)
+            let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 0)
             let elapsed = (CFAbsoluteTimeGetCurrent() - start) * 1_000_000
             times.append(elapsed)
             #expect(!result.isEmpty)

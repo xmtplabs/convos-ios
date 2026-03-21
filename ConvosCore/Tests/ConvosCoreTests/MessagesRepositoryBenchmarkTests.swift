@@ -581,7 +581,6 @@ struct MessagesRepositoryBenchmarkTests {
                         DBConversationMember.Columns.createdAt,
                     ])
                     .including(required: DBConversationMember.memberProfile)
-                            .including(optional: DBConversationMember.inviterProfile)
                     .including(optional: DBConversationMember.inviterProfile)
                     .asRequest(of: DBConversationMemberProfileWithRole.self)
                     .fetchAll(db)
