@@ -22,7 +22,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
         case .update(let id, _, _):
             return "update-\(id)"
         case .date(let dateGroup):
-            return "date-\(dateGroup.date.hashValue)"
+            return "date-\(dateGroup.hashValue)"
         case .messages(let group):
             return "messages-group-\(group.id)"
         case .invite(let invite):
