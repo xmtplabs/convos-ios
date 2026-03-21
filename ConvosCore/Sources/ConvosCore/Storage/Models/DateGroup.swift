@@ -7,15 +7,19 @@ public struct DateGroup: Hashable, Sendable {
         MessagesDateFormatter.shared.string(from: date)
     }
 
+    private var truncatedTimestamp: Int {
+        Int(date.timeIntervalSince1970) / 60
+    }
+
     public init(date: Date) {
         self.date = date
     }
 
     public static func == (lhs: DateGroup, rhs: DateGroup) -> Bool {
-        lhs.date == rhs.date
+        lhs.truncatedTimestamp == rhs.truncatedTimestamp
     }
 
     public func hash(into hasher: inout Hasher) {
-        hasher.combine(date)
+        hasher.combine(truncatedTimestamp)
     }
 }

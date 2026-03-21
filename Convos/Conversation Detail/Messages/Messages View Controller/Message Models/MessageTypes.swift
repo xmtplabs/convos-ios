@@ -17,7 +17,7 @@ extension ConversationUpdate: @retroactive Differentiable {
 
 extension DateGroup: Differentiable {
     public var differenceIdentifier: Int {
-        date.hashValue
+        hashValue
     }
 
     public func isContentEqual(to source: DateGroup) -> Bool {
