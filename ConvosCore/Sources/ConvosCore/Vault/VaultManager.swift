@@ -243,6 +243,10 @@ public actor VaultManager {
         }
     }
 
+    public func clearVaultKeyStore() async throws {
+        try await vaultKeyStore?.deleteAll()
+    }
+
     public func unpairSelf() async throws {
         guard let selfInboxId = await vaultInboxId else {
             throw VaultClientError.notConnected
