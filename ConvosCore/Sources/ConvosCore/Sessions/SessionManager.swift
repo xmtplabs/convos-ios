@@ -266,9 +266,17 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                         }
                     }
 
-                    // Get all inboxes from database
+                    if let vaultManager = self.vaultService as? VaultManager {
+                        do {
+                            try await vaultManager.clearVaultKeyStore()
+                            Log.info("Cleared vault key store")
+                        } catch {
+                            Log.error("Failed to clear vault key store: \(error)")
+                        }
+                    }
+
                     let inboxesRepository = InboxesRepository(databaseReader: self.databaseReader)
-                    let allInboxes = try inboxesRepository.allInboxes()
+                    let allInboxes = try inboxesRepository.nonVaultInboxes()
 
                     let totalInboxes = allInboxes.count
                     var completedInboxes = 0
