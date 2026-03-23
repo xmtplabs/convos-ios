@@ -3,7 +3,7 @@ import Foundation
 // MARK: - AnyMessage
 
 public enum AnyMessage: Hashable, Equatable, Codable, Sendable, Identifiable {
-    public var id: String { base.id }
+    public var id: String { messageId }
     public enum Origin: Hashable, Codable, Sendable {
         case existing
         case paginated
@@ -21,17 +21,7 @@ public enum AnyMessage: Hashable, Equatable, Codable, Sendable, Identifiable {
         }
     }
 
-    public var base: MessageType {
-        switch self {
-        case .message(let message, _):
-            return message
-        case .reply(let reply, _):
-            return reply
-        }
-    }
-
-    // Direct property accessors that avoid existential MessageType dispatch.
-    // Each switch returns the concrete struct field directly.
+    // Direct property accessors — each switch returns the concrete struct field directly.
 
     public var content: MessageContent {
         switch self {

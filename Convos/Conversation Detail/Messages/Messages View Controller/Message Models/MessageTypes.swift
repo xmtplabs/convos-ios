@@ -64,7 +64,7 @@ enum ImageSource: Hashable {
 
 extension AnyMessage: @retroactive Differentiable {
     public var differenceIdentifier: Int {
-        base.id.hashValue
+        messageId.hashValue
     }
 
     public func isContentEqual(to source: AnyMessage) -> Bool {

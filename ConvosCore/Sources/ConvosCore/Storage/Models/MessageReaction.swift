@@ -2,7 +2,7 @@ import Foundation
 
 // MARK: - MessageReaction
 
-public struct MessageReaction: MessageType, Hashable, Codable, Sendable {
+public struct MessageReaction: Hashable, Codable, Sendable {
     public let id: String
     public let sender: ConversationMember
     public let source: MessageSource

@@ -143,7 +143,7 @@ struct ConversationOnboardingView: View {
             focusCoordinator: focusCoordinator,
             scrollOverscrollAmount: 0,
             onTapSetupQuickname: {},
-            onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
+            onUseQuickname: { _, _ in },
             onPresentProfileSettings: {}
         )
         .onAppear {
@@ -162,7 +162,7 @@ struct ConversationOnboardingView: View {
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
+        onUseQuickname: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -180,7 +180,7 @@ struct ConversationOnboardingView: View {
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
+        onUseQuickname: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -198,7 +198,7 @@ struct ConversationOnboardingView: View {
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
+        onUseQuickname: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -219,7 +219,7 @@ struct ConversationOnboardingView: View {
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
+        onUseQuickname: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -237,7 +237,7 @@ struct ConversationOnboardingView: View {
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
+        onUseQuickname: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -255,7 +255,7 @@ struct ConversationOnboardingView: View {
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
+        onUseQuickname: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {
@@ -273,7 +273,7 @@ struct ConversationOnboardingView: View {
         focusCoordinator: focusCoordinator,
         scrollOverscrollAmount: 0,
         onTapSetupQuickname: {},
-        onUseQuickname: { profile, _ in print("Use quickname: \(profile.displayName)") },
+        onUseQuickname: { _, _ in },
         onPresentProfileSettings: {}
     )
     .onAppear {

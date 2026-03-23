@@ -110,6 +110,6 @@ struct AssistantsInfoView: View {
     @Previewable @State var isPresented: Bool = true
     VStack { Button { isPresented.toggle() } label: { Text("Show") } }
         .selfSizingSheet(isPresented: $isPresented) {
-            AssistantsInfoView(isConfirmation: true, onConfirm: { print("Confirmed!") }).padding(.top, 20)
+            AssistantsInfoView(isConfirmation: true, onConfirm: { }).padding(.top, 20)
         }
 }

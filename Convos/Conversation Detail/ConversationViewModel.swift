@@ -751,7 +751,7 @@ extension ConversationViewModel {
                     if let trackingKey = eagerUploadKey {
                         photoTrackingKey = trackingKey
                         if let replyTarget {
-                            try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyTarget.base.id)
+                            try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyTarget.messageId)
                         } else {
                             try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
                         }
@@ -759,7 +759,7 @@ extension ConversationViewModel {
                         let key = try await messageWriter.startEagerUpload(image: attachmentImage)
                         photoTrackingKey = key
                         if let replyTarget {
-                            try await messageWriter.sendEagerPhotoReply(trackingKey: key, toMessageWithClientId: replyTarget.base.id)
+                            try await messageWriter.sendEagerPhotoReply(trackingKey: key, toMessageWithClientId: replyTarget.messageId)
                         } else {
                             try await messageWriter.sendEagerPhoto(trackingKey: key)
                         }
@@ -773,7 +773,7 @@ extension ConversationViewModel {
                 if let inviteURL = prevInviteURL {
                     let inviteIsReply = replyTarget != nil && !hasAttachment && !hasText
                     if inviteIsReply, let replyTarget {
-                        try await messageWriter.sendReply(text: inviteURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
+                        try await messageWriter.sendReply(text: inviteURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
                     } else {
                         try await messageWriter.send(text: inviteURL, afterPhoto: photoTrackingKey)
                     }
@@ -782,7 +782,7 @@ extension ConversationViewModel {
                 if hasText {
                     let textIsReply = replyTarget != nil && !hasAttachment
                     if textIsReply, let replyTarget {
-                        try await messageWriter.sendReply(text: prevMessageText, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
+                        try await messageWriter.sendReply(text: prevMessageText, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
                     } else {
                         try await messageWriter.send(text: prevMessageText, afterPhoto: photoTrackingKey)
                     }
@@ -805,7 +805,7 @@ extension ConversationViewModel {
 
     func retryMessage(_ message: AnyMessage) {
         let messageWriter = cachedMessageWriter
-        let messageId = message.base.id
+        let messageId = message.messageId
         Task {
             do {
                 try await messageWriter.retryFailedMessage(id: messageId)
@@ -817,7 +817,7 @@ extension ConversationViewModel {
 
     func deleteMessage(_ message: AnyMessage) {
         let messageWriter = cachedMessageWriter
-        let messageId = message.base.id
+        let messageId = message.messageId
         Task {
             do {
                 try await messageWriter.deleteFailedMessage(id: messageId)
@@ -1177,7 +1177,7 @@ extension ConversationViewModel {
             do {
                 try await reactionWriter.removeReaction(
                     emoji: reaction.emoji,
-                    from: message.base.id,
+                    from: message.messageId,
                     in: conversationId
                 )
                 await MainActor.run {

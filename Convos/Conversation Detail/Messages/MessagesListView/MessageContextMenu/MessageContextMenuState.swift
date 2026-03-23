@@ -26,7 +26,7 @@ class MessageContextMenuState: @unchecked Sendable {
     }
 
     func present(message: AnyMessage, bubbleFrame: CGRect, bubbleStyle: MessageBubbleType) {
-        self.isOutgoing = message.base.sender.isCurrentUser
+        self.isOutgoing = message.sender.isCurrentUser
         self.bubbleFrame = bubbleFrame
         self.bubbleStyle = bubbleStyle
         self.isReplyParent = false
@@ -34,7 +34,7 @@ class MessageContextMenuState: @unchecked Sendable {
     }
 
     func presentReplyParent(message: AnyMessage, bubbleFrame: CGRect, sourceID: UUID) {
-        self.isOutgoing = message.base.sender.isCurrentUser
+        self.isOutgoing = message.sender.isCurrentUser
         self.bubbleFrame = bubbleFrame
         self.bubbleStyle = .normal
         self.isReplyParent = true

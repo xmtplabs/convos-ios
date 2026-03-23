@@ -37,9 +37,9 @@ struct MessagesGroupView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             let allMessages = group.allMessages
-            ForEach(Array(allMessages.enumerated()), id: \.element.base.id) { index, message in
+            ForEach(Array(allMessages.enumerated()), id: \.element.messageId) { index, message in
                 let isReply = if case .reply = message { true } else { false }
-                let isFullWidthAttachment = message.base.content.isAttachment
+                let isFullWidthAttachment = message.content.isAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
                     let tapNameAction = { onTapAvatar(message) }
@@ -68,8 +68,8 @@ struct MessagesGroupView: View {
                 let isLast = message == lastMessage
                 let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
                 let isLastInGroup = message == group.messages.last
-                let showsSentStatus = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.base.status == .published
-                let isFailed = message.base.sender.isCurrentUser && message.base.status == .failed
+                let showsSentStatus = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
+                let isFailed = message.sender.isCurrentUser && message.status == .failed
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
                     if !group.sender.isCurrentUser && !isFullWidthAttachment {
@@ -128,14 +128,14 @@ struct MessagesGroupView: View {
                 }
                 .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
 
-                if !message.base.reactions.isEmpty {
+                if !message.reactions.isEmpty {
                     ReactionIndicatorView(
-                        reactions: message.base.reactions,
-                        isOutgoing: message.base.sender.isCurrentUser,
+                        reactions: message.reactions,
+                        isOutgoing: message.sender.isCurrentUser,
                         onTap: { onTapReactions(message) }
                     )
-                    .padding(.leading, message.base.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step4x : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x))
-                    .padding(.trailing, message.base.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+                    .padding(.leading, message.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step4x : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x))
+                    .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
                     .padding(.bottom, DesignConstants.Spacing.stepX)
                     .transition(.identity)
                     .zIndex(50)

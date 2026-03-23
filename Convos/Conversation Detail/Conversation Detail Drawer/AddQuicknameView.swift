@@ -124,7 +124,7 @@ struct AddQuicknameView: View {
             profile: $profile,
             profileImage: $profileImage,
             onUseProfile: { _, _ in },
-            onDismiss: { print("Dismissed") }
+            onDismiss: { }
         )
         .id(resetId)
 

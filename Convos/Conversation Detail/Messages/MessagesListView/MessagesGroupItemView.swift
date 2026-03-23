@@ -27,25 +27,25 @@ struct MessagesGroupItemView: View {
     }
 
     var body: some View {
-        VStack(alignment: message.base.sender.isCurrentUser ? .trailing : .leading, spacing: 0.0) {
+        VStack(alignment: message.sender.isCurrentUser ? .trailing : .leading, spacing: 0.0) {
             if case .reply(let reply, _) = message {
                 ReplyReferenceView(
                     replySender: reply.sender,
                     parentMessage: reply.parentMessage,
-                    isOutgoing: message.base.sender.isCurrentUser,
+                    isOutgoing: message.sender.isCurrentUser,
                     shouldBlurPhotos: shouldBlurPhotos,
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
                     onTapInvite: onTapInvite,
                     onPhotoRevealed: onPhotoRevealed,
                     onPhotoHidden: onPhotoHidden
                 )
-                .padding(.leading, !message.base.sender.isCurrentUser && message.base.content.isAttachment
+                .padding(.leading, !message.sender.isCurrentUser && message.content.isAttachment
                     ? DesignConstants.Spacing.step4x
                     : 0.0)
             }
             messageContent
         }
-        .id("messages-group-item-view-\(message.base.id)")
+        .id("messages-group-item-view-\(message.messageId)")
         .transition(
             .asymmetric(
                 insertion: .identity,
@@ -70,31 +70,31 @@ struct MessagesGroupItemView: View {
 
     @ViewBuilder
     private var messageContent: some View {
-        switch message.base.content {
+        switch message.content {
         case .text(let text):
             MessageBubble(
-                style: message.base.content.isEmoji ? .none : bubbleType,
+                style: message.content.isEmoji ? .none : bubbleType,
                 message: text,
-                isOutgoing: message.base.sender.isCurrentUser,
-                profile: message.base.sender.profile
+                isOutgoing: message.sender.isCurrentUser,
+                profile: message.sender.profile
             )
             .messageGesture(
                 message: message,
-                bubbleStyle: message.base.content.isEmoji ? .none : bubbleType,
+                bubbleStyle: message.content.isEmoji ? .none : bubbleType,
                 onReply: onReply
             )
-            .id("bubble-\(message.base.id)")
+            .id("bubble-\(message.messageId)")
             .scaleEffect(isAppearing ? 0.9 : 1.0)
             .rotationEffect(
                 .radians(
                     isAppearing
-                    ? (message.base.source == .incoming ? -0.05 : 0.05)
+                    ? (message.source == .incoming ? -0.05 : 0.05)
                     : 0
                 )
             )
             .offset(
                 x: isAppearing
-                ? (message.base.source == .incoming ? -20 : 20)
+                ? (message.source == .incoming ? -20 : 20)
                 : 0,
                 y: isAppearing ? 40 : 0
             )
@@ -103,28 +103,28 @@ struct MessagesGroupItemView: View {
         case .emoji(let text):
             EmojiBubble(
                 emoji: text,
-                isOutgoing: message.base.sender.isCurrentUser,
-                profile: message.base.sender.profile
+                isOutgoing: message.sender.isCurrentUser,
+                profile: message.sender.profile
             )
             .messageGesture(
                 message: message,
                 bubbleStyle: .none,
                 onReply: onReply
             )
-            .id("emoji-bubble-\(message.base.id)")
+            .id("emoji-bubble-\(message.messageId)")
             .opacity(isAppearing ? 0.0 : 1.0)
             .blur(radius: isAppearing ? 10.0 : 0.0)
             .scaleEffect(isAppearing ? 0.0 : 1.0)
             .rotationEffect(
                 .radians(
                     isAppearing
-                    ? (message.base.source == .incoming ? -0.10 : 0.10)
+                    ? (message.source == .incoming ? -0.10 : 0.10)
                     : 0
                 )
             )
             .offset(
                 x: isAppearing
-                ? (message.base.source == .incoming ? -200 : 200)
+                ? (message.source == .incoming ? -200 : 200)
                 : 0,
                 y: isAppearing ? 40 : 0
             )
@@ -134,8 +134,8 @@ struct MessagesGroupItemView: View {
             MessageInviteContainerView(
                 invite: invite,
                 style: bubbleType,
-                isOutgoing: message.base.source == .outgoing,
-                profile: message.base.sender.profile,
+                isOutgoing: message.source == .outgoing,
+                profile: message.sender.profile,
                 onTapInvite: onTapInvite,
                 onTapAvatar: { onTapAvatar(message) }
             )
@@ -145,18 +145,18 @@ struct MessagesGroupItemView: View {
                 onSingleTap: { onTapInvite(invite) },
                 onReply: onReply
             )
-            .id("message-invite-\(message.base.id)")
+            .id("message-invite-\(message.messageId)")
             .scaleEffect(isAppearing ? 0.9 : 1.0)
             .rotationEffect(
                 .radians(
                     isAppearing
-                    ? (message.base.source == .incoming ? -0.05 : 0.05)
+                    ? (message.source == .incoming ? -0.05 : 0.05)
                     : 0
                 )
             )
             .offset(
                 x: isAppearing
-                ? (message.base.source == .incoming ? -20 : 20)
+                ? (message.source == .incoming ? -20 : 20)
                 : 0,
                 y: isAppearing ? 40 : 0
             )
@@ -177,12 +177,12 @@ struct MessagesGroupItemView: View {
 
     @ViewBuilder
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
-        let isBlurred = attachment.isHiddenByOwner || (!message.base.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
+        let isBlurred = attachment.isHiddenByOwner || (!message.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
 
         AttachmentPlaceholder(
             attachment: attachment,
-            isOutgoing: message.base.sender.isCurrentUser,
-            profile: message.base.sender.profile,
+            isOutgoing: message.sender.isCurrentUser,
+            profile: message.sender.profile,
             shouldBlurPhotos: shouldBlurPhotos,
             cornerRadius: 0,
             onDimensionsLoaded: { width, height in
@@ -195,7 +195,7 @@ struct MessagesGroupItemView: View {
             onSingleTap: isBlurred ? { onPhotoRevealed(attachment.key) } : nil,
             onReply: onReply
         )
-        .id(message.base.id)
+        .id(message.messageId)
     }
 }
 
@@ -571,8 +571,8 @@ struct PhotoSenderLabel: View {
         onTapAvatar: { _ in },
         onTapInvite: { _ in },
         onReply: { _ in },
-        onPhotoRevealed: { _ in print("Photo revealed") },
-        onPhotoHidden: { _ in print("Photo hidden") },
+        onPhotoRevealed: { _ in },
+        onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in }
     )
     .padding()

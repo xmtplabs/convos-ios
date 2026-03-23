@@ -52,7 +52,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         var childCount: Int = 0
 
         for (index, message) in group.messages.enumerated() {
-            let isAttachment = message.base.content.isAttachment
+            let isAttachment = message.content.isAttachment
 
             if index == 0 && !group.sender.isCurrentUser && !isAttachment {
                 height += 17.0
@@ -62,13 +62,13 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height += messageHeight(for: message, width: width)
             childCount += 1
 
-            if !message.base.reactions.isEmpty {
+            if !message.reactions.isEmpty {
                 height += 34.0
                 childCount += 1
             }
 
             let isLast = index == group.messages.count - 1
-            if isLast && group.isLastGroupSentByCurrentUser && message.base.status == .published {
+            if isLast && group.isLastGroupSentByCurrentUser && message.status == .published {
                 height += 24.0
                 childCount += 1
             }
@@ -90,7 +90,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
 
     private func messageHeight(for message: AnyMessage, width: CGFloat) -> CGFloat {
         var height: CGFloat
-        switch message.base.content {
+        switch message.content {
         case .attachment(let attachment):
             height = attachmentHeight(for: attachment, width: width)
         case .attachments(let attachments):
