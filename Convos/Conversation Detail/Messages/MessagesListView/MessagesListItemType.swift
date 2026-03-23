@@ -109,7 +109,6 @@ extension MessagesGroup {
     }
 }
 
-
 // MARK: - Mock Data for MessagesListItemType
 extension MessagesListItemType {
     static var mockDate: MessagesListItemType {

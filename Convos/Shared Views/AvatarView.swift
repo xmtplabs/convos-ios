@@ -100,7 +100,7 @@ struct ConversationAvatarView: View {
         switch conversation.avatarType {
         case .customImage:
             MonogramView(name: conversation.computedDisplayName)
-        case .profile(let profile, let verification):
+        case let .profile(profile, verification):
             MonogramView(name: profile.displayName, agentVerification: verification)
         case .clustered(let profiles):
             ClusteredAvatarView(profiles: profiles)

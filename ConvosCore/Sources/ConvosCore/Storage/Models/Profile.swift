@@ -78,7 +78,10 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
               case .string(let ts) = timestamp,
               case .string(let keyId) = kid
         else {
-            Log.info("[Attestation] agent \(inboxId.prefix(8)) missing metadata fields — attestation: \(metadata?["attestation"] != nil), ts: \(metadata?["attestation_ts"] != nil), kid: \(metadata?["attestation_kid"] != nil)")
+            let hasAttestation = metadata?["attestation"] != nil
+            let hasTs = metadata?["attestation_ts"] != nil
+            let hasKid = metadata?["attestation_kid"] != nil
+            Log.info("[Attestation] agent \(inboxId.prefix(8)) missing fields — att: \(hasAttestation), ts: \(hasTs), kid: \(hasKid)")
             return .unverified
         }
         Log.info("[Attestation] verifying agent \(inboxId.prefix(8)) with kid=\(keyId)")
