@@ -716,26 +716,30 @@ actor SyncingManager: SyncingManagerProtocol {
     /// the buffer serially. This prevents libxmtp's internal sync_with_conn from
     /// racing ahead during epoch changes (new members added), which would advance the
     /// cursor past messages the Swift loop hasn't yielded yet.
+    ///
+    /// activeConversationId is captured at enqueue time (not processing time) so that
+    /// the unread-marking logic reflects which conversation was open when the message
+    /// arrived, not when the consumer eventually processes it.
     private func runMessageStreamIteration(
         params: SyncClientParams,
         retryCount: inout Int
     ) async throws {
-        let (buffer, continuation) = AsyncStream<DecodedMessage>.makeStream(bufferingPolicy: .unbounded)
+        // Buffer pairs each message with the active conversation ID captured at receipt
+        // time, preserving the semantics of the old capturedActiveConversationId pattern.
+        let (buffer, continuation) = AsyncStream<(DecodedMessage, String?)>.makeStream(
+            bufferingPolicy: .unbounded
+        )
 
         // Consumer: drains the buffer serially on its own task.
         // Serial processing preserves message order and keeps DB writes sequential.
         let consumer = Task {
-            for await message in buffer {
+            for await (message, capturedActiveConversationId) in buffer {
                 await streamProcessor.processMessage(
                     message,
                     params: params,
-                    activeConversationId: activeConversationId
+                    activeConversationId: capturedActiveConversationId
                 )
             }
-        }
-        defer {
-            continuation.finish()
-            consumer.cancel()
         }
 
         // Producer: enqueues each message without blocking, then immediately loops
@@ -749,15 +753,26 @@ actor SyncingManager: SyncingManagerProtocol {
                 Log.debug("Message stream closed via onClose callback")
             }
         )
-        for try await message in stream {
-            try Task.checkCancellation()
+        do {
+            for try await message in stream {
+                try Task.checkCancellation()
 
-            if isFirstMessage {
-                retryCount = 0
-                isFirstMessage = false
+                if isFirstMessage {
+                    retryCount = 0
+                    isFirstMessage = false
+                }
+
+                continuation.yield((message, activeConversationId))
             }
-
-            continuation.yield(message)
+            // Stream ended normally: signal no more messages and let the consumer
+            // drain the buffer fully before returning.
+            continuation.finish()
+            await consumer.value
+        } catch {
+            // Stream failed or was cancelled: discard buffered messages.
+            continuation.finish()
+            consumer.cancel()
+            throw error
         }
     }
 
