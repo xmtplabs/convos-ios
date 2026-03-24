@@ -689,39 +689,7 @@ actor SyncingManager: SyncingManagerProtocol {
                     signalMessageStreamReady()
                 }
 
-                // Stream messages - the loop will exit when onClose is called and continuation.finish() happens
-                var isFirstMessage = true
-                let stream = params.client.conversationsProvider.streamAllMessages(
-                    type: .all,
-                    consentStates: params.consentStates,
-                    onClose: {
-                        Log.debug("Message stream closed via onClose callback")
-                    }
-                )
-                for try await message in stream {
-                    // Check cancellation
-                    try Task.checkCancellation()
-
-                    // Reset retry count after first successful message (stream is healthy)
-                    if isFirstMessage {
-                        retryCount = 0
-                        isFirstMessage = false
-                    }
-
-                    // Dispatch message processing without blocking the stream iteration.
-                    // Awaiting heavy processing here (GRDB writes, SDK calls like
-                    // findConversation/members/sync) causes the stream to miss messages
-                    // during rapid delivery, because libxmtp's internal sync consumes
-                    // messages while the callback is blocked.
-                    let capturedActiveConversationId = activeConversationId
-                    Task {
-                        await streamProcessor.processMessage(
-                            message,
-                            params: params,
-                            activeConversationId: capturedActiveConversationId
-                        )
-                    }
-                }
+                try await runMessageStreamIteration(params: params, retryCount: &retryCount)
 
                 // Stream ended (onClose was called and continuation finished)
                 retryCount += 1
@@ -738,6 +706,73 @@ actor SyncingManager: SyncingManagerProtocol {
         if !Task.isCancelled && retryCount >= maxStreamRetries {
             Log.error("Message stream: max retries (\(maxStreamRetries)) exceeded, giving up")
             enqueueAction(.streamFailed)
+        }
+    }
+
+    /// Runs a single stream connection using a producer-consumer pattern.
+    ///
+    /// The XMTP stream's for-await loop acts as a pure producer: it enqueues each
+    /// message into a buffer and returns immediately. A separate consumer task drains
+    /// the buffer serially. This prevents libxmtp's internal sync_with_conn from
+    /// racing ahead during epoch changes (new members added), which would advance the
+    /// cursor past messages the Swift loop hasn't yielded yet.
+    ///
+    /// activeConversationId is captured at enqueue time (not processing time) so that
+    /// the unread-marking logic reflects which conversation was open when the message
+    /// arrived, not when the consumer eventually processes it.
+    private func runMessageStreamIteration(
+        params: SyncClientParams,
+        retryCount: inout Int
+    ) async throws {
+        // Buffer pairs each message with the active conversation ID captured at receipt
+        // time, preserving the semantics of the old capturedActiveConversationId pattern.
+        let (buffer, continuation) = AsyncStream<(DecodedMessage, String?)>.makeStream(
+            bufferingPolicy: .unbounded
+        )
+
+        // Consumer: drains the buffer serially on its own task.
+        // Serial processing preserves message order and keeps DB writes sequential.
+        let consumer = Task {
+            for await (message, capturedActiveConversationId) in buffer {
+                await streamProcessor.processMessage(
+                    message,
+                    params: params,
+                    activeConversationId: capturedActiveConversationId
+                )
+            }
+        }
+
+        // Producer: enqueues each message without blocking, then immediately loops
+        // back to await the next one. The for-await loop never stalls, so libxmtp
+        // has no window to advance the cursor past undelivered messages.
+        var isFirstMessage = true
+        let stream = params.client.conversationsProvider.streamAllMessages(
+            type: .all,
+            consentStates: params.consentStates,
+            onClose: {
+                Log.debug("Message stream closed via onClose callback")
+            }
+        )
+        do {
+            for try await message in stream {
+                try Task.checkCancellation()
+
+                if isFirstMessage {
+                    retryCount = 0
+                    isFirstMessage = false
+                }
+
+                continuation.yield((message, activeConversationId))
+            }
+            // Stream ended normally: signal no more messages and let the consumer
+            // drain the buffer fully before returning.
+            continuation.finish()
+            await consumer.value
+        } catch {
+            // Stream failed or was cancelled: discard buffered messages.
+            continuation.finish()
+            consumer.cancel()
+            throw error
         }
     }
 
