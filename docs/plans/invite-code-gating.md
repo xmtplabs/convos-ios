@@ -6,7 +6,7 @@
 
 ## Overview
 
-The "Instant assistant" toggle in the Assistants settings screen is currently available to all users. This feature gates that toggle behind a one-time invite code. The first time a user tries to enable "Instant assistant", they are prompted to enter a code. Once a valid code is redeemed, the feature is permanently unlocked for that account.
+The "Instant assistant" toggle in the Assistants settings screen is currently available to all users. This feature gates that toggle behind a one-time invite code. The first time a user tries to enable "Instant assistant", they are prompted to enter a code. Once a valid code is redeemed, the feature is permanently unlocked app-wide for that installation — not per-conversation.
 
 Codes are generated in bulk on the Convos backend and distributed manually. Shane manages code creation and visibility via Retool.
 
@@ -44,13 +44,13 @@ Acceptance criteria:
 - [ ] Tapping the toggle ON for the first time (when not yet unlocked) opens the code entry modal instead of immediately toggling on
 - [ ] Tapping outside the modal dismisses it without enabling the toggle
 - [ ] Submitting a valid code dismisses the modal and enables the toggle
-- [ ] The toggle remains ON and the unlock persists across app restarts (tied to the clientId / installation)
+- [ ] The toggle remains ON and the unlock persists across app restarts (stored locally — no server-side identity record)
 
 **As a user whose code has already been redeemed**, I want the toggle to work without any prompts so that I am not asked for a code again.
 
 Acceptance criteria:
-- [ ] On subsequent app launches, if the installation is already unlocked, the toggle reflects the current state with no code prompt
-- [ ] The unlock state is tied to the clientId (XMTP installation ID) — one code unlocks one installation
+- [ ] On subsequent app launches, if the local unlock state is set, the toggle reflects the current state with no code prompt
+- [ ] On a fresh install, the unlock state is gone — a new code is required (no server-side lookup)
 
 **As a user who enters an incorrect or already-used code**, I want clear feedback so that I understand what went wrong.
 
@@ -71,7 +71,7 @@ Acceptance criteria:
 - Primary button: "Continue" (blue, pill-shaped)
 - No explicit dismiss button — tapping the scrim behind the modal dismisses it
 
-**Success path**: Modal dismisses, toggle switches ON, user can now add an instant assistant to any conversation.
+**Success path**: Modal dismisses, toggle switches ON. The feature is unlocked app-wide — not tied to any specific conversation.
 
 **Error path**: Inline error message appears beneath the text field. Modal stays open. User can correct and retry.
 
@@ -90,21 +90,20 @@ Acceptance criteria:
 
 ### Persistence
 
-The unlocked state must be stored in two places:
+The unlock state is stored **locally only** (e.g., in UserDefaults or GRDB). The backend does not record who redeemed a code — it only validates the code and marks it as used (or deletes it). No server-side identity is stored.
 
-1. **Backend**: The redeemed code is marked as used and associated with the user's wallet address / account ID. This is the source of truth. When the app starts a session, it checks whether the account is unlocked.
-
-2. **Local cache**: The unlock state is cached locally (e.g., in UserDefaults or GRDB) to avoid a network round-trip on every app launch. The cache is populated when the API confirms a successful redemption or when the session start query returns the unlock state.
-
-On sign-out, the local cache for the previous account is cleared. On sign-in with a previously unlocked account, the backend state is fetched and repopulates the cache.
+This means:
+- On a fresh install, the unlock state is gone and a new code is required
+- No cross-device sync of unlock state
+- The backend cannot answer "is this user unlocked?" — the local store is the only record
 
 ### Architecture Notes
 
 - The unlock state check belongs in a service in ConvosCore
 - The modal is a new SwiftUI view in the main app target
 - The code redemption API call goes through `ConvosAPIClient`
-- The local cached unlock state is keyed per clientId (XMTP installation ID)
-- Unlock is installation-scoped: a user with two devices needs two codes (confirm with team)
+- The local unlock state is the source of truth — no backend query needed after a successful redemption
+- Privacy: the backend never stores who redeemed a code
 
 ---
 
@@ -117,14 +116,12 @@ A new database table holds invite codes. Suggested schema:
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | UUID | Primary key |
-| `code` | string | Unique, human-readable (e.g. `WXYZ-1234`) |
+| `code` | string | Unique, 8 uppercase letters (e.g. `XKQBWFMR`) |
 | `created_at` | timestamp | When the code was generated |
-| `redeemed_at` | timestamp | Null until used |
-| `redeemed_by` | string | clientId (XMTP installation ID) of the redeemer, null until used |
-| `created_by` | string | Shane's identifier or a batch label, for traceability |
+| `redeemed_at` | timestamp | Null until used; set on redemption |
 | `batch_label` | string | Optional label grouping codes from the same generation run |
 
-Codes are unique. A code cannot be redeemed more than once. The `redeemed_by` field is the authoritative record of who unlocked the feature.
+No `redeemed_by` column — the backend does not record who redeemed a code. On redemption, the row is either deleted or its `redeemed_at` is set. Either approach is fine; marking as redeemed (rather than deleting) is preferable for auditability in Retool.
 
 ### Code Generation
 
@@ -132,7 +129,7 @@ Shane generates codes in bulk via Retool. The generation interface should suppor
 
 - Specifying a count (e.g., generate 50 codes at once)
 - Optionally tagging codes with a batch label for tracking distribution campaigns
-- Viewing all existing codes with their redemption status (pending / redeemed, redeemed by whom, at what time)
+- Viewing all existing codes with their redemption status (pending / redeemed) and timestamp — no identity shown
 
 Code format: 8 uppercase random letters, e.g. `XKQBWFMR`. Exclude visually ambiguous characters (`O`, `I`). No hyphens or segments.
 
@@ -161,27 +158,18 @@ Code format: 8 uppercase random letters, e.g. `XKQBWFMR`. Exclude visually ambig
 | 422 | `CODE_INVALID_FORMAT` | Malformed code string (before DB lookup) |
 | 401 | — | Invalid or missing JWT |
 
-The endpoint must be idempotent for the same user: if the authenticated user has already redeemed any code, return a success response (do not error). This prevents double-redemption issues if a request is retried or if the client and server get out of sync.
+No idempotency guarantee — since the backend does not store who redeemed a code, it cannot detect a duplicate redemption by the same client. The client must not retry on a `200` response; it should only retry on network errors before a response is received.
 
-### Account Unlock State
+### Unlock State
 
-The backend must track whether a given installation has the feature unlocked. This is derived from the `invite_codes` table (any row where `redeemed_by` matches the requesting clientId).
-
-**Session/profile endpoint**: The existing session or profile endpoint that the iOS app calls on startup should include the unlock state in its response, so the app can hydrate its local cache without an extra round-trip.
-
-Suggested addition to the existing profile/session response:
-```json
-{
-  "instantAssistantUnlocked": true
-}
-```
+The backend has no record of which clients are unlocked. There is no session/profile flag to return. The local app store is the sole source of truth.
 
 ### Retool Integration
 
 The Retool setup already exists for other admin operations. What Shane needs:
 
 1. **Generate codes** — form with a count input and optional batch label, calls an internal API to bulk-insert codes
-2. **View codes** — table showing all codes, their status (pending / redeemed), redeemed-by wallet, redeemed-at timestamp, and batch label
+2. **View codes** — table showing all codes, their status (pending / redeemed), redeemed-at timestamp, and batch label — no identity shown
 3. **Filter / search** — filter by batch label or redemption status
 
 No delete or invalidation UI is needed in the initial version (codes that are not yet redeemed are valid indefinitely, unless the team decides to add expiry later).
@@ -193,13 +181,12 @@ No delete or invalidation UI is needed in the initial version (codes that are no
 | Risk | Impact | Mitigation |
 |------|--------|------------|
 | User loses network mid-redemption | Medium | Show a clear retry state; do not mark code as used until the server confirms |
-| Client caches "not unlocked" after a successful redemption | Low | On redemption success, immediately update local cache; also re-fetch on next session start |
+| Client fails to persist unlock after a successful redemption | Low | Write local unlock state synchronously before dismissing the modal |
 | Shane generates duplicate codes | Low | Enforce uniqueness constraint in the database |
-| User installs the app on a new device | Low | Each installation requires its own code; this is intentional (installation-scoped unlock) |
+| User installs the app on a new device | Low | Unlock state is local-only; a new code is required per install — this is intentional and privacy-preserving |
 
 ## Open Questions
 
-- [ ] Confirm: unlock is installation-scoped (clientId), meaning a user with two devices needs two codes — is this intended?
 - [ ] Is there a need to revoke or invalidate a code after distribution (e.g., if a code leaks publicly)?
 
 ## References
