@@ -8,7 +8,7 @@
 
 The "Instant assistant" toggle in the Assistants settings screen is currently available to all users. This feature gates that toggle behind a one-time invite code. The first time a user tries to enable "Instant assistant", they are prompted to enter a code. Once a valid code is redeemed, the feature is permanently unlocked app-wide for that installation — not per-conversation.
 
-Codes are generated in bulk on the Convos backend and distributed manually. Codes can be managed via Retool.
+Codes are generated in bulk on the Convos backend and distributed manually. Codes can be managed via a simple admin page served by the backend itself, protected by a password stored as an environment variable.
 
 ## Problem Statement
 
@@ -19,7 +19,7 @@ Instant assistant is a high-value, supply-constrained feature. Without access co
 - [ ] Gate the "Instant assistant" toggle behind a one-time invite code on first activation
 - [ ] Provide a clear, low-friction code entry experience that matches the Figma design
 - [ ] Permanently unlock the feature for a user once their code is successfully redeemed
-- [ ] Allow code generation and monitoring via the existing Retool setup
+- [ ] Allow code generation and monitoring via a self-contained admin page on the backend
 - [ ] Surface clear error feedback for invalid, already-used, or malformed codes
 
 ## Non-Goals
@@ -121,11 +121,11 @@ A new database table holds invite codes. Suggested schema:
 | `redeemed_at` | timestamp | Null until used; set on redemption |
 | `batch_label` | string | Optional label grouping codes from the same generation run |
 
-No `redeemed_by` column — the backend does not record who redeemed a code. On redemption, the row is either deleted or its `redeemed_at` is set. Either approach is fine; marking as redeemed (rather than deleting) is preferable for auditability in Retool.
+No `redeemed_by` column — the backend does not record who redeemed a code. On redemption, the row is either deleted or its `redeemed_at` is set. Either approach is fine; marking as redeemed (rather than deleting) is preferable for auditability in the admin page.
 
 ### Code Generation
 
-Codes are generated in bulk via Retool. The generation interface should support:
+Codes are generated in bulk via the admin page. The generation interface should support:
 
 - Specifying a count (e.g., generate 50 codes at once)
 - Optionally tagging codes with a batch label for tracking distribution campaigns
@@ -164,15 +164,27 @@ No idempotency guarantee — since the backend does not store who redeemed a cod
 
 The backend has no record of which clients are unlocked. There is no session/profile flag to return. The local app store is the sole source of truth.
 
-### Retool Integration
+### Admin Page
 
-The Retool setup already exists for other admin operations. What's needed:
+Instead of an external tool like Retool, the backend serves a self-contained admin page — a single static HTML page with inline CSS/JS that calls the backend's admin API endpoints. This keeps the admin interface simple, self-contained, and dependency-free.
 
-1. **Generate codes** — form with a count input and optional batch label, calls an internal API to bulk-insert codes
-2. **View codes** — table showing all codes, their status (pending / redeemed), redeemed-at timestamp, and batch label — no identity shown
-3. **Filter / search** — filter by batch label or redemption status
+**Authentication**: The page is protected by a password stored in an environment variable (e.g., `ADMIN_PASSWORD`). The page shows a login form; on submit, it exchanges the password for a session token (or sends it as a Bearer token on each request). The backend validates the password against the env var.
 
-No delete or invalidation UI is needed in the initial version (codes that are not yet redeemed are valid indefinitely, unless the team decides to add expiry later).
+**Admin API endpoints** (protected by the admin password, separate from the JWT-authenticated client endpoints):
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/admin/invite-codes` | GET | Serves the HTML admin page |
+| `/api/admin/invite-codes` | GET | List codes (supports `?batch=`, `?status=pending\|redeemed` query filters) |
+| `/api/admin/invite-codes/generate` | POST | Generate codes (`{ "count": 50, "batch_label": "launch-wave-1" }`) |
+
+**Page features**:
+
+1. **Login screen** — password field, submits against the env var, stores auth in memory (not persisted across page reloads for security)
+2. **Generate codes** — form with count input and optional batch label field, generates codes and displays the newly created batch
+3. **View/filter codes** — table of all codes showing code, status (pending/redeemed), redeemed-at timestamp, and batch label. Filterable by batch label and redemption status
+
+No delete or invalidation UI is needed in the initial version.
 
 ---
 
