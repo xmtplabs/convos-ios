@@ -8,7 +8,7 @@
 
 The "Instant assistant" toggle in the Assistants settings screen is currently available to all users. This feature gates that toggle behind a one-time invite code. The first time a user tries to enable "Instant assistant", they are prompted to enter a code. Once a valid code is redeemed, the feature is permanently unlocked app-wide for that installation — not per-conversation.
 
-Codes are generated in bulk on the Convos backend and distributed manually. Shane manages code creation and visibility via Retool.
+Codes are generated in bulk on the Convos backend and distributed manually. Codes can be managed via Retool.
 
 ## Problem Statement
 
@@ -19,7 +19,7 @@ Instant assistant is a high-value, supply-constrained feature. Without access co
 - [ ] Gate the "Instant assistant" toggle behind a one-time invite code on first activation
 - [ ] Provide a clear, low-friction code entry experience that matches the Figma design
 - [ ] Permanently unlock the feature for a user once their code is successfully redeemed
-- [ ] Allow Shane to generate and monitor codes via the existing Retool setup
+- [ ] Allow code generation and monitoring via the existing Retool setup
 - [ ] Surface clear error feedback for invalid, already-used, or malformed codes
 
 ## Non-Goals
@@ -125,7 +125,7 @@ No `redeemed_by` column — the backend does not record who redeemed a code. On 
 
 ### Code Generation
 
-Shane generates codes in bulk via Retool. The generation interface should support:
+Codes are generated in bulk via Retool. The generation interface should support:
 
 - Specifying a count (e.g., generate 50 codes at once)
 - Optionally tagging codes with a batch label for tracking distribution campaigns
@@ -166,7 +166,7 @@ The backend has no record of which clients are unlocked. There is no session/pro
 
 ### Retool Integration
 
-The Retool setup already exists for other admin operations. What Shane needs:
+The Retool setup already exists for other admin operations. What's needed:
 
 1. **Generate codes** — form with a count input and optional batch label, calls an internal API to bulk-insert codes
 2. **View codes** — table showing all codes, their status (pending / redeemed), redeemed-at timestamp, and batch label — no identity shown
@@ -182,7 +182,7 @@ No delete or invalidation UI is needed in the initial version (codes that are no
 |------|--------|------------|
 | User loses network mid-redemption | Medium | Show a clear retry state; do not mark code as used until the server confirms |
 | Client fails to persist unlock after a successful redemption | Low | Write local unlock state synchronously before dismissing the modal |
-| Shane generates duplicate codes | Low | Enforce uniqueness constraint in the database |
+| Duplicate codes generated | Low | Enforce uniqueness constraint in the database |
 | User installs the app on a new device | Low | Unlock state is local-only; a new code is required per install — this is intentional and privacy-preserving |
 
 ## Open Questions
