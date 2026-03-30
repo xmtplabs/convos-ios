@@ -27,6 +27,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
 
     func inviteRepository(for conversationId: String) -> any InviteRepositoryProtocol
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
+    func redeemInviteCode(_ code: String) async throws
 
     func conversationRepository(
         for conversationId: String,

@@ -248,6 +248,10 @@ private final class TestSessionManager: SessionManagerProtocol, @unchecked Senda
         try await base.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
     }
 
+    func redeemInviteCode(_ code: String) async throws {
+        try await base.redeemInviteCode(code)
+    }
+
     func pendingInviteDetails() throws -> [PendingInviteDetail] {
         try base.pendingInviteDetails()
     }
