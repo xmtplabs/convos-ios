@@ -130,3 +130,4 @@ qa/cxdb/qa.sqlite-wal
 qa/cxdb/qa.sqlite-shm
 .DS_Store
 .mote-preview.html
+.pi/convos.json
