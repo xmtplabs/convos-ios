@@ -141,7 +141,7 @@ private func messageIds(from items: [MessagesListItemType]) -> [String] {
     items.flatMap { item -> [String] in
         switch item {
         case .messages(let group):
-            return group.messages.map { $0.base.id }
+            return group.messages.map { $0.messageId }
         case .update(let id, _, _):
             return [id]
         default:
@@ -277,9 +277,9 @@ struct MessagesListProcessorOrderTests {
         ]
         let result = MessagesListProcessor.process(messages)
         let g = groups(from: result)
-        #expect(g[0].messages[0].base.id == "first")
-        #expect(g[0].messages[1].base.id == "second")
-        #expect(g[0].messages[2].base.id == "third")
+        #expect(g[0].messages[0].messageId == "first")
+        #expect(g[0].messages[1].messageId == "second")
+        #expect(g[0].messages[2].messageId == "third")
     }
 
     @Test("Overall message order across groups is preserved")
@@ -307,9 +307,9 @@ struct MessagesListProcessorOrderTests {
         let result = MessagesListProcessor.process(messages)
         let g = groups(from: result)
         #expect(g.count == 1)
-        #expect(g[0].messages[0].base.id == "msg-1")
-        #expect(g[0].messages[1].base.id == "reply-1")
-        #expect(g[0].messages[2].base.id == "msg-2")
+        #expect(g[0].messages[0].messageId == "msg-1")
+        #expect(g[0].messages[1].messageId == "reply-1")
+        #expect(g[0].messages[2].messageId == "msg-2")
     }
 
     @Test("Mixed message types maintain chronological order")
@@ -323,9 +323,9 @@ struct MessagesListProcessorOrderTests {
         let result = MessagesListProcessor.process(messages)
         let g = groups(from: result)
         #expect(g.count == 1)
-        #expect(g[0].messages[0].base.id == "text-1")
-        #expect(g[0].messages[1].base.id == "emoji-1")
-        #expect(g[0].messages[2].base.id == "text-2")
+        #expect(g[0].messages[0].messageId == "text-1")
+        #expect(g[0].messages[1].messageId == "emoji-1")
+        #expect(g[0].messages[2].messageId == "text-2")
     }
 }
 
@@ -414,9 +414,9 @@ struct MessagesListProcessorAttachmentTests {
         let result = MessagesListProcessor.process(messages)
         let g = groups(from: result)
         #expect(g.count == 3)
-        #expect(g[0].messages[0].base.id == "text-1")
-        #expect(g[1].messages[0].base.id == "photo-1")
-        #expect(g[2].messages[0].base.id == "text-2")
+        #expect(g[0].messages[0].messageId == "text-1")
+        #expect(g[1].messages[0].messageId == "photo-1")
+        #expect(g[2].messages[0].messageId == "text-2")
     }
 
     @Test("Consecutive attachments from same sender each get own group")
@@ -785,9 +785,9 @@ struct MessagesListProcessorComplexTests {
         let result = MessagesListProcessor.process(messages)
         let g = groups(from: result)
         #expect(g.count == 3)
-        #expect(g[0].messages[0].base.id == "t1")
-        #expect(g[1].messages[0].base.id == "a1")
-        #expect(g[2].messages[0].base.id == "t2")
+        #expect(g[0].messages[0].messageId == "t1")
+        #expect(g[1].messages[0].messageId == "a1")
+        #expect(g[2].messages[0].messageId == "t2")
     }
 
     @Test("Date separator + sender change + attachment in sequence")
