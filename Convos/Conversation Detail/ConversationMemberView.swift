@@ -47,7 +47,6 @@ struct ConversationMemberView: View {
                                 .foregroundStyle(.colorTextSecondary)
                                 .multilineTextAlignment(.center)
                         }
-
                     }
                 }
                 Spacer()
