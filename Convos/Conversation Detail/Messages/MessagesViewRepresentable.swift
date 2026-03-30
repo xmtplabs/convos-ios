@@ -20,7 +20,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
-    let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
@@ -81,7 +80,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onPhotoDimensionsLoaded = { key, width, height in
             self.onPhotoDimensionsLoaded(key, width, height)
         }
-        messagesViewController.onAboutAssistants = onAboutAssistants
         messagesViewController.onAgentOutOfCredits = onAgentOutOfCredits
         messagesViewController.onTapUpdateMember = { member in
             self.onTapUpdateMember(member)
@@ -141,7 +139,6 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },
-        onAboutAssistants: {},
         onAgentOutOfCredits: {},
         onTapUpdateMember: { _ in },
         onRetryMessage: { _ in },

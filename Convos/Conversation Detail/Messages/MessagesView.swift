@@ -45,7 +45,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
-    let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
     let onRetryMessage: (AnyMessage) -> Void
@@ -85,7 +84,6 @@ struct MessagesView<BottomBarContent: View>: View {
             onPhotoRevealed: onPhotoRevealed,
             onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-            onAboutAssistants: onAboutAssistants,
             onAgentOutOfCredits: onAgentOutOfCredits,
             onTapUpdateMember: onTapUpdateMember,
             onRetryMessage: onRetryMessage,

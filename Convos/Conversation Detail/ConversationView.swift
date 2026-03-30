@@ -13,7 +13,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @ViewBuilder let bottomBarContent: () -> MessagesBottomBar
 
     @State private var showingLockedInfo: Bool = false
-    @State private var showingAssistantsInfo: Bool = false
     @State private var showingProcessingPowerInfo: Bool = false
     @State private var showingFullInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
@@ -81,7 +80,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
-            onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onRetryMessage: viewModel.retryMessage(_:),
@@ -231,10 +229,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 quicknameViewModel: quicknameViewModel
             )
             .background(.colorBackgroundSurfaceless)
-        }
-        .selfSizingSheet(isPresented: $showingAssistantsInfo) {
-            AssistantsInfoView()
-                .padding(.top, 20)
         }
         .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
             AssistantsInfoView(

@@ -5,7 +5,7 @@ struct AssistantJoinedInfoView: View {
 
     var body: some View {
         let action = {
-            if let url = URL(string: "https://www.convos.org/assistants") {
+            if let url = URL(string: Constant.assistantsURLString) {
                 openURL(url, prefersInApp: true)
             }
         }
@@ -19,6 +19,10 @@ struct AssistantJoinedInfoView: View {
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, DesignConstants.Spacing.step4x)
+    }
+
+    private enum Constant {
+        static let assistantsURLString: String = "https://www.convos.org/assistants"
     }
 }
 

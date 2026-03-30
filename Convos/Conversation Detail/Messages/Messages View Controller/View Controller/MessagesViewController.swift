@@ -184,7 +184,6 @@ final class MessagesViewController: UIViewController {
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
     var onPhotoDimensionsLoaded: ((String, Int, Int) -> Void)?
-    var onAboutAssistants: (() -> Void)?
     var onAgentOutOfCredits: (() -> Void)?
     var onTapUpdateMember: ((ConversationMember) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
@@ -348,9 +347,6 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onPhotoDimensionsLoaded = { [weak self] attachmentKey, width, height in
             self?.onPhotoDimensionsLoaded?(attachmentKey, width, height)
-        }
-        dataSource.onAboutAssistants = { [weak self] in
-            self?.onAboutAssistants?()
         }
         dataSource.onAgentOutOfCredits = { [weak self] in
             self?.onAgentOutOfCredits?()
