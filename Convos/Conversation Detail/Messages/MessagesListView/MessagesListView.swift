@@ -72,8 +72,8 @@ struct MessagesListView: View {
                                         }
                                     )
                                         .padding(.vertical, DesignConstants.Spacing.stepX)
-                                    if update.addedAgent, let agent = update.addedMembers.first(where: \.isAgent) {
-                                        AssistantJoinedInfoView(onTap: { onTapUpdateMember(agent) })
+                                    if update.addedAgent {
+                                        AssistantJoinedInfoView()
                                     }
                                 }
 

@@ -1,10 +1,14 @@
 import SwiftUI
 
 struct AssistantJoinedInfoView: View {
-    let onTap: () -> Void
+    @Environment(\.openURL) private var openURL: OpenURLAction
 
     var body: some View {
-        let action = { onTap() }
+        let action = {
+            if let url = URL(string: "https://www.convos.org/skills") {
+                openURL(url, prefersInApp: true)
+            }
+        }
         Button(action: action) {
             Text("See what it can do")
                 .font(.caption)
@@ -19,5 +23,5 @@ struct AssistantJoinedInfoView: View {
 }
 
 #Preview {
-    AssistantJoinedInfoView(onTap: {})
+    AssistantJoinedInfoView()
 }
