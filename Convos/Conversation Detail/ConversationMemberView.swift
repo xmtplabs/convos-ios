@@ -113,7 +113,7 @@ struct ConversationMemberView: View {
                 .accessibilityIdentifier("block-member-button")
                 .confirmationDialog("", isPresented: $presentingBlockConfirmation) {
                     Button("Block and leave", role: .destructive) {
-                        viewModel.leaveConvo()
+                        viewModel.blockAndLeaveConvo()
                     }
                     Button(role: .cancel) {
                         presentingBlockConfirmation = false
@@ -138,7 +138,7 @@ struct ConversationMemberView: View {
                 .accessibilityIdentifier("block-member-button")
                 .confirmationDialog("", isPresented: $presentingBlockConfirmation) {
                     Button("Block and leave", role: .destructive) {
-                        viewModel.leaveConvo()
+                        viewModel.blockAndLeaveConvo()
                     }
                     Button(role: .cancel) {
                         presentingBlockConfirmation = false
