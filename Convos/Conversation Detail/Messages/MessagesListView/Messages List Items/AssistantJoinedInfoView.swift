@@ -5,7 +5,7 @@ struct AssistantJoinedInfoView: View {
 
     var body: some View {
         let action = {
-            if let url = URL(string: "https://www.convos.org/skills") {
+            if let url = URL(string: "https://www.convos.org/assistants") {
                 openURL(url, prefersInApp: true)
             }
         }
