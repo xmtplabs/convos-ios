@@ -15,7 +15,6 @@ struct MessagesListView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onTapUpdateMember: (ConversationMember) -> Void
-    let onAboutAssistants: () -> Void
     let onAgentOutOfCredits: () -> Void
     let onRetryAssistantJoin: () -> Void
     let onCopyInviteLink: () -> Void
@@ -72,8 +71,8 @@ struct MessagesListView: View {
                                         }
                                     )
                                         .padding(.vertical, DesignConstants.Spacing.stepX)
-                                    if update.addedAgent, let agent = update.addedMembers.first(where: \.isAgent) {
-                                        AssistantJoinedInfoView(onTap: { onTapUpdateMember(agent) })
+                                    if update.addedAgent {
+                                        AssistantJoinedInfoView()
                                     }
                                 }
 

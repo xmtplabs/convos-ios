@@ -189,7 +189,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onPhotoRevealed: { _ in },
             onPhotoHidden: { _ in },
             onPhotoDimensionsLoaded: { _, _, _ in },
-            onAboutAssistants: {},
             onAgentOutOfCredits: {},
             onTapUpdateMember: { _ in },
             onRetryMessage: { _ in },
