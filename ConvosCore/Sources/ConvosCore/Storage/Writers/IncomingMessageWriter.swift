@@ -132,11 +132,16 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
                 try updatedMessage.save(db)
                 Log.debug("BRANCH 3: Saved with clientMessageId=\(existingMessage.clientMessageId), sortId=\(existingMessage.sortId ?? -1)")
             } else {
-                // Truly new incoming message from another user - assign a new sortId
-                let maxSortId = try Int64.fetchOne(db, sql: """
-                    SELECT COALESCE(MAX(sortId), 0) FROM message WHERE conversationId = ?
-                """, arguments: [conversation.id]) ?? 0
-                let newSortId = maxSortId + 1
+                // Truly new incoming message - assign sortId based on chronological position.
+                // Find the correct insertion point by dateNs so messages from the NSE
+                // and main app always end up in chronological order regardless of
+                // which process writes first.
+                let newSortId = try Self.chronologicalSortId(
+                    for: message.dateNs,
+                    messageId: message.id,
+                    conversationId: conversation.id,
+                    in: db
+                )
                 let messageWithSortId = message.with(sortId: newSortId)
 
                 do {
@@ -266,6 +271,51 @@ class IncomingMessageWriter: IncomingMessageWriterProtocol, @unchecked Sendable 
         }
 
         return explodeSettings
+    }
+
+    /// Computes a sortId that places the message in chronological order within the conversation.
+    ///
+    /// Instead of always appending (`MAX(sortId) + 1`), this finds the correct position
+    /// based on `dateNs` and shifts later messages to make room. This ensures messages
+    /// processed out of order (e.g., by the NSE vs main app) still display chronologically.
+    ///
+    /// Tiebreaker: when two messages share the same `dateNs`, the message with the
+    /// lexicographically smaller `id` (XMTP hex-encoded message IDs) is placed first
+    /// for deterministic ordering.
+    ///
+    /// Performance: the shift operation is O(n) where n is the number of messages after
+    /// the insertion point. This is acceptable because (a) most incoming messages append
+    /// to the end (no shift needed), and (b) the out-of-order case from NSE catch-up
+    /// typically involves only a few messages near the tail. The existing
+    /// `(conversationId, sortId)` index keeps the UPDATE efficient.
+    static func chronologicalSortId(
+        for dateNs: Int64,
+        messageId: String,
+        conversationId: String,
+        in db: Database
+    ) throws -> Int64 {
+        // Find the sortId of the message that should come immediately before this one.
+        // "Before" means: smaller dateNs, or same dateNs with smaller id (tiebreaker).
+        // Reactions have nil sortId and are excluded via the IS NOT NULL filter.
+        let predecessorSortId = try Int64.fetchOne(db, sql: """
+            SELECT sortId FROM message
+            WHERE conversationId = ?
+              AND sortId IS NOT NULL
+              AND (dateNs < ? OR (dateNs = ? AND id < ?))
+            ORDER BY dateNs DESC, id DESC
+            LIMIT 1
+        """, arguments: [conversationId, dateNs, dateNs, messageId])
+
+        // 0 means no predecessor found — this message is the oldest in the conversation
+        let insertAfter = predecessorSortId ?? 0
+
+        // Shift all messages with sortId > insertAfter up by 1 to make room
+        try db.execute(sql: """
+            UPDATE message SET sortId = sortId + 1
+            WHERE conversationId = ? AND sortId > ?
+        """, arguments: [conversationId, insertAfter])
+
+        return insertAfter + 1
     }
 
     func processExplodeSettings(
