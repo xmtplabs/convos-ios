@@ -53,7 +53,6 @@ struct LinkPreviewCardView: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .blendMode(.multiply)
                 } else if hasFetchedMetadata {
                     EmptyView()
                 } else {
@@ -69,16 +68,15 @@ struct LinkPreviewCardView: View {
             .clipped()
             .background(.colorFillSubtle)
 
-            VStack(alignment: .leading, spacing: 2.0) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(displayTitle)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(.black)
-                    .font(.callout.weight(.bold))
-                    .fontWeight(.bold)
+                    .foregroundStyle(.colorTextPrimary)
+                    .font(.callout.weight(.medium))
                     .truncationMode(.tail)
                 Text(displaySubtitle)
-                    .font(.subheadline)
+                    .font(.caption)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.colorTextSecondary)
             }
