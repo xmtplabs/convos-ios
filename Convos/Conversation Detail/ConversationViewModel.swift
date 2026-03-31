@@ -1049,6 +1049,24 @@ extension ConversationViewModel {
         }
     }
 
+    func blockAndLeaveConvo() {
+        let consentWriter = consentWriter
+        let conversation = conversation
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await consentWriter.delete(conversation: conversation)
+                try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
+                await MainActor.run {
+                    self.presentingConversationSettings = false
+                    self.conversation.postLeftConversationNotification()
+                }
+            } catch {
+                Log.error("Error blocking and leaving convo: \(error.localizedDescription)")
+            }
+        }
+    }
+
     @MainActor
     func exportDebugLogs() async throws -> URL {
         let environment = ConfigManager.shared.currentEnvironment
