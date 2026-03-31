@@ -64,8 +64,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func isInboxAwake(clientId: String) async -> Bool
     func isInboxSleeping(clientId: String) async -> Bool
 
-    // MARK: Helpers
+    // MARK: Notification Actions
 
+    func sendNotificationReply(text: String, conversationId: String) async throws
     func inboxId(for conversationId: String) async -> String?
 
     // MARK: Debug

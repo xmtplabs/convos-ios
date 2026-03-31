@@ -169,6 +169,7 @@ extension DecodedNotificationContent {
         if let conversationId {
             content.threadIdentifier = conversationId
         }
+        content.categoryIdentifier = NotificationAction.messageCategoryIdentifier
         return content
     }
 }
