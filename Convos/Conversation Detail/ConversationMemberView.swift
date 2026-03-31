@@ -21,6 +21,17 @@ struct ConversationMemberView: View {
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
+        .alert(
+            "Block \(member.profile.displayName) and leave convo?",
+            isPresented: $presentingBlockConfirmation
+        ) {
+            let cancelAction = { presentingBlockConfirmation = false }
+            Button("Cancel", role: .cancel, action: cancelAction)
+            let confirmAction = { viewModel.blockAndLeaveConvo() }
+            Button("Confirm", role: .destructive, action: confirmAction)
+        } message: {
+            Text("They won't know they're blocked, and you'll leave this conversation so they can't reach you here.")
+        }
     }
 
     private var headerSection: some View {
@@ -66,6 +77,7 @@ struct ConversationMemberView: View {
             }
         } footer: {
             Text("Browse 100+ curated capabilities")
+                .foregroundStyle(.colorTextSecondary)
         }
 
         Section {
@@ -75,6 +87,7 @@ struct ConversationMemberView: View {
             }
         } footer: {
             Text("Capabilities, privacy and security")
+                .foregroundStyle(.colorTextSecondary)
         }
 
         if viewModel.canRemoveMembers {
@@ -94,6 +107,7 @@ struct ConversationMemberView: View {
                 .accessibilityIdentifier("remove-member-button")
             } footer: {
                 Text("Dismiss and destroy this assistant")
+                    .foregroundStyle(.colorTextSecondary)
             }
         }
 
@@ -109,16 +123,9 @@ struct ConversationMemberView: View {
                 }
                 .accessibilityLabel("Block \(member.profile.displayName)")
                 .accessibilityIdentifier("block-member-button")
-                .confirmationDialog("", isPresented: $presentingBlockConfirmation) {
-                    Button("Block and leave", role: .destructive) {
-                        viewModel.blockAndLeaveConvo()
-                    }
-                    Button(role: .cancel) {
-                        presentingBlockConfirmation = false
-                    }
-                }
             } footer: {
                 Text("Leave this convo and block this assistant")
+                    .foregroundStyle(.colorTextSecondary)
             }
         }
     }
@@ -126,27 +133,6 @@ struct ConversationMemberView: View {
     @ViewBuilder
     private var nonAgentSections: some View {
         if !member.isCurrentUser {
-            Section {
-                let action = { presentingBlockConfirmation = true }
-                Button(action: action) {
-                    Text("Block")
-                        .foregroundStyle(.colorCaution)
-                }
-                .accessibilityLabel("Block \(member.profile.displayName)")
-                .accessibilityIdentifier("block-member-button")
-                .confirmationDialog("", isPresented: $presentingBlockConfirmation) {
-                    Button("Block and leave", role: .destructive) {
-                        viewModel.blockAndLeaveConvo()
-                    }
-                    Button(role: .cancel) {
-                        presentingBlockConfirmation = false
-                    }
-                }
-            } footer: {
-                Text("Block \(member.profile.displayName.capitalized) and leave the convo")
-                    .foregroundStyle(.colorTextSecondary)
-            }
-
             if viewModel.canRemoveMembers {
                 Section {
                     let action = {
@@ -155,13 +141,33 @@ struct ConversationMemberView: View {
                     }
                     Button(action: action) {
                         Text("Remove")
-                            .foregroundStyle(.colorTextSecondary)
+                            .font(.body)
+                            .foregroundStyle(.colorCaution)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .contentShape(Rectangle())
                     }
                     .accessibilityLabel("Remove \(member.profile.displayName)")
                     .accessibilityIdentifier("remove-member-button")
                 } footer: {
-                    Text("Remove \(member.profile.displayName.capitalized) from the convo")
+                    Text("Remove \(member.profile.displayName) from the convo")
+                        .foregroundStyle(.colorTextSecondary)
                 }
+            }
+
+            Section {
+                let action = { presentingBlockConfirmation = true }
+                Button(action: action) {
+                    Text("Block and leave")
+                        .font(.body)
+                        .foregroundStyle(.colorCaution)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
+                }
+                .accessibilityLabel("Block \(member.profile.displayName)")
+                .accessibilityIdentifier("block-member-button")
+            } footer: {
+                Text("Leave this convo and block \(member.profile.displayName)")
+                    .foregroundStyle(.colorTextSecondary)
             }
         }
     }
