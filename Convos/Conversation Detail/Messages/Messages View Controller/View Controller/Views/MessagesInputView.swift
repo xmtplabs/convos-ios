@@ -11,7 +11,7 @@ struct MessagesInputView: View {
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
     var composerLinkPreview: LinkPreview?
-    var pendingInviteCode: String?
+    var pendingInviteURL: String?
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForQuickname: Bool
@@ -49,7 +49,7 @@ struct MessagesInputView: View {
     }
 
     private var hasAttachments: Bool {
-        selectedAttachmentImage != nil || pendingInviteCode != nil || composerLinkPreview != nil
+        selectedAttachmentImage != nil || pendingInviteURL != nil || composerLinkPreview != nil
     }
 
     var body: some View {
@@ -131,8 +131,8 @@ struct MessagesInputView: View {
                 if let image = selectedAttachmentImage {
                     attachmentPreview(image: image)
                 }
-                if pendingInviteCode != nil {
-                    inviteAttachmentPreview
+                if let pendingInviteURL {
+                    inviteAttachmentPreview(url: pendingInviteURL)
                 }
                 if let composerLinkPreview {
                     linkPreviewAttachment(preview: composerLinkPreview)
@@ -185,34 +185,15 @@ struct MessagesInputView: View {
     }
 
     @ViewBuilder
-    private var inviteAttachmentPreview: some View {
-        let invitePreviewWidth: CGFloat = 90
+    private func inviteAttachmentPreview(url: String) -> some View {
         ZStack(alignment: .topTrailing) {
-            VStack(spacing: 0) {
-                ZStack {
-                    Image("convosOrangeIcon")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .frame(width: 22, height: 22)
-                }
-                .frame(width: invitePreviewWidth, height: attachmentPreviewSize * 0.6)
-                .background(.colorFillPrimary)
-
-                Text("Invite")
-                    .font(.caption2.weight(.medium))
-                    .foregroundStyle(.colorTextPrimary)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: attachmentPreviewSize * 0.4)
-                    .background(.colorFillMinimal)
-            }
-            .frame(width: invitePreviewWidth, height: attachmentPreviewSize)
-            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
-            .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
-            .blur(radius: isPoofingInvite ? 12.0 : 0.0)
-            .opacity(isPoofingInvite ? 0.0 : 1.0)
-            .accessibilityLabel("Invite attachment preview")
-            .accessibilityIdentifier("invite-attachment-preview")
+            ComposerInvitePreviewCard(inviteURL: url)
+                .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+                .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
+                .blur(radius: isPoofingInvite ? 12.0 : 0.0)
+                .opacity(isPoofingInvite ? 0.0 : 1.0)
+                .accessibilityLabel("Invite attachment preview")
+                .accessibilityIdentifier("invite-attachment-preview")
 
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -405,6 +386,107 @@ private struct ComposerImageAreaModifier: ViewModifier {
     }
 }
 
+private struct ComposerInvitePreviewCard: View {
+    let inviteURL: String
+
+    @State private var ogTitle: String?
+    @State private var cachedImage: UIImage?
+    @State private var imageAspectRatio: CGFloat?
+    @State private var hasFetchedMetadata: Bool = false
+
+    private let previewWidth: CGFloat = 200.0
+
+    private var clampedAspectRatio: CGFloat {
+        let ratio = imageAspectRatio ?? 1.91
+        return min(max(ratio, 0.75), 2.0)
+    }
+
+    private var displayTitle: String {
+        ogTitle ?? "Join this convo"
+    }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack {
+                if let image = cachedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                } else {
+                    Image("convosOrangeIcon")
+                        .resizable()
+                        .aspectRatio(contentMode: .fit)
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .frame(width: 40, height: 40)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 80.0)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil, aspectRatio: clampedAspectRatio))
+            .clipped()
+            .background(.colorFillPrimary)
+
+            VStack(alignment: .leading, spacing: 2.0) {
+                Text(displayTitle)
+                    .font(.footnote)
+                    .foregroundStyle(.black)
+                    .lineLimit(2)
+                    .truncationMode(.tail)
+                Text("You're invited")
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .lineLimit(1)
+            }
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .frame(width: previewWidth, alignment: .leading)
+            .background(.colorFillSubtle)
+        }
+        .frame(width: previewWidth)
+        .task {
+            await fetchMetadata()
+        }
+    }
+
+    private func fetchMetadata() async {
+        guard !hasFetchedMetadata else { return }
+        let metadata = await OpenGraphService.shared.fetchMetadata(for: inviteURL)
+        if let metadata {
+            ogTitle = metadata.title
+            if let w = metadata.imageWidth, let h = metadata.imageHeight, w > 0, h > 0 {
+                imageAspectRatio = CGFloat(w) / CGFloat(h)
+            }
+            if let imageURLString = metadata.imageURL,
+               let imageURL = URL(string: imageURLString) {
+                await loadImage(from: imageURL)
+            }
+        }
+        hasFetchedMetadata = true
+    }
+
+    private func loadImage(from url: URL) async {
+        let cacheKey = url.absoluteString
+        if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
+            cachedImage = cached
+            imageAspectRatio = cached.size.width / cached.size.height
+            return
+        }
+        do {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            guard OpenGraphService.isValidImageData(data) else { return }
+            if let image = UIImage(data: data),
+               OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
+                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+                cachedImage = image
+                imageAspectRatio = image.size.width / image.size.height
+            }
+        } catch {
+            Log.error("Failed to load invite preview image")
+        }
+    }
+}
+
 #Preview {
     @Previewable @State var profile: Profile = .mock()
     @Previewable @State var displayName: String = "Andrew"
@@ -412,7 +494,7 @@ private struct ComposerImageAreaModifier: ViewModifier {
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
     @Previewable @State var selectedAttachmentImage: UIImage?
-    @Previewable @State var pendingInviteCodePreview: String? = "test-invite-code"
+    @Previewable @State var pendingInviteURLPreview: String? = "https://convos.xyz/invite/test-code"
     @Previewable @State var animateAvatarForQuickname: Bool = false
     @Previewable @FocusState var focusState: MessagesViewInputFocus?
 
@@ -435,14 +517,14 @@ private struct ComposerImageAreaModifier: ViewModifier {
             emptyDisplayNamePlaceholder: "Somebody",
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
-            pendingInviteCode: pendingInviteCodePreview,
+            pendingInviteURL: pendingInviteURLPreview,
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
             animateAvatarForQuickname: animateAvatarForQuickname,
             messagesTextFieldEnabled: true,
             onProfilePhotoTap: {},
             onSendMessage: {},
-            onClearInvite: { pendingInviteCodePreview = nil }
+            onClearInvite: { pendingInviteURLPreview = nil }
         )
         .padding(DesignConstants.Spacing.step2x)
     }
