@@ -312,7 +312,7 @@ private struct ComposerLinkPreviewCard: View {
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
                     .font(.footnote)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.colorTextPrimary)
                     .lineLimit(2)
                     .truncationMode(.tail)
                 Text(displaySubtitle)
@@ -430,7 +430,7 @@ private struct ComposerInvitePreviewCard: View {
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
                     .font(.footnote)
-                    .foregroundStyle(.black)
+                    .foregroundStyle(.colorTextPrimary)
                     .lineLimit(2)
                     .truncationMode(.tail)
                 Text("You're invited")
