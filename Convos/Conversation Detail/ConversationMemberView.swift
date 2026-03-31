@@ -32,7 +32,7 @@ struct ConversationMemberView: View {
                         .frame(width: 160.0, height: 160.0)
 
                     VStack(spacing: DesignConstants.Spacing.step2x) {
-                        Text(member.profile.displayName.capitalized)
+                        Text(member.profile.displayName)
                             .font(.largeTitle)
                             .fontWeight(.semibold)
                             .foregroundStyle(.colorTextPrimary)
@@ -60,8 +60,7 @@ struct ConversationMemberView: View {
     @ViewBuilder
     private var agentSections: some View {
         Section {
-            let url = URL(string: "https://convos.org/assistants")
-            let action = { if let url { openURL(url) } }
+            let action = { openURL(Constant.getSkillsURL) }
             Button(action: action) {
                 cardRow(title: "Get skills")
             }
@@ -70,8 +69,7 @@ struct ConversationMemberView: View {
         }
 
         Section {
-            let url = URL(string: "https://learn.convos.org/assistants")
-            let action = { if let url { openURL(url) } }
+            let action = { openURL(Constant.learnAboutAssistantsURL) }
             Button(action: action) {
                 cardRow(title: "Learn about assistants")
             }
@@ -183,7 +181,7 @@ struct ConversationMemberView: View {
     private var memberSubtitle: String? {
         var parts: [String] = []
         if member.isAgent {
-            parts.append("IA")
+            parts.append(Constant.agentLabel)
         }
         if let joinedAt = member.joinedAt {
             let formatter = RelativeDateTimeFormatter()
@@ -199,6 +197,14 @@ struct ConversationMemberView: View {
         }
         guard !parts.isEmpty else { return nil }
         return parts.joined(separator: " · ")
+    }
+
+    private enum Constant {
+        static let agentLabel: String = "IA"
+        // swiftlint:disable:next force_unwrapping
+        static let getSkillsURL: URL = URL(string: "https://convos.org/assistants")!
+        // swiftlint:disable:next force_unwrapping
+        static let learnAboutAssistantsURL: URL = URL(string: "https://learn.convos.org/assistants")!
     }
 }
 
