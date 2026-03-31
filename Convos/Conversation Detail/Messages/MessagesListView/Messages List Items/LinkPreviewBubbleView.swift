@@ -67,7 +67,7 @@ struct LinkPreviewCardView: View {
             .frame(maxWidth: .infinity)
             .modifier(ImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorFillMinimal)
+            .background(.colorFillSubtle)
 
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
@@ -87,7 +87,7 @@ struct LinkPreviewCardView: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 280.0, alignment: .leading)
-        .background(.colorLinkBackground)
+        .background(.colorFillSubtle)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Link preview: \(displayTitle)")
         .accessibilityHint("Opens \(preview.displayHost)")

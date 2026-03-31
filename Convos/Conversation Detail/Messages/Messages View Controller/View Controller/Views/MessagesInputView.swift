@@ -245,7 +245,6 @@ struct MessagesInputView: View {
     private func linkPreviewAttachment(preview: LinkPreview) -> some View {
         ZStack(alignment: .topTrailing) {
             ComposerLinkPreviewCard(preview: preview)
-                .frame(height: attachmentPreviewSize)
                 .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
                 .scaleEffect(isPoofingLinkPreview ? 1.3 : 1.0)
                 .blur(radius: isPoofingLinkPreview ? 12.0 : 0.0)
@@ -285,6 +284,7 @@ private struct ComposerLinkPreviewCard: View {
     @State private var ogTitle: String?
     @State private var ogSiteName: String?
     @State private var cachedImage: UIImage?
+    @State private var imageAspectRatio: CGFloat?
     @State private var hasFetchedMetadata: Bool = false
 
     private var displayTitle: String {
@@ -299,7 +299,12 @@ private struct ComposerLinkPreviewCard: View {
         return preview.displayHost
     }
 
-    private let previewWidth: CGFloat = 140.0
+    private var clampedAspectRatio: CGFloat {
+        let ratio = imageAspectRatio ?? preview.imageAspectRatio ?? 1.91
+        return min(max(ratio, 0.75), 2.0)
+    }
+
+    private let previewWidth: CGFloat = 200.0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -308,32 +313,38 @@ private struct ComposerLinkPreviewCard: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                } else if hasFetchedMetadata {
+                    EmptyView()
                 } else {
                     Image(systemName: "link")
                         .font(.title3)
                         .foregroundStyle(.colorTextSecondary)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 80.0)
                 }
             }
-            .frame(width: previewWidth, height: 48.0)
+            .frame(maxWidth: .infinity)
+            .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorFillMinimal)
+            .background(.colorFillSubtle)
 
-            VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
-                    .font(.caption2.weight(.semibold))
+                    .font(.footnote)
                     .foregroundStyle(.black)
-                    .lineLimit(1)
+                    .lineLimit(2)
                     .truncationMode(.tail)
                 Text(displaySubtitle)
-                    .font(.caption2)
+                    .font(.caption)
                     .foregroundStyle(.colorTextSecondary)
                     .lineLimit(1)
             }
             .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
             .frame(width: previewWidth, alignment: .leading)
-            .frame(maxHeight: .infinity)
-            .background(.colorLinkBackground)
+            .background(.colorFillSubtle)
         }
+        .frame(width: previewWidth)
         .task {
             await fetchMetadata()
         }
@@ -345,6 +356,9 @@ private struct ComposerLinkPreviewCard: View {
         if let metadata {
             ogTitle = metadata.title
             ogSiteName = metadata.siteName
+            if let w = metadata.imageWidth, let h = metadata.imageHeight, w > 0, h > 0 {
+                imageAspectRatio = CGFloat(w) / CGFloat(h)
+            }
             if let imageURLString = metadata.imageURL ?? preview.imageURL,
                let imageURL = URL(string: imageURLString) {
                 await loadImage(from: imageURL)
@@ -360,6 +374,7 @@ private struct ComposerLinkPreviewCard: View {
         let cacheKey = url.absoluteString
         if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
             cachedImage = cached
+            imageAspectRatio = cached.size.width / cached.size.height
             return
         }
         do {
@@ -369,9 +384,23 @@ private struct ComposerLinkPreviewCard: View {
                OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
                 ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
                 cachedImage = image
+                imageAspectRatio = image.size.width / image.size.height
             }
         } catch {
             Log.error("Failed to load composer link preview image")
+        }
+    }
+}
+
+private struct ComposerImageAreaModifier: ViewModifier {
+    let hasKnownRatio: Bool
+    let aspectRatio: CGFloat
+
+    func body(content: Content) -> some View {
+        if hasKnownRatio {
+            content.aspectRatio(aspectRatio, contentMode: .fit)
+        } else {
+            content
         }
     }
 }
