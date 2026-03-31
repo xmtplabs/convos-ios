@@ -106,7 +106,7 @@ struct ConversationMemberView: View {
                 .accessibilityLabel("Remove \(member.profile.displayName)")
                 .accessibilityIdentifier("remove-member-button")
             } footer: {
-                Text("Dismiss and destroy this assistant")
+                Text("Dismiss and destroy \(member.profile.displayName)")
                     .foregroundStyle(.colorTextSecondary)
             }
         }
@@ -124,7 +124,7 @@ struct ConversationMemberView: View {
                 .accessibilityLabel("Block \(member.profile.displayName)")
                 .accessibilityIdentifier("block-member-button")
             } footer: {
-                Text("Leave this convo and block this assistant")
+                Text("Leave this convo and block \(member.profile.displayName)")
                     .foregroundStyle(.colorTextSecondary)
             }
         }
