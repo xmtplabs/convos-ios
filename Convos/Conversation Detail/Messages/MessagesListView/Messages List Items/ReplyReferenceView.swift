@@ -142,7 +142,7 @@ struct ReplyReferenceView: View {
 
     private var replyTextPreview: some View {
         Text(previewText)
-            .font(.footnote)
+            .font(.caption)
             .foregroundStyle(.colorTextSecondary)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -345,11 +345,11 @@ private struct ReplyReferenceInvitePreview: View {
                 Text(title)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(.black)
-                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .font(.caption)
                     .truncationMode(.tail)
                 Text(description)
-                    .font(.caption2)
+                    .font(.caption)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -358,7 +358,7 @@ private struct ReplyReferenceInvitePreview: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 210.0, alignment: .leading)
-        .background(.colorLinkBackground)
+        .background(.colorFillSubtle)
         .clipShape(RoundedRectangle(cornerRadius: 10.0))
         .cachedImage(for: invite) { image in
             cachedImage = image
@@ -400,11 +400,11 @@ private struct ReplyReferenceLinkPreview: View {
                 Text(displayTitle)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(.black)
-                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .font(.caption)
                     .truncationMode(.tail)
                 Text(preview.displayHost)
-                    .font(.caption2)
+                    .font(.caption)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -413,7 +413,7 @@ private struct ReplyReferenceLinkPreview: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 210.0, alignment: .leading)
-        .background(.colorLinkBackground)
+        .background(.colorFillSubtle)
         .clipShape(RoundedRectangle(cornerRadius: 10.0))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Link preview: \(displayTitle)")

@@ -311,7 +311,7 @@ private struct ComposerLinkPreviewCard: View {
 
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
-                    .font(.footnote)
+                    .font(.callout.weight(.medium))
                     .foregroundStyle(.colorTextPrimary)
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -320,8 +320,8 @@ private struct ComposerLinkPreviewCard: View {
                     .foregroundStyle(.colorTextSecondary)
                     .lineLimit(1)
             }
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
             .frame(width: previewWidth, alignment: .leading)
             .background(.colorFillSubtle)
         }
@@ -429,7 +429,7 @@ private struct ComposerInvitePreviewCard: View {
 
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
-                    .font(.footnote)
+                    .font(.callout.weight(.medium))
                     .foregroundStyle(.colorTextPrimary)
                     .lineLimit(2)
                     .truncationMode(.tail)
@@ -438,8 +438,8 @@ private struct ComposerInvitePreviewCard: View {
                     .foregroundStyle(.colorTextSecondary)
                     .lineLimit(1)
             }
-            .padding(.horizontal, DesignConstants.Spacing.step2x)
-            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.vertical, DesignConstants.Spacing.step3x)
             .frame(width: previewWidth, alignment: .leading)
             .background(.colorFillSubtle)
         }
