@@ -29,7 +29,7 @@ struct MessageGestureModifier: ViewModifier {
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
 
     private var isSourceBubble: Bool {
-        !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.base.id == message.base.id
+        !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.messageId == message.messageId
     }
 
     func body(content: Content) -> some View {
@@ -37,7 +37,7 @@ struct MessageGestureModifier: ViewModifier {
             .environment(\.messagePressed, isPressed)
             .scaleEffect(
                 isPressed && hasAppeared ? 1.03 : 1.0,
-                anchor: message.base.sender.isCurrentUser ? .trailing : .leading
+                anchor: message.sender.isCurrentUser ? .trailing : .leading
             )
             .opacity(isSourceBubble ? 0 : 1)
             .onAppear { hasAppeared = true }
@@ -75,7 +75,7 @@ struct MessageGestureModifier: ViewModifier {
                         onSingleTap: { onSingleTap?() },
                         onDoubleTap: {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            contextMenuState.onToggleReaction?("❤️", message.base.id)
+                            contextMenuState.onToggleReaction?("❤️", message.messageId)
                         },
                         onLongPress: {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
@@ -102,7 +102,7 @@ struct MessageGestureModifier: ViewModifier {
                 }
             }
             .accessibilityAction(named: "React") {
-                contextMenuState.onToggleReaction?("❤️", message.base.id)
+                contextMenuState.onToggleReaction?("❤️", message.messageId)
             }
             .accessibilityAction(named: "Reply") {
                 onReply(message)

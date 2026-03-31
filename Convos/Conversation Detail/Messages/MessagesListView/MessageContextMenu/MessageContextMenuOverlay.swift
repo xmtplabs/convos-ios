@@ -29,7 +29,7 @@ struct MessageContextMenuOverlay: View {
 
     private var copyableText: String? {
         guard let message else { return nil }
-        switch message.base.content {
+        switch message.content {
         case .text(let text): return text
         case .emoji(let text): return text
         case .invite(let invite):
@@ -40,7 +40,7 @@ struct MessageContextMenuOverlay: View {
 
     private var photoAttachment: HydratedAttachment? {
         guard let message else { return nil }
-        switch message.base.content {
+        switch message.content {
         case .attachment(let attachment): return attachment
         case .attachments(let attachments): return attachments.first
         default: return nil
@@ -49,7 +49,7 @@ struct MessageContextMenuOverlay: View {
 
     private var formattedTimestamp: String? {
         guard let message else { return nil }
-        let date = message.base.date
+        let date = message.date
         let timeFormatter = DateFormatter()
         timeFormatter.dateFormat = "h:mm a"
         let timeString = timeFormatter.string(from: date)
@@ -77,7 +77,7 @@ struct MessageContextMenuOverlay: View {
         if let blurOverride { return blurOverride }
         guard let photoAttachment, let message else { return false }
         if photoAttachment.isHiddenByOwner { return true }
-        if message.base.sender.isCurrentUser { return false }
+        if message.sender.isCurrentUser { return false }
         return shouldBlurPhotos && !photoAttachment.isRevealed
     }
 
@@ -114,7 +114,7 @@ struct MessageContextMenuOverlay: View {
                     backgroundDimming
 
                     reactionsBar(
-                        messageId: message.base.id,
+                        messageId: message.messageId,
                         bubbleRect: activeBubble,
                         sourceBubble: localBubble,
                         keyboardAdjustment: keyboardAdjustment,
@@ -419,26 +419,26 @@ struct MessageContextMenuOverlay: View {
         let poofScale: CGFloat = endScale * 1.15
         let scale: CGFloat = appeared ? endScale : (dismissToSource ? 1.0 : poofScale)
         Group {
-            switch message.base.content {
+            switch message.content {
             case .text(let text):
                 MessageBubble(
                     style: state.bubbleStyle,
                     message: text,
                     isOutgoing: state.isOutgoing,
-                    profile: message.base.sender.profile
+                    profile: message.sender.profile
                 )
 
             case .emoji(let text):
                 EmojiBubble(
                     emoji: text,
                     isOutgoing: state.isOutgoing,
-                    profile: message.base.sender.profile
+                    profile: message.sender.profile
                 )
 
             case .attachment(let attachment):
                 ContextMenuPhotoPreview(
                     attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                    profile: message.base.sender.profile, shouldBlur: shouldBlurPhoto,
+                    profile: message.sender.profile, shouldBlur: shouldBlurPhoto,
                     cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
                     showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
                 )
@@ -447,7 +447,7 @@ struct MessageContextMenuOverlay: View {
                 if let attachment = attachments.first {
                     ContextMenuPhotoPreview(
                         attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                        profile: message.base.sender.profile, shouldBlur: shouldBlurPhoto,
+                        profile: message.sender.profile, shouldBlur: shouldBlurPhoto,
                         cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
                         showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
                     )
@@ -458,7 +458,7 @@ struct MessageContextMenuOverlay: View {
                     invite: invite,
                     style: state.bubbleStyle,
                     isOutgoing: state.isOutgoing,
-                    profile: message.base.sender.profile,
+                    profile: message.sender.profile,
                     onTapInvite: { _ in },
                     onTapAvatar: nil
                 )

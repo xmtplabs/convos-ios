@@ -663,7 +663,7 @@ class NewConversationViewModel: Identifiable {
             conversationStateManager.sentMessage.map { _ in () },
             conversationStateManager.draftConversationRepository.messagesRepository
                 .messagesPublisher
-                .filter { $0.contains { $0.base.content.showsInMessagesList } }
+                .filter { $0.contains { $0.content.showsInMessagesList } }
                 .map { _ in () }
         )
         .eraseToAnyPublisher()

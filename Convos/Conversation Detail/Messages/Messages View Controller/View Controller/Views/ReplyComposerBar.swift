@@ -7,11 +7,11 @@ struct ReplyComposerBar: View {
     let onDismiss: () -> Void
 
     private var senderName: String {
-        message.base.sender.profile.displayName
+        message.sender.profile.displayName
     }
 
     private var previewText: String {
-        switch message.base.content {
+        switch message.content {
         case .text(let text):
             return String(text.prefix(50))
         case .emoji(let emoji):
@@ -26,7 +26,7 @@ struct ReplyComposerBar: View {
     }
 
     private var attachment: HydratedAttachment? {
-        switch message.base.content {
+        switch message.content {
         case .attachment(let attachment):
             return attachment
         case .attachments(let attachments):
@@ -38,7 +38,7 @@ struct ReplyComposerBar: View {
 
     private var shouldBlurAttachment: Bool {
         guard let attachment else { return false }
-        if message.base.sender.isCurrentUser {
+        if message.sender.isCurrentUser {
             return attachment.isHiddenByOwner
         }
         return shouldBlurPhotos && !attachment.isRevealed

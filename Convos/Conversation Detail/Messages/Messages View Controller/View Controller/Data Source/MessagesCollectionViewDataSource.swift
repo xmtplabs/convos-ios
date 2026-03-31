@@ -72,7 +72,7 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
                 self?.onTapInvite?(invite)
             },
             onTapAvatar: { [weak self] message in
-                self?.onTapAvatar?(message.base.sender)
+                self?.onTapAvatar?(message.sender)
             },
             onTapReactions: { [weak self] message in
                 self?.onTapReactions?(message)

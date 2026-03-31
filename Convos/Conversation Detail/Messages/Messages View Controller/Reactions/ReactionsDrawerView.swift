@@ -11,7 +11,7 @@ struct ReactionsDrawerView: View {
     }
 
     private var sortedReactions: [MessageReaction] {
-        message.base.reactions.sorted { first, second in
+        message.reactions.sorted { first, second in
             if first.sender.isCurrentUser && !second.sender.isCurrentUser {
                 return true
             }
@@ -133,7 +133,7 @@ private struct ReactionRowView: View {
     }
     .selfSizingSheet(isPresented: $presentingReactions) {
         ReactionsDrawerView(message: anyMessage) { reaction in
-            print("Remove reaction: \(reaction.emoji)")
+            
         }
     }
 }
