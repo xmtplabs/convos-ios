@@ -149,10 +149,14 @@ public actor OpenGraphService {
 
     private func extractMetaContent(property: String, from html: String) -> String? {
         let patterns = [
-            "<meta[^>]+property=[\"']\(property)[\"'][^>]+content=[\"']([^\"']+)[\"']",
-            "<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']\(property)[\"']",
-            "<meta[^>]+name=[\"']\(property)[\"'][^>]+content=[\"']([^\"']+)[\"']",
-            "<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+name=[\"']\(property)[\"']",
+            "<meta[^>]+property=\"\(property)\"[^>]+content=\"([^\"]*)\"",
+            "<meta[^>]+property='\(property)'[^>]+content='([^']*)'",
+            "<meta[^>]+content=\"([^\"]*)\"[^>]+property=\"\(property)\"",
+            "<meta[^>]+content='([^']*)'[^>]+property='\(property)'",
+            "<meta[^>]+name=\"\(property)\"[^>]+content=\"([^\"]*)\"",
+            "<meta[^>]+name='\(property)'[^>]+content='([^']*)'",
+            "<meta[^>]+content=\"([^\"]*)\"[^>]+name=\"\(property)\"",
+            "<meta[^>]+content='([^']*)'[^>]+name='\(property)'",
         ]
 
         for pattern in patterns {
