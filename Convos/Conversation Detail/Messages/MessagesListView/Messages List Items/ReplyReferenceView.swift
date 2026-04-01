@@ -327,6 +327,7 @@ private struct ReplyReferenceInvitePreview: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                        .blendMode(.multiply)
                 } else {
                     Image("convosOrangeIcon")
                         .resizable()
@@ -339,7 +340,7 @@ private struct ReplyReferenceInvitePreview: View {
             }
             .frame(height: 128.0)
             .clipped()
-            .background(.colorBackgroundInverted)
+            .background(.colorLinkBackground)
 
             VStack(alignment: .leading, spacing: 1.0) {
                 Text(title)
@@ -385,6 +386,7 @@ private struct ReplyReferenceLinkPreview: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                        .blendMode(.multiply)
                 } else {
                     Image(systemName: "link")
                         .font(.title2)
@@ -394,7 +396,7 @@ private struct ReplyReferenceLinkPreview: View {
             }
             .frame(height: 128.0)
             .clipped()
-            .background(.colorBackgroundInverted)
+            .background(.colorLinkBackground)
 
             VStack(alignment: .leading, spacing: 1.0) {
                 Text(displayTitle)

@@ -53,6 +53,7 @@ struct LinkPreviewCardView: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                        .blendMode(.multiply)
                 } else if hasFetchedMetadata {
                     EmptyView()
                 } else {
@@ -66,7 +67,7 @@ struct LinkPreviewCardView: View {
             .frame(maxWidth: .infinity)
             .modifier(ImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorFillSubtle)
+            .background(.colorLinkBackground)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(displayTitle)
