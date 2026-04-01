@@ -1,5 +1,30 @@
 import ConvosCore
 import ConvosCoreiOS
+
+private struct SafariTestSheet: View {
+    @State private var safariURL: URL?
+
+    var body: some View {
+        VStack(spacing: 20) {
+            Text("Safari in Sheet Test")
+                .font(.title2)
+                .bold()
+
+            Text("Tap the button below to open convos.org in an in-app Safari view. This tests that .safariSheet works from inside a presented sheet.")
+                .font(.body)
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+
+            let action = { safariURL = URL(string: "https://convos.org") }
+            Button(action: action) {
+                Text("Open convos.org")
+            }
+            .convosButtonStyle(.rounded(fullWidth: true))
+        }
+        .padding(30)
+        .safariSheet(url: $safariURL)
+    }
+}
 import Sentry
 import SwiftUI
 import UIKit
@@ -16,6 +41,7 @@ struct DebugViewSection: View {
     @State private var presentingPhotosInfoSheet: Bool = false
     @State private var logStorageInfo: DebugLogExporter.LogStorageInfo?
     @State private var showingAssistantsInfoSheet: Bool = false
+    @State private var showingSafariTestSheet: Bool = false
 
     var body: some View {
         Group {
@@ -29,6 +55,14 @@ struct DebugViewSection: View {
                 .selfSizingSheet(isPresented: $showingAssistantsInfoSheet) {
                     AssistantsInfoView(isConfirmation: true, onConfirm: {})
                         .padding(.top, 20)
+                }
+
+                let testSafariAction = { showingSafariTestSheet = true }
+                Button(action: testSafariAction) {
+                    Text("Test Safari Sheet in Sheet")
+                }
+                .sheet(isPresented: $showingSafariTestSheet) {
+                    SafariTestSheet()
                 }
             }
 

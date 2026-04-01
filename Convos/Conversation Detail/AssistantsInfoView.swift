@@ -1,13 +1,12 @@
 import SwiftUI
-import UIKit
 
 struct AssistantsInfoView: View {
     var isConfirmation: Bool = false
     var onConfirm: (() -> Void)?
 
     @Environment(\.dismiss) private var dismiss: DismissAction
-    @Environment(\.openURL) private var openURL: OpenURLAction
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @State private var safariURL: URL?
 
     private let horizontalPadding: CGFloat = DesignConstants.Spacing.step10x
 
@@ -53,8 +52,7 @@ struct AssistantsInfoView: View {
                     .convosButtonStyle(.rounded(fullWidth: true))
                 }
 
-                let learnMoreURL = URL(string: "https://learn.convos.org/assistants")
-                let learnMoreAction = { if let learnMoreURL { openURL(learnMoreURL) } }
+                let learnMoreAction = { safariURL = URL(string: "https://learn.convos.org/assistants") }
                 Button(action: learnMoreAction) {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
                         Text("Learn more")
@@ -74,6 +72,7 @@ struct AssistantsInfoView: View {
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
         .presentationBackground(.colorBackgroundRaised)
         .sheetDragIndicator(.hidden)
+        .safariSheet(url: $safariURL)
     }
 
     private var sampleMessagesSection: some View {
