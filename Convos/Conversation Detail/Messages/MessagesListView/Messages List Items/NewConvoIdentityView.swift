@@ -30,7 +30,7 @@ struct NewConvoIdentityView: View {
                     Text("New convo, new everything")
                         .foregroundStyle(.colorTextSecondary)
                 }
-                .font(.footnote)
+                .font(.caption)
             }
 
             if showInviteMenu {
