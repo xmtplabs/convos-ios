@@ -132,8 +132,7 @@ private struct ReactionRowView: View {
         }
     }
     .selfSizingSheet(isPresented: $presentingReactions) {
-        ReactionsDrawerView(message: anyMessage) { reaction in
-            
+        ReactionsDrawerView(message: anyMessage) { _ in
         }
     }
 }
