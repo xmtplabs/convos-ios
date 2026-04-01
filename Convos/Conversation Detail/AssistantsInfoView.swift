@@ -134,19 +134,39 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
         scrollView.showsHorizontalScrollIndicator = false
         scrollView.showsVerticalScrollIndicator = false
         scrollView.delegate = context.coordinator
-        scrollView.alwaysBounceHorizontal = true
+        scrollView.clipsToBounds = false
 
-        let host = UIHostingController(rootView: content())
-        host.view.backgroundColor = .clear
-        host.view.translatesAutoresizingMaskIntoConstraints = false
-        scrollView.addSubview(host.view)
+        let contentView = content()
+
+        let hostA = UIHostingController(rootView: contentView)
+        hostA.view.backgroundColor = .clear
+        hostA.view.translatesAutoresizingMaskIntoConstraints = false
+
+        let hostB = UIHostingController(rootView: contentView)
+        hostB.view.backgroundColor = .clear
+        hostB.view.translatesAutoresizingMaskIntoConstraints = false
+
+        let container = UIView()
+        container.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(hostA.view)
+        container.addSubview(hostB.view)
+        scrollView.addSubview(container)
 
         NSLayoutConstraint.activate([
-            host.view.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
-            host.view.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
-            host.view.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
-            host.view.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
-            host.view.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+            container.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            container.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            container.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            container.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            container.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+
+            hostA.view.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            hostA.view.topAnchor.constraint(equalTo: container.topAnchor),
+            hostA.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+
+            hostB.view.leadingAnchor.constraint(equalTo: hostA.view.trailingAnchor),
+            hostB.view.topAnchor.constraint(equalTo: container.topAnchor),
+            hostB.view.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            hostB.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
 
         context.coordinator.scrollView = scrollView
@@ -160,45 +180,79 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIScrollView, context: Context) -> CGSize? {
         let width = proposal.width ?? UIScreen.main.bounds.width
-        let height = uiView.contentSize.height
-        guard height > 0 else { return nil }
-        return CGSize(width: width, height: height)
+        let contentHeight = uiView.contentSize.height
+        guard contentHeight > 0 else { return nil }
+        return CGSize(width: width, height: contentHeight)
     }
 
-    final class Coordinator: NSObject, UIScrollViewDelegate, @unchecked Sendable {
+    final class Coordinator: NSObject, UIScrollViewDelegate {
         weak var scrollView: UIScrollView?
-        private var displayLink: CADisplayLink?
-        private var isAutoScrolling: Bool = true
+        nonisolated(unsafe) var displayLink: CADisplayLink?
+        private var isUserDragging: Bool = false
         var speed: CGFloat = 0
 
         func startAutoScroll() {
+            guard displayLink == nil else { return }
             let link = CADisplayLink(target: self, selector: #selector(tick))
-            link.add(to: .main, forMode: .default)
+            link.preferredFrameRateRange = CAFrameRateRange(minimum: 60, maximum: 120, preferred: 120)
+            link.add(to: .main, forMode: .common)
             displayLink = link
         }
 
+        private func pauseAutoScroll() {
+            displayLink?.isPaused = true
+        }
+
+        private func resumeAutoScroll() {
+            normalizeOffset()
+            displayLink?.isPaused = false
+        }
+
+        private func normalizeOffset() {
+            guard let scrollView else { return }
+            let singleContentWidth = scrollView.contentSize.width / 2.0
+            guard singleContentWidth > 0 else { return }
+            if scrollView.contentOffset.x >= singleContentWidth {
+                scrollView.contentOffset.x -= singleContentWidth
+            } else if scrollView.contentOffset.x < 0 {
+                scrollView.contentOffset.x += singleContentWidth
+            }
+        }
+
         @objc private func tick(_ link: CADisplayLink) {
-            guard let scrollView, isAutoScrolling else { return }
-            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
-            guard maxOffset > 0 else { return }
+            guard let scrollView, !isUserDragging else { return }
+            let singleContentWidth = scrollView.contentSize.width / 2.0
+            guard singleContentWidth > 0 else { return }
 
             var offset = scrollView.contentOffset
             offset.x += speed * CGFloat(link.duration)
-            if offset.x >= maxOffset {
-                offset.x = maxOffset
-                stopAutoScroll()
+
+            if offset.x >= singleContentWidth {
+                offset.x -= singleContentWidth
             }
+
             scrollView.contentOffset = offset
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
-            stopAutoScroll()
+            isUserDragging = true
+            pauseAutoScroll()
         }
 
-        private func stopAutoScroll() {
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            if !decelerate {
+                isUserDragging = false
+                resumeAutoScroll()
+            }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            isUserDragging = false
+            resumeAutoScroll()
+        }
+
+        deinit {
             displayLink?.invalidate()
-            displayLink = nil
-            isAutoScrolling = false
         }
     }
 }
