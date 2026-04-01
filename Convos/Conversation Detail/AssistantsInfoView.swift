@@ -19,17 +19,18 @@ struct AssistantsInfoView: View {
 
                 TightLineHeightText(text: "Assistants help groups do things", fontSize: 40, lineHeight: 40)
 
-                Text("Assistants learn by listening. They can only see and act in one convo.")
+                Text("Ask them anything. Assistants join your groupchat and learn by listening.")
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
 
-                Text("They have tools to get things done in the real world.")
+                Text("Invite them in, and kick them out, anytime.")
                     .font(.subheadline)
                     .foregroundStyle(.colorTextSecondary)
             }
             .padding(.horizontal, horizontalPadding)
 
-            abilitiesScroller
+            sampleMessagesSection
+                .padding(.top, DesignConstants.Spacing.step2x)
 
             VStack(spacing: DesignConstants.Spacing.step2x) {
                 if isConfirmation {
@@ -39,12 +40,14 @@ struct AssistantsInfoView: View {
                     }
                     Button(action: confirmAction) {
                         Text("Add an instant assistant")
+                            .font(.body)
                     }
                     .convosButtonStyle(.rounded(fullWidth: true))
                 } else {
                     let dismissAction = { dismiss() }
                     Button(action: dismissAction) {
                         Text("Awesome")
+                            .font(.body)
                     }
                     .convosButtonStyle(.rounded(fullWidth: true))
                 }
@@ -67,36 +70,50 @@ struct AssistantsInfoView: View {
         }
         .padding(.top, DesignConstants.Spacing.step8x)
         .padding(.bottom, horizontalSizeClass == .regular ? DesignConstants.Spacing.step10x : DesignConstants.Spacing.step6x)
+        .presentationBackground(.colorBackgroundRaised)
         .sheetDragIndicator(.hidden)
     }
 
-    private var abilitiesScroller: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: DesignConstants.Spacing.step2x) {
-                abilityPill(icon: "message.fill", label: "Texting", color: .colorTexting)
-                abilityPill(icon: "envelope.fill", label: "Email", color: .colorEmail)
-                abilityPill(icon: "pointer.arrow", label: "Internet", color: .colorInternet)
-                abilityPill(icon: "checklist", label: "Organize", color: .colorOrganize)
-                abilityPill(icon: "calendar", label: "Remind", color: .colorReminders)
-                abilityPill(icon: "photo.fill", label: "Photos", color: .colorPhotos, foreground: .colorTextPrimaryInverted)
-                abilityPill(icon: "cloud.fill", label: "AI", color: .colorAI)
+    private var sampleMessagesSection: some View {
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    messageBubble("🏡 Help watch neighborhood news")
+                    messageBubble("⛰️ Help us travel")
+                    messageBubble("🛠️ Help us manage our home")
+                    messageBubble("📘 Help us keep notes")
+                    messageBubble("🎸 Help us catch great shows")
+                }
+                .padding(.horizontal, horizontalPadding)
             }
-            .padding(.horizontal, horizontalPadding)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: DesignConstants.Spacing.step2x) {
+                    messageBubble("🎾 Help organize pick-up games")
+                    messageBubble("🗓️ Help us get together soon")
+                    messageBubble("🍕 Help us eat and drink better")
+                    messageBubble("❤️ Help us keep in touch")
+                    messageBubble("🍼 Help with our fam")
+                }
+                .padding(.horizontal, horizontalPadding)
+            }
         }
     }
 
-    private func abilityPill(icon: String, label: String, color: Color, foreground: Color = .white) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: icon)
-                .font(.body)
-            Text(label)
-                .font(.body)
-                .fontWeight(.medium)
-        }
-        .foregroundStyle(foreground)
-        .padding(.horizontal, DesignConstants.Spacing.step5x)
-        .padding(.vertical, DesignConstants.Spacing.step3x)
-        .background(color, in: .capsule)
+    private func messageBubble(_ text: String) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.colorTextPrimary)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, 10)
+            .background(
+                Color.colorBubbleIncoming,
+                in: .rect(
+                    topLeadingRadius: 20,
+                    bottomLeadingRadius: 4,
+                    bottomTrailingRadius: 20,
+                    topTrailingRadius: 20
+                )
+            )
     }
 }
 

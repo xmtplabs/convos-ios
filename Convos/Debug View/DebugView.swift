@@ -15,11 +15,21 @@ struct DebugViewSection: View {
     @State private var showingRenewalAlert: Bool = false
     @State private var presentingPhotosInfoSheet: Bool = false
     @State private var logStorageInfo: DebugLogExporter.LogStorageInfo?
+    @State private var showingAssistantsInfoSheet: Bool = false
 
     var body: some View {
         Group {
             Section("Features") {
                 Toggle("Assistant enabled", isOn: Bindable(FeatureFlags.shared).isAssistantEnabled)
+
+                let showInfoAction = { showingAssistantsInfoSheet = true }
+                Button(action: showInfoAction) {
+                    Text("Show Assistants Info Sheet")
+                }
+                .selfSizingSheet(isPresented: $showingAssistantsInfoSheet) {
+                    AssistantsInfoView(isConfirmation: true, onConfirm: {})
+                        .padding(.top, 20)
+                }
             }
 
             Section(header: Text("Push Notifications")) {
