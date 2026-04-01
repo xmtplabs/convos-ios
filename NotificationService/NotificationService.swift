@@ -170,7 +170,30 @@ extension DecodedNotificationContent {
             content.threadIdentifier = conversationId
         }
         content.categoryIdentifier = NotificationAction.messageCategoryIdentifier
+
+        if let avatarData = senderAvatarData,
+           let attachment = Self.createAvatarAttachment(from: avatarData) {
+            content.attachments = [attachment]
+        }
+
         return content
+    }
+
+    private static func createAvatarAttachment(from imageData: Data) -> UNNotificationAttachment? {
+        let fileURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("jpg")
+        do {
+            try imageData.write(to: fileURL)
+            return try UNNotificationAttachment(
+                identifier: "sender-avatar",
+                url: fileURL,
+                options: [UNNotificationAttachmentOptionsTypeHintKey: "public.jpeg"]
+            )
+        } catch {
+            try? FileManager.default.removeItem(at: fileURL)
+            return nil
+        }
     }
 }
 

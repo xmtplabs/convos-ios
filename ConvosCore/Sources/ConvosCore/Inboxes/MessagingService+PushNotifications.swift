@@ -387,12 +387,39 @@ extension MessagingService {
             return .droppedMessage
         }
 
+        let avatarData = await loadSenderAvatarData(
+            senderInboxId: decodedMessage.senderInboxId,
+            conversationId: conversationId
+        )
+
         return .init(
             title: notificationTitle,
             body: body,
             conversationId: conversationId,
-            userInfo: userInfo
+            userInfo: userInfo,
+            senderAvatarData: avatarData
         )
+    }
+
+    private func loadSenderAvatarData(
+        senderInboxId: String,
+        conversationId: String
+    ) async -> Data? {
+        do {
+            guard let profile = try await databaseReader.read({ db in
+                try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: senderInboxId)
+            }) else { return nil }
+
+            guard let ref = profile.encryptedImageRef,
+                  let params = EncryptedImageParams(encryptedRef: ref, groupKey: profile.avatarKey) else {
+                return nil
+            }
+
+            return try await EncryptedImageLoader.loadAndDecrypt(params: params)
+        } catch {
+            Log.debug("Could not load sender avatar for notification: \(error)")
+            return nil
+        }
     }
 
     private func getSenderDisplayName(
