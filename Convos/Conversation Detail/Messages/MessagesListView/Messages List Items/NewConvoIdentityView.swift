@@ -63,9 +63,9 @@ struct NewConvoIdentityView: View {
                         Image(systemName: "plus.circle.fill")
                         Text("Invite members")
                     }
-                    .font(.subheadline)
+                    .font(.footnote)
                     .foregroundStyle(.colorTextPrimary)
-                    .padding(.horizontal, DesignConstants.Spacing.step3x)
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
                     .padding(.vertical, DesignConstants.Spacing.step3HalfX)
                     .background(
                         Capsule()

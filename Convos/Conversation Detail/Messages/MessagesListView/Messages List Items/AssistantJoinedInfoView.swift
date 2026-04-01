@@ -10,14 +10,13 @@ struct AssistantJoinedInfoView: View {
             }
         }
         Button(action: action) {
-            Text("See what it can do")
-                .font(.caption)
+            Text("See its skills")
+                .font(.footnote)
                 .foregroundStyle(.white)
-                .padding(.horizontal, DesignConstants.Spacing.step3x)
-                .padding(.vertical, DesignConstants.Spacing.step2x)
-                .background(.colorLava, in: .capsule)
+                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                .padding(.vertical, DesignConstants.Spacing.step3HalfX)
+                .background(Capsule().fill(.colorLava))
         }
-        .frame(maxWidth: .infinity)
         .padding(.bottom, DesignConstants.Spacing.step4x)
     }
 

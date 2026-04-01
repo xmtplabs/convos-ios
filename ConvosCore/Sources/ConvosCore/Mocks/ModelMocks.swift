@@ -263,9 +263,9 @@ public extension ConversationUpdate {
                 if member.isCurrentUser {
                     return "You left the convo"
                 }
-                return "\(member.profile.displayName) was removed"
+                return "\(member.profile.displayName) left"
             }
-            return "\(removedMembers.formattedNamesString) were removed"
+            return "\(removedMembers.formattedNamesString) left"
         } else {
             return ""
         }
