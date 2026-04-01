@@ -16,7 +16,7 @@ struct TextTitleContentView: View {
             Text(title)
                 .lineLimit(1)
                 .font(.caption)
-                .foregroundStyle(profile != nil ? .colorTextPrimary : .colorTextSecondary)
+                .foregroundStyle(.colorTextSecondary)
         }
         .transition(.blurReplace)
         .frame(maxWidth: .infinity, alignment: .center)

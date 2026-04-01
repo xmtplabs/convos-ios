@@ -238,7 +238,10 @@ public extension ConversationUpdate {
                 let asString = "as \(member.profile.displayName)"
                 return "You joined \(asString)"
             }
-            return "\(addedMembers.formattedNamesString) joined by invitation"
+            if addedMembers.count == 1, let member = addedMembers.first {
+                return "\(member.profile.displayName) joined · Invited by \(creatorDisplayName)"
+            }
+            return "\(addedMembers.formattedNamesString) joined · Invited by \(creatorDisplayName)"
         } else if let metadataChange = metadataChanges.first,
                   metadataChange.field == .name,
                   let updatedName = metadataChange.newValue {
@@ -263,9 +266,12 @@ public extension ConversationUpdate {
                 if member.isCurrentUser {
                     return "You left the convo"
                 }
-                return "\(member.profile.displayName) was removed"
+                if member.isAgent {
+                    return "\(member.profile.displayName) left · Removed by \(creatorDisplayName)"
+                }
+                return "\(member.profile.displayName) left"
             }
-            return "\(removedMembers.formattedNamesString) were removed"
+            return "\(removedMembers.formattedNamesString) left"
         } else {
             return ""
         }
