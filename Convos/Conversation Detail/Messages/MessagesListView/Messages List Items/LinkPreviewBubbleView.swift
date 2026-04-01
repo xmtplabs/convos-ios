@@ -67,7 +67,7 @@ struct LinkPreviewCardView: View {
             .frame(maxWidth: .infinity)
             .modifier(ImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorLinkBackground)
+            .background(.colorBackgroundPic)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(displayTitle)

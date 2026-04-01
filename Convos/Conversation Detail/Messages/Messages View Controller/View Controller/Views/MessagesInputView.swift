@@ -308,7 +308,7 @@ private struct ComposerLinkPreviewCard: View {
             .frame(maxWidth: .infinity)
             .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorLinkBackground)
+            .background(.colorBackgroundPic)
 
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
@@ -413,7 +413,6 @@ private struct ComposerInvitePreviewCard: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .blendMode(.multiply)
                 } else {
                     Image("convosOrangeIcon")
                         .resizable()
@@ -427,7 +426,7 @@ private struct ComposerInvitePreviewCard: View {
             .frame(maxWidth: .infinity)
             .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorLinkBackground)
+            .background(.colorFillPrimary)
 
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)

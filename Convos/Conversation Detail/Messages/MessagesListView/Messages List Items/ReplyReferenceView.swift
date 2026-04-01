@@ -327,7 +327,6 @@ private struct ReplyReferenceInvitePreview: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                        .blendMode(.multiply)
                 } else {
                     Image("convosOrangeIcon")
                         .resizable()
@@ -340,7 +339,7 @@ private struct ReplyReferenceInvitePreview: View {
             }
             .frame(height: 128.0)
             .clipped()
-            .background(.colorLinkBackground)
+            .background(.colorBackgroundInverted)
 
             VStack(alignment: .leading, spacing: 1.0) {
                 Text(title)
@@ -360,7 +359,7 @@ private struct ReplyReferenceInvitePreview: View {
         }
         .frame(maxWidth: 210.0, alignment: .leading)
         .background(.colorFillSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: 10.0))
+        .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
         .cachedImage(for: invite) { image in
             cachedImage = image
         }
@@ -396,7 +395,7 @@ private struct ReplyReferenceLinkPreview: View {
             }
             .frame(height: 128.0)
             .clipped()
-            .background(.colorLinkBackground)
+            .background(.colorBackgroundPic)
 
             VStack(alignment: .leading, spacing: 1.0) {
                 Text(displayTitle)
@@ -416,7 +415,7 @@ private struct ReplyReferenceLinkPreview: View {
         }
         .frame(maxWidth: 210.0, alignment: .leading)
         .background(.colorFillSubtle)
-        .clipShape(RoundedRectangle(cornerRadius: 10.0))
+        .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Link preview: \(displayTitle)")
         .task {
