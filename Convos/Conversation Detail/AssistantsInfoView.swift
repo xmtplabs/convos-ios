@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct AssistantsInfoView: View {
     var isConfirmation: Bool = false
@@ -77,17 +78,18 @@ struct AssistantsInfoView: View {
 
     private var sampleMessagesSection: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-            ScrollView(.horizontal, showsIndicators: false) {
+            AutoScrollingRow(speed: 18) {
                 HStack(spacing: DesignConstants.Spacing.step2x) {
                     messageBubble("🏡 Help watch neighborhood news")
                     messageBubble("⛰️ Help us travel")
                     messageBubble("🛠️ Help us manage our home")
                     messageBubble("📘 Help us keep notes")
-                    messageBubble("🎸 Help us catch great shows")
+                    messageBubble("🎸 Help us catch local shows")
                 }
                 .padding(.horizontal, horizontalPadding)
             }
-            ScrollView(.horizontal, showsIndicators: false) {
+            .frame(height: 42)
+            AutoScrollingRow(speed: 30) {
                 HStack(spacing: DesignConstants.Spacing.step2x) {
                     messageBubble("🎾 Help organize pick-up games")
                     messageBubble("🗓️ Help us get together soon")
@@ -97,6 +99,7 @@ struct AssistantsInfoView: View {
                 }
                 .padding(.horizontal, horizontalPadding)
             }
+            .frame(height: 42)
         }
     }
 
@@ -115,6 +118,88 @@ struct AssistantsInfoView: View {
                     topTrailingRadius: 20
                 )
             )
+    }
+}
+
+private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
+    let speed: CGFloat
+    @ViewBuilder let content: () -> Content
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    func makeUIView(context: Context) -> UIScrollView {
+        let scrollView = UIScrollView()
+        scrollView.showsHorizontalScrollIndicator = false
+        scrollView.showsVerticalScrollIndicator = false
+        scrollView.delegate = context.coordinator
+        scrollView.alwaysBounceHorizontal = true
+
+        let host = UIHostingController(rootView: content())
+        host.view.backgroundColor = .clear
+        host.view.translatesAutoresizingMaskIntoConstraints = false
+        scrollView.addSubview(host.view)
+
+        NSLayoutConstraint.activate([
+            host.view.leadingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.leadingAnchor),
+            host.view.trailingAnchor.constraint(equalTo: scrollView.contentLayoutGuide.trailingAnchor),
+            host.view.topAnchor.constraint(equalTo: scrollView.contentLayoutGuide.topAnchor),
+            host.view.bottomAnchor.constraint(equalTo: scrollView.contentLayoutGuide.bottomAnchor),
+            host.view.heightAnchor.constraint(equalTo: scrollView.frameLayoutGuide.heightAnchor),
+        ])
+
+        context.coordinator.scrollView = scrollView
+        context.coordinator.speed = speed
+        context.coordinator.startAutoScroll()
+
+        return scrollView
+    }
+
+    func updateUIView(_ uiView: UIScrollView, context: Context) {}
+
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIScrollView, context: Context) -> CGSize? {
+        let width = proposal.width ?? UIScreen.main.bounds.width
+        let height = uiView.contentSize.height
+        guard height > 0 else { return nil }
+        return CGSize(width: width, height: height)
+    }
+
+    final class Coordinator: NSObject, UIScrollViewDelegate, @unchecked Sendable {
+        weak var scrollView: UIScrollView?
+        private var displayLink: CADisplayLink?
+        private var isAutoScrolling: Bool = true
+        var speed: CGFloat = 0
+
+        func startAutoScroll() {
+            let link = CADisplayLink(target: self, selector: #selector(tick))
+            link.add(to: .main, forMode: .default)
+            displayLink = link
+        }
+
+        @objc private func tick(_ link: CADisplayLink) {
+            guard let scrollView, isAutoScrolling else { return }
+            let maxOffset = max(0, scrollView.contentSize.width - scrollView.bounds.width)
+            guard maxOffset > 0 else { return }
+
+            var offset = scrollView.contentOffset
+            offset.x += speed * CGFloat(link.duration)
+            if offset.x >= maxOffset {
+                offset.x = maxOffset
+                stopAutoScroll()
+            }
+            scrollView.contentOffset = offset
+        }
+
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            stopAutoScroll()
+        }
+
+        private func stopAutoScroll() {
+            displayLink?.invalidate()
+            displayLink = nil
+            isAutoScrolling = false
+        }
     }
 }
 
