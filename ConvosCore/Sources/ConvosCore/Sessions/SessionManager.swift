@@ -560,6 +560,12 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             for: conversation.clientId,
             inboxId: conversation.inboxId
         )
+        await service.inboxStateManager.ensureForeground()
+        for _ in 0..<20 {
+            if case .ready = service.inboxStateManager.currentState { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
         let writer = service.messageWriter(
             for: conversationId,
             backgroundUploadManager: platformProviders.backgroundUploadManager
