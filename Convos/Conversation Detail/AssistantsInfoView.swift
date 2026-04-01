@@ -57,8 +57,9 @@ struct AssistantsInfoView: View {
                 Button(action: learnMoreAction) {
                     HStack(spacing: DesignConstants.Spacing.stepX) {
                         Text("Learn more")
+                            .font(.body)
                         Image(systemName: "chevron.right")
-                            .font(.system(size: 13))
+                            .font(.footnote)
                             .foregroundStyle(.colorFillTertiary)
                     }
                 }
