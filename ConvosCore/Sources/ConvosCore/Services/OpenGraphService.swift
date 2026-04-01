@@ -133,6 +133,19 @@ public actor OpenGraphService {
             && width <= maxImageDimension && height <= maxImageDimension
     }
 
+    public func loadImage(from url: URL) async -> ImageType? {
+        do {
+            let (data, _) = try await Self.safeSession.data(from: url)
+            guard Self.isValidImageData(data) else { return nil }
+            guard let image = ImageType(data: data),
+                  Self.isValidImageSize(width: image.size.width, height: image.size.height)
+            else { return nil }
+            return image
+        } catch {
+            return nil
+        }
+    }
+
     private static let maxHeadBytes: Int = 50_000
 
     private func extractHead(from html: String) -> String {

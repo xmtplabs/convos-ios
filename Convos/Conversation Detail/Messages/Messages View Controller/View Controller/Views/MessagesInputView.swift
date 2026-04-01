@@ -359,17 +359,10 @@ private struct ComposerLinkPreviewCard: View {
             imageAspectRatio = cached.size.width / cached.size.height
             return
         }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard OpenGraphService.isValidImageData(data) else { return }
-            if let image = UIImage(data: data),
-               OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
-                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-                cachedImage = image
-                imageAspectRatio = image.size.width / image.size.height
-            }
-        } catch {
-            Log.error("Failed to load composer link preview image")
+        if let image = await OpenGraphService.shared.loadImage(from: url) {
+            ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+            cachedImage = image
+            imageAspectRatio = image.size.width / image.size.height
         }
     }
 }
@@ -473,17 +466,10 @@ private struct ComposerInvitePreviewCard: View {
             imageAspectRatio = cached.size.width / cached.size.height
             return
         }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard OpenGraphService.isValidImageData(data) else { return }
-            if let image = UIImage(data: data),
-               OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
-                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-                cachedImage = image
-                imageAspectRatio = image.size.width / image.size.height
-            }
-        } catch {
-            Log.error("Failed to load invite preview image")
+        if let image = await OpenGraphService.shared.loadImage(from: url) {
+            ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+            cachedImage = image
+            imageAspectRatio = image.size.width / image.size.height
         }
     }
 }
