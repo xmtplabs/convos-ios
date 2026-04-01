@@ -7,7 +7,7 @@ struct InviteCodeAlertModifier: ViewModifier {
     let onUnlocked: () -> Void
 
     @State private var code: String = ""
-    @State private var isSubmitting: Bool = false
+    @State private var isRedeeming: Bool = false
     @State private var errorMessage: String?
     @State private var showingError: Bool = false
 
@@ -24,7 +24,7 @@ struct InviteCodeAlertModifier: ViewModifier {
                 Button("Continue") {
                     Task { await submit() }
                 }
-                .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(code.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isRedeeming)
                 .keyboardShortcut(.defaultAction)
                 .accessibilityIdentifier("invite-code-submit-button")
             } message: {
@@ -32,6 +32,7 @@ struct InviteCodeAlertModifier: ViewModifier {
             }
             .alert("Error", isPresented: $showingError) {
                 Button("OK") {
+                    code = ""
                     isPresented = true
                 }
             } message: {
@@ -41,7 +42,10 @@ struct InviteCodeAlertModifier: ViewModifier {
 
     private func submit() async {
         let trimmed = code.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        guard !trimmed.isEmpty, !isRedeeming else { return }
+
+        isRedeeming = true
+        defer { isRedeeming = false }
 
         do {
             try await session.redeemInviteCode(trimmed)

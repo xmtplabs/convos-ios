@@ -648,7 +648,6 @@ public enum APIError: Error {
     case agentProvisionFailed
     case inviteCodeNotFound
     case inviteCodeInvalidFormat
-    case inviteCodeAlreadyRedeemed
 }
 
 extension APIError: DisplayError {
@@ -686,8 +685,6 @@ extension APIError: DisplayError {
             return "Code not found"
         case .inviteCodeInvalidFormat:
             return "Invalid code"
-        case .inviteCodeAlreadyRedeemed:
-            return "Code already used"
         }
     }
 
@@ -725,8 +722,6 @@ extension APIError: DisplayError {
             return "No invite code found with that value."
         case .inviteCodeInvalidFormat:
             return "Code must be 8 letters."
-        case .inviteCodeAlreadyRedeemed:
-            return "This invite code has already been used."
         }
     }
 }

@@ -480,4 +480,7 @@ final class ConfigurableMockAPIClient: ConvosAPIClientProtocol, @unchecked Senda
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int? = nil) async throws -> ConvosAPI.AgentJoinResponse {
         .init(success: true, joined: true)
     }
+
+    func redeemInviteCode(_ code: String) async throws {
+    }
 }

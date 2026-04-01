@@ -163,10 +163,6 @@ public enum ConvosAPI {
         }
     }
 
-    public struct RedeemCodeResponse: Codable {
-        public let success: Bool
-    }
-
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {
