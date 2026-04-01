@@ -169,6 +169,7 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
             hostB.view.trailingAnchor.constraint(equalTo: container.trailingAnchor),
         ])
 
+        context.coordinator.hostingControllers = [hostA, hostB]
         context.coordinator.scrollView = scrollView
         context.coordinator.speed = speed
         context.coordinator.startAutoScroll()
@@ -187,6 +188,7 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
 
     final class Coordinator: NSObject, UIScrollViewDelegate {
         weak var scrollView: UIScrollView?
+        var hostingControllers: [UIViewController] = []
         nonisolated(unsafe) var displayLink: CADisplayLink?
         private var isUserDragging: Bool = false
         var speed: CGFloat = 0
