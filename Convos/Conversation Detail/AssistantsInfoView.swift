@@ -179,6 +179,10 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
 
     func updateUIView(_ uiView: UIScrollView, context: Context) {}
 
+    static func dismantleUIView(_ uiView: UIScrollView, coordinator: Coordinator) {
+        coordinator.stopAndCleanup()
+    }
+
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIScrollView, context: Context) -> CGSize? {
         let width = proposal.width ?? UIScreen.main.bounds.width
         let contentHeight = uiView.contentSize.height
@@ -253,8 +257,9 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
             resumeAutoScroll()
         }
 
-        deinit {
+        func stopAndCleanup() {
             displayLink?.invalidate()
+            displayLink = nil
         }
     }
 }
