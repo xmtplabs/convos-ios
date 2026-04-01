@@ -491,12 +491,15 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let isContentEmoji = text.allCharactersEmoji
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
         let invite = MessageInvite.from(text: text)
+        let linkPreview = invite == nil && !isContentEmoji ? LinkPreview.from(text: text) : nil
 
         let contentType: MessageContentType
         if isContentEmoji {
             contentType = .emoji
         } else if invite != nil {
             contentType = .invite
+        } else if linkPreview != nil {
+            contentType = .linkPreview
         } else {
             contentType = .text
         }
@@ -522,6 +525,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 text: isContentEmoji ? nil : text,
                 emoji: isContentEmoji ? trimmedText : nil,
                 invite: invite,
+                linkPreview: linkPreview,
                 sourceMessageId: replyContext?.parentDbId,
                 attachmentUrls: [],
                 update: nil
@@ -566,6 +570,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 text: nil,
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: replyContext?.parentDbId,
                 attachmentUrls: [localCacheURL.absoluteString],
                 update: nil

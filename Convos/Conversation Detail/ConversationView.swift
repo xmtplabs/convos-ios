@@ -41,7 +41,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
             selectedAttachmentImage: $viewModel.selectedAttachmentImage,
-            pendingInviteCode: viewModel.pendingInvite?.code,
+            composerLinkPreview: viewModel.pastedLinkPreview,
+            pendingInviteURL: viewModel.pendingInvite?.fullURL,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -60,6 +61,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 viewModel.onSendMessage(focusCoordinator: focusCoordinator)
             },
             onClearInvite: viewModel.clearPendingInvite,
+            onClearLinkPreview: { viewModel.pastedLinkPreview = nil },
             onTapAvatar: viewModel.onTapAvatar(_:),
             onTapInvite: viewModel.onTapInvite(_:),
             onReaction: viewModel.onReaction(emoji:messageId:),
@@ -150,6 +152,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .onChange(of: viewModel.messageText) { _, _ in
             viewModel.checkForInviteURL()
+            viewModel.checkForPastedLink()
         }
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)

@@ -12,7 +12,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
-    var pendingInviteCode: String?
+    var composerLinkPreview: LinkPreview?
+    var pendingInviteURL: String?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -23,6 +24,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
+    let onClearLinkPreview: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
     let onBaseHeightChanged: (CGFloat) -> Void
@@ -114,14 +116,16 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
                 selectedAttachmentImage: $selectedAttachmentImage,
-                pendingInviteCode: pendingInviteCode,
+                composerLinkPreview: composerLinkPreview,
+                pendingInviteURL: pendingInviteURL,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
-                onClearInvite: onClearInvite
+                onClearInvite: onClearInvite,
+                onClearLinkPreview: onClearLinkPreview
             )
             .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
             .fixedSize(horizontal: false, vertical: true)
@@ -161,7 +165,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     @Previewable @State var profileName: String = ""
     @Previewable @State var messageText: String = ""
     @Previewable @State var selectedAttachmentImage: UIImage?
-    @Previewable @State var pendingInviteCodePreview: String?
+    @Previewable @State var pendingInviteURLPreview: String?
     @Previewable @State var sendButtonEnabled: Bool = false
     @Previewable @State var profileImage: UIImage?
     @Previewable @State var isPhotoPickerPresented: Bool = false
@@ -213,7 +217,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             displayName: $profileName,
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
-            pendingInviteCode: pendingInviteCodePreview,
+            pendingInviteURL: pendingInviteURLPreview,
             sendButtonEnabled: sendButtonEnabled,
             profileImage: $profileImage,
             isPhotoPickerPresented: $isPhotoPickerPresented,
@@ -225,7 +229,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 focusCoordinator.moveFocus(to: .displayName)
             },
             onSendMessage: {},
-            onClearInvite: { pendingInviteCodePreview = nil },
+            onClearInvite: { pendingInviteURLPreview = nil },
+            onClearLinkPreview: {},
             onDisplayNameEndedEditing: {
                 focusCoordinator.endEditing(for: .displayName)
             },

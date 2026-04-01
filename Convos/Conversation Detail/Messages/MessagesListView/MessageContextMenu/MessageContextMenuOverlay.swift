@@ -34,6 +34,7 @@ struct MessageContextMenuOverlay: View {
         case .emoji(let text): return text
         case .invite(let invite):
             return "https://\(ConfigManager.shared.associatedDomain)/v2?i=\(invite.inviteSlug)"
+        case .linkPreview(let preview): return preview.url
         default: return nil
         }
     }
@@ -267,14 +268,10 @@ struct MessageContextMenuOverlay: View {
                     .padding(.horizontal, C.padding)
                 }
                 .frame(height: reader.size.height)
+                .scrollBounceBehavior(.basedOnSize)
                 .contentMargins(.trailing, readerHeight, for: .scrollContent)
                 .mask(
                     HStack(spacing: 0) {
-                        LinearGradient(
-                            colors: [.black.opacity(0), .black],
-                            startPoint: .leading, endPoint: .trailing
-                        )
-                        .frame(width: C.padding)
                         Rectangle().fill(.black)
                         LinearGradient(
                             colors: [.black, .black.opacity(0)],
@@ -461,6 +458,14 @@ struct MessageContextMenuOverlay: View {
                     profile: message.sender.profile,
                     onTapInvite: { _ in },
                     onTapAvatar: nil
+                )
+
+            case .linkPreview(let preview):
+                LinkPreviewBubbleView(
+                    preview: preview,
+                    style: state.bubbleStyle,
+                    isOutgoing: state.isOutgoing,
+                    profile: message.base.sender.profile
                 )
 
             default:

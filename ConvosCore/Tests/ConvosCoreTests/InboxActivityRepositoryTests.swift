@@ -178,6 +178,7 @@ struct InboxActivityRepositoryTests {
             text: "Hi",
             emoji: nil,
             invite: nil,
+            linkPreview: nil,
             sourceMessageId: nil,
             attachmentUrls: [],
             update: nil

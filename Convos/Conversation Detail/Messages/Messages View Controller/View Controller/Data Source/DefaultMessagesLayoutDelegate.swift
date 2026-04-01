@@ -102,6 +102,8 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height = 40.0
         case .invite:
             height = 240.0
+        case .linkPreview:
+            height = 210.0
         case .update, .assistantJoinRequest:
             height = 30.0
         }
@@ -113,7 +115,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 height += 88.0
             case .emoji:
                 height += 44.0
-            case .invite:
+            case .invite, .linkPreview:
                 height += 176.0
             default:
                 height += 32.0

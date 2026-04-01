@@ -36,6 +36,7 @@ struct MessagesRepositoryTests {
                 text: "hello from removed member",
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: nil,
                 attachmentUrls: [],
                 update: nil
@@ -92,6 +93,7 @@ struct MessagesRepositoryTests {
                 text: "hello from removed member",
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: nil,
                 attachmentUrls: [],
                 update: nil
@@ -151,6 +153,7 @@ struct MessagesRepositoryTests {
                 text: "hello",
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: nil,
                 attachmentUrls: [],
                 update: nil
@@ -170,6 +173,7 @@ struct MessagesRepositoryTests {
                 text: nil,
                 emoji: "👍",
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: "message-1",
                 attachmentUrls: [],
                 update: nil
@@ -224,6 +228,7 @@ struct MessagesRepositoryTests {
                 text: "hello",
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: nil,
                 attachmentUrls: [],
                 update: nil
@@ -243,6 +248,7 @@ struct MessagesRepositoryTests {
                 text: "replying!",
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: "message-1",
                 attachmentUrls: [],
                 update: nil
@@ -302,6 +308,7 @@ struct MessagesRepositoryTests {
                 text: "hello",
                 emoji: nil,
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: nil,
                 attachmentUrls: [],
                 update: nil

@@ -23,6 +23,8 @@ struct ReplyReferenceView: View {
             return "photo"
         case .invite:
             return "invite"
+        case .linkPreview(let preview):
+            return preview.title ?? preview.displayHost
         case .update, .assistantJoinRequest:
             return ""
         }
@@ -49,6 +51,13 @@ struct ReplyReferenceView: View {
     private var parentInvite: MessageInvite? {
         if case .invite(let invite) = parentMessage.content {
             return invite
+        }
+        return nil
+    }
+
+    private var parentLinkPreview: LinkPreview? {
+        if case .linkPreview(let preview) = parentMessage.content {
+            return preview
         }
         return nil
     }
@@ -105,6 +114,9 @@ struct ReplyReferenceView: View {
                     ReplyReferenceInvitePreview(invite: invite)
                         .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 }
+            } else if let preview = parentLinkPreview {
+                ReplyReferenceLinkPreview(preview: preview)
+                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else {
                 HStack(spacing: 0) {
                     if isOutgoing {
@@ -130,7 +142,7 @@ struct ReplyReferenceView: View {
 
     private var replyTextPreview: some View {
         Text(previewText)
-            .font(.footnote)
+            .font(.caption)
             .foregroundStyle(.colorTextSecondary)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -327,17 +339,17 @@ private struct ReplyReferenceInvitePreview: View {
             }
             .frame(height: 128.0)
             .clipped()
-            .background(.colorBackgroundInverted)
+            .background(.colorBackgroundMedia)
 
             VStack(alignment: .leading, spacing: 1.0) {
                 Text(title)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(.black)
-                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .font(.caption)
                     .truncationMode(.tail)
                 Text(description)
-                    .font(.caption2)
+                    .font(.caption)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -346,10 +358,89 @@ private struct ReplyReferenceInvitePreview: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 210.0, alignment: .leading)
-        .background(.colorLinkBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10.0))
+        .background(.colorFillSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
         .cachedImage(for: invite) { image in
             cachedImage = image
+        }
+    }
+}
+
+// MARK: - Link Preview
+
+private struct ReplyReferenceLinkPreview: View {
+    let preview: LinkPreview
+    @State private var cachedImage: UIImage?
+    @State private var ogTitle: String?
+    @State private var ogImageURL: String?
+
+    private var displayTitle: String {
+        ogTitle ?? preview.title ?? preview.displayHost
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Group {
+                if let image = cachedImage {
+                    Image(uiImage: image)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .blendMode(.multiply)
+                } else {
+                    Image(systemName: "link")
+                        .font(.title2)
+                        .foregroundStyle(.colorTextPrimaryInverted)
+                        .frame(maxWidth: .infinity)
+                }
+            }
+            .frame(height: 128.0)
+            .clipped()
+            .background(.colorBackgroundMedia)
+
+            VStack(alignment: .leading, spacing: 1.0) {
+                Text(displayTitle)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.colorTextPrimary)
+                    .font(.caption)
+                    .truncationMode(.tail)
+                Text(preview.displayHost)
+                    .font(.caption)
+                    .multilineTextAlignment(.leading)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .fixedSize(horizontal: false, vertical: true)
+        }
+        .frame(maxWidth: 210.0, alignment: .leading)
+        .background(.colorFillSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Link preview: \(displayTitle)")
+        .task {
+            await fetchMetadata()
+        }
+    }
+
+    private func fetchMetadata() async {
+        let metadata = await OpenGraphService.shared.fetchMetadata(for: preview.url)
+        if let metadata {
+            ogTitle = metadata.title
+
+            if let imageURLString = metadata.imageURL ?? preview.imageURL,
+               let imageURL = URL(string: imageURLString) {
+                ogImageURL = imageURLString
+                let cacheKey = imageURL.absoluteString
+                if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
+                    cachedImage = cached
+                    return
+                }
+                if let image = await OpenGraphService.shared.loadImage(from: imageURL) {
+                    ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+                    cachedImage = image
+                }
+            }
         }
     }
 }

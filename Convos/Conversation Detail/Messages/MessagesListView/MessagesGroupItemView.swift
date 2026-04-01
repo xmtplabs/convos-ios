@@ -162,6 +162,41 @@ struct MessagesGroupItemView: View {
             )
             .padding(.trailing, trailingPadding)
 
+        case .linkPreview(let preview):
+            LinkPreviewBubbleView(
+                preview: preview,
+                style: bubbleType,
+                isOutgoing: message.base.source == .outgoing,
+                profile: message.base.sender.profile,
+                messageId: message.base.id
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onSingleTap: {
+                    if let url = preview.resolvedURL {
+                        UIApplication.shared.open(url)
+                    }
+                },
+                onReply: onReply
+            )
+            .id("link-preview-\(message.base.id)")
+            .scaleEffect(isAppearing ? 0.9 : 1.0)
+            .rotationEffect(
+                .radians(
+                    isAppearing
+                    ? (message.base.source == .incoming ? -0.05 : 0.05)
+                    : 0
+                )
+            )
+            .offset(
+                x: isAppearing
+                ? (message.base.source == .incoming ? -20 : 20)
+                : 0,
+                y: isAppearing ? 40 : 0
+            )
+            .padding(.trailing, trailingPadding)
+
         case .attachment(let attachment):
             attachmentView(for: attachment)
 

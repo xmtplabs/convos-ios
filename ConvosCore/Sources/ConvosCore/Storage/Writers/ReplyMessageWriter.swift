@@ -47,6 +47,16 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
 
         let isContentEmoji = text.allCharactersEmoji
         let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let linkPreview = !isContentEmoji ? LinkPreview.from(text: text) : nil
+
+        let contentType: MessageContentType
+        if isContentEmoji {
+            contentType = .emoji
+        } else if linkPreview != nil {
+            contentType = .linkPreview
+        } else {
+            contentType = .text
+        }
 
         try await databaseWriter.write { db in
             let maxSortId: Int64 = try DBMessage
@@ -63,10 +73,11 @@ final class ReplyMessageWriter: ReplyMessageWriterProtocol, Sendable {
                 sortId: maxSortId + 1,
                 status: .unpublished,
                 messageType: .reply,
-                contentType: isContentEmoji ? .emoji : .text,
+                contentType: contentType,
                 text: isContentEmoji ? nil : text,
                 emoji: isContentEmoji ? trimmedText : nil,
                 invite: nil,
+                linkPreview: linkPreview,
                 sourceMessageId: parentMessage.id,
                 attachmentUrls: [],
                 update: nil

@@ -36,6 +36,16 @@ extension MessageInvite: ImageCacheable {
     }
 }
 
+extension LinkPreview: ImageCacheable {
+    public var imageCacheIdentifier: String {
+        url
+    }
+
+    public var imageCacheURL: URL? {
+        imageURL.flatMap { URL(string: $0) }
+    }
+}
+
 extension Conversation: ImageCacheable {
     public var imageCacheIdentifier: String {
         switch avatarType {

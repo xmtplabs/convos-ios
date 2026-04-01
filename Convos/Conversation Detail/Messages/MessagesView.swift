@@ -19,7 +19,8 @@ struct MessagesView<BottomBarContent: View>: View {
     @Binding var displayName: String
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
-    var pendingInviteCode: String?
+    var composerLinkPreview: LinkPreview?
+    var pendingInviteURL: String?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -30,6 +31,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
     let onClearInvite: () -> Void
+    let onClearLinkPreview: () -> Void
     let onTapAvatar: (ConversationMember) -> Void
     let onTapInvite: (MessageInvite) -> Void
     let onReaction: (String, String) -> Void
@@ -109,7 +111,8 @@ struct MessagesView<BottomBarContent: View>: View {
                 displayName: $displayName,
                 messageText: $messageText,
                 selectedAttachmentImage: $selectedAttachmentImage,
-                pendingInviteCode: pendingInviteCode,
+                composerLinkPreview: composerLinkPreview,
+                pendingInviteURL: pendingInviteURL,
                 sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
                 isPhotoPickerPresented: $isPhotoPickerPresented,
@@ -123,6 +126,7 @@ struct MessagesView<BottomBarContent: View>: View {
                     onSendMessage()
                 },
                 onClearInvite: onClearInvite,
+                onClearLinkPreview: onClearLinkPreview,
                 onDisplayNameEndedEditing: onDisplayNameEndedEditing,
                 onProfileSettings: onProfileSettings,
                 onBaseHeightChanged: { height in
