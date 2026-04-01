@@ -308,7 +308,7 @@ private struct ComposerLinkPreviewCard: View {
             .frame(maxWidth: .infinity)
             .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorBackgroundPic)
+            .background(.colorBackgroundMedia)
 
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
@@ -426,7 +426,7 @@ private struct ComposerInvitePreviewCard: View {
             .frame(maxWidth: .infinity)
             .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorBackgroundPic)
+            .background(.colorBackgroundMedia)
 
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
