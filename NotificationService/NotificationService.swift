@@ -1,6 +1,7 @@
 import ConvosCore
 import ConvosCoreiOS
 import Foundation
+import Intents
 import UserNotifications
 import XMTPiOS
 
@@ -171,29 +172,40 @@ extension DecodedNotificationContent {
         }
         content.categoryIdentifier = NotificationAction.messageCategoryIdentifier
 
-        if let avatarData = senderAvatarData,
-           let attachment = Self.createAvatarAttachment(from: avatarData) {
-            content.attachments = [attachment]
+        let senderHandle = INPersonHandle(value: conversationId ?? "unknown", type: .unknown)
+        var avatarImage: INImage?
+        if let avatarData = senderAvatarData {
+            avatarImage = INImage(imageData: avatarData)
+        }
+        let sender = INPerson(
+            personHandle: senderHandle,
+            nameComponents: nil,
+            displayName: title,
+            image: avatarImage,
+            contactIdentifier: nil,
+            customIdentifier: conversationId
+        )
+
+        let intent = INSendMessageIntent(
+            recipients: nil,
+            outgoingMessageType: .outgoingMessageText,
+            content: body,
+            speakableGroupName: nil,
+            conversationIdentifier: conversationId,
+            serviceName: nil,
+            sender: sender,
+            attachments: nil
+        )
+
+        let interaction = INInteraction(intent: intent, response: nil)
+        interaction.direction = .incoming
+        interaction.donate(completion: nil)
+
+        if let updatedContent = try? content.updating(from: intent) as? UNMutableNotificationContent {
+            return updatedContent
         }
 
         return content
-    }
-
-    private static func createAvatarAttachment(from imageData: Data) -> UNNotificationAttachment? {
-        let fileURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("jpg")
-        do {
-            try imageData.write(to: fileURL)
-            return try UNNotificationAttachment(
-                identifier: "sender-avatar",
-                url: fileURL,
-                options: [UNNotificationAttachmentOptionsTypeHintKey: "public.jpeg"]
-            )
-        } catch {
-            try? FileManager.default.removeItem(at: fileURL)
-            return nil
-        }
     }
 }
 
