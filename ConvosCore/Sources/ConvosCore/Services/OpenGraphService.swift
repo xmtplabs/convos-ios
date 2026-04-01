@@ -25,6 +25,11 @@ public actor OpenGraphService {
     private static let maxImageBytes: Int = 5_000_000
     private static let minImageDimension: CGFloat = 32
     private static let maxImageDimension: CGFloat = 4096
+    private static let safeSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 8
+        return URLSession(configuration: config, delegate: SafeRedirectDelegate(), delegateQueue: nil)
+    }()
 
     public func fetchMetadata(for urlString: String) async -> OpenGraphMetadata? {
         if let entry = cache[urlString] {
@@ -49,7 +54,7 @@ public actor OpenGraphService {
                 )
                 request.setValue("text/html", forHTTPHeaderField: "Accept")
 
-                let (data, response) = try await URLSession.shared.data(for: request)
+                let (data, response) = try await Self.safeSession.data(for: request)
 
                 guard let httpResponse = response as? HTTPURLResponse,
                       (200 ... 299).contains(httpResponse.statusCode) else {
@@ -117,6 +122,7 @@ public actor OpenGraphService {
             && header[2] == 0x46
         let isWebP = data.count >= 12 && header.count >= 4 && header[0] == 0x52
             && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+            && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50
 
         guard isJPEG || isPNG || isGIF || isWebP else { return false }
 
@@ -128,13 +134,36 @@ public actor OpenGraphService {
             && width <= maxImageDimension && height <= maxImageDimension
     }
 
+    public func loadImage(from url: URL) async -> ImageType? {
+        do {
+            let (data, _) = try await Self.safeSession.data(from: url)
+            guard Self.isValidImageData(data) else { return nil }
+            guard let image = ImageType(data: data),
+                  Self.isValidImageSize(width: image.size.width, height: image.size.height)
+            else { return nil }
+            return image
+        } catch {
+            return nil
+        }
+    }
+
+    private static let maxHeadBytes: Int = 50_000
+
+    private func extractHead(from html: String) -> String {
+        if let endRange = html.range(of: "</head>", options: .caseInsensitive) {
+            return String(html[html.startIndex ..< endRange.upperBound])
+        }
+        return String(html.prefix(Self.maxHeadBytes))
+    }
+
     func parseOpenGraphTags(from html: String) -> OpenGraphMetadata? {
-        let title = extractMetaContent(property: "og:title", from: html)
-            ?? extractHTMLTitle(from: html)
-        let imageURL = extractMetaContent(property: "og:image", from: html)
-        let siteName = extractMetaContent(property: "og:site_name", from: html)
-        let imageWidth = extractMetaContent(property: "og:image:width", from: html).flatMap { Int($0) }
-        let imageHeight = extractMetaContent(property: "og:image:height", from: html).flatMap { Int($0) }
+        let head = extractHead(from: html)
+        let title = extractMetaContent(property: "og:title", from: head)
+            ?? extractHTMLTitle(from: head)
+        let imageURL = extractMetaContent(property: "og:image", from: head)
+        let siteName = extractMetaContent(property: "og:site_name", from: head)
+        let imageWidth = extractMetaContent(property: "og:image:width", from: head).flatMap { Int($0) }
+        let imageHeight = extractMetaContent(property: "og:image:height", from: head).flatMap { Int($0) }
 
         guard title != nil || imageURL != nil else { return nil }
 
@@ -149,15 +178,20 @@ public actor OpenGraphService {
 
     private func extractMetaContent(property: String, from html: String) -> String? {
         let patterns = [
-            "<meta[^>]+property=[\"']\(property)[\"'][^>]+content=[\"']([^\"']+)[\"']",
-            "<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+property=[\"']\(property)[\"']",
-            "<meta[^>]+name=[\"']\(property)[\"'][^>]+content=[\"']([^\"']+)[\"']",
-            "<meta[^>]+content=[\"']([^\"']+)[\"'][^>]+name=[\"']\(property)[\"']",
+            "<meta[^>]+property=\"\(property)\"[^>]+content=\"([^\"]*)\"",
+            "<meta[^>]+property='\(property)'[^>]+content='([^']*)'",
+            "<meta[^>]+content=\"([^\"]*)\"[^>]+property=\"\(property)\"",
+            "<meta[^>]+content='([^']*)'[^>]+property='\(property)'",
+            "<meta[^>]+name=\"\(property)\"[^>]+content=\"([^\"]*)\"",
+            "<meta[^>]+name='\(property)'[^>]+content='([^']*)'",
+            "<meta[^>]+content=\"([^\"]*)\"[^>]+name=\"\(property)\"",
+            "<meta[^>]+content='([^']*)'[^>]+name='\(property)'",
         ]
 
+        let nsRange = NSRange(html.startIndex..., in: html)
         for pattern in patterns {
             if let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
-               let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+               let match = regex.firstMatch(in: html, range: nsRange),
                let range = Range(match.range(at: 1), in: html) {
                 let value = decodeHTMLEntities(String(html[range]))
                 return value.isEmpty ? nil : value
@@ -214,5 +248,21 @@ public actor OpenGraphService {
         }
 
         return result
+    }
+}
+
+private final class SafeRedirectDelegate: NSObject, URLSessionTaskDelegate {
+    func urlSession(
+        _: URLSession,
+        task _: URLSessionTask,
+        willPerformHTTPRedirection _: HTTPURLResponse,
+        newRequest request: URLRequest,
+        completionHandler: @escaping (URLRequest?) -> Void
+    ) {
+        if let url = request.url, LinkPreview.isPrivateHost(url) {
+            completionHandler(nil)
+        } else {
+            completionHandler(request)
+        }
     }
 }

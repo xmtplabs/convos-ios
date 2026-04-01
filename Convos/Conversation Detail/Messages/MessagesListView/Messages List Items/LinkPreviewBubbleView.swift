@@ -67,27 +67,27 @@ struct LinkPreviewCardView: View {
             .frame(maxWidth: .infinity)
             .modifier(ImageAreaModifier(hasKnownRatio: cachedImage != nil || preview.imageAspectRatio != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorFillMinimal)
+            .background(.colorBackgroundMedia)
 
-            VStack(alignment: .leading, spacing: 2.0) {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
                 Text(displayTitle)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(.black)
-                    .font(.callout.weight(.bold))
-                    .fontWeight(.bold)
+                    .foregroundStyle(.colorTextPrimary)
+                    .font(.callout.weight(.medium))
                     .truncationMode(.tail)
                 Text(displaySubtitle)
-                    .font(.subheadline)
+                    .font(.caption)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.colorTextSecondary)
             }
             .padding(.vertical, DesignConstants.Spacing.step3x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: 280.0, alignment: .leading)
-        .background(.colorLinkBackground)
+        .frame(width: 280.0, alignment: .leading)
+        .background(.colorFillSubtle)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Link preview: \(displayTitle)")
         .accessibilityHint("Opens \(preview.displayHost)")
@@ -141,21 +141,10 @@ struct LinkPreviewCardView: View {
             imageAspectRatio = cached.size.width / cached.size.height
             return
         }
-
-        do {
-            let (data, _) = try await URLSession.shared.data(from: url)
-            guard OpenGraphService.isValidImageData(data) else {
-                Log.warning("Link preview image rejected: invalid format or size")
-                return
-            }
-            if let image = UIImage(data: data),
-               OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
-                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-                cachedImage = image
-                imageAspectRatio = image.size.width / image.size.height
-            }
-        } catch {
-            Log.error("Failed to load link preview image")
+        if let image = await OpenGraphService.shared.loadImage(from: url) {
+            ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+            cachedImage = image
+            imageAspectRatio = image.size.width / image.size.height
         }
     }
 }

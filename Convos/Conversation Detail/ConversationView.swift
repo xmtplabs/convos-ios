@@ -43,7 +43,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             messageText: $viewModel.messageText,
             selectedAttachmentImage: $viewModel.selectedAttachmentImage,
             composerLinkPreview: viewModel.pastedLinkPreview,
-            pendingInviteCode: viewModel.pendingInvite?.code,
+            pendingInviteURL: viewModel.pendingInvite?.fullURL,
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,

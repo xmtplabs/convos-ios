@@ -142,7 +142,7 @@ struct ReplyReferenceView: View {
 
     private var replyTextPreview: some View {
         Text(previewText)
-            .font(.footnote)
+            .font(.caption)
             .foregroundStyle(.colorTextSecondary)
             .lineLimit(1)
             .truncationMode(.tail)
@@ -339,17 +339,17 @@ private struct ReplyReferenceInvitePreview: View {
             }
             .frame(height: 128.0)
             .clipped()
-            .background(.colorBackgroundInverted)
+            .background(.colorBackgroundMedia)
 
             VStack(alignment: .leading, spacing: 1.0) {
                 Text(title)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(.black)
-                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .font(.caption)
                     .truncationMode(.tail)
                 Text(description)
-                    .font(.caption2)
+                    .font(.caption)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -358,8 +358,8 @@ private struct ReplyReferenceInvitePreview: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 210.0, alignment: .leading)
-        .background(.colorLinkBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10.0))
+        .background(.colorFillSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
         .cachedImage(for: invite) { image in
             cachedImage = image
         }
@@ -385,6 +385,7 @@ private struct ReplyReferenceLinkPreview: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                        .blendMode(.multiply)
                 } else {
                     Image(systemName: "link")
                         .font(.title2)
@@ -394,17 +395,17 @@ private struct ReplyReferenceLinkPreview: View {
             }
             .frame(height: 128.0)
             .clipped()
-            .background(.colorBackgroundInverted)
+            .background(.colorBackgroundMedia)
 
             VStack(alignment: .leading, spacing: 1.0) {
                 Text(displayTitle)
                     .lineLimit(2)
                     .multilineTextAlignment(.leading)
-                    .foregroundStyle(.black)
-                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.colorTextPrimary)
+                    .font(.caption)
                     .truncationMode(.tail)
                 Text(preview.displayHost)
-                    .font(.caption2)
+                    .font(.caption)
                     .multilineTextAlignment(.leading)
                     .foregroundStyle(.colorTextSecondary)
             }
@@ -413,8 +414,8 @@ private struct ReplyReferenceLinkPreview: View {
             .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 210.0, alignment: .leading)
-        .background(.colorLinkBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 10.0))
+        .background(.colorFillSubtle)
+        .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Link preview: \(displayTitle)")
         .task {
@@ -435,16 +436,9 @@ private struct ReplyReferenceLinkPreview: View {
                     cachedImage = cached
                     return
                 }
-                do {
-                    let (data, _) = try await URLSession.shared.data(from: imageURL)
-                    guard OpenGraphService.isValidImageData(data) else { return }
-                    if let image = UIImage(data: data),
-                       OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
-                        ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-                        cachedImage = image
-                    }
-                } catch {
-                    Log.error("Failed to load reply link preview image")
+                if let image = await OpenGraphService.shared.loadImage(from: imageURL) {
+                    ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+                    cachedImage = image
                 }
             }
         }
