@@ -166,9 +166,9 @@ struct MessagesGroupItemView: View {
             LinkPreviewBubbleView(
                 preview: preview,
                 style: bubbleType,
-                isOutgoing: message.base.source == .outgoing,
-                profile: message.base.sender.profile,
-                messageId: message.base.id
+                isOutgoing: message.source == .outgoing,
+                profile: message.sender.profile,
+                messageId: message.messageId
             )
             .messageGesture(
                 message: message,
@@ -180,18 +180,18 @@ struct MessagesGroupItemView: View {
                 },
                 onReply: onReply
             )
-            .id("link-preview-\(message.base.id)")
+            .id("link-preview-\(message.messageId)")
             .scaleEffect(isAppearing ? 0.9 : 1.0)
             .rotationEffect(
                 .radians(
                     isAppearing
-                    ? (message.base.source == .incoming ? -0.05 : 0.05)
+                    ? (message.source == .incoming ? -0.05 : 0.05)
                     : 0
                 )
             )
             .offset(
                 x: isAppearing
-                ? (message.base.source == .incoming ? -20 : 20)
+                ? (message.source == .incoming ? -20 : 20)
                 : 0,
                 y: isAppearing ? 40 : 0
             )
