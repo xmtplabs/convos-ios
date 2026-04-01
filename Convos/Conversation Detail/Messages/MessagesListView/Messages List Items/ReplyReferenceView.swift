@@ -436,16 +436,9 @@ private struct ReplyReferenceLinkPreview: View {
                     cachedImage = cached
                     return
                 }
-                do {
-                    let (data, _) = try await URLSession.shared.data(from: imageURL)
-                    guard OpenGraphService.isValidImageData(data) else { return }
-                    if let image = UIImage(data: data),
-                       OpenGraphService.isValidImageSize(width: image.size.width, height: image.size.height) {
-                        ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-                        cachedImage = image
-                    }
-                } catch {
-                    Log.error("Failed to load reply link preview image")
+                if let image = await OpenGraphService.shared.loadImage(from: imageURL) {
+                    ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+                    cachedImage = image
                 }
             }
         }

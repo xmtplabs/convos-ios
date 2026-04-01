@@ -122,6 +122,7 @@ public actor OpenGraphService {
             && header[2] == 0x46
         let isWebP = data.count >= 12 && header.count >= 4 && header[0] == 0x52
             && header[1] == 0x49 && header[2] == 0x46 && header[3] == 0x46
+            && data[8] == 0x57 && data[9] == 0x45 && data[10] == 0x42 && data[11] == 0x50
 
         guard isJPEG || isPNG || isGIF || isWebP else { return false }
 
