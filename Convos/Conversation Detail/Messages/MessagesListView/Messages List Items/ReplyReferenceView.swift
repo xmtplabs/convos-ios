@@ -339,7 +339,7 @@ private struct ReplyReferenceInvitePreview: View {
             }
             .frame(height: 128.0)
             .clipped()
-            .background(.colorBackgroundInverted)
+            .background(.colorBackgroundPic)
 
             VStack(alignment: .leading, spacing: 1.0) {
                 Text(title)

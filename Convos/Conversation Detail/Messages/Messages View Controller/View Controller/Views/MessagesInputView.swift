@@ -426,7 +426,7 @@ private struct ComposerInvitePreviewCard: View {
             .frame(maxWidth: .infinity)
             .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil, aspectRatio: clampedAspectRatio))
             .clipped()
-            .background(.colorFillPrimary)
+            .background(.colorBackgroundPic)
 
             VStack(alignment: .leading, spacing: 2.0) {
                 Text(displayTitle)
