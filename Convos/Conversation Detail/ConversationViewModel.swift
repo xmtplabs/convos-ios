@@ -798,7 +798,7 @@ extension ConversationViewModel {
                 if let linkURL = prevLinkURL {
                     let linkIsReply = replyTarget != nil && !hasAttachment && !hasText && !hasInvite
                     if linkIsReply, let replyTarget {
-                        try await messageWriter.sendReply(text: linkURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.base.id)
+                        try await messageWriter.sendReply(text: linkURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
                     } else {
                         try await messageWriter.send(text: linkURL, afterPhoto: photoTrackingKey)
                     }

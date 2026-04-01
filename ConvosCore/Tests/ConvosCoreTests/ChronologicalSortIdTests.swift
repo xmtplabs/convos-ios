@@ -354,6 +354,7 @@ struct ChronologicalSortIdTests {
                 text: nil,
                 emoji: "👍",
                 invite: nil,
+                linkPreview: nil,
                 sourceMessageId: "msg-1",
                 attachmentUrls: [],
                 update: nil
@@ -467,6 +468,7 @@ struct ChronologicalSortIdTests {
             text: "message \(id)",
             emoji: nil,
             invite: nil,
+            linkPreview: nil,
             sourceMessageId: nil,
             attachmentUrls: [],
             update: nil

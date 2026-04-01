@@ -465,7 +465,7 @@ struct MessageContextMenuOverlay: View {
                     preview: preview,
                     style: state.bubbleStyle,
                     isOutgoing: state.isOutgoing,
-                    profile: message.base.sender.profile
+                    profile: message.sender.profile
                 )
 
             default:
