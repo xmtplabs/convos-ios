@@ -1,7 +1,11 @@
+import ConvosCore
 import SwiftUI
 
 struct AssistantSettingsView: View {
+    let session: any SessionManagerProtocol
+
     @Bindable private var defaults: GlobalConvoDefaults = .shared
+    @State private var presentingCodeEntry: Bool = false
 
     var body: some View {
         List {
@@ -25,11 +29,26 @@ struct AssistantSettingsView: View {
             .listSectionSeparator(.hidden)
 
             Section {
-                Toggle(isOn: $defaults.assistantsEnabled) {
-                    Text("Instant assistant")
-                        .foregroundStyle(.colorTextPrimary)
+                if defaults.assistantCodeUnlocked {
+                    Toggle(isOn: $defaults.assistantsEnabled) {
+                        Text("Instant assistant")
+                            .foregroundStyle(.colorTextPrimary)
+                    }
+                    .accessibilityIdentifier("assistants-enabled-toggle")
+                } else {
+                    let action = { presentingCodeEntry = true }
+                    Button(action: action) {
+                        HStack {
+                            Text("Instant assistant")
+                                .foregroundStyle(.colorTextPrimary)
+                            Spacer()
+                            Toggle("", isOn: .constant(false))
+                                .labelsHidden()
+                                .allowsHitTesting(false)
+                        }
+                    }
+                    .accessibilityIdentifier("assistants-enabled-toggle")
                 }
-                .accessibilityIdentifier("assistants-enabled-toggle")
             } footer: {
                 Text("Swipe up in new convos")
             }
@@ -54,11 +73,18 @@ struct AssistantSettingsView: View {
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
         .navigationBarTitleDisplayMode(.inline)
+        .inviteCodeAlert(
+            isPresented: $presentingCodeEntry,
+            session: session,
+            onUnlocked: {
+                defaults.assistantsEnabled = true
+            }
+        )
     }
 }
 
 #Preview {
     NavigationStack {
-        AssistantSettingsView()
+        AssistantSettingsView(session: MockInboxesService())
     }
 }

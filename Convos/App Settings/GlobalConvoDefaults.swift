@@ -33,11 +33,24 @@ final class GlobalConvoDefaults: @unchecked Sendable {
     var assistantsEnabled: Bool {
         get {
             access(keyPath: \.assistantsEnabled)
+            guard assistantCodeUnlocked else { return false }
             return UserDefaults.standard.object(forKey: Constant.assistantsEnabledKey) as? Bool ?? true
         }
         set {
             withMutation(keyPath: \.assistantsEnabled) {
                 UserDefaults.standard.set(newValue, forKey: Constant.assistantsEnabledKey)
+            }
+        }
+    }
+
+    var assistantCodeUnlocked: Bool {
+        get {
+            access(keyPath: \.assistantCodeUnlocked)
+            return UserDefaults.standard.bool(forKey: Constant.assistantCodeUnlockedKey)
+        }
+        set {
+            withMutation(keyPath: \.assistantCodeUnlocked) {
+                UserDefaults.standard.set(newValue, forKey: Constant.assistantCodeUnlockedKey)
             }
         }
     }
@@ -52,11 +65,15 @@ final class GlobalConvoDefaults: @unchecked Sendable {
         withMutation(keyPath: \.assistantsEnabled) {
             UserDefaults.standard.removeObject(forKey: Constant.assistantsEnabledKey)
         }
+        withMutation(keyPath: \.assistantCodeUnlocked) {
+            UserDefaults.standard.removeObject(forKey: Constant.assistantCodeUnlockedKey)
+        }
     }
 
     private enum Constant {
         static let autoRevealPhotosKey: String = "globalAutoRevealPhotos"
         static let includeInfoWithInvitesKey: String = "globalIncludeInfoWithInvites"
         static let assistantsEnabledKey: String = "globalAssistantsEnabled"
+        static let assistantCodeUnlockedKey: String = "globalAssistantCodeUnlocked"
     }
 }

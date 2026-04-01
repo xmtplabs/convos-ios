@@ -93,6 +93,9 @@ public final class MockInboxesService: SessionManagerProtocol {
         return .init(success: true, joined: true)
     }
 
+    public func redeemInviteCode(_ code: String) async throws {
+    }
+
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
         MockConversationRepository()
     }

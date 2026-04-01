@@ -56,6 +56,9 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
 
     // Agents
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
+
+    // Invite codes
+    func redeemInviteCode(_ code: String) async throws
 }
 
 extension ConvosAPIClientProtocol {
@@ -584,6 +587,33 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
         }
     }
 
+    // MARK: - Invite Codes
+
+    func redeemInviteCode(_ code: String) async throws {
+        var request = try authenticatedRequest(for: "v2/invite-codes/redeem", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let normalised = code.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        request.httpBody = try JSONEncoder().encode(ConvosAPI.RedeemCodeRequest(code: normalised))
+
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            return
+        case 409:
+            return
+        case 404:
+            throw APIError.inviteCodeNotFound
+        case 422:
+            throw APIError.inviteCodeInvalidFormat
+        case 429:
+            throw APIError.rateLimitExceeded
+        default:
+            throw APIError.serverError(parseErrorMessage(from: data))
+        }
+    }
+
     // MARK: - Helper Methods
 
     private func parseErrorMessage(from data: Data) -> String? {
@@ -616,6 +646,8 @@ public enum APIError: Error {
     case noAgentsAvailable
     case agentPoolTimeout
     case agentProvisionFailed
+    case inviteCodeNotFound
+    case inviteCodeInvalidFormat
 }
 
 extension APIError: DisplayError {
@@ -649,6 +681,10 @@ extension APIError: DisplayError {
             return "Assistant timed out"
         case .agentProvisionFailed:
             return "Couldn't add assistant"
+        case .inviteCodeNotFound:
+            return "Code not found"
+        case .inviteCodeInvalidFormat:
+            return "Invalid code"
         }
     }
 
@@ -682,6 +718,10 @@ extension APIError: DisplayError {
             return "Assistant setup took too long. Please try again."
         case .agentProvisionFailed:
             return "Something went wrong while adding an assistant. Please try again."
+        case .inviteCodeNotFound:
+            return "No invite code found with that value."
+        case .inviteCodeInvalidFormat:
+            return "Code must be 8 letters."
         }
     }
 }

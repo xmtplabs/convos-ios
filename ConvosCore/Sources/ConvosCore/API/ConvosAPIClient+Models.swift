@@ -152,6 +152,17 @@ public enum ConvosAPI {
         }
     }
 
+    // MARK: - v2/invite-codes/redeem
+    // POST /v2/invite-codes/redeem
+
+    public struct RedeemCodeRequest: Codable {
+        public let code: String
+
+        public init(code: String) {
+            self.code = code
+        }
+    }
+
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {

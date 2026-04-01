@@ -307,6 +307,10 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         try await apiClient.requestAgentJoin(slug: slug, instructions: instructions, forceErrorCode: forceErrorCode)
     }
 
+    public func redeemInviteCode(_ code: String) async throws {
+        try await apiClient.redeemInviteCode(code)
+    }
+
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
         let messagingService = try await messagingService(for: clientId, inboxId: inboxId)
         return ConversationRepository(
