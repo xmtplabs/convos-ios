@@ -83,9 +83,10 @@ struct LinkPreviewCardView: View {
             }
             .padding(.vertical, DesignConstants.Spacing.step3x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: 280.0, alignment: .leading)
+        .frame(width: 280.0, alignment: .leading)
         .background(.colorFillSubtle)
         .accessibilityElement(children: .combine)
         .accessibilityLabel("Link preview: \(displayTitle)")
