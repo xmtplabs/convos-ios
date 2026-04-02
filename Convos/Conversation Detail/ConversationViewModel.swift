@@ -1521,21 +1521,34 @@ extension ConversationViewModel {
 
     func onConvosButtonTapped() {
         guard pendingInvite == nil else { return }
-        Task {
+        Task { [session] in
             let (messagingService, existingConversationId) = await session.addInbox()
-            guard !Task.isCancelled else { return }
+            let clientId = messagingService.clientId
+
+            guard !Task.isCancelled else {
+                try? await session.deleteInbox(clientId: clientId, inboxId: "")
+                return
+            }
 
             let stateManager: any ConversationStateManagerProtocol
             if let existingConversationId {
                 stateManager = messagingService.conversationStateManager(for: existingConversationId)
             } else {
                 stateManager = messagingService.conversationStateManager()
-                try? await stateManager.createConversation()
+                do {
+                    try await stateManager.createConversation()
+                } catch {
+                    Log.error("Failed to create conversation for Convos button: \(error)")
+                    try? await session.deleteInbox(clientId: clientId, inboxId: "")
+                    return
+                }
             }
 
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled else {
+                try? await session.deleteInbox(clientId: clientId, inboxId: "")
+                return
+            }
 
-            let clientId = messagingService.clientId
             convosButtonCancellable = stateManager.draftConversationRepository.conversationPublisher
                 .compactMap { $0 }
                 .first { $0.invite?.urlSlug.isEmpty == false }
