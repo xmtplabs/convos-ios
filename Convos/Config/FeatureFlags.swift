@@ -7,7 +7,7 @@ final class FeatureFlags {
     var isAssistantEnabled: Bool {
         get {
             guard let stored = UserDefaults.standard.object(forKey: Constant.assistantEnabledKey) as? Bool else {
-                return !ConfigManager.shared.currentEnvironment.isProduction
+                return true
             }
             return stored
         }
