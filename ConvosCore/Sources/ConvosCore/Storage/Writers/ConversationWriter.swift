@@ -535,17 +535,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         // Store messages and track if conversation should be marked unread
         var marksConversationAsUnread = false
+        let myInboxId = dbConversation.inboxId
         for message in messages {
             guard !message.isProfileMessage else { continue }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
-            if result.contentType.marksConversationAsUnread {
+            if result.contentType.marksConversationAsUnread,
+               message.senderInboxId != myInboxId {
                 marksConversationAsUnread = true
             }
             Log.debug("Saved caught up message sent at: \(message.sentAt.nanosecondsSince1970)")
         }
 
-        // Update unread status if needed
         if marksConversationAsUnread {
             try await localStateWriter.setUnread(true, for: conversation.id)
         }

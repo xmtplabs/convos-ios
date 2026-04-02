@@ -64,6 +64,9 @@ final class ConversationsViewModel {
                 markConversationAsRead(conversation)
             }
         } else {
+            if let previousViewModel = selectedConversationViewModel {
+                markConversationAsRead(previousViewModel.conversation)
+            }
             updateSelectionTask?.cancel()
             selectedConversationViewModel = nil
         }
