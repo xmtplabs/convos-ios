@@ -1,14 +1,10 @@
 import SwiftUI
 
 struct AssistantJoinedInfoView: View {
-    @Environment(\.openURL) private var openURL: OpenURLAction
+    @State private var safariURL: URL?
 
     var body: some View {
-        let action = {
-            if let url = URL(string: Constant.assistantsURLString) {
-                openURL(url, prefersInApp: true)
-            }
-        }
+        let action = { safariURL = URL(string: Constant.assistantsURLString) }
         Button(action: action) {
             Text("See its skills")
                 .font(.footnote)
@@ -18,6 +14,7 @@ struct AssistantJoinedInfoView: View {
                 .background(Capsule().fill(.colorLava))
         }
         .padding(.bottom, DesignConstants.Spacing.step4x)
+        .safariSheet(url: $safariURL)
     }
 
     private enum Constant {
