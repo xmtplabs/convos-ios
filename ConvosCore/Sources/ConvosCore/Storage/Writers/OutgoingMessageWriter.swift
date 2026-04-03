@@ -1009,7 +1009,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             mediaWidth: nil,
             mediaHeight: nil,
             mediaDuration: nil,
-            thumbnailDataBase64: thumbnailImage.flatMap { $0.jpegData(compressionQuality: 0.5)?.base64EncodedString() }
+            thumbnailDataBase64: thumbnailImage.flatMap { $0.crossPlatformJPEGData(compressionQuality: 0.5)?.base64EncodedString() }
         )
 
         let messageId = try await publishAttachment(
