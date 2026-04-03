@@ -1,0 +1,25 @@
+syntax = "proto3";
+
+// ConvoRequest is sent via the 1:1 back channel between two members'
+// group inbox IDs to initiate a new conversation (DM or group spinoff).
+//
+// For DMs: invite_slug is absent. The receiver creates a new locked
+// conversation and adds the sender.
+//
+// For group spinoffs (phase 2): invite_slug is present. The receiver
+// joins the sender's existing group via the invite.
+message ConvoRequest {
+    // The sender's fresh inbox ID for the new conversation (hex string).
+    string new_inbox_id = 1;
+
+    // Random tag to correlate this request with the resulting conversation.
+    // Stored in conversation metadata for origin context display.
+    string convo_tag = 2;
+
+    // The conversation ID where both members met (for consent checks).
+    string origin_conversation_id = 3;
+
+    // If present, an invite slug for joining an existing group (spinoff).
+    // If absent, the receiver creates a new 1:1 conversation (DM).
+    optional string invite_slug = 4;
+}
