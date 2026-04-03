@@ -16,7 +16,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case conversationInfo(Conversation)
     case agentOutOfCredits(Profile)
     case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
-    case assistantPresentInfo
+    case assistantPresentInfo(agent: ConversationMember, inviterName: String?)
 
     public var id: String {
         switch self {

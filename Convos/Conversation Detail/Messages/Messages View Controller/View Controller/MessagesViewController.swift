@@ -513,8 +513,11 @@ extension MessagesViewController {
                 cells.insert(.invite(invite), at: 0)
             } else {
                 cells.insert(.conversationInfo(conversation), at: 0)
-                if conversation.hasAgent {
-                    cells.insert(.assistantPresentInfo, at: 1)
+                if let agent = conversation.members.first(where: \.isAgent) {
+                    let inviterName: String? = agent.invitedBy.map {
+                        $0.inboxId == conversation.inboxId ? "You" : $0.displayName
+                    }
+                    cells.insert(.assistantPresentInfo(agent: agent, inviterName: inviterName), at: 1)
                 }
             }
         }

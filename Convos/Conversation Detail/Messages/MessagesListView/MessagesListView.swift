@@ -114,9 +114,14 @@ struct MessagesListView: View {
                                 )
                                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
-                            case .assistantPresentInfo:
+                            case .assistantPresentInfo(let agent, let inviterName):
+                                let title = inviterName.map { "Assistant is present · Invited by \($0)" } ?? "Assistant is present"
                                 VStack(spacing: 0) {
-                                    TextTitleContentView(title: "Assistant is present", profile: nil)
+                                    TextTitleContentView(
+                                        title: title,
+                                        profile: agent.profile,
+                                        agentVerification: agent.agentVerification
+                                    )
                                         .padding(.vertical, DesignConstants.Spacing.step4x)
                                         .padding(.horizontal, DesignConstants.Spacing.step4x)
                                     AssistantJoinedInfoView()
