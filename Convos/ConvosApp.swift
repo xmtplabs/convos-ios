@@ -61,6 +61,7 @@ struct ConvosApp: App {
         self.conversationsViewModel = .init(session: convos.session)
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
+        appDelegate.unreadCountRepository = UnreadConversationsCountRepository(databaseReader: convos.databaseReader)
     }
 
     var body: some Scene {

@@ -7,6 +7,10 @@ import XMTPiOS
 // MARK: - Global Push Handler Singleton
 // Shared across all NSE process instances for efficiency and thread safety
 // The actor ensures thread-safe access from multiple notification deliveries
+private let globalUnreadCountRepository: UnreadConversationsCountRepository? = {
+    try? NotificationExtensionEnvironment.createUnreadCountRepository()
+}()
+
 private let globalPushHandler: CachedPushNotificationHandler? = {
     do {
         // Configure logging first (automatically disabled in production)
@@ -109,7 +113,14 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                     self.deliverNotification(UNMutableNotificationContent())
                 } else if let decodedContent {
                     Log.info("Delivering processed notification")
-                    self.deliverNotification(decodedContent.notificationContent)
+                    let content = decodedContent.notificationContent
+                    if let mutableContent = content.mutableCopy() as? UNMutableNotificationContent {
+                        let badgeCount = (try? globalUnreadCountRepository?.fetchUnreadCount()) ?? 0
+                        mutableContent.badge = NSNumber(value: badgeCount)
+                        self.deliverNotification(mutableContent)
+                    } else {
+                        self.deliverNotification(content)
+                    }
                 }
             } catch is CancellationError {
                 Log.info("Notification processing was cancelled")

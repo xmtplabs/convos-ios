@@ -357,7 +357,11 @@ extension MessagingService {
 
         let dbConversation = try await storeConversation(group, inboxId: currentInboxId)
 
-        _ = try await messageWriter.store(message: decodedMessage, for: dbConversation)
+        let storeResult = try await messageWriter.store(message: decodedMessage, for: dbConversation)
+        if storeResult.contentType.marksConversationAsUnread {
+            let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
+            try? await localStateWriter.setUnread(true, for: conversationId)
+        }
 
         let notificationTitle = (try? await getComputedDisplayName(
             conversationId: conversationId,

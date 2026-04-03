@@ -648,6 +648,17 @@ When Claude Code starts in a convos-task worktree, a SessionStart hook detects `
 
 Set `CONVOS_BASE_SIMULATOR` env var to change the source simulator (auto-detected by default).
 
+### Git Rebase Conflict Resolution
+
+When resolving rebase conflicts, `git rebase --continue` opens an interactive editor (vim) which hangs in non-TTY environments. Use `GIT_EDITOR=true` to skip the editor and accept the default commit message:
+
+```bash
+# After resolving conflicts and staging with git add:
+GIT_EDITOR=true git rebase --continue
+```
+
+This accepts the existing commit message without opening an editor. Use this for all `git rebase --continue`, `git commit --amend`, or any git command that would open an editor.
+
 ### Git and Branch Management with Graphite
 
 This project uses Graphite for PR management. A **Graphite MCP** is configured in `.mcp.json` that Claude must use for all `gt` commands.
