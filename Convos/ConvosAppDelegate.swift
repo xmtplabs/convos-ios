@@ -10,10 +10,8 @@ import UserNotifications
 class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUserNotificationCenterDelegate {
     var session: (any SessionManagerProtocol)?
     var pushNotificationRegistrar: (any PushNotificationRegistrarProtocol)?
-    var unreadCountRepository: (any UnreadConversationsCountRepositoryProtocol)?
     private var leftConversationObserver: Any?
     private var foregroundObserver: Any?
-    private var backgroundObserver: Any?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         SentryConfiguration.configure()
@@ -28,14 +26,8 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         foregroundObserver = NotificationCenter.default.addObserver(
             forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
         ) { _ in
+            BadgeCounter.reset(appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier)
             UNUserNotificationCenter.current().setBadgeCount(0)
-        }
-        backgroundObserver = NotificationCenter.default.addObserver(
-            forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.updateBadgeFromUnreadCount()
-            }
         }
         return true
     }
@@ -177,15 +169,5 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         guard !toRemove.isEmpty else { return }
         center.removeDeliveredNotifications(withIdentifiers: toRemove)
         Log.info("Cleared \(toRemove.count) notifications for conversation \(conversationId)")
-    }
-
-    private func updateBadgeFromUnreadCount() {
-        guard let repository = unreadCountRepository else { return }
-        do {
-            let count = try repository.fetchUnreadCount()
-            UNUserNotificationCenter.current().setBadgeCount(count)
-        } catch {
-            Log.error("Failed to fetch unread count for badge: \(error)")
-        }
     }
 }

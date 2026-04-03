@@ -31,12 +31,6 @@ public struct NotificationExtensionEnvironment {
         return storedEnvironment
     }
 
-    public static func createUnreadCountRepository() throws -> UnreadConversationsCountRepository {
-        let environment = try getEnvironment()
-        let databaseManager = DatabaseManager(environment: environment)
-        return UnreadConversationsCountRepository(databaseReader: databaseManager.dbReader)
-    }
-
     /// Creates a cached push notification handler with the correct environment
     /// This should typically be called once and stored as a global singleton
     /// - Parameter platformProviders: Platform-specific providers (use `.iOS` from ConvosCoreiOS)
