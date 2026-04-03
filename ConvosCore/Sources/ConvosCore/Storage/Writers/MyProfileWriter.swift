@@ -6,6 +6,7 @@ import GRDB
 public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
     func update(avatar: ImageType?, conversationId: String) async throws
+    func update(allowsDMs: Bool, conversationId: String) async throws
 }
 
 enum MyProfileWriterError: Error {
@@ -144,6 +145,37 @@ class MyProfileWriter: MyProfileWriterProtocol {
         }
 
         await sendProfileUpdate(profile: updatedProfile, group: group)
+    }
+
+    func update(allowsDMs: Bool, conversationId: String) async throws {
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+        let inboxId = inboxReady.client.inboxId
+        let profile = try await databaseWriter.write { db in
+            let member = DBMember(inboxId: inboxId)
+            try member.save(db)
+            var profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+                ?? DBMemberProfile(
+                    conversationId: conversationId,
+                    inboxId: inboxId,
+                    name: nil,
+                    avatar: nil
+                )
+            let currentMetadata = profile.metadata ?? [:]
+            profile = profile.with(metadata: currentMetadata.withAllowsDMs(allowsDMs))
+            try profile.save(db)
+            return profile
+        }
+
+        do {
+            try await group.updateProfile(profile)
+        } catch {
+            Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
+        }
+        await sendProfileUpdate(profile: profile, group: group)
     }
 
     private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {

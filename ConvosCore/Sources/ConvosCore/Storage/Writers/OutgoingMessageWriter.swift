@@ -2,6 +2,9 @@ import AVFoundation
 import Combine
 import Foundation
 import GRDB
+#if os(macOS)
+import AppKit
+#endif
 @preconcurrency import XMTPiOS
 
 public protocol OutgoingMessageWriterProtocol: Sendable {
@@ -1009,7 +1012,18 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             mediaWidth: nil,
             mediaHeight: nil,
             mediaDuration: nil,
-            thumbnailDataBase64: thumbnailImage.flatMap { $0.jpegData(compressionQuality: 0.5)?.base64EncodedString() }
+            thumbnailDataBase64: thumbnailImage.flatMap { image -> String? in
+                #if os(macOS)
+                guard let tiffData = image.tiffRepresentation,
+                      let bitmap = NSBitmapImageRep(data: tiffData),
+                      let jpegData = bitmap.representation(using: .jpeg, properties: [.compressionFactor: 0.5]) else {
+                    return nil
+                }
+                return jpegData.base64EncodedString()
+                #else
+                return image.jpegData(compressionQuality: 0.5)?.base64EncodedString()
+                #endif
+            }
         )
 
         let messageId = try await publishAttachment(

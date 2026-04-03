@@ -68,6 +68,10 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         return "Somebody"
     }
 
+    public var allowsDMs: Bool {
+        metadata?.allowsDMs ?? false
+    }
+
     public func verifyAgentAttestation(keyset: any AgentKeysetProviding) async -> AgentVerification {
         guard isAgent else {
             return .unverified

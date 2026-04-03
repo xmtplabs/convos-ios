@@ -1104,6 +1104,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
                 InviteJoinErrorCodec(),
                 ProfileUpdateCodec(),
                 ProfileSnapshotCodec(),
+                ConvoRequestCodec(),
                 JoinRequestCodec(),
                 AssistantJoinRequestCodec()
             ],
