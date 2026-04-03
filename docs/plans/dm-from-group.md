@@ -76,35 +76,36 @@ Convos DMs are different. They're initiated with mutual consent, filtered by you
 
 ## Profile metadata
 
-The `allowsDMs` flag is a field on the `ProfileUpdate` message type (see PR #552). When a member enables or disables DMs, their client sends a `ProfileUpdate` with the updated `allows_dms` field. This follows the same infrastructure used for name and avatar updates:
+Profile data is transmitted via two custom XMTP content types defined in the `ConvosProfiles` package:
 
-- The flag is included in `ProfileSnapshot` messages, so new joiners immediately know who has DMs enabled
+- **`convos.org/profile_update`** — sent by a member when they change their own profile (name, avatar, or metadata). The sender's inbox ID is implicit from the XMTP message envelope.
+- **`convos.org/profile_snapshot`** — sent by the member who adds new members to a group. Contains all current member profiles so new joiners have everyone's data immediately (solves the MLS forward secrecy gap where new members can't decrypt older messages).
+
+Both message types include a `metadata` map (`map<string, MetadataValue>`) that supports typed key-value pairs (string, number, or bool). This map is already used for agent attestation fields and is the extension point for new profile features.
+
+### How `allows_dms` works
+
+The `allows_dms` flag uses the existing `metadata` map on `ProfileUpdate` and `MemberProfile` — no proto schema changes needed:
+
+```
+metadata["allows_dms"] = MetadataValue(bool_value: true)
+```
+
+When a member toggles their DM setting, their client sends a `ProfileUpdate` with the updated metadata. The flag flows through the existing pipeline:
+
+- Persisted in `DBMemberProfile.metadata` (GRDB)
+- Included in `ProfileSnapshot` messages, so new joiners immediately know who has DMs enabled
 - Everyone in the group can read this flag (it's in the profile data)
 - Used to conditionally show the "Send DM" button
 - Does not reveal whether the user has a select members list
 
+Old clients ignore unknown metadata keys (the map is additive). Members on old clients will appear as DMs-disabled (key absent = false).
+
 The select members list is private — it is never shared with the group or any other member. See "Select members list" below for storage.
 
-### Proto changes
+### Profile architecture reference
 
-```protobuf
-message ProfileUpdate {
-    optional string name = 1;
-    optional EncryptedProfileImageRef encrypted_image = 2;
-    MemberKind member_kind = 3;
-    optional bool allows_dms = 4;  // new
-}
-
-message MemberProfile {
-    bytes inbox_id = 1;
-    optional string name = 2;
-    optional EncryptedProfileImageRef encrypted_image = 3;
-    MemberKind member_kind = 4;
-    optional bool allows_dms = 5;  // new
-}
-```
-
-Old clients ignore the `allows_dms` field (protobuf forward compatibility). Members on old clients will appear as DMs-disabled (field absent = false).
+Profiles are stored per-conversation per-member in the `memberProfile` table. The `ConversationWriter` also writes profiles to XMTP appData as a best-effort fallback for older clients. The authoritative source is always the `ProfileUpdate`/`ProfileSnapshot` messages — appData is only used to fill gaps for members that haven't sent a profile message yet.
 
 ## The DMRequest message
 
