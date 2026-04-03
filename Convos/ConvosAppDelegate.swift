@@ -15,6 +15,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         SentryConfiguration.configure()
         UNUserNotificationCenter.current().delegate = self
+        registerNotificationCategories()
         application.registerForRemoteNotifications()
         leftConversationObserver = NotificationCenter.default.addObserver(
             forName: .leftConversationNotification, object: nil, queue: .main
@@ -23,6 +24,28 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
             Task { await self?.clearDeliveredNotifications(for: conversationId) }
         }
         return true
+    }
+
+    private func registerNotificationCategories() {
+        let replyAction = UNTextInputNotificationAction(
+            identifier: NotificationAction.replyIdentifier,
+            title: "Reply",
+            options: [],
+            textInputButtonTitle: "Send",
+            textInputPlaceholder: "Type a reply..."
+        )
+        let markReadAction = UNNotificationAction(
+            identifier: NotificationAction.markReadIdentifier,
+            title: "Mark as Read",
+            options: []
+        )
+        let messageCategory = UNNotificationCategory(
+            identifier: NotificationAction.messageCategoryIdentifier,
+            actions: [replyAction, markReadAction],
+            intentIdentifiers: [],
+            options: []
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([messageCategory])
     }
 
     func application(_ application: UIApplication,
@@ -94,14 +117,11 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         return [.banner]
     }
 
-    // Handle notification taps
+    // Handle notification taps and actions
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
-        Log.debug("Notification tapped")
-
         let conversationId = response.notification.request.content.threadIdentifier
 
-        // Check if this is an explosion notification tap
         if response.notification.request.content.userInfo["isExplosion"] as? Bool == true {
             Log.info("Explosion notification tapped")
             DispatchQueue.main.async {
@@ -115,30 +135,47 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         }
 
         guard !conversationId.isEmpty else {
-            Log.warning("Notification tapped but conversationId is empty")
+            Log.warning("Notification received but conversationId is empty")
             return
         }
 
+        switch response.actionIdentifier {
+        case NotificationAction.replyIdentifier:
+            await handleNotificationReply(response: response, conversationId: conversationId)
+
+        case NotificationAction.markReadIdentifier:
+            await clearDeliveredNotifications(for: conversationId)
+
+        default:
+            await handleNotificationTap(conversationId: conversationId)
+        }
+    }
+
+    private func handleNotificationReply(response: UNNotificationResponse, conversationId: String) async {
+        guard let textResponse = response as? UNTextInputNotificationResponse else { return }
+        let replyText = textResponse.userText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !replyText.isEmpty else { return }
+
+        Log.info("Sending notification reply to conversation \(conversationId)")
+        do {
+            try await session?.sendNotificationReply(text: replyText, conversationId: conversationId)
+            await clearDeliveredNotifications(for: conversationId)
+        } catch {
+            Log.error("Failed to send notification reply: \(error)")
+        }
+    }
+
+    private func handleNotificationTap(conversationId: String) async {
         guard let session = session,
               let inboxId = await session.inboxId(for: conversationId) else {
-            Log
-                .warning(
-                    "Notification tapped but could not find inboxId for conversationId: \(conversationId)"
-                )
+            Log.warning("Notification tapped but could not find inboxId for conversationId: \(conversationId)")
             return
         }
 
-        // Wake the inbox for this conversation when notification is tapped
-        // This ensures the inbox is ready when the user opens the conversation
         await session.wakeInboxForNotification(conversationId: conversationId)
-
-        // Clear all delivered notifications for this conversation
         await clearDeliveredNotifications(for: conversationId)
 
-        Log
-            .info(
-                "Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)"
-            )
+        Log.info("Handling conversation notification tap for inboxId: \(inboxId), conversationId: \(conversationId)")
         DispatchQueue.main.async {
             NotificationCenter.default.post(
                 name: .conversationNotificationTapped,

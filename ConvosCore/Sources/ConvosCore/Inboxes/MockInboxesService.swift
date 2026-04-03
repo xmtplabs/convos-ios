@@ -30,6 +30,8 @@ public final class MockInboxesService: SessionManagerProtocol {
     public func notifyChangesInDatabase() {
     }
 
+    public func sendNotificationReply(text: String, conversationId: String) async throws {}
+
     public func inboxId(for conversationId: String) async -> String? {
         "mock-inbox-id"
     }

@@ -543,6 +543,41 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         Log.info("Deleted orphaned inbox: clientId=\(clientId), inboxId=\(inboxId)")
     }
 
+    // MARK: - Notification Actions
+
+    public func sendNotificationReply(text: String, conversationId: String) async throws {
+        guard let conversation = try await databaseReader.read({ db in
+            try DBConversation
+                .filter(DBConversation.Columns.id == conversationId)
+                .fetchOne(db)
+        }) else {
+            Log.error("Cannot reply: conversation \(conversationId) not found")
+            return
+        }
+
+        await wakeInboxForNotification(
+            clientId: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+
+        let service = try await messagingService(
+            for: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+        await service.inboxStateManager.ensureForeground()
+        for _ in 0..<20 {
+            if case .ready = service.inboxStateManager.currentState { break }
+            try await Task.sleep(for: .milliseconds(100))
+        }
+
+        let writer = service.messageWriter(
+            for: conversationId,
+            backgroundUploadManager: platformProviders.backgroundUploadManager
+        )
+        try await writer.send(text: text)
+        Log.info("Sent notification reply to conversation \(conversationId)")
+    }
+
     // MARK: Helpers
 
     public func inboxId(for conversationId: String) async -> String? {
