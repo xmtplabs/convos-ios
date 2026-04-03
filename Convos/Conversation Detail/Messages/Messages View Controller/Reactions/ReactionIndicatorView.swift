@@ -105,43 +105,6 @@ private struct ReactionPillView: View {
 
     @State private var countBadgeWidth: CGFloat = 0
 
-    private var scrollingContent: some View {
-        ZStack(alignment: .trailing) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                emojiContent
-            }
-            .scrollBounceBehavior(.basedOnSize)
-            .contentMargins(.trailing, countBadgeWidth, for: .scrollContent)
-            .mask(
-                HStack(spacing: 0) {
-                    Rectangle().fill(.black)
-                    LinearGradient(
-                        colors: [.black, .black.opacity(0)],
-                        startPoint: .leading,
-                        endPoint: .trailing
-                    )
-                    .frame(width: 12)
-                    Rectangle().fill(.clear)
-                        .frame(width: countBadgeWidth)
-                }
-            )
-
-            Text("\(count)")
-                .font(.footnote)
-                .foregroundStyle(.colorTextSecondary)
-                .padding(.leading, DesignConstants.Spacing.stepX)
-                .padding(.trailing, DesignConstants.Spacing.step3x)
-                .fixedSize()
-                .background(GeometryReader { geo in
-                    Color.clear.preference(key: CountBadgeWidthKey.self, value: geo.size.width)
-                })
-                .onPreferenceChange(CountBadgeWidthKey.self) { width in
-                    countBadgeWidth = width
-                }
-        }
-        .frame(width: maxWidth)
-    }
-
     private var widthMeasurement: some View {
         emojiContent
             .fixedSize()
