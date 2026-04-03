@@ -50,6 +50,9 @@ struct MessagesMediaButtonsView: View {
             // .accessibilityLabel("Convos")
             // .accessibilityIdentifier("convos-action-button")
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Media buttons")
+        .accessibilityIdentifier("media-buttons")
         .padding(.horizontal, DesignConstants.Spacing.step2x)
     }
 

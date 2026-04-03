@@ -8,25 +8,35 @@ public enum RemoteAttachmentLoaderError: Error {
     case notAnImage
 }
 
+public struct LoadedAttachment: Sendable {
+    public let data: Data
+    public let mimeType: String
+    public let filename: String?
+}
+
 public protocol RemoteAttachmentLoaderProtocol: Sendable {
     func loadImageData(from storedJSON: String) async throws -> Data
+    func loadAttachmentData(from storedJSON: String) async throws -> LoadedAttachment
 }
 
 public actor RemoteAttachmentLoader: RemoteAttachmentLoaderProtocol {
-    private var inFlightTasks: [String: Task<Data, Error>] = [:]
+    private var inFlightTasks: [String: Task<LoadedAttachment, Error>] = [:]
 
     public init() {}
 
     public func loadImageData(from storedJSON: String) async throws -> Data {
-        // Use hash as key for deduplication of in-flight requests
+        let loaded = try await loadAttachmentData(from: storedJSON)
+        return loaded.data
+    }
+
+    public func loadAttachmentData(from storedJSON: String) async throws -> LoadedAttachment {
         let requestKey = storedJSON.hash.description
 
-        // Check for existing in-flight request to avoid duplicate fetches
         if let existingTask = inFlightTasks[requestKey] {
             return try await existingTask.value
         }
 
-        let task = Task<Data, Error> {
+        let task = Task<LoadedAttachment, Error> {
             try await fetchAndDecrypt(storedJSON: storedJSON)
         }
 
@@ -42,7 +52,7 @@ public actor RemoteAttachmentLoader: RemoteAttachmentLoaderProtocol {
         }
     }
 
-    private func fetchAndDecrypt(storedJSON: String) async throws -> Data {
+    private func fetchAndDecrypt(storedJSON: String) async throws -> LoadedAttachment {
         let stored = try StoredRemoteAttachment.fromJSON(storedJSON)
 
         let remoteAttachment = try RemoteAttachment(
@@ -60,10 +70,10 @@ public actor RemoteAttachmentLoader: RemoteAttachmentLoaderProtocol {
 
         let attachment = try AttachmentCodec().decode(content: encodedContent)
 
-        guard attachment.mimeType.hasPrefix("image/") else {
-            throw RemoteAttachmentLoaderError.notAnImage
-        }
-
-        return attachment.data
+        return LoadedAttachment(
+            data: attachment.data,
+            mimeType: attachment.mimeType,
+            filename: attachment.filename
+        )
     }
 }

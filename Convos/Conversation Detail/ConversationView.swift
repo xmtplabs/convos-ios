@@ -15,6 +15,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingProcessingPowerInfo: Bool = false
     @State private var showingFullInfo: Bool = false
+    @State private var showingAssistantsInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
     @State private var didReleasePastThreshold: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -41,6 +42,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             displayName: $viewModel.myProfileViewModel.editingDisplayName,
             messageText: $viewModel.messageText,
             selectedAttachmentImage: $viewModel.selectedAttachmentImage,
+            isVideoAttachment: viewModel.selectedVideoURL != nil,
             composerLinkPreview: viewModel.pastedLinkPreview,
             pendingInviteURL: viewModel.pendingInvite?.fullURL,
             sendButtonEnabled: viewModel.sendButtonEnabled,
@@ -82,6 +84,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onPhotoRevealed: viewModel.onPhotoRevealed(_:),
             onPhotoHidden: viewModel.onPhotoHidden(_:),
             onPhotoDimensionsLoaded: viewModel.onPhotoDimensionsLoaded(_:width:height:),
+            onVideoSelected: viewModel.onVideoSelected(_:),
+            onAboutAssistants: { showingAssistantsInfo = true },
             onAgentOutOfCredits: { showingProcessingPowerInfo = true },
             onTapUpdateMember: { viewModel.presentingProfileForMember = $0 },
             onRetryMessage: viewModel.retryMessage(_:),
@@ -242,6 +246,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
             AssistantProcessingPowerInfoView()
+                .padding(.top, 20)
+        }
+        .selfSizingSheet(isPresented: $showingAssistantsInfo) {
+            AssistantsInfoView()
                 .padding(.top, 20)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in

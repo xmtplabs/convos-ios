@@ -12,6 +12,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let emptyDisplayNamePlaceholder: String = "Somebody"
     @Binding var messageText: String
     @Binding var selectedAttachmentImage: UIImage?
+    var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
     let sendButtonEnabled: Bool
@@ -26,6 +27,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onClearInvite: () -> Void
     let onClearLinkPreview: () -> Void
     let onDisplayNameEndedEditing: () -> Void
+    let onVideoSelected: (URL) -> Void
     let onProfileSettings: () -> Void
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
@@ -92,12 +94,19 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 }
             }
         }
-        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .images)
+        .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhoto, matching: .any(of: [.images, .videos]))
         .onChange(of: selectedPhoto) { _, newValue in
             Task {
-                if let newValue,
-                   let data = try? await newValue.loadTransferable(type: Data.self),
-                   let image = UIImage(data: data) {
+                guard let newValue else { return }
+
+                if let videoFile = try? await newValue.loadTransferable(type: VideoFile.self) {
+                    onVideoSelected(videoFile.url)
+                    selectedPhoto = nil
+                    didSelectPhotoThisSession = true
+                    isPhotoPickerPresented = false
+                    focusCoordinator.moveFocus(to: .message)
+                } else if let data = try? await newValue.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) {
                     selectedAttachmentImage = image
                     selectedPhoto = nil
                     didSelectPhotoThisSession = true
@@ -107,11 +116,18 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             }
         }
         .fullScreenCover(isPresented: $isCameraPresented) {
-            CameraPickerView { image in
-                selectedAttachmentImage = image
-                isCameraPresented = false
-                focusCoordinator.moveFocus(to: .message)
-            }
+            CameraPickerView(
+                onImageCaptured: { image in
+                    selectedAttachmentImage = image
+                    isCameraPresented = false
+                    focusCoordinator.moveFocus(to: .message)
+                },
+                onVideoCaptured: { url in
+                    onVideoSelected(url)
+                    isCameraPresented = false
+                    focusCoordinator.moveFocus(to: .message)
+                }
+            )
             .ignoresSafeArea()
         }
     }
@@ -161,6 +177,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 emptyDisplayNamePlaceholder: emptyDisplayNamePlaceholder,
                 messageText: $messageText,
                 selectedAttachmentImage: $selectedAttachmentImage,
+                isVideoAttachment: isVideoAttachment,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
                 sendButtonEnabled: sendButtonEnabled,
@@ -287,6 +304,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onDisplayNameEndedEditing: {
                 focusCoordinator.endEditing(for: .displayName)
             },
+            onVideoSelected: { _ in },
             onProfileSettings: {},
             onBaseHeightChanged: { height in
                 bottomBarHeight = height

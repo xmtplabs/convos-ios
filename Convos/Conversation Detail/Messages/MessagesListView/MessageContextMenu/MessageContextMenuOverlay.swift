@@ -554,7 +554,11 @@ struct MessageContextMenuOverlay: View {
 
                 if let attachment = photoAttachment {
                     let saveAction = {
-                        saveAttachmentToPhotoLibrary(key: attachment.key)
+                        if attachment.mediaType == .video {
+                            saveVideoToPhotoLibrary(key: attachment.key)
+                        } else {
+                            saveAttachmentToPhotoLibrary(key: attachment.key)
+                        }
                         dismissMenu()
                     }
                     ContextMenuRow(icon: "square.and.arrow.down", title: "Save", action: saveAction)
@@ -738,14 +742,43 @@ private struct ContextMenuPhotoPreview: View {
     }
 }
 
-// MARK: - Save Photo Helper
+// MARK: - Save Attachment Helper
 
 private func saveAttachmentToPhotoLibrary(key: String) {
     guard let image = ImageCache.shared.image(for: key) else { return }
-    PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
-        guard status == .authorized || status == .limited else { return }
-        PHPhotoLibrary.shared().performChanges {
-            PHAssetChangeRequest.creationRequestForAsset(from: image)
+    PHPhotoLibrary.shared().performChanges {
+        PHAssetChangeRequest.creationRequestForAsset(from: image)
+    }
+}
+
+private func saveVideoToPhotoLibrary(key: String) {
+    Task {
+        do {
+            let videoURL: URL
+            let isLocalFile = key.hasPrefix("file://")
+            if isLocalFile {
+                let path = String(key.dropFirst("file://".count))
+                videoURL = URL(fileURLWithPath: path)
+            } else {
+                let loader = RemoteAttachmentLoader()
+                let loaded = try await loader.loadAttachmentData(from: key)
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
+                try loaded.data.write(to: tempURL)
+                videoURL = tempURL
+            }
+
+            defer {
+                if !isLocalFile {
+                    try? FileManager.default.removeItem(at: videoURL)
+                }
+            }
+
+            try await PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAssetFromVideo(atFileURL: videoURL)
+            }
+        } catch {
+            Log.error("Failed to save video to photo library: \(error)")
         }
     }
 }
