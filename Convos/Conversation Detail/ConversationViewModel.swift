@@ -62,6 +62,7 @@ class ConversationViewModel {
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
     private var convosButtonCancellable: AnyCancellable?
+    @ObservationIgnored
     private var convosButtonTask: Task<Void, Never>?
     @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
@@ -352,6 +353,7 @@ class ConversationViewModel {
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
         assistantJoinTask?.cancel()
+        convosButtonTask?.cancel()
     }
 
     // MARK: - Init
@@ -1504,6 +1506,8 @@ extension ConversationViewModel {
         guard pendingInvite == nil else { return }
 
         if let result = InviteURLDetector.detectInviteURL(in: messageText) {
+            convosButtonTask?.cancel()
+            convosButtonCancellable?.cancel()
             pendingInvite = PendingInvite(code: result.code, fullURL: result.fullURL, range: result.range)
             messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
         }
@@ -1515,7 +1519,11 @@ extension ConversationViewModel {
         if let clientId = invite.linkedConversationClientId {
             let inboxId = invite.linkedConversationInboxId ?? ""
             Task { [session] in
-                try? await session.deleteInbox(clientId: clientId, inboxId: inboxId)
+                do {
+                    try await session.deleteInbox(clientId: clientId, inboxId: inboxId)
+                } catch {
+                    Log.error("Failed to delete linked conversation inbox: \(error)")
+                }
             }
         }
     }
