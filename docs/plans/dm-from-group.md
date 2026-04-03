@@ -238,6 +238,21 @@ Yes. When you send a DM request, a new inbox is created. You can choose to use y
 
 ---
 
+# Shared UI components
+
+## Member picker
+
+A reusable member selection component used in multiple places:
+
+- **DM permissions**: selecting which members can DM you ("From select members" list)
+- **Group spinoffs** (phase 2): selecting which members to invite to a new spinoff group
+
+The component takes a list of members (with profiles) and lets the user tap to select/deselect. It shows member avatars, display names, and a checkmark for selected members. The parent view controls the minimum selection count (1 for spinoffs, 0 for DM permissions) and the action button label ("Pop up new convo" for spinoffs, "Save" for DM permissions).
+
+This component should be built in phase 1 as part of the DM permissions UI and reused in phase 2 for spinoffs.
+
+---
+
 # Decisions
 
 1. **Allow DMs toggle**: Per-conversation setting with three states: off, everyone, select members.
