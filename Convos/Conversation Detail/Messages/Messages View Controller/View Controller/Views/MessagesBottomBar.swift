@@ -116,11 +116,18 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             }
         }
         .fullScreenCover(isPresented: $isCameraPresented) {
-            CameraPickerView { image in
-                selectedAttachmentImage = image
-                isCameraPresented = false
-                focusCoordinator.moveFocus(to: .message)
-            }
+            CameraPickerView(
+                onImageCaptured: { image in
+                    selectedAttachmentImage = image
+                    isCameraPresented = false
+                    focusCoordinator.moveFocus(to: .message)
+                },
+                onVideoCaptured: { url in
+                    onVideoSelected(url)
+                    isCameraPresented = false
+                    focusCoordinator.moveFocus(to: .message)
+                }
+            )
             .ignoresSafeArea()
         }
     }
