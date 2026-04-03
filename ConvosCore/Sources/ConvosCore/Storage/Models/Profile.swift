@@ -64,7 +64,8 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var displayName: String {
-        name ?? "Somebody"
+        if let name, !name.isEmpty { return name }
+        return "Somebody"
     }
 
     public func verifyAgentAttestation(keyset: any AgentKeysetProviding) async -> AgentVerification {

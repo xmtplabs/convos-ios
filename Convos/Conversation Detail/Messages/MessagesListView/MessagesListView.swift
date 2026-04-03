@@ -114,7 +114,7 @@ struct MessagesListView: View {
                                 )
                                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
-                            case .assistantPresentInfo(let agent, let inviterName):
+                            case let .assistantPresentInfo(agent, inviterName):
                                 let title = inviterName.map { "Assistant is present · Invited by \($0)" } ?? "Assistant is present"
                                 VStack(spacing: 0) {
                                     TextTitleContentView(
