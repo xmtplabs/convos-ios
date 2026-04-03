@@ -109,7 +109,6 @@ struct ConversationsView: View {
                     Text("Exploding")
                 }
             }
-
         } label: {
             Image(systemName: "line.3.horizontal.decrease")
                 .foregroundStyle(isFiltered ? .colorTextPrimaryInverted : .colorFillPrimary)
