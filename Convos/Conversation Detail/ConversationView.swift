@@ -15,6 +15,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
     @State private var showingLockedInfo: Bool = false
     @State private var showingProcessingPowerInfo: Bool = false
     @State private var showingFullInfo: Bool = false
+    @State private var showingAssistantsInfo: Bool = false
     @State private var scrollOverscrollAmount: CGFloat = 0.0
     @State private var didReleasePastThreshold: Bool = false
     @Environment(\.dismiss) private var dismiss: DismissAction
@@ -44,7 +45,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isVideoAttachment: viewModel.selectedVideoURL != nil,
             composerLinkPreview: viewModel.pastedLinkPreview,
             pendingInviteURL: viewModel.pendingInvite?.fullURL,
->>>>>>> 6f02b89c (Show video badge on composer attachment preview)
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
@@ -246,6 +246,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .selfSizingSheet(isPresented: $showingProcessingPowerInfo) {
             AssistantProcessingPowerInfoView()
+                .padding(.top, 20)
+        }
+        .selfSizingSheet(isPresented: $showingAssistantsInfo) {
+            AssistantsInfoView()
                 .padding(.top, 20)
         }
         .sheet(item: $viewModel.presentingProfileForMember) { member in

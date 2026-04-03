@@ -763,11 +763,8 @@ extension ConversationViewModel {
         let prevAttachmentImage = selectedAttachmentImage
         let eagerUploadKey = currentEagerUploadKey
         let prevInviteURL = pendingInvite?.fullURL
-<<<<<<< HEAD
         let prevLinkURL = pastedLinkPreview?.url
-=======
         let prevVideoURL = selectedVideoURL
->>>>>>> 0555dd80 (Implement video message sending and playback)
 
         messageText = ""
         replyingToMessage = nil
@@ -789,7 +786,7 @@ extension ConversationViewModel {
 
                 if let videoURL = prevVideoURL {
                     isSendingPhoto = true
-                    let key = try await messageWriter.sendVideo(at: videoURL, replyToMessageId: replyTarget?.base.id)
+                    let key = try await messageWriter.sendVideo(at: videoURL, replyToMessageId: replyTarget?.messageId)
                     photoTrackingKey = key
                 } else if prevAttachmentImage != nil {
                     isSendingPhoto = true

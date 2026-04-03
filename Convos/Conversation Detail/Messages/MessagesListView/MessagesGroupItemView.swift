@@ -217,14 +217,9 @@ struct MessagesGroupItemView: View {
 
         VideoTapAttachmentView(
             attachment: attachment,
-<<<<<<< HEAD
+            message: message,
             isOutgoing: message.sender.isCurrentUser,
             profile: message.sender.profile,
-=======
-            message: message,
-            isOutgoing: message.base.sender.isCurrentUser,
-            profile: message.base.sender.profile,
->>>>>>> 0555dd80 (Implement video message sending and playback)
             shouldBlurPhotos: shouldBlurPhotos,
             isBlurred: isBlurred,
             onPhotoRevealed: onPhotoRevealed,

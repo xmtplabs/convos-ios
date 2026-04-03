@@ -15,7 +15,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
->>>>>>> 6f02b89c (Show video badge on composer attachment preview)
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -174,7 +173,6 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 isVideoAttachment: isVideoAttachment,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
->>>>>>> 6f02b89c (Show video badge on composer attachment preview)
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
