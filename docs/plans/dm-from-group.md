@@ -59,7 +59,7 @@ The sender doesn't know whether they were auto-approved or silently ignored.
 Once the DM is created:
 
 - It shows up in both home lists immediately
-- Context is shown: "From [display name] in [convo name]" for the receiver, or "To [display name] in [convo name]" for the sender
+- In the conversations list, the sender label area (where the member name normally appears) shows origin context: "[display name] from [convo name]". The origin conversation's image may also be shown alongside the convo name for visual recognition
 - This context expires when the DM request message expires
 
 ---
@@ -159,6 +159,8 @@ XMTP group permissions are set so:
 
 # Group spinoffs
 
+> **Status: deferred.** Group spinoffs will be implemented after DMs ship. The design below outlines the direction but has open questions that need to be resolved before building.
+
 The DM flow generalizes to starting a new group with a subset of members from an existing conversation — without the rest knowing.
 
 ## How it works
@@ -186,12 +188,23 @@ The sender creates the group immediately — no waiting for acceptance. Recipien
 
 ## The GroupInviteRequest message
 
-Sent through the back channel to each invitee:
+Sent through the back channel to each invitee. Could reuse the `DMRequest` content type with additional fields, or be a separate content type — to be decided during implementation.
+
+Contents:
 
 - **Sender's new inbox ID**: Their fresh identity for the new group
 - **Conversation ID**: The new group's XMTP conversation ID (to join)
 - **Origin conversation ID**: Which group the invite came from (for consent checks)
 - **Expiration**: Disappearing message, same as DM requests
+
+## Open questions
+
+- **UI entry point**: How do users enter multi-select mode in the member list? Dedicated button? Long-press?
+- **Admin permissions**: Is the sender super admin of the spinoff group? What permission level do joiners get?
+- **Conversation naming**: Does the spinoff group get a default name? Any visible link back to the origin?
+- **Pending state**: What does the sender see while waiting for others to join? Placeholder members?
+- **Sender's DM flag**: Does the sender need `allows_dms` enabled, or only recipients?
+- **Abuse prevention**: Can someone spam invites to all members of a large group? Rate limiting needed?
 
 ---
 
