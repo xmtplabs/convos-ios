@@ -1556,7 +1556,7 @@ extension ConversationViewModel {
                 .first { $0.invite?.urlSlug.isEmpty == false }
                 .receive(on: DispatchQueue.main)
                 .sink { [weak self] convo in
-                    guard let self, let convoInvite = convo.invite else { return }
+                    guard let self, self.pendingInvite == nil, let convoInvite = convo.invite else { return }
                     let urlString = convoInvite.inviteURLString
                     let emptyRange = urlString.startIndex ..< urlString.startIndex
                     self.pendingInvite = PendingInvite(
