@@ -122,12 +122,14 @@ This message is delivered because both members' group inbox IDs already have an 
 
 ## Conversation creation
 
+DM conversations are standard XMTP group conversations — there is no special "DM" conversation type. The only difference is the entry point: instead of being created from an invite link, they're created from within an existing group. Once created, they look and behave like any other conversation.
+
 When the receiver's client processes the request:
 
-1. Creates a new inbox (their fresh DM identity)
-2. Creates a new XMTP conversation (they're super admin)
+1. Creates a new inbox (their fresh identity for this conversation)
+2. Creates a new XMTP group conversation (they're super admin)
 3. Adds the sender's new inbox ID to the conversation
-4. Sets the DM tag in conversation metadata
+4. Sets the DM tag in conversation metadata (for origin context display)
 5. Locks the conversation (no additional members allowed)
 6. Sets consent state based on their DM settings
 
