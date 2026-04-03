@@ -17,11 +17,11 @@ public final class ConvosClient {
     public let scheduledExplosionManager: ScheduledExplosionManagerProtocol?
     public let platformProviders: PlatformProviders
 
-    var databaseWriter: any DatabaseWriter {
+    public var databaseWriter: any DatabaseWriter {
         databaseManager.dbWriter
     }
 
-    var databaseReader: any DatabaseReader {
+    public var databaseReader: any DatabaseReader {
         databaseManager.dbReader
     }
 

@@ -1,17 +1,22 @@
+import ConvosCore
 import SwiftUI
 
 struct MonogramView: View {
     private let initials: String
-    private let isAgent: Bool
+    private let agentVerification: AgentVerification
 
-    init(text: String, isAgent: Bool = false) {
+    init(text: String, agentVerification: AgentVerification = .unverified) {
         self.initials = text
-        self.isAgent = isAgent
+        self.agentVerification = agentVerification
     }
 
-    init(name: String, isAgent: Bool = false) {
+    init(name: String, agentVerification: AgentVerification = .unverified) {
         self.initials = Self.initials(from: name)
-        self.isAgent = isAgent
+        self.agentVerification = agentVerification
+    }
+
+    private var isAgent: Bool {
+        agentVerification != .unverified
     }
 
     var body: some View {
@@ -38,7 +43,7 @@ struct MonogramView: View {
                     )
                 }
             }
-            .background(isAgent ? .colorLava : .colorFillTertiary)
+            .background(agentVerification.avatarBackgroundColor)
             .clipShape(Circle())
         }
         .aspectRatio(1.0, contentMode: .fit)

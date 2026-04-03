@@ -51,7 +51,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return clientConversationId
-        case .profile(let profile):
+        case .profile(let profile, _):
             // Fall back to clientConversationId if inboxId is empty to prevent cache key collisions
             return profile.inboxId.isEmpty ? clientConversationId : profile.inboxId
         default:
@@ -63,7 +63,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return imageURL
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.avatarURL
         default:
             return nil
@@ -74,7 +74,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return true
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.isAvatarEncrypted
         default:
             return false
@@ -85,7 +85,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return imageSalt
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.avatarSalt
         default:
             return nil
@@ -96,7 +96,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return imageNonce
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.avatarNonce
         default:
             return nil
@@ -107,7 +107,7 @@ extension Conversation: ImageCacheable {
         switch avatarType {
         case .customImage:
             return imageEncryptionKey
-        case .profile(let profile):
+        case .profile(let profile, _):
             return profile.avatarKey
         default:
             return nil

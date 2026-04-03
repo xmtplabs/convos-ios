@@ -69,6 +69,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         TextTitleContentView(
                             title: update.summary,
                             profile: update.profile,
+                            agentVerification: update.profileMember?.agentVerification ?? .unverified,
                             onTap: update.profileMember.map { member in
                                 { config.onTapUpdateMember(member) }
                             }
@@ -137,6 +138,26 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     )
                     .padding(.vertical, DesignConstants.Spacing.step4x)
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
+
+                case let .assistantPresentInfo(agent, inviterName):
+                    let isVerified = agent.agentVerification.isVerified
+                    let label = isVerified ? "Assistant" : "Agent"
+                    let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
+                    VStack(spacing: 0) {
+                        TextTitleContentView(
+                            title: title,
+                            profile: agent.profile,
+                            agentVerification: agent.agentVerification,
+                            onTap: { config.onTapUpdateMember(agent) }
+                        )
+                            .padding(.top, DesignConstants.Spacing.step4x)
+                            .padding(.bottom, isVerified ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
+                            .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        if isVerified {
+                            AssistantJoinedInfoView()
+                                .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

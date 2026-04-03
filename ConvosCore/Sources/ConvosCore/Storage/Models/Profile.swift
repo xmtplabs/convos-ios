@@ -64,7 +64,70 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
     }
 
     public var displayName: String {
-        name ?? "Somebody"
+        if let name, !name.isEmpty { return name }
+        return "Somebody"
+    }
+
+    public func verifyAgentAttestation(keyset: any AgentKeysetProviding) async -> AgentVerification {
+        guard isAgent else {
+            return .unverified
+        }
+        guard let attestation = metadata?["attestation"],
+              let timestamp = metadata?["attestation_ts"],
+              let kid = metadata?["attestation_kid"],
+              case .string(let sig) = attestation,
+              case .string(let ts) = timestamp,
+              case .string(let keyId) = kid
+        else {
+            let hasAttestation = metadata?["attestation"] != nil
+            let hasTs = metadata?["attestation_ts"] != nil
+            let hasKid = metadata?["attestation_kid"] != nil
+            Log.info("[Attestation] agent \(inboxId.prefix(8)) missing fields — att: \(hasAttestation), ts: \(hasTs), kid: \(hasKid)")
+            return .unverified
+        }
+        Log.info("[Attestation] verifying agent \(inboxId.prefix(8)) with kid=\(keyId)")
+        let result = await AssistantAttestationVerifier.verify(
+            inboxId: inboxId,
+            attestation: sig,
+            attestationTimestamp: ts,
+            kid: keyId,
+            keyset: keyset
+        )
+        Log.info("[Attestation] agent \(inboxId.prefix(8)) result: \(result)")
+        return result
+    }
+
+    public func verifyCachedAgentAttestation(keyset: any AgentKeysetProviding) -> AgentVerification {
+        guard isAgent else {
+            return .unverified
+        }
+        guard let attestation = metadata?["attestation"],
+              let timestamp = metadata?["attestation_ts"],
+              let kid = metadata?["attestation_kid"],
+              case .string(let sig) = attestation,
+              case .string(let ts) = timestamp,
+              case .string(let keyId) = kid
+        else {
+            Log.info("[Attestation] agent \(inboxId.prefix(8)) missing metadata (cached path) — keys: \(metadata?.keys.sorted() ?? [])")
+            return .unverified
+        }
+        let result = AssistantAttestationVerifier.verifyCached(
+            inboxId: inboxId,
+            attestation: sig,
+            attestationTimestamp: ts,
+            kid: keyId,
+            keyset: keyset
+        )
+        Log.info("[Attestation] agent \(inboxId.prefix(8)) cached result: \(result), kid=\(keyId)")
+        return result
+    }
+
+    public func verifyCachedAgentAttestation() -> AgentVerification {
+        guard let keyset = AgentKeysetStore.instance.shared else {
+            Log.info("[Attestation] no keyset configured")
+            return .unverified
+        }
+        return verifyCachedAgentAttestation(keyset: keyset)
     }
 
     public var isOutOfCredits: Bool {

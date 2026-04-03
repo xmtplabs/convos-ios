@@ -569,7 +569,8 @@ struct MemberProfileCache {
                 profile: profile.hydrateProfile(),
                 role: .member,
                 isCurrentUser: profile.inboxId == currentInboxId,
-                isAgent: profile.isAgent
+                isAgent: profile.isAgent,
+                agentVerification: profile.agentVerification
             )
         }
 
@@ -652,11 +653,14 @@ private extension LightweightConversationDetails {
         }
         let creator: ConversationMember
         if let creatorDetails = conversationCreator, let profile = creatorDetails.memberProfile {
+            let hydratedProfile = profile.hydrateProfile()
+            let isAgent = profile.isAgent
             creator = ConversationMember(
-                profile: profile.hydrateProfile(),
+                profile: hydratedProfile,
                 role: creatorDetails.role,
                 isCurrentUser: profile.inboxId == conversation.inboxId,
-                isAgent: profile.isAgent
+                isAgent: isAgent,
+                agentVerification: profile.agentVerification
             )
         } else {
             creator = ConversationMember(

@@ -579,11 +579,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
             try await databaseWriter.write { db in
                 for (inboxId, update) in resolvedUpdates {
+                    let profileMetadata = update.profileMetadata
                     try Self.applyProfileData(
                         db: db, conversationId: conversationId, inboxId: inboxId,
                         name: update.hasName ? update.name : nil,
                         encryptedImage: update.hasEncryptedImage ? update.encryptedImage : nil,
                         memberKind: update.memberKind.dbMemberKind,
+                        metadata: profileMetadata.isEmpty ? nil : profileMetadata,
                         fallbackEncryptionKey: encryptionKey
                     )
                 }
@@ -596,11 +598,13 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                         let existing = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
                         guard existing?.name == nil, existing?.avatar == nil else { continue }
 
+                        let snapshotMetadata = memberProfile.profileMetadata
                         try Self.applyProfileData(
                             db: db, conversationId: conversationId, inboxId: inboxId,
                             name: memberProfile.hasName ? memberProfile.name : nil,
                             encryptedImage: memberProfile.hasEncryptedImage ? memberProfile.encryptedImage : nil,
                             memberKind: memberProfile.memberKind.dbMemberKind,
+                            metadata: snapshotMetadata.isEmpty ? nil : snapshotMetadata,
                             fallbackEncryptionKey: encryptionKey
                         )
                     }
@@ -623,6 +627,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         name: String?,
         encryptedImage: EncryptedProfileImageRef?,
         memberKind: DBMemberKind?,
+        metadata: ProfileMetadata? = nil,
         fallbackEncryptionKey: Data?
     ) throws {
         let member = DBMember(inboxId: inboxId)
@@ -641,8 +646,19 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
         }
 
+        if let metadata, !metadata.isEmpty {
+            profile = profile.with(metadata: metadata)
+        }
+
         if let memberKind {
             profile = profile.with(memberKind: memberKind)
+
+            if memberKind == .agent {
+                let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
+                if verification.isVerified {
+                    profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                }
+            }
         }
         try profile.save(db)
     }

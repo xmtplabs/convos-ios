@@ -66,6 +66,7 @@ struct MessagesListView: View {
                                     TextTitleContentView(
                                         title: update.summary,
                                         profile: update.profile,
+                                        agentVerification: update.profileMember?.agentVerification ?? .unverified,
                                         onTap: update.profileMember.map { member in
                                             { onTapUpdateMember(member) }
                                         }
@@ -112,6 +113,24 @@ struct MessagesListView: View {
                                     onRetry: onRetryAssistantJoin
                                 )
                                 .padding(.vertical, DesignConstants.Spacing.step2x)
+
+                            case let .assistantPresentInfo(agent, inviterName):
+                                let isVerified = agent.agentVerification.isVerified
+                                let label = isVerified ? "Assistant" : "Agent"
+                                let title = inviterName.map { "\(label) is present · Invited by \($0)" } ?? "\(label) is present"
+                                VStack(spacing: 0) {
+                                    TextTitleContentView(
+                                        title: title,
+                                        profile: agent.profile,
+                                        agentVerification: agent.agentVerification
+                                    )
+                                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                                    if isVerified {
+                                        AssistantJoinedInfoView()
+                                            .padding(.horizontal, DesignConstants.Spacing.step4x)
+                                    }
+                                }
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in

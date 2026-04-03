@@ -39,8 +39,7 @@ struct ConversationMemberView: View {
             HStack {
                 Spacer()
                 VStack(spacing: DesignConstants.Spacing.step4x) {
-                    ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
-                        .frame(width: 160.0, height: 160.0)
+                    MessageAvatarView(profile: member.profile, size: 160.0, agentVerification: member.agentVerification)
 
                     VStack(spacing: DesignConstants.Spacing.step2x) {
                         Text(member.profile.displayName)
@@ -70,24 +69,26 @@ struct ConversationMemberView: View {
 
     @ViewBuilder
     private var agentSections: some View {
-        Section {
-            let action = { openURL(Constant.getSkillsURL) }
-            Button(action: action) {
-                cardRow(title: "Get skills")
+        if member.agentVerification.isVerified {
+            Section {
+                let action = { openURL(Constant.getSkillsURL) }
+                Button(action: action) {
+                    cardRow(title: "Get skills")
+                }
+            } footer: {
+                Text("Browse 100+ curated capabilities")
+                    .foregroundStyle(.colorTextSecondary)
             }
-        } footer: {
-            Text("Browse 100+ curated capabilities")
-                .foregroundStyle(.colorTextSecondary)
-        }
 
-        Section {
-            let action = { openURL(Constant.learnAboutAssistantsURL) }
-            Button(action: action) {
-                cardRow(title: "Learn about assistants")
+            Section {
+                let action = { openURL(Constant.learnAboutAssistantsURL) }
+                Button(action: action) {
+                    cardRow(title: "Learn about assistants")
+                }
+            } footer: {
+                Text("Capabilities, privacy and security")
+                    .foregroundStyle(.colorTextSecondary)
             }
-        } footer: {
-            Text("Capabilities, privacy and security")
-                .foregroundStyle(.colorTextSecondary)
         }
 
         if viewModel.canRemoveMembers {

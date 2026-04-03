@@ -24,7 +24,7 @@ struct ConversationMembersListView: View {
                 VStack(spacing: 0) {
                     Text(viewModel.conversation.membersCountStringCapitalized)
                         .font(.headline)
-                    if let assistantString = viewModel.conversation.assistantCountString {
+                    if let assistantString = viewModel.conversation.agentCountString {
                         Text(assistantString)
                             .font(.caption)
                             .foregroundStyle(.colorTextSecondary)
@@ -34,7 +34,7 @@ struct ConversationMembersListView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 AddToConversationMenu(
                     isFull: viewModel.isFull,
-                    hasAssistant: viewModel.conversation.hasAssistant,
+                    hasAssistant: viewModel.conversation.hasAgent,
                     isEnabled: true,
                     onConvoCode: {
                         viewModel.presentingShareView = true
@@ -56,12 +56,12 @@ private struct MemberRow: View {
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step3x) {
-            ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false)
+            ProfileAvatarView(profile: member.profile, profileImage: nil, useSystemPlaceholder: false, agentVerification: member.agentVerification)
                 .frame(width: DesignConstants.ImageSizes.mediumAvatar, height: DesignConstants.ImageSizes.mediumAvatar)
                 .accessibilityHidden(true)
 
             VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text(member.profile.displayName)
+                Text(member.displayName)
                     .font(.body)
                     .foregroundStyle(.colorTextPrimary)
                 if member.isCurrentUser {
@@ -94,8 +94,11 @@ private struct MemberRow: View {
 
 private extension ConversationMember {
     var roleLabel: String? {
+        if let agentLabel = agentVerification.roleLabel {
+            return agentLabel
+        }
         if isAgent {
-            return "Assistant"
+            return "Agent"
         }
         switch role {
         case .superAdmin:

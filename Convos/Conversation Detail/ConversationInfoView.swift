@@ -464,7 +464,7 @@ struct ConversationInfoView: View {
                     } else {
                         AddToConversationMenu(
                             isFull: viewModel.isFull,
-                            hasAssistant: viewModel.conversation.hasAssistant,
+                            hasAssistant: viewModel.conversation.hasAgent,
                             isEnabled: true,
                             onConvoCode: {
                                 if viewModel.isFull {

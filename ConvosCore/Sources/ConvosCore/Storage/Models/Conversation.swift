@@ -81,10 +81,11 @@ public extension Conversation {
         if imageURL != nil {
             return .customImage
         }
-        let otherProfiles = membersWithoutCurrent.map(\.profile)
-        if otherProfiles.count == 1, let otherMember = otherProfiles.first {
-            return .profile(otherMember)
+        let otherMembers = membersWithoutCurrent
+        if otherMembers.count == 1, let member = otherMembers.first {
+            return .profile(member.profile, member.agentVerification)
         }
+        let otherProfiles = otherMembers.map(\.profile)
         if otherProfiles.isEmpty || !otherProfiles.hasAnyAvatar {
             return .emoji(defaultEmoji)
         }
@@ -109,13 +110,34 @@ public extension Conversation {
         members.filter(\.isAgent).count
     }
 
-    var hasAssistant: Bool {
+    var verifiedAssistantCount: Int {
+        members.filter(\.agentVerification.isConvosAssistant).count
+    }
+
+    var hasAgent: Bool {
         agentCount > 0
     }
 
-    var assistantCountString: String? {
-        guard agentCount > 0 else { return nil }
-        return "\(agentCount) \(agentCount == 1 ? "Assistant" : "Assistants")"
+    var hasVerifiedAssistant: Bool {
+        members.contains(where: \.agentVerification.isConvosAssistant)
+    }
+
+    var hasVerifiedAgent: Bool {
+        members.contains(where: \.agentVerification.isVerified)
+    }
+
+    var agentCountString: String? {
+        let verified = verifiedAssistantCount
+        let unverified = agentCount - verified
+        var parts: [String] = []
+        if verified > 0 {
+            parts.append("\(verified) \(verified == 1 ? "Assistant" : "Assistants")")
+        }
+        if unverified > 0 {
+            parts.append("\(unverified) \(unverified == 1 ? "Agent" : "Agents")")
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: ", ")
     }
 
     public var hasAgentOutOfCredits: Bool {

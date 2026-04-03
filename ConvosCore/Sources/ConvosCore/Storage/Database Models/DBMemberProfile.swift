@@ -5,6 +5,34 @@ import GRDB
 
 enum DBMemberKind: String, Codable, Hashable {
     case agent
+    case verifiedConvos = "agent:convos"
+    case verifiedUserOAuth = "agent:user-oauth"
+
+    var isAgent: Bool { true }
+
+    var agentVerification: AgentVerification {
+        switch self {
+        case .agent:
+            return .unverified
+        case .verifiedConvos:
+            return .verified(.convos)
+        case .verifiedUserOAuth:
+            return .verified(.userOAuth)
+        }
+    }
+
+    static func from(agentVerification: AgentVerification) -> DBMemberKind {
+        switch agentVerification {
+        case .unverified:
+            return .agent
+        case .verified(.convos):
+            return .verifiedConvos
+        case .verified(.userOAuth):
+            return .verifiedUserOAuth
+        case .verified(.unknown):
+            return .agent
+        }
+    }
 }
 
 struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
@@ -35,7 +63,11 @@ struct DBMemberProfile: Codable, FetchableRecord, PersistableRecord, Hashable {
     let metadata: ProfileMetadata?
 
     var isAgent: Bool {
-        memberKind == .agent
+        memberKind?.isAgent ?? false
+    }
+
+    var agentVerification: AgentVerification {
+        memberKind?.agentVerification ?? .unverified
     }
 
     init(
@@ -107,91 +139,49 @@ extension DBMemberProfile {
 
     func with(name: String?) -> DBMemberProfile {
         .init(
-            conversationId: conversationId,
-            inboxId: inboxId,
-            name: name,
-            avatar: avatar,
-            avatarSalt: avatarSalt,
-            avatarNonce: avatarNonce,
-            avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind,
-            metadata: metadata
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
         )
     }
 
     func with(avatar: String?) -> DBMemberProfile {
         .init(
-            conversationId: conversationId,
-            inboxId: inboxId,
-            name: name,
-            avatar: avatar,
-            avatarSalt: avatarSalt,
-            avatarNonce: avatarNonce,
-            avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind,
-            metadata: metadata
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
         )
     }
 
     func with(avatar: String?, salt: Data?, nonce: Data?, key: Data?) -> DBMemberProfile {
         .init(
-            conversationId: conversationId,
-            inboxId: inboxId,
-            name: name,
-            avatar: avatar,
-            avatarSalt: salt,
-            avatarNonce: nonce,
-            avatarKey: key,
-            avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind,
-            metadata: metadata
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: salt, avatarNonce: nonce, avatarKey: key,
+            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
         )
     }
 
     func with(avatarLastRenewed: Date?) -> DBMemberProfile {
         .init(
-            conversationId: conversationId,
-            inboxId: inboxId,
-            name: name,
-            avatar: avatar,
-            avatarSalt: avatarSalt,
-            avatarNonce: avatarNonce,
-            avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind,
-            metadata: metadata
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
         )
     }
 
     func with(memberKind: DBMemberKind?) -> DBMemberProfile {
         .init(
-            conversationId: conversationId,
-            inboxId: inboxId,
-            name: name,
-            avatar: avatar,
-            avatarSalt: avatarSalt,
-            avatarNonce: avatarNonce,
-            avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind,
-            metadata: metadata
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
         )
     }
 
     func with(metadata: ProfileMetadata?) -> DBMemberProfile {
         .init(
-            conversationId: conversationId,
-            inboxId: inboxId,
-            name: name,
-            avatar: avatar,
-            avatarSalt: avatarSalt,
-            avatarNonce: avatarNonce,
-            avatarKey: avatarKey,
-            avatarLastRenewed: avatarLastRenewed,
-            memberKind: memberKind,
-            metadata: metadata
+            conversationId: conversationId, inboxId: inboxId, name: name, avatar: avatar,
+            avatarSalt: avatarSalt, avatarNonce: avatarNonce, avatarKey: avatarKey,
+            avatarLastRenewed: avatarLastRenewed, memberKind: memberKind, metadata: metadata
         )
     }
 
