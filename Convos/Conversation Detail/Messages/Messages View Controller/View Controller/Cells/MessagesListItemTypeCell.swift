@@ -147,7 +147,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         TextTitleContentView(
                             title: title,
                             profile: agent.profile,
-                            agentVerification: agent.agentVerification
+                            agentVerification: agent.agentVerification,
+                            onTap: { config.onTapUpdateMember(agent) }
                         )
                             .padding(.top, DesignConstants.Spacing.step4x)
                             .padding(.bottom, isVerified ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
