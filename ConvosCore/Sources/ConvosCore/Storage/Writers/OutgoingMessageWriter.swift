@@ -81,6 +81,14 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         var replyContext: ReplyContext?
     }
 
+    private struct QueuedVideoMessage {
+        let clientMessageId: String
+        let localCacheURL: URL
+        let filename: String
+        let trackingKey: String
+        var replyContext: ReplyContext?
+    }
+
     private struct QueuedEagerPhoto {
         let trackingKey: String
     }
@@ -88,6 +96,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     private enum QueuedMessage {
         case text(QueuedTextMessage)
         case photo(QueuedPhotoMessage)
+        case video(QueuedVideoMessage)
         case eagerPhoto(QueuedEagerPhoto)
     }
 
@@ -676,6 +685,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                     try await publishText(queued)
                 case .photo(let queued):
                     try await publishPhoto(queued)
+                case .video(let queued):
+                    try await publishVideo(queued)
                 case .eagerPhoto(let queued):
                     try await processEagerPhoto(trackingKey: queued.trackingKey)
                 }
@@ -683,6 +694,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 switch message {
                 case .photo(let queued):
                     await markPhotoFailed(trackingKey: queued.localCacheURL.absoluteString)
+                case .video(let queued):
+                    await markPhotoFailed(trackingKey: queued.trackingKey)
                 case .eagerPhoto(let queued):
                     await markPhotoFailed(trackingKey: queued.trackingKey)
                 case .text:
@@ -932,6 +945,87 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         )
     }
 
+    private func publishVideo(_ queued: QueuedVideoMessage) async throws {
+        let tracker = PhotoUploadProgressTracker.shared
+        tracker.setStage(.preparing, for: queued.trackingKey)
+
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+
+        let videoData = try Data(contentsOf: queued.localCacheURL)
+        let attachment = Attachment(
+            filename: queued.filename,
+            mimeType: "video/mp4",
+            data: videoData
+        )
+
+        let encrypted = try RemoteAttachment.encodeEncrypted(
+            content: attachment,
+            codec: AttachmentCodec()
+        )
+
+        let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
+            filename: queued.filename,
+            contentType: "application/octet-stream"
+        )
+
+        guard let uploadURL = URL(string: presignedURLs.uploadURL) else {
+            tracker.setStage(.failed, for: queued.trackingKey)
+            try? await markMessageFailed(clientMessageId: queued.clientMessageId)
+            throw PhotoAttachmentError.invalidURL
+        }
+
+        let taskId = UUID().uuidString
+        let encryptedFileURL = try saveToTemp(data: encrypted.payload, taskId: taskId)
+
+        tracker.setProgress(stage: .uploading, percentage: 0, for: queued.trackingKey)
+
+        try await backgroundUploadManager.startUpload(
+            fileURL: encryptedFileURL,
+            uploadURL: uploadURL,
+            contentType: "application/octet-stream",
+            taskId: taskId
+        )
+
+        let result = await backgroundUploadManager.waitForCompletion(taskId: taskId)
+
+        guard result.success else {
+            tracker.setStage(.failed, for: queued.trackingKey)
+            try? await markMessageFailed(clientMessageId: queued.clientMessageId)
+            throw result.error ?? PhotoAttachmentError.uploadFailed("Video upload failed")
+        }
+
+        tracker.setStage(.publishing, for: queued.trackingKey)
+
+        let thumbnailImage = ImageCacheContainer.shared.image(for: queued.trackingKey)
+
+        let storedAttachment = StoredRemoteAttachment(
+            url: presignedURLs.assetURL,
+            contentDigest: encrypted.digest,
+            secret: encrypted.secret,
+            salt: encrypted.salt,
+            nonce: encrypted.nonce,
+            filename: queued.filename,
+            mimeType: "video/mp4",
+            mediaWidth: nil,
+            mediaHeight: nil,
+            mediaDuration: nil,
+            thumbnailDataBase64: thumbnailImage.flatMap { $0.jpegData(compressionQuality: 0.5)?.base64EncodedString() }
+        )
+
+        let messageId = try await publishAttachment(
+            storedAttachment: storedAttachment,
+            clientMessageId: queued.clientMessageId,
+            trackingKey: queued.trackingKey,
+            thumbnailImage: thumbnailImage,
+            inboxReady: inboxReady,
+            replyContext: queued.replyContext,
+            mediaType: "video"
+        )
+
+        try? FileManager.default.removeItem(at: encryptedFileURL)
+        QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": "video_retry"])
+    }
+
     private func completeXMTPSend(
         queued: QueuedPhotoMessage,
         prepared: PreparedBackgroundUpload,
@@ -1153,30 +1247,47 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
 
         guard FileManager.default.fileExists(atPath: localFileURL.path) else {
-            Log.error("Cannot retry photo: local file no longer exists at \(localFileURL.path)")
+            Log.error("Cannot retry attachment: local file no longer exists at \(localFileURL.path)")
             return
         }
 
-        guard let imageData = try? Data(contentsOf: localFileURL),
-              let image = ImageType(data: imageData) else {
-            Log.error("Cannot retry photo: failed to load image from \(localFileURL.path)")
-            return
-        }
+        let isVideo = localFileURL.pathExtension.lowercased() == "mp4"
+            || localFileURL.pathExtension.lowercased() == "mov"
 
         try await databaseWriter.write { db in
             try message.with(status: .unpublished).save(db)
         }
 
-        let filename = localFileURL.lastPathComponent
-        let queued = QueuedPhotoMessage(
-            clientMessageId: message.clientMessageId,
-            image: image,
-            localCacheURL: localFileURL,
-            filename: filename,
-            replyContext: replyContext
-        )
-        messageQueue.append(.photo(queued))
-        startProcessingIfNeeded()
+        if isVideo {
+            let filename = localFileURL.lastPathComponent
+            let trackingKey = localFileURL.absoluteString
+            let queued = QueuedVideoMessage(
+                clientMessageId: message.clientMessageId,
+                localCacheURL: localFileURL,
+                filename: filename,
+                trackingKey: trackingKey,
+                replyContext: replyContext
+            )
+            messageQueue.append(.video(queued))
+            startProcessingIfNeeded()
+        } else {
+            guard let imageData = try? Data(contentsOf: localFileURL),
+                  let image = ImageType(data: imageData) else {
+                Log.error("Cannot retry photo: failed to load image from \(localFileURL.path)")
+                return
+            }
+
+            let filename = localFileURL.lastPathComponent
+            let queued = QueuedPhotoMessage(
+                clientMessageId: message.clientMessageId,
+                image: image,
+                localCacheURL: localFileURL,
+                filename: filename,
+                replyContext: replyContext
+            )
+            messageQueue.append(.photo(queued))
+            startProcessingIfNeeded()
+        }
     }
 
     private func resolveLocalCacheURL(from storedJSON: String) -> URL? {
