@@ -782,67 +782,94 @@ extension ConversationViewModel {
             guard let self else { return }
 
             do {
-                let photoTrackingKey: String?
+                let photoTrackingKey = try await sendAttachmentIfNeeded(
+                    videoURL: prevVideoURL,
+                    attachmentImage: prevAttachmentImage,
+                    eagerUploadKey: eagerUploadKey,
+                    replyTarget: replyTarget,
+                    messageWriter: messageWriter
+                )
 
-                if let videoURL = prevVideoURL {
-                    isSendingPhoto = true
-                    let key = try await messageWriter.sendVideo(at: videoURL, replyToMessageId: replyTarget?.messageId)
-                    photoTrackingKey = key
-                } else if prevAttachmentImage != nil {
-                    isSendingPhoto = true
-                    if let trackingKey = eagerUploadKey {
-                        photoTrackingKey = trackingKey
-                        if let replyTarget {
-                            try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyTarget.messageId)
-                        } else {
-                            try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
-                        }
-                    } else if let attachmentImage = prevAttachmentImage {
-                        let key = try await messageWriter.startEagerUpload(image: attachmentImage)
-                        photoTrackingKey = key
-                        if let replyTarget {
-                            try await messageWriter.sendEagerPhotoReply(trackingKey: key, toMessageWithClientId: replyTarget.messageId)
-                        } else {
-                            try await messageWriter.sendEagerPhoto(trackingKey: key)
-                        }
-                    } else {
-                        photoTrackingKey = nil
-                    }
-                } else {
-                    photoTrackingKey = nil
-                }
-
-                if let inviteURL = prevInviteURL {
-                    let inviteIsReply = replyTarget != nil && !hasAttachment && !hasText
-                    if inviteIsReply, let replyTarget {
-                        try await messageWriter.sendReply(text: inviteURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
-                    } else {
-                        try await messageWriter.send(text: inviteURL, afterPhoto: photoTrackingKey)
-                    }
-                }
-
-                if let linkURL = prevLinkURL {
-                    let linkIsReply = replyTarget != nil && !hasAttachment && !hasText && !hasInvite
-                    if linkIsReply, let replyTarget {
-                        try await messageWriter.sendReply(text: linkURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
-                    } else {
-                        try await messageWriter.send(text: linkURL, afterPhoto: photoTrackingKey)
-                    }
-                }
-
-                if hasText {
-                    let textIsReply = replyTarget != nil && !hasAttachment
-                    if textIsReply, let replyTarget {
-                        try await messageWriter.sendReply(text: prevMessageText, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
-                    } else {
-                        try await messageWriter.send(text: prevMessageText, afterPhoto: photoTrackingKey)
-                    }
-                }
+                try await sendTextAndLinksIfNeeded(
+                    text: hasText ? prevMessageText : nil,
+                    inviteURL: prevInviteURL,
+                    linkURL: prevLinkURL,
+                    photoTrackingKey: photoTrackingKey,
+                    replyTarget: replyTarget,
+                    messageWriter: messageWriter
+                )
             } catch {
                 Log.error("Error sending message: \(error)")
             }
 
             isSendingPhoto = false
+        }
+    }
+
+    private func sendAttachmentIfNeeded(
+        videoURL: URL?,
+        attachmentImage: UIImage?,
+        eagerUploadKey: String?,
+        replyTarget: AnyMessage?,
+        messageWriter: any OutgoingMessageWriterProtocol
+    ) async throws -> String? {
+        if let videoURL {
+            isSendingPhoto = true
+            return try await messageWriter.sendVideo(at: videoURL, replyToMessageId: replyTarget?.messageId)
+        } else if attachmentImage != nil {
+            isSendingPhoto = true
+            if let trackingKey = eagerUploadKey {
+                if let replyTarget {
+                    try await messageWriter.sendEagerPhotoReply(trackingKey: trackingKey, toMessageWithClientId: replyTarget.messageId)
+                } else {
+                    try await messageWriter.sendEagerPhoto(trackingKey: trackingKey)
+                }
+                return trackingKey
+            } else if let image = attachmentImage {
+                let key = try await messageWriter.startEagerUpload(image: image)
+                if let replyTarget {
+                    try await messageWriter.sendEagerPhotoReply(trackingKey: key, toMessageWithClientId: replyTarget.messageId)
+                } else {
+                    try await messageWriter.sendEagerPhoto(trackingKey: key)
+                }
+                return key
+            }
+        }
+        return nil
+    }
+
+    private func sendTextAndLinksIfNeeded(
+        text: String?,
+        inviteURL: String?,
+        linkURL: String?,
+        photoTrackingKey: String?,
+        replyTarget: AnyMessage?,
+        messageWriter: any OutgoingMessageWriterProtocol
+    ) async throws {
+        let hasAttachment = photoTrackingKey != nil
+
+        if let inviteURL {
+            if replyTarget != nil && !hasAttachment && text == nil, let replyTarget {
+                try await messageWriter.sendReply(text: inviteURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
+            } else {
+                try await messageWriter.send(text: inviteURL, afterPhoto: photoTrackingKey)
+            }
+        }
+
+        if let linkURL {
+            if replyTarget != nil && !hasAttachment && text == nil && inviteURL == nil, let replyTarget {
+                try await messageWriter.sendReply(text: linkURL, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
+            } else {
+                try await messageWriter.send(text: linkURL, afterPhoto: photoTrackingKey)
+            }
+        }
+
+        if let text {
+            if replyTarget != nil && !hasAttachment, let replyTarget {
+                try await messageWriter.sendReply(text: text, afterPhoto: photoTrackingKey, toMessageWithClientId: replyTarget.messageId)
+            } else {
+                try await messageWriter.send(text: text, afterPhoto: photoTrackingKey)
+            }
         }
     }
 
