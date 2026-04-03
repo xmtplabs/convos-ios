@@ -15,7 +15,7 @@ extension ConversationUpdate: @retroactive Differentiable {
     }
 }
 
-extension DateGroup: Differentiable {
+extension DateGroup: @retroactive Differentiable {
     public var differenceIdentifier: Int {
         hashValue
     }

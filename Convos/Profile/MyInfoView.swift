@@ -20,62 +20,69 @@ struct MyInfoView: View {
     @State private var isImagePickerPresented: Bool = false
     @State private var didUseQuickname: Bool = false
 
+    private var headerSection: some View {
+        Section {
+            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
+                Text("My info")
+                    .font(.system(size: 40, weight: .bold))
+                    .tracking(-1)
+                    .foregroundStyle(.colorTextPrimary)
+
+                Text("Private unless you choose to share it")
+                    .font(.subheadline)
+                    .foregroundStyle(.colorTextPrimary)
+                    .padding(.bottom, DesignConstants.Spacing.stepX)
+
+                Text("Your info is stored on your device only.")
+                    .font(.footnote)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            .padding(.top, DesignConstants.Spacing.step2x)
+            .padding(.horizontal, DesignConstants.Spacing.step2x)
+            .listRowBackground(Color.clear)
+        }
+        .listRowSeparator(.hidden)
+        .listRowSpacing(0.0)
+        .listRowInsets(.all, DesignConstants.Spacing.step2x)
+        .listSectionMargins(.top, 0.0)
+        .listSectionSeparator(.hidden)
+    }
+
+    @ViewBuilder
+    private var profileSection: some View {
+        if showsProfile {
+            Section {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
+                    HStack(spacing: DesignConstants.Spacing.step2x) {
+                        ProfileAvatarView(
+                            profile: profile,
+                            profileImage: profileImage,
+                            useSystemPlaceholder: false
+                        )
+                        .frame(width: 16.0, height: 16.0)
+
+                        Text(editingDisplayName.isEmpty ? "Somebody" : editingDisplayName)
+                            .font(.body)
+                            .foregroundStyle(.colorTextPrimary)
+
+                        Spacer()
+                    }
+
+                    Text("How you appear in this convo")
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+                .listRowBackground(Color.clear)
+            }
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
-                Section {
-                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-                        Text("My info")
-                            .font(.system(size: 40, weight: .bold))
-                            .tracking(-1)
-                            .foregroundStyle(.colorTextPrimary)
+                headerSection
 
-                        Text("Private unless you choose to share it")
-                            .font(.subheadline)
-                            .foregroundStyle(.colorTextPrimary)
-                            .padding(.bottom, DesignConstants.Spacing.stepX)
-
-                        Text("Your info is stored on your device only.")
-                            .font(.footnote)
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                    .padding(.top, DesignConstants.Spacing.step2x)
-                    .padding(.horizontal, DesignConstants.Spacing.step2x)
-                    .listRowBackground(Color.clear)
-                }
-                .listRowSeparator(.hidden)
-                .listRowSpacing(0.0)
-                .listRowInsets(.all, DesignConstants.Spacing.step2x)
-                .listSectionMargins(.top, 0.0)
-                .listSectionSeparator(.hidden)
-
-                if showsProfile {
-                    Section {
-                        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step2x) {
-                            HStack(spacing: DesignConstants.Spacing.step2x) {
-                                ProfileAvatarView(
-                                    profile: profile,
-                                    profileImage: profileImage,
-                                    useSystemPlaceholder: false
-                                )
-                                .frame(width: 16.0, height: 16.0)
-
-                                Text(
-                                    editingDisplayName.isEmpty ? "Somebody" : editingDisplayName
-                                )
-                                .font(.body)
-                                .foregroundStyle(.colorTextPrimary)
-
-                                Spacer()
-                            }
-
-                            Text("How you appear in this convo")
-                                .font(.caption)
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                        .listRowBackground(Color.clear)
-                    }
-                }
+                profileSection
 
                 Section {
                     HStack(spacing: DesignConstants.Spacing.step2x) {

@@ -33,7 +33,7 @@ struct MessagesMediaButtonsView: View {
             .accessibilityLabel("Camera")
             .accessibilityIdentifier("camera-button")
 
-            // TODO: Convos action button (hidden until feature is ready)
+            // Convos action button (hidden until feature is ready)
             // Button {
             //     onConvosAction()
             // } label: {

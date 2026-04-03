@@ -19,15 +19,16 @@ struct ConversationShareOverlay: View {
     private static let maxQRSize: CGFloat = 220.0
     private static let shareSheetFraction: CGFloat = 0.55
 
-    private var qrDisplaySize: CGFloat {
-        let screenHeight = UIScreen.main.bounds.height
-        let availableHeight = screenHeight * (1.0 - Self.shareSheetFraction)
+    @State private var containerSize: CGSize = .zero
+
+    private func qrDisplaySize(in size: CGSize) -> CGFloat {
+        let availableHeight = size.height * (1.0 - Self.shareSheetFraction)
             - topSafeAreaInset
             - DesignConstants.Spacing.step4x
             - Self.headerHeight
             - Self.cardPadding
             - DesignConstants.Spacing.step10x
-        let availableWidth = UIScreen.main.bounds.width
+        let availableWidth = size.width
             - DesignConstants.Spacing.step10x * 2
             - Self.cardPadding * 2
         let maxFit = min(availableHeight, availableWidth)
@@ -35,6 +36,7 @@ struct ConversationShareOverlay: View {
     }
 
     var body: some View {
+        GeometryReader { geometry in
         ZStack {
             if showCard {
                 Color.black.opacity(0.5)
@@ -48,7 +50,7 @@ struct ConversationShareOverlay: View {
 
             if showCard {
                 VStack(spacing: 0.0) {
-                    convoCodeCard(qrSize: qrDisplaySize)
+                    convoCodeCard(qrSize: qrDisplaySize(in: geometry.size))
 
                     Spacer()
                 }
@@ -96,6 +98,7 @@ struct ConversationShareOverlay: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
                 isShareSheetPresented = true
             }
+        }
         }
     }
 

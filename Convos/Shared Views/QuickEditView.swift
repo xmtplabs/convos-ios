@@ -26,6 +26,73 @@ struct QuickEditView: View {
 
     @State private var textFieldDelegate: TextFieldDelegate = .init()
 
+    @ViewBuilder
+    private var settingsButton: some View {
+        if showsSettingsButton {
+            Button {
+                onSettings()
+            } label: {
+                Image(systemName: settingsSymbolName)
+                    .resizable()
+                    .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundStyle(.colorTextTertiary)
+                    .padding(.vertical, 6.0)
+                    .padding(.horizontal, 5.0)
+            }
+            .frame(width: 32.0, height: 32.0)
+            .padding(.trailing, 10.0)
+            .accessibilityLabel("Profile settings")
+            .accessibilityIdentifier("quick-edit-settings-button")
+        }
+    }
+
+    private var doneButton: some View {
+        Button {
+            onSubmit()
+        } label: {
+            Image(systemName: "checkmark")
+                .resizable()
+                .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
+                .aspectRatio(contentMode: .fit)
+                .foregroundStyle(.colorTextPrimaryInverted)
+                .padding(DesignConstants.Spacing.step4x)
+        }
+        .frame(width: 52.0, height: 52.0)
+        .background(Circle().fill(.colorFillPrimary))
+        .accessibilityLabel("Done editing")
+        .accessibilityIdentifier("quick-edit-done-button")
+    }
+
+    private var nameTextField: some View {
+        let leadingPadding: CGFloat = DesignConstants.Spacing.step4x
+        let fieldHeight: CGFloat = 52.0
+        let borderColor: Color = .colorBorderSubtle
+        return TextField(placeholderText, text: $text)
+            .focused($focusState, equals: focused)
+            .introspect(.textField, on: .iOS(.v26)) { (textField: UITextField) in
+                textFieldDelegate.action = onSubmit
+                textField.delegate = textFieldDelegate
+            }
+            .padding(.leading, leadingPadding)
+            .font(.body)
+            .tint(.colorTextPrimary)
+            .foregroundStyle(.colorTextPrimary)
+            .multilineTextAlignment(.leading)
+            .truncationMode(.tail)
+            .submitLabel(.done)
+            .frame(height: fieldHeight)
+            .accessibilityIdentifier("quick-edit-display-name-field")
+            .safeAreaInset(edge: .trailing) { settingsButton }
+            .onChange(of: text) { _, newValue in
+                let maxLength: Int = NameLimits.maxDisplayNameLength
+                if newValue.count > maxLength {
+                    text = String(newValue.prefix(maxLength))
+                }
+            }
+            .background(Capsule().stroke(borderColor, lineWidth: 1.0))
+    }
+
     var body: some View {
         HStack {
             ImagePickerButton(
@@ -36,67 +103,9 @@ struct QuickEditView: View {
             .frame(width: 52.0, height: 52.0)
             .accessibilityIdentifier("quick-edit-image-picker")
 
-            TextField(
-                placeholderText,
-                text: $text
-            )
-            .focused($focusState, equals: focused)
-            .introspect(.textField, on: .iOS(.v26)) { textField in
-                textFieldDelegate.action = onSubmit
-                textField.delegate = textFieldDelegate
-            }
-            .padding(.leading, DesignConstants.Spacing.step4x)
-            .font(.body)
-            .tint(.colorTextPrimary)
-            .foregroundStyle(.colorTextPrimary)
-            .multilineTextAlignment(.leading)
-            .truncationMode(.tail)
-            .submitLabel(.done)
-            .frame(height: 52.0)
-            .accessibilityIdentifier("quick-edit-display-name-field")
-            .safeAreaInset(edge: .trailing) {
-                if showsSettingsButton {
-                    Button {
-                        onSettings()
-                    } label: {
-                        Image(systemName: settingsSymbolName)
-                            .resizable()
-                            .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
-                            .aspectRatio(contentMode: .fit)
-                            .foregroundStyle(.colorTextTertiary)
-                            .padding(.vertical, 6.0)
-                            .padding(.horizontal, 5.0)
-                    }
-                    .frame(width: 32.0, height: 32.0)
-                    .padding(.trailing, 10.0)
-                    .accessibilityLabel("Profile settings")
-                    .accessibilityIdentifier("quick-edit-settings-button")
-                }
-            }
-            .onChange(of: text) { _, newValue in
-                if newValue.count > NameLimits.maxDisplayNameLength {
-                    text = String(newValue.prefix(NameLimits.maxDisplayNameLength))
-                }
-            }
-            .background(
-                Capsule()
-                    .stroke(.colorBorderSubtle, lineWidth: 1.0)
-            )
+            nameTextField
 
-            Button {
-                onSubmit()
-            } label: {
-                Image(systemName: "checkmark")
-                    .resizable()
-                    .symbolEffect(.bounce.up.byLayer, options: .nonRepeating)
-                    .aspectRatio(contentMode: .fit)
-                    .foregroundStyle(.colorTextPrimaryInverted)
-                    .padding(DesignConstants.Spacing.step4x)
-            }
-            .frame(width: 52.0, height: 52.0)
-            .background(Circle().fill(.colorFillPrimary))
-            .accessibilityLabel("Done editing")
-            .accessibilityIdentifier("quick-edit-done-button")
+            doneButton
         }
         .frame(maxWidth: .infinity)
     }
