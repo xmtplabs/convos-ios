@@ -184,6 +184,7 @@ class ConversationViewModel {
     }
     var selectedVideoURL: URL?
     var selectedVideoThumbnail: UIImage?
+    private var videoThumbnailTask: Task<Void, Never>?
     private(set) var currentEagerUploadKey: String?
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
@@ -734,11 +735,13 @@ extension ConversationViewModel {
 
     func onVideoSelected(_ url: URL) {
         selectedVideoURL = url
-        Task {
+        videoThumbnailTask?.cancel()
+        videoThumbnailTask = Task {
             do {
                 let service = VideoCompressionService()
                 let asset = AVURLAsset(url: url)
                 let thumbnailData = try await service.generateThumbnail(for: asset)
+                guard !Task.isCancelled, self.selectedVideoURL == url else { return }
                 self.selectedVideoThumbnail = UIImage(data: thumbnailData)
                 self.selectedAttachmentImage = self.selectedVideoThumbnail
                 self.onPhotoAttached()
