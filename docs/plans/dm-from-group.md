@@ -107,18 +107,19 @@ The select members list is private — it is never shared with the group or any 
 
 Profiles are stored per-conversation per-member in the `memberProfile` table. The `ConversationWriter` also writes profiles to XMTP appData as a best-effort fallback for older clients. The authoritative source is always the `ProfileUpdate`/`ProfileSnapshot` messages — appData is only used to fill gaps for members that haven't sent a profile message yet.
 
-## The DMRequest message
+## The convo_request message
 
-A new custom XMTP content type (`convos.org/dm_request`) sent via the 1:1 DM back channel between the two members' group inbox IDs — the same mechanism used for invite join requests. This keeps DM requests out of the group message history entirely.
+A new custom XMTP content type (`convos.org/convo_request`) sent via the 1:1 back channel between the two members' group inbox IDs — the same mechanism used for invite join requests. This keeps convo requests out of the group message history entirely.
 
 The message contains:
 
-- **Your new inbox ID**: The fresh identity you'll use for the DM
-- **A DM tag**: A random identifier to correlate your request with the conversation you're added to
+- **Your new inbox ID**: The fresh identity you'll use for the new conversation
+- **A convo tag**: A random identifier to correlate your request with the conversation you're added to
 - **The origin conversation ID**: So the receiver's client can look up DM settings for that group
-- **Expiration**: This is a disappearing message. When it expires, the context linking the DM to the original convo disappears
+- **Invite slug** (optional): If present, the receiver joins an existing group via this invite (group spinoff). If absent, the receiver creates a new 1:1 conversation (DM).
+- **Expiration**: This is a disappearing message. When it expires, the context linking the new conversation to the original group disappears
 
-This message is delivered because both members' group inbox IDs already have an XMTP DM channel between them (used for join request processing). The DM request is processed silently by the receiver's client — not displayed as a chat message.
+This message is delivered because both members' group inbox IDs already have an XMTP DM channel between them (used for join request processing). The convo request is processed silently by the receiver's client — not displayed as a chat message.
 
 ## Conversation creation
 
@@ -161,52 +162,60 @@ XMTP group permissions are set so:
 
 # Group spinoffs
 
-> **Status: deferred.** Group spinoffs will be implemented after DMs ship. The design below outlines the direction but has open questions that need to be resolved before building.
+> **Status: deferred.** Group spinoffs will be implemented after DMs ship. The design below is fully specified.
 
 The DM flow generalizes to starting a new group with a subset of members from an existing conversation — without the rest knowing.
 
+## UI flow
+
+1. In conversation settings, below the "X members" row, a button reads **"Spinoff new Convo"** with footer text "Invite members to a new Convo"
+2. Tapping opens a member picker showing all members except the current user
+3. The user selects one or more members (minimum 1) and taps **"Pop up new convo"**
+4. The sender is taken to a `ConversationView` for the new group. A toast above the messages input bar (same style as quickname UI) shows "✓ invites sent" and auto-dismisses
+
 ## How it works
 
-1. In the member list, select multiple members
-2. Your client creates a fresh inbox and a new XMTP group
-3. Sends a `GroupInviteRequest` through the back channel to each selected member individually
-4. Each recipient's client checks DM settings independently, creates a fresh inbox, and joins the group if approved
+1. The sender's client creates a fresh inbox and a new XMTP group (sender is super admin)
+2. Generates an invite for the new group
+3. Sends a `convo_request` through the back channel to each selected member individually, including the invite slug
+4. Each recipient's client checks `allows_dms` settings independently, creates a fresh inbox, and joins via the invite if approved
+5. The sender (as super admin) processes join requests as recipients join
 
-The sender creates the group immediately — no waiting for acceptance. Recipients join asynchronously as they come online and process the request.
+The sender creates the group immediately — no waiting for acceptance. Recipients join asynchronously as they come online and process the request. The sender sees the conversation view as they would when creating any new conversation (no pending member indicators).
+
+## Permissions
+
+- **Sender**: super admin of the spinoff group
+- **Invited members**: join as admins (can add more people later)
+- The group is not locked — members can add others after joining
+
+## Conversation naming
+
+The UI displays "[origin convo name] spinoff" if no name has been set. This is a client-side display convention, not stored as the XMTP group name. There is no visible link back to the origin conversation.
 
 ## Reuses the DM infrastructure
 
-- **Same back channel**: 1:1 DM channel between group inbox IDs (used for join requests and DM requests)
-- **Same consent logic**: `allowsDMs` setting controls reachability for both DMs and group spinoffs
+Both DMs and group spinoffs use a single content type: `convos.org/convo_request`. The message includes an optional invite slug:
+
+- **DM (1:1)**: No invite slug. The receiver creates the conversation.
+- **Group spinoff**: Includes an invite slug. The receiver joins the sender's existing group via the invite.
+
+Other shared infrastructure:
+- **Same back channel**: 1:1 DM channel between group inbox IDs (used for join requests and convo requests)
+- **Same consent logic**: `allows_dms` setting controls reachability for both DMs and group spinoffs. Only recipients need the flag enabled; the sender does not.
 - **Same fresh identities**: Everyone gets a new inbox for the new group
 - **Same select members filtering**: If a recipient only allows DMs from select members, the group invite is filtered the same way
 
 ## Differences from DMs
 
 - The sender creates the group upfront (not the receiver)
-- The group is not locked — members could add others later
+- The group is not locked — members can add others later
 - Each invited member receives their own back channel message and decides independently
 - Members who don't accept (or have DMs off) simply never join — no one knows they were invited
 
-## The GroupInviteRequest message
+## Abuse prevention
 
-Sent through the back channel to each invitee. Could reuse the `DMRequest` content type with additional fields, or be a separate content type — to be decided during implementation.
-
-Contents:
-
-- **Sender's new inbox ID**: Their fresh identity for the new group
-- **Conversation ID**: The new group's XMTP conversation ID (to join)
-- **Origin conversation ID**: Which group the invite came from (for consent checks)
-- **Expiration**: Disappearing message, same as DM requests
-
-## Open questions
-
-- **UI entry point**: How do users enter multi-select mode in the member list? Dedicated button? Long-press?
-- **Admin permissions**: Is the sender super admin of the spinoff group? What permission level do joiners get?
-- **Conversation naming**: Does the spinoff group get a default name? Any visible link back to the origin?
-- **Pending state**: What does the sender see while waiting for others to join? Placeholder members?
-- **Sender's DM flag**: Does the sender need `allows_dms` enabled, or only recipients?
-- **Abuse prevention**: Can someone spam invites to all members of a large group? Rate limiting needed?
+The `allows_dms` filtering on the receiving end gates all convo requests. If a member has DMs off, spinoff invites from that conversation are silently ignored. No additional rate limiting is needed.
 
 ---
 
