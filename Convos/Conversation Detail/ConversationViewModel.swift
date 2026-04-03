@@ -10,6 +10,8 @@ struct PendingInvite {
     let code: String
     let fullURL: String
     let range: Range<String.Index>
+    var linkedConversationClientId: String?
+    var linkedConversationInboxId: String?
 }
 
 @MainActor
@@ -58,6 +60,10 @@ class ConversationViewModel {
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
+    @ObservationIgnored
+    private var convosButtonCancellable: AnyCancellable?
+    @ObservationIgnored
+    private var convosButtonTask: Task<Void, Never>?
     @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
@@ -347,6 +353,7 @@ class ConversationViewModel {
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
         assistantJoinTask?.cancel()
+        convosButtonTask?.cancel()
     }
 
     // MARK: - Init
@@ -1499,12 +1506,76 @@ extension ConversationViewModel {
         guard pendingInvite == nil else { return }
 
         if let result = InviteURLDetector.detectInviteURL(in: messageText) {
+            convosButtonTask?.cancel()
+            convosButtonCancellable?.cancel()
             pendingInvite = PendingInvite(code: result.code, fullURL: result.fullURL, range: result.range)
             messageText = InviteURLDetector.removeInviteURL(from: messageText, range: result.range)
         }
     }
 
     func clearPendingInvite() {
+        guard let invite = pendingInvite else { return }
         pendingInvite = nil
+        if let clientId = invite.linkedConversationClientId {
+            let inboxId = invite.linkedConversationInboxId ?? ""
+            Task { [session] in
+                do {
+                    try await session.deleteInbox(clientId: clientId, inboxId: inboxId)
+                } catch {
+                    Log.error("Failed to delete linked conversation inbox: \(error)")
+                }
+            }
+        }
+    }
+
+    func onConvosButtonTapped() {
+        guard pendingInvite == nil, convosButtonTask == nil else { return }
+        convosButtonTask = Task { [session] in
+            defer { convosButtonTask = nil }
+            let (messagingService, existingConversationId) = await session.addInbox()
+            let clientId = messagingService.clientId
+
+            guard !Task.isCancelled else {
+                try? await session.deleteInbox(clientId: clientId, inboxId: "")
+                return
+            }
+
+            let stateManager: any ConversationStateManagerProtocol
+            if let existingConversationId {
+                stateManager = messagingService.conversationStateManager(for: existingConversationId)
+            } else {
+                stateManager = messagingService.conversationStateManager()
+                do {
+                    try await stateManager.createConversation()
+                } catch {
+                    Log.error("Failed to create conversation for Convos button: \(error)")
+                    try? await session.deleteInbox(clientId: clientId, inboxId: "")
+                    return
+                }
+            }
+
+            guard !Task.isCancelled else {
+                try? await session.deleteInbox(clientId: clientId, inboxId: "")
+                return
+            }
+
+            convosButtonCancellable = stateManager.draftConversationRepository.conversationPublisher
+                .compactMap { $0 }
+                .first { $0.invite?.urlSlug.isEmpty == false }
+                .receive(on: DispatchQueue.main)
+                .sink { [weak self] convo in
+                    guard let self, self.pendingInvite == nil, let convoInvite = convo.invite else { return }
+                    let urlString = convoInvite.inviteURLString
+                    let emptyRange = urlString.startIndex ..< urlString.startIndex
+                    self.pendingInvite = PendingInvite(
+                        code: convoInvite.urlSlug,
+                        fullURL: urlString,
+                        range: emptyRange,
+                        linkedConversationClientId: clientId,
+                        linkedConversationInboxId: convo.inboxId
+                    )
+                    self.convosButtonCancellable = nil
+                }
+        }
     }
 }
