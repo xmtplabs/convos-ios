@@ -35,23 +35,28 @@ struct MessagesGroupView: View {
     }
 
     private var senderLabel: some View {
-        HStack(spacing: DesignConstants.Spacing.stepX) {
-            Text(group.sender.profile.displayName)
-            if group.sender.isAgent && group.sender.profile.isOutOfCredits {
-                Image(systemName: "battery.0percent")
+        senderLabelContent
+            .scaleEffect(isAppearing ? 0.9 : 1.0)
+            .opacity(isAppearing ? 0.0 : 1.0)
+            .offset(x: 0.0, y: isAppearing ? 100 : 0)
+            .blur(radius: isAppearing ? 10.0 : 0.0)
+            .font(.footnote)
+            .foregroundColor(group.sender.isAgent ? group.sender.agentVerification.nameColor : .secondary)
+            .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
+            .padding(.bottom, DesignConstants.Spacing.stepHalf)
+    }
+
+    private var senderLabelContent: some View {
+        let tapAction = { if let msg = group.allMessages.first { onTapAvatar(msg) } }
+        return Button(action: tapAction) {
+            HStack(spacing: DesignConstants.Spacing.stepX) {
+                Text(group.sender.profile.displayName)
+                if group.sender.isAgent && group.sender.profile.isOutOfCredits {
+                    Image(systemName: "battery.0percent")
+                }
             }
         }
-        .scaleEffect(isAppearing ? 0.9 : 1.0)
-        .opacity(isAppearing ? 0.0 : 1.0)
-        .offset(
-            x: 0.0,
-            y: isAppearing ? 100 : 0
-        )
-        .blur(radius: isAppearing ? 10.0 : 0.0)
-        .font(.footnote)
-        .foregroundColor(group.sender.isAgent ? group.sender.agentVerification.nameColor : .secondary)
-        .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
-        .padding(.bottom, DesignConstants.Spacing.stepHalf)
+        .buttonStyle(.plain)
     }
 
     private func avatarOverlay(onTap: (() -> Void)? = nil) -> some View {
@@ -136,42 +141,19 @@ struct MessagesGroupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            let allMessages = group.allMessages
-            let isTypingOnly = allMessages.isEmpty && group.showsTypingIndicator
-            ForEach(Array(allMessages.enumerated()), id: \.element.messageId) { index, message in
-                let isReply = if case .reply = message { true } else { false }
-                let isFullWidthAttachment = message.content.isAttachment
+            ForEach(Array(group.allMessages.enumerated()), id: \.element.messageId) { index, message in
+                let isReply: Bool = if case .reply = message { true } else { false }
+                let isFullWidthAttachment: Bool = message.content.isAttachment
 
                 if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
-                    let tapNameAction = { onTapAvatar(message) }
-                    Button(action: tapNameAction) {
-                        HStack(spacing: DesignConstants.Spacing.stepX) {
-                            Text(group.sender.profile.displayName)
-                            if group.sender.isAgent && group.sender.profile.isOutOfCredits {
-                                Image(systemName: "battery.0percent")
-                            }
-                        }
-                    }
-                    .scaleEffect(isAppearing ? 0.9 : 1.0)
-                    .opacity(isAppearing ? 0.0 : 1.0)
-                    .offset(
-                        x: 0.0,
-                        y: isAppearing ? 100 : 0
-                    )
-                    .blur(radius: isAppearing ? 10.0 : 0.0)
-                    .font(.footnote)
-                    .foregroundColor(group.sender.isAgent ? group.sender.agentVerification.nameColor : .secondary)
-                    .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
-                    .padding(.bottom, DesignConstants.Spacing.stepHalf)
+                    senderLabel
                 }
 
-                let lastMessage = group.messages.last
-                let isLastMessage = message == lastMessage
-                let isLast = isLastMessage && !group.showsTypingIndicator
+                let isLastInGroup: Bool = message == group.messages.last
+                let isLast: Bool = isLastInGroup && !group.showsTypingIndicator
                 let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
-                let isLastInGroup = message == group.messages.last
-                let showsSentStatus = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
-                let isFailed = message.sender.isCurrentUser && message.status == .failed
+                let showsSentStatus: Bool = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
+                let isFailed: Bool = message.sender.isCurrentUser && message.status == .failed
 
                 HStack(alignment: .bottom, spacing: avatarSpacing) {
                     if !group.sender.isCurrentUser && !isFullWidthAttachment {

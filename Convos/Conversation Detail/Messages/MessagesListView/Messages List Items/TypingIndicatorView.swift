@@ -21,22 +21,26 @@ struct TypingIndicatorView: View {
     private var avatarStack: some View {
         HStack(spacing: -8) {
             ForEach(Array(typers.prefix(3).enumerated()), id: \.element.id) { index, member in
-                AvatarView(
-                    fallbackName: member.profile.displayName ?? "",
-                    cacheableObject: member.profile,
-                    placeholderImage: nil,
-                    placeholderImageName: nil,
-                    isAgent: member.isAgent
-                )
-                .frame(width: avatarSize, height: avatarSize)
-                .clipShape(Circle())
-                .overlay(
-                    Circle()
-                        .stroke(Color(.systemBackground), lineWidth: 2)
-                )
-                .zIndex(Double(typers.count - index))
+                typerAvatar(member: member, index: index)
             }
         }
+    }
+
+    private func typerAvatar(member: ConversationMember, index: Int) -> some View {
+        AvatarView(
+            fallbackName: member.profile.displayName,
+            cacheableObject: member.profile,
+            placeholderImage: nil,
+            placeholderImageName: nil,
+            agentVerification: member.agentVerification
+        )
+        .frame(width: avatarSize, height: avatarSize)
+        .clipShape(Circle())
+        .overlay(
+            Circle()
+                .stroke(Color(.systemBackground), lineWidth: 2)
+        )
+        .zIndex(Double(typers.count - index))
     }
 
     private var bubble: some View {
@@ -58,7 +62,7 @@ struct TypingIndicatorView: View {
         case 0:
             return "Someone is typing"
         case 1:
-            let name = typers[0].profile.displayName ?? "Someone"
+            let name = typers[0].profile.displayName
             return "\(name) is typing"
         default:
             return "\(typers.count) people are typing"

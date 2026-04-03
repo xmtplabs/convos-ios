@@ -189,59 +189,6 @@ class ConversationViewModel {
 
     private(set) var typingMembers: [ConversationMember] = []
 
-    var messagesWithTypingIndicator: [MessagesListItemType] {
-        guard !typingMembers.isEmpty else { return messages }
-
-        if typingMembers.count == 1 {
-            return messagesWithSingleTyper(typingMembers[0])
-        }
-        return messagesWithMultipleTypers(typingMembers)
-    }
-
-    private func messagesWithSingleTyper(_ typer: ConversationMember) -> [MessagesListItemType] {
-        if let lastIndex = messages.lastIndex(where: { if case .messages = $0 { return true }; return false }),
-           case .messages(let lastGroup) = messages[lastIndex],
-           lastGroup.sender.profile.inboxId == typer.profile.inboxId {
-            var updated = messages
-            let updatedGroup = MessagesGroup(
-                id: lastGroup.id,
-                sender: lastGroup.sender,
-                messages: lastGroup.rawMessages,
-                isLastGroup: lastGroup.isLastGroup,
-                isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
-                showsTypingIndicator: true,
-                allTypingMembers: [typer],
-                onlyVisibleToSender: lastGroup.onlyVisibleToSender,
-                isLastGroupBeforeOtherMembers: lastGroup.isLastGroupBeforeOtherMembers
-            )
-            updated[lastIndex] = .messages(updatedGroup)
-            return updated
-        }
-
-        let typingGroup = MessagesGroup(
-            id: "typing-indicator",
-            sender: typer,
-            messages: [],
-            isLastGroup: false,
-            isLastGroupSentByCurrentUser: false,
-            showsTypingIndicator: true
-        )
-        return messages + [.messages(typingGroup)]
-    }
-
-    private func messagesWithMultipleTypers(_ typers: [ConversationMember]) -> [MessagesListItemType] {
-        let typingGroup = MessagesGroup(
-            id: "typing-indicator-multi",
-            sender: typers[0],
-            messages: [],
-            isLastGroup: false,
-            isLastGroupSentByCurrentUser: false,
-            showsTypingIndicator: true,
-            allTypingMembers: typers
-        )
-        return messages + [.messages(typingGroup)]
-    }
-
     @ObservationIgnored
     private var isTypingSent: Bool = false
     @ObservationIgnored
@@ -1654,10 +1601,12 @@ extension ConversationViewModel {
                 }
         }
     }
+}
 
-    // MARK: - Typing Indicators
+// MARK: - Typing Indicators
 
-    private func setupTypingIndicatorHandler() {
+extension ConversationViewModel {
+    fileprivate func setupTypingIndicatorHandler() {
         let manager = typingIndicatorManager
         Task {
             await messagingService.inboxStateManager.setTypingIndicatorHandler { conversationId, senderInboxId, isTyping in
@@ -1685,7 +1634,7 @@ extension ConversationViewModel {
         updateTypingMembers(from: manager)
     }
 
-    private func updateTypingMembers(from manager: TypingIndicatorManager) {
+    fileprivate func updateTypingMembers(from manager: TypingIndicatorManager) {
         let typerInboxIds = manager.typers(for: conversation.id)
         let members = conversation.members.filter { member in
             typerInboxIds.contains { $0.inboxId == member.profile.inboxId }
@@ -1693,7 +1642,7 @@ extension ConversationViewModel {
         typingMembers = members
     }
 
-    private func clearTypingForNewMessages(old: [MessagesListItemType], new: [MessagesListItemType]) {
+    fileprivate func clearTypingForNewMessages(old: [MessagesListItemType], new: [MessagesListItemType]) {
         let oldLastId = old.lastMessageId
         let newLastId = new.lastMessageId
         guard oldLastId != newLastId,
@@ -1720,17 +1669,17 @@ extension ConversationViewModel {
         }
     }
 
-    private func handleTextChanged() {
+    fileprivate func handleTextChanged() {
         if messageText.isEmpty {
             stopTyping()
             return
         }
 
         let now = Date()
-        if let lastSent = typingThrottleDate, now.timeIntervalSince(lastSent) < Constant.typingThrottleInterval {
+        if let lastSent = typingThrottleDate, now.timeIntervalSince(lastSent) < Self.typingThrottleInterval {
             typingResetTask?.cancel()
             typingResetTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(Constant.typingResetInterval))
+                try? await Task.sleep(for: .seconds(Self.typingResetInterval))
                 guard !Task.isCancelled else { return }
                 await MainActor.run { [weak self] in
                     self?.stopTyping()
@@ -1744,7 +1693,7 @@ extension ConversationViewModel {
 
         typingResetTask?.cancel()
         typingResetTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Constant.typingResetInterval))
+            try? await Task.sleep(for: .seconds(Self.typingResetInterval))
             guard !Task.isCancelled else { return }
             await MainActor.run { [weak self] in
                 self?.stopTyping()
@@ -1758,8 +1707,59 @@ extension ConversationViewModel {
         }
     }
 
-    private enum Constant {
-        static let typingThrottleInterval: TimeInterval = 5
-        static let typingResetInterval: TimeInterval = 10
+    var messagesWithTypingIndicator: [MessagesListItemType] {
+        guard !typingMembers.isEmpty else { return messages }
+
+        if typingMembers.count == 1 {
+            return messagesWithSingleTyper(typingMembers[0])
+        }
+        return messagesWithMultipleTypers(typingMembers)
     }
+
+    fileprivate func messagesWithSingleTyper(_ typer: ConversationMember) -> [MessagesListItemType] {
+        if let lastIndex = messages.lastIndex(where: { if case .messages = $0 { return true }; return false }),
+           case .messages(let lastGroup) = messages[lastIndex],
+           lastGroup.sender.profile.inboxId == typer.profile.inboxId {
+            var updated = messages
+            let updatedGroup = MessagesGroup(
+                id: lastGroup.id,
+                sender: lastGroup.sender,
+                messages: lastGroup.rawMessages,
+                isLastGroup: lastGroup.isLastGroup,
+                isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
+                showsTypingIndicator: true,
+                allTypingMembers: [typer],
+                onlyVisibleToSender: lastGroup.onlyVisibleToSender,
+                isLastGroupBeforeOtherMembers: lastGroup.isLastGroupBeforeOtherMembers
+            )
+            updated[lastIndex] = .messages(updatedGroup)
+            return updated
+        }
+
+        let typingGroup = MessagesGroup(
+            id: "typing-indicator",
+            sender: typer,
+            messages: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false,
+            showsTypingIndicator: true
+        )
+        return messages + [.messages(typingGroup)]
+    }
+
+    fileprivate func messagesWithMultipleTypers(_ typers: [ConversationMember]) -> [MessagesListItemType] {
+        let typingGroup = MessagesGroup(
+            id: "typing-indicator-multi",
+            sender: typers[0],
+            messages: [],
+            isLastGroup: false,
+            isLastGroupSentByCurrentUser: false,
+            showsTypingIndicator: true,
+            allTypingMembers: typers
+        )
+        return messages + [.messages(typingGroup)]
+    }
+
+    fileprivate static let typingThrottleInterval: TimeInterval = 5
+    fileprivate static let typingResetInterval: TimeInterval = 10
 }
