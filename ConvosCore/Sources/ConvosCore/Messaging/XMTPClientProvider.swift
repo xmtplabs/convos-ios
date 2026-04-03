@@ -43,6 +43,7 @@ public struct SendableXMTPOperations: Sendable {
 
 public protocol MessageSender {
     func sendExplode(expiresAt: Date) async throws
+    func sendEncodedContent(_ encodedContent: EncodedContent) async throws
     func prepare(text: String) async throws -> String
     func prepare(remoteAttachment: RemoteAttachment) async throws -> String
     func prepare(reply: Reply) async throws -> String
@@ -245,6 +246,10 @@ extension XMTPiOS.Client: XMTPClientProvider {
 }
 
 extension XMTPiOS.Conversation: MessageSender {
+    public func sendEncodedContent(_ encodedContent: EncodedContent) async throws {
+        try await send(encodedContent: encodedContent)
+    }
+
     public func sendExplode(expiresAt: Date) async throws {
         Log.info("Sending ExplodeSettings message with expiresAt: \(expiresAt) (\(expiresAt.timeIntervalSince1970))")
         let codec = ExplodeSettingsCodec()

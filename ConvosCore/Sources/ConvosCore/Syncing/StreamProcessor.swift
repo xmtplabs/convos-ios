@@ -66,6 +66,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let messageWriter: any IncomingMessageWriterProtocol
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
+    private let convoRequestManager: any ConvoRequestManagerProtocol
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -99,6 +100,11 @@ actor StreamProcessor: StreamProcessorProtocol {
         self.joinRequestsManager = InviteJoinRequestsManager(
             identityStore: identityStore,
             databaseWriter: databaseWriter
+        )
+        self.convoRequestManager = ConvoRequestManager(
+            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
+            identityStore: identityStore
         )
     }
 
@@ -182,6 +188,11 @@ actor StreamProcessor: StreamProcessorProtocol {
             case .dm:
                 if let inviteJoinError = decodeInviteJoinError(from: message) {
                     await handleInviteJoinError(inviteJoinError, senderInboxId: message.senderInboxId)
+                    return
+                }
+
+                if await convoRequestManager.processConvoRequest(message: message, client: params.client) {
+                    Log.debug("Processed convo request: \(message.id)")
                     return
                 }
 
