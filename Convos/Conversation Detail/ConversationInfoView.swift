@@ -291,7 +291,14 @@ struct ConversationInfoView: View {
                 title: "Allow DMs",
                 subtitle: "From group members"
             ) {
-                SoonLabel()
+                Toggle("", isOn: Binding(
+                    get: { viewModel.allowsDMs },
+                    set: { viewModel.setAllowsDMs($0) }
+                ))
+                .labelsHidden()
+                .accessibilityLabel("Allow DMs")
+                .accessibilityValue(viewModel.allowsDMs ? "on" : "off")
+                .accessibilityIdentifier("allow-dms-toggle")
             }
 
             FeatureRowItem(

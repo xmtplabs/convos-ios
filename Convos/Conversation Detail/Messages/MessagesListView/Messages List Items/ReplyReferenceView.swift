@@ -249,53 +249,56 @@ private struct ReplyReferencePhotoPreview: View {
         contextMenuState.isReplyParent && contextMenuState.sourceID == instanceID
     }
 
-    var body: some View {
-        Group {
-            if let image = loadedImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .aspectRatio(contentMode: .fit)
-                    .frame(maxHeight: Self.maxHeight)
-                    .scaleEffect(shouldBlur ? 1.65 : 1.0)
-                    .blur(radius: shouldBlur ? 96 : 0)
-                    .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
-                    .overlay {
-                        if isVideo, !shouldBlur {
-                            Image(systemName: "play.fill")
-                                .font(.system(size: 20))
-                                .foregroundStyle(.white)
-                                .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
-                        }
+    @ViewBuilder
+    private var imageContent: some View {
+        if let image = loadedImage {
+            Image(uiImage: image)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(maxHeight: Self.maxHeight)
+                .scaleEffect(shouldBlur ? 1.65 : 1.0)
+                .blur(radius: shouldBlur ? 96 : 0)
+                .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
+                .overlay {
+                    if isVideo, !shouldBlur {
+                        Image(systemName: "play.fill")
+                            .font(.system(size: 20))
+                            .foregroundStyle(.white)
+                            .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
                     }
-                    .opacity(isSourceForContextMenu ? 0 : 1.0)
-                    .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
-                    .contentShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
-                    .onTapGesture {
-                        if shouldBlur {
-                            onReveal()
-                        }
+                }
+                .opacity(isSourceForContextMenu ? 0 : 1.0)
+                .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
+                .contentShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular))
+                .onTapGesture {
+                    if shouldBlur {
+                        onReveal()
                     }
-                    .overlay {
-                        GeometryReader { geometry in
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .onLongPressGesture(minimumDuration: 0.5) {
-                                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                                    let frame = geometry.frame(in: .global)
-                                    contextMenuState.presentReplyParent(
-                                        message: .message(parentMessage, .existing),
-                                        bubbleFrame: frame,
-                                        sourceID: instanceID
-                                    )
-                                }
-                        }
+                }
+                .overlay {
+                    GeometryReader { geometry in
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onLongPressGesture(minimumDuration: 0.5) {
+                                UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                                let frame = geometry.frame(in: .global)
+                                contextMenuState.presentReplyParent(
+                                    message: .message(parentMessage, .existing),
+                                    bubbleFrame: frame,
+                                    sourceID: instanceID
+                                )
+                            }
                     }
-            } else {
-                RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
-                    .fill(.quaternary)
-                    .frame(width: 60.0, height: Self.maxHeight)
-            }
+                }
+        } else {
+            RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.regular)
+                .fill(.quaternary)
+                .frame(width: 60.0, height: Self.maxHeight)
         }
+    }
+
+    var body: some View {
+        imageContent
         .task {
             guard loadedImage == nil else { return }
             if let cachedImage = await ImageCache.shared.imageAsync(for: attachmentKey) {

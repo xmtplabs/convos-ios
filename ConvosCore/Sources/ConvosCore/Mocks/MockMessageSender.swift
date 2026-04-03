@@ -9,9 +9,9 @@ public final class MockMessageSender: MessageSender, @unchecked Sendable {
 
     public init() {}
 
-    public func sendExplode(expiresAt: Date) async throws {
-        // No-op for mock
-    }
+    public func sendExplode(expiresAt: Date) async throws {}
+
+    public func sendEncodedContent(_ encodedContent: EncodedContent) async throws {}
 
     public func prepare(text: String) async throws -> String {
         let messageId = UUID().uuidString

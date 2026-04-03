@@ -102,7 +102,7 @@ final class ConvoRequestManager: ConvoRequestManagerProtocol, @unchecked Sendabl
         client: AnyClientProvider
     ) async {
         do {
-            let conversationId = try await client.conversationsProvider.newConversation(
+            let conversationId = try await client.newConversation(
                 with: [request.newInboxID],
                 name: "",
                 description: "",
@@ -117,11 +117,8 @@ final class ConvoRequestManager: ConvoRequestManagerProtocol, @unchecked Sendabl
                 return
             }
 
-            try await group.updateGroupMemberPermission(
-                permissionOption: .denyAll,
-                permissionType: .addMember
-            )
-            Log.debug("Locked DM conversation (addMember = denyAll)")
+            try await group.updateAddMemberPermission(newPermissionOption: PermissionOption.deny)
+            Log.debug("Locked DM conversation (addMember = deny)")
 
             let messageWriter = IncomingMessageWriter(databaseWriter: databaseWriter)
             let conversationWriter = ConversationWriter(
@@ -134,21 +131,8 @@ final class ConvoRequestManager: ConvoRequestManagerProtocol, @unchecked Sendabl
                 inboxId: client.inboxId
             )
 
-            try await databaseWriter.write { db in
-                var localState = try ConversationLocalState
-                    .filter(ConversationLocalState.Columns.conversationId == dbConversation.id)
-                    .fetchOne(db)
-                    ?? ConversationLocalState(
-                        conversationId: dbConversation.id,
-                        isPinned: false,
-                        isUnread: false,
-                        isUnreadUpdatedAt: Date(),
-                        isMuted: false,
-                        pinnedOrder: nil
-                    )
-                localState = localState.with(isUnread: true)
-                try localState.save(db)
-            }
+            let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
+            try await localStateWriter.setUnread(true, for: dbConversation.id)
 
             Log.info("DM conversation \(conversationId.prefix(8)) stored and marked as unread")
         } catch {

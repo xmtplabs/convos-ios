@@ -267,6 +267,7 @@ class ConversationViewModel {
     @ObservationIgnored
     private var assistantJoinTaskId: String?
 
+    var allowsDMs: Bool = false
     var autoRevealPhotos: Bool = false
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
@@ -445,6 +446,7 @@ class ConversationViewModel {
         applyGlobalDefaultsForDraftConversationIfNeeded()
         observe()
         loadPhotoPreferences()
+        loadAllowsDMs()
 
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
@@ -511,6 +513,10 @@ class ConversationViewModel {
     }
 
     // MARK: - Private
+
+    private func loadAllowsDMs() {
+        allowsDMs = profile.allowsDMs
+    }
 
     private func loadPhotoPreferences() {
         Task { @MainActor [weak self] in
@@ -976,6 +982,28 @@ extension ConversationViewModel {
         presentingProfileSettings = true
     }
 
+    func sendDMRequest(to member: ConversationMember) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let service = try await session.messagingService(
+                    for: conversation.clientId,
+                    inboxId: conversation.inboxId
+                )
+                let inboxReady = try await service.inboxStateManager.waitForInboxReadyResult()
+                let sender = ConvoRequestSender()
+                _ = try await sender.sendDMRequest(
+                    to: member.profile.inboxId,
+                    originConversationId: conversation.id,
+                    client: inboxReady.client
+                )
+                Log.info("DM request sent to \(member.profile.displayName)")
+            } catch {
+                Log.error("Failed to send DM request: \(error)")
+            }
+        }
+    }
+
     func remove(member: ConversationMember) {
         guard canRemoveMembers else { return }
         Task { [weak self] in
@@ -1347,6 +1375,23 @@ extension ConversationViewModel {
                 )
             } catch {
                 Log.error("Error saving photo dimensions: \(error)")
+            }
+        }
+    }
+
+    func setAllowsDMs(_ allowed: Bool) {
+        allowsDMs = allowed
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                let writer = try await session.messagingService(
+                    for: conversation.clientId,
+                    inboxId: conversation.inboxId
+                ).myProfileWriter()
+                try await writer.update(allowsDMs: allowed, conversationId: conversation.id)
+            } catch {
+                Log.error("Failed to update allow DMs: \(error)")
+                await MainActor.run { self.allowsDMs = !allowed }
             }
         }
     }

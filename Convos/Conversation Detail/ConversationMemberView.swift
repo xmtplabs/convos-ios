@@ -134,6 +134,32 @@ struct ConversationMemberView: View {
     @ViewBuilder
     private var nonAgentSections: some View {
         if !member.isCurrentUser {
+            if member.profile.allowsDMs {
+                Section {
+                    let action = {
+                        viewModel.sendDMRequest(to: member)
+                        dismiss()
+                    }
+                    Button(action: action) {
+                        HStack {
+                            Text("Send DM")
+                                .font(.body)
+                                .foregroundStyle(.colorTextPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundStyle(.colorTextTertiary)
+                        }
+                        .contentShape(Rectangle())
+                    }
+                    .accessibilityLabel("Send DM to \(member.profile.displayName)")
+                    .accessibilityIdentifier("send-dm-button")
+                } footer: {
+                    Text("Start a private conversation with \(member.profile.displayName)")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+
             if viewModel.canRemoveMembers {
                 Section {
                     let action = {
