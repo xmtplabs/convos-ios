@@ -69,24 +69,26 @@ struct ConversationMemberView: View {
 
     @ViewBuilder
     private var agentSections: some View {
-        Section {
-            let action = { openURL(Constant.getSkillsURL) }
-            Button(action: action) {
-                cardRow(title: "Get skills")
+        if member.agentVerification.isVerified {
+            Section {
+                let action = { openURL(Constant.getSkillsURL) }
+                Button(action: action) {
+                    cardRow(title: "Get skills")
+                }
+            } footer: {
+                Text("Browse 100+ curated capabilities")
+                    .foregroundStyle(.colorTextSecondary)
             }
-        } footer: {
-            Text("Browse 100+ curated capabilities")
-                .foregroundStyle(.colorTextSecondary)
-        }
 
-        Section {
-            let action = { openURL(Constant.learnAboutAssistantsURL) }
-            Button(action: action) {
-                cardRow(title: "Learn about assistants")
+            Section {
+                let action = { openURL(Constant.learnAboutAssistantsURL) }
+                Button(action: action) {
+                    cardRow(title: "Learn about assistants")
+                }
+            } footer: {
+                Text("Capabilities, privacy and security")
+                    .foregroundStyle(.colorTextSecondary)
             }
-        } footer: {
-            Text("Capabilities, privacy and security")
-                .foregroundStyle(.colorTextSecondary)
         }
 
         if viewModel.canRemoveMembers {
