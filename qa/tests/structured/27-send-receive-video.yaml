@@ -205,7 +205,7 @@ steps:
   - id: video_context_menu_incoming
     name: "Context menu for incoming video"
     actions:
-      - long_press: { id: "video-play-button", duration: 0.5 }
+      - long_press: { label_contains: "Video message", duration: 0.5 }
         note: Long-press on the incoming video area to open context menu
       - screenshot: {}
     verify:
