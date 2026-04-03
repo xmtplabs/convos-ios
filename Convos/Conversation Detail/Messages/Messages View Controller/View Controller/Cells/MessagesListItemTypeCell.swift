@@ -140,7 +140,14 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
 
                 case .assistantPresentInfo:
-                    EmptyView()
+                    VStack(spacing: 0) {
+                        TextTitleContentView(title: "Assistant is present", profile: nil)
+                            .padding(.top, DesignConstants.Spacing.step4x)
+                            .padding(.bottom, DesignConstants.Spacing.step3x)
+                            .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        AssistantJoinedInfoView()
+                            .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

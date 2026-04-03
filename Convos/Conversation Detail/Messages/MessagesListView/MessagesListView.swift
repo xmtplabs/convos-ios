@@ -115,7 +115,13 @@ struct MessagesListView: View {
                                 .padding(.vertical, DesignConstants.Spacing.step2x)
 
                             case .assistantPresentInfo:
-                                EmptyView()
+                                VStack(spacing: 0) {
+                                    TextTitleContentView(title: "Assistant is present", profile: nil)
+                                        .padding(.vertical, DesignConstants.Spacing.step4x)
+                                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                                    AssistantJoinedInfoView()
+                                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                                }
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in
