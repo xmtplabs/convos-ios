@@ -62,6 +62,7 @@ class ConversationViewModel {
     private var cancellables: Set<AnyCancellable> = []
     @ObservationIgnored
     private var convosButtonCancellable: AnyCancellable?
+    private var convosButtonTask: Task<Void, Never>?
     @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
@@ -1520,8 +1521,9 @@ extension ConversationViewModel {
     }
 
     func onConvosButtonTapped() {
-        guard pendingInvite == nil else { return }
-        Task { [session] in
+        guard pendingInvite == nil, convosButtonTask == nil else { return }
+        convosButtonTask = Task { [session] in
+            defer { convosButtonTask = nil }
             let (messagingService, existingConversationId) = await session.addInbox()
             let clientId = messagingService.clientId
 
