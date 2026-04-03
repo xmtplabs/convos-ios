@@ -109,7 +109,16 @@ final class NotificationService: UNNotificationServiceExtension, @unchecked Send
                     self.deliverNotification(UNMutableNotificationContent())
                 } else if let decodedContent {
                     Log.info("Delivering processed notification")
-                    self.deliverNotification(decodedContent.notificationContent)
+                    let content = decodedContent.notificationContent
+                    if !decodedContent.isReaction,
+                       let mutableContent = content.mutableCopy() as? UNMutableNotificationContent,
+                       let env = try? NotificationExtensionEnvironment.getEnvironment() {
+                        let badgeCount = BadgeCounter.increment(appGroupIdentifier: env.appGroupIdentifier)
+                        mutableContent.badge = NSNumber(value: badgeCount)
+                        self.deliverNotification(mutableContent)
+                    } else {
+                        self.deliverNotification(content)
+                    }
                 }
             } catch is CancellationError {
                 Log.info("Notification processing was cancelled")

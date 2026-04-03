@@ -387,10 +387,12 @@ extension MessagingService {
             return .droppedMessage
         }
 
+        let isReaction = encodedContentType == ContentTypeReaction || encodedContentType == ContentTypeReactionV2
         return .init(
             title: notificationTitle,
             body: body,
             conversationId: conversationId,
+            isReaction: isReaction,
             userInfo: userInfo
         )
     }

@@ -8,13 +8,15 @@ public struct DecodedNotificationContent: @unchecked Sendable {
     public let body: String
     public let conversationId: String?
     public let isDroppedMessage: Bool
+    public let isReaction: Bool
     public let userInfo: [AnyHashable: Any]
 
-    init(title: String?, body: String, conversationId: String?, userInfo: [AnyHashable: Any]) {
+    init(title: String?, body: String, conversationId: String?, isReaction: Bool = false, userInfo: [AnyHashable: Any]) {
         self.title = title
         self.body = body
         self.conversationId = conversationId
         self.isDroppedMessage = false
+        self.isReaction = isReaction
         self.userInfo = userInfo
     }
 
@@ -23,6 +25,7 @@ public struct DecodedNotificationContent: @unchecked Sendable {
         self.body = ""
         self.conversationId = nil
         self.isDroppedMessage = isDroppedMessage
+        self.isReaction = false
         self.userInfo = userInfo
     }
 

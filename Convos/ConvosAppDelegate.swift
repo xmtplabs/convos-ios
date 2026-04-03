@@ -11,6 +11,7 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
     var session: (any SessionManagerProtocol)?
     var pushNotificationRegistrar: (any PushNotificationRegistrarProtocol)?
     private var leftConversationObserver: Any?
+    private var foregroundObserver: Any?
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil) -> Bool {
         SentryConfiguration.configure()
@@ -21,6 +22,12 @@ class ConvosAppDelegate: NSObject, UIApplicationDelegate, @preconcurrency UNUser
         ) { [weak self] notification in
             guard let conversationId = notification.userInfo?["conversationId"] as? String else { return }
             Task { await self?.clearDeliveredNotifications(for: conversationId) }
+        }
+        foregroundObserver = NotificationCenter.default.addObserver(
+            forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { _ in
+            BadgeCounter.reset(appGroupIdentifier: ConfigManager.shared.currentEnvironment.appGroupIdentifier)
+            UNUserNotificationCenter.current().setBadgeCount(0)
         }
         return true
     }
