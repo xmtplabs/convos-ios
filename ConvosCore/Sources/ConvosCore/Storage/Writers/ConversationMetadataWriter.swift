@@ -22,6 +22,7 @@ public protocol ConversationMetadataWriterProtocol: Sendable {
     func updateIncludeInfoInPublicPreview(_ enabled: Bool, for conversationId: String) async throws
     func lockConversation(for conversationId: String) async throws
     func unlockConversation(for conversationId: String) async throws
+    func refreshInvite(for conversationId: String) async throws -> Invite?
 }
 
 // MARK: - Conversation Metadata Errors
@@ -631,5 +632,18 @@ final class ConversationMetadataWriter: ConversationMetadataWriterProtocol, @unc
 
         Log.info("Unlocked conversation \(conversationId)")
         QAEvent.emit(.conversation, "unlocked", ["id": conversationId])
+    }
+
+    func refreshInvite(for conversationId: String) async throws -> Invite? {
+        guard let conversation = try await databaseWriter.read({ db in
+            try DBConversation.fetchOne(db, key: conversationId)
+        }) else { return nil }
+
+        return try await inviteWriter.update(
+            for: conversationId,
+            name: conversation.includeInfoInPublicPreview ? conversation.name : nil,
+            description: conversation.includeInfoInPublicPreview ? conversation.description : nil,
+            imageURL: conversation.includeInfoInPublicPreview ? conversation.publicImageURLString : nil
+        )
     }
 }

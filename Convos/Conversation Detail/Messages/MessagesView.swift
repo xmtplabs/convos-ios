@@ -22,6 +22,8 @@ struct MessagesView<BottomBarContent: View>: View {
     var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteExplodeDuration: ExplodeDuration?
+    var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     let onboardingCoordinator: ConversationOnboardingCoordinator
@@ -118,6 +120,8 @@ struct MessagesView<BottomBarContent: View>: View {
                 isVideoAttachment: isVideoAttachment,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
+                pendingInviteExplodeDuration: pendingInviteExplodeDuration,
+                onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 sendButtonEnabled: sendButtonEnabled,
                 profileImage: $profileImage,
                 isPhotoPickerPresented: $isPhotoPickerPresented,
