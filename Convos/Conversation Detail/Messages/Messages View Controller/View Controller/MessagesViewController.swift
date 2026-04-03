@@ -3,6 +3,7 @@ import ConvosCore
 import DifferenceKit
 import Foundation
 import Observation
+import QuickLook
 import SwiftUI
 import UIKit
 
@@ -192,6 +193,7 @@ final class MessagesViewController: UIViewController {
     var onCopyInviteLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
+    private var filePreviewURL: URL?
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
     }

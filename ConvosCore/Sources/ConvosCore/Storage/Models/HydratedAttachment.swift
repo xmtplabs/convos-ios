@@ -18,6 +18,27 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
     public let duration: Double?
     public let thumbnailDataBase64: String?
     public let fileSize: Int?
+    public let filename: String?
+
+    public var filenameExtension: String? {
+        guard let filename else { return nil }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        return ext.isEmpty ? nil : ext
+    }
+
+    public var fileTypeLabel: String? {
+        guard mediaType == .file else { return nil }
+        if let ext = filenameExtension {
+            return ext.uppercased()
+        }
+        if let mimeType {
+            let components = mimeType.split(separator: "/")
+            if components.count == 2 {
+                return String(components[1]).uppercased()
+            }
+        }
+        return nil
+    }
 
     public var mediaType: MediaType {
         guard let mimeType else { return .image }
@@ -46,7 +67,8 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         mimeType: String? = nil,
         duration: Double? = nil,
         thumbnailDataBase64: String? = nil,
-        fileSize: Int? = nil
+        fileSize: Int? = nil,
+        filename: String? = nil
     ) {
         self.key = key
         self.isRevealed = isRevealed
@@ -57,5 +79,6 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         self.duration = duration
         self.thumbnailDataBase64 = thumbnailDataBase64
         self.fileSize = fileSize
+        self.filename = filename
     }
 }

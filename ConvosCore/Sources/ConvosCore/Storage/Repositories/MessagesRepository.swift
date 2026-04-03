@@ -804,12 +804,15 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
     var width: Int? = localState?.width
     var height: Int? = localState?.height
 
+    var filename: String?
+
     if let stored = try? StoredRemoteAttachment.fromJSON(key) {
         if mimeType == nil { mimeType = stored.mimeType }
         if width == nil { width = stored.mediaWidth }
         if height == nil { height = stored.mediaHeight }
         duration = stored.mediaDuration
         thumbnailDataBase64 = stored.thumbnailDataBase64
+        filename = stored.filename
     }
 
     return HydratedAttachment(
@@ -820,6 +823,7 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         height: height,
         mimeType: mimeType,
         duration: duration,
-        thumbnailDataBase64: thumbnailDataBase64
+        thumbnailDataBase64: thumbnailDataBase64,
+        filename: filename
     )
 }
