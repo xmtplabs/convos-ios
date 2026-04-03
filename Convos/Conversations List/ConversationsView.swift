@@ -110,16 +110,6 @@ struct ConversationsView: View {
                 }
             }
 
-            let pendingAction = {
-                viewModel.activeFilter = viewModel.activeFilter == .pendingInvites ? .all : .pendingInvites
-            }
-            Button(action: pendingAction) {
-                if viewModel.activeFilter == .pendingInvites {
-                    Label("Pending invites", systemImage: "checkmark")
-                } else {
-                    Text("Pending invites")
-                }
-            }
         } label: {
             Image(systemName: "line.3.horizontal.decrease")
                 .foregroundStyle(isFiltered ? .colorTextPrimaryInverted : .colorFillPrimary)
@@ -199,12 +189,6 @@ struct ConversationsView: View {
                     } action: { newValue in
                         sidebarWidth = newValue.width
                     }
-                }
-                .onGeometryChange(for: CGSize.self) {
-                    $0.size
-                } action: { newValue in
-                    sidebarWidth = newValue.width
-                }
                 .background(.colorBackgroundSurfaceless)
                 .toolbarTitleDisplayMode(.inline)
                 .toolbar {

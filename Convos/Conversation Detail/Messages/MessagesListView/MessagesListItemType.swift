@@ -6,7 +6,7 @@ import Foundation
 // This file contains DifferenceKit conformances and mock data that stay in the app target.
 
 // MARK: - Differentiable Conformance
-extension MessagesListItemType: Differentiable {
+extension MessagesListItemType: @retroactive Differentiable {
     public var differenceIdentifier: Int {
         id.hashValue
     }

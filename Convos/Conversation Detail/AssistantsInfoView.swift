@@ -183,7 +183,7 @@ private struct AutoScrollingRow<Content: View>: UIViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIScrollView, context: Context) -> CGSize? {
-        let width = proposal.width ?? UIScreen.main.bounds.width
+        let width = proposal.width ?? 390
         let contentHeight = uiView.contentSize.height
         guard contentHeight > 0 else { return nil }
         return CGSize(width: width, height: contentHeight)
