@@ -29,6 +29,12 @@ final class ConvoRequestManager: ConvoRequestManagerProtocol, @unchecked Sendabl
 
         let senderInboxId = message.senderInboxId
         let originConversationId = convoRequest.originConversationID
+
+        guard senderInboxId != client.inboxId else {
+            Log.debug("Ignoring own convo request")
+            return true
+        }
+
         Log.info("Received convo request from \(senderInboxId.prefix(8)) via group \(originConversationId.prefix(8))")
 
         guard await validateRequest(
