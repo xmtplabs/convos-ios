@@ -138,7 +138,6 @@ struct ConversationMemberView: View {
                 Section {
                     let action = {
                         viewModel.sendDMRequest(to: member)
-                        dismiss()
                     }
                     Button(action: action) {
                         HStack {

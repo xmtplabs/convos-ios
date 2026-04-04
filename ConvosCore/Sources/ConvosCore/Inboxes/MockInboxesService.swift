@@ -116,6 +116,14 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockAttachmentLocalStateWriter()
     }
 
+    public func dmLinksRepository() -> any DMLinksRepositoryProtocol {
+        MockDMLinksRepository()
+    }
+
+    public func dmLinksWriter() -> any DMLinksWriterProtocol {
+        MockDMLinksWriter()
+    }
+
     // MARK: - Lifecycle Management
 
     public func setActiveClientId(_ clientId: String?) async {}

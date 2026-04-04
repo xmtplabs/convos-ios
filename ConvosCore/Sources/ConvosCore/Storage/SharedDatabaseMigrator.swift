@@ -399,6 +399,17 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addDMLinksTable") { db in
+            try db.create(table: "dmLink") { t in
+                t.column("originConversationId", .text).notNull()
+                t.column("memberInboxId", .text).notNull()
+                t.column("dmConversationId", .text).notNull()
+                t.column("convoTag", .text).notNull()
+                t.column("createdAt", .datetime).notNull()
+                t.primaryKey(["originConversationId", "memberInboxId"])
+            }
+        }
+
         return migrator
     }
 }

@@ -134,6 +134,14 @@ final class ConvoRequestManager: ConvoRequestManagerProtocol, @unchecked Sendabl
             let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
             try await localStateWriter.setUnread(true, for: dbConversation.id)
 
+            let dmLinksWriter = DMLinksWriter(databaseWriter: databaseWriter)
+            try await dmLinksWriter.store(
+                originConversationId: request.originConversationID,
+                memberInboxId: senderInboxId,
+                dmConversationId: conversationId,
+                convoTag: request.convoTag
+            )
+
             Log.info("DM conversation \(conversationId.prefix(8)) stored and marked as unread")
         } catch {
             Log.error("Failed to create DM conversation: \(error.localizedDescription)")

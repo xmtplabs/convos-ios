@@ -40,6 +40,9 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func photoPreferencesRepository(for conversationId: String) -> any PhotoPreferencesRepositoryProtocol
     func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol
 
+    func dmLinksRepository() -> any DMLinksRepositoryProtocol
+    func dmLinksWriter() -> any DMLinksWriterProtocol
+
     func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol

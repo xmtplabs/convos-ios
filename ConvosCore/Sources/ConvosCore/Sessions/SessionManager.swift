@@ -339,6 +339,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         AttachmentLocalStateWriter(databaseWriter: databaseWriter)
     }
 
+    public func dmLinksRepository() -> any DMLinksRepositoryProtocol {
+        DMLinksRepository(databaseReader: databaseReader)
+    }
+
+    public func dmLinksWriter() -> any DMLinksWriterProtocol {
+        DMLinksWriter(databaseWriter: databaseWriter)
+    }
+
     public func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol {
         ConversationsRepository(dbReader: databaseReader, consent: consent)
     }

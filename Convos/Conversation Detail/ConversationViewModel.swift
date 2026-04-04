@@ -269,6 +269,8 @@ class ConversationViewModel {
 
     var allowsDMs: Bool = false
     var autoRevealPhotos: Bool = false
+    var dmRequestSentMemberName: String?
+    var navigateToDMConversation: ((String) -> Void)?
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -990,14 +992,39 @@ extension ConversationViewModel {
                     for: conversation.clientId,
                     inboxId: conversation.inboxId
                 )
+
+                let dmLinksRepo = session.dmLinksRepository()
+                if let existingDMId = try await dmLinksRepo.findDMConversationId(
+                    originConversationId: conversation.id,
+                    memberInboxId: member.profile.inboxId
+                ) {
+                    Log.info("Found existing DM conversation \(existingDMId.prefix(8)), navigating")
+                    await MainActor.run {
+                        self.navigateToDMConversation?(existingDMId)
+                    }
+                    return
+                }
+
                 let inboxReady = try await service.inboxStateManager.waitForInboxReadyResult()
                 let sender = ConvoRequestSender()
-                _ = try await sender.sendDMRequest(
+                let convoTag = try await sender.sendDMRequest(
                     to: member.profile.inboxId,
                     originConversationId: conversation.id,
                     client: inboxReady.client
                 )
+
+                let dmLinksWriter = session.dmLinksWriter()
+                try await dmLinksWriter.store(
+                    originConversationId: conversation.id,
+                    memberInboxId: member.profile.inboxId,
+                    dmConversationId: "pending-\(convoTag)",
+                    convoTag: convoTag
+                )
+
                 Log.info("DM request sent to \(member.profile.displayName)")
+                await MainActor.run {
+                    self.dmRequestSentMemberName = member.profile.displayName
+                }
             } catch {
                 Log.error("Failed to send DM request: \(error)")
             }
