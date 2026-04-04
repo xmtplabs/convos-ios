@@ -252,6 +252,22 @@ struct ConversationInfoView: View {
         Section {
             FeatureRowItem(
                 imageName: nil,
+                symbolName: "tray.fill",
+                title: "Allow DMs",
+                subtitle: "From group members"
+            ) {
+                Toggle("", isOn: $viewModel.allowsDMs)
+                .labelsHidden()
+                .accessibilityLabel("Allow DMs")
+                .accessibilityValue(viewModel.allowsDMs ? "on" : "off")
+                .accessibilityIdentifier("allow-dms-toggle")
+                .onChange(of: viewModel.allowsDMs) { _, newValue in
+                    viewModel.persistAllowsDMs(newValue)
+                }
+            }
+
+            FeatureRowItem(
+                imageName: nil,
                 symbolName: "bell.fill",
                 title: "Notifications",
                 subtitle: nil
@@ -283,22 +299,6 @@ struct ConversationInfoView: View {
                 subtitle: "Blur when people peek"
             ) {
                 SoonLabel()
-            }
-
-            FeatureRowItem(
-                imageName: nil,
-                symbolName: "tray.fill",
-                title: "Allow DMs",
-                subtitle: "From group members"
-            ) {
-                Toggle("", isOn: $viewModel.allowsDMs)
-                .labelsHidden()
-                .accessibilityLabel("Allow DMs")
-                .accessibilityValue(viewModel.allowsDMs ? "on" : "off")
-                .accessibilityIdentifier("allow-dms-toggle")
-                .onChange(of: viewModel.allowsDMs) { _, newValue in
-                    viewModel.persistAllowsDMs(newValue)
-                }
             }
 
             FeatureRowItem(
