@@ -251,8 +251,13 @@ private struct ReplyReferencePhotoPreview: View {
         self.onReveal = onReveal
         self.onHide = onHide
 
-        if isVideo, let thumbnailData, let thumb = UIImage(data: thumbnailData) {
-            _loadedImage = State(initialValue: thumb)
+        if isVideo, let thumbnailData {
+            if let thumb = UIImage(data: thumbnailData) {
+                _loadedImage = State(initialValue: thumb)
+            } else {
+                Log.warning("Video thumbnail data failed to decode for attachment: \(attachmentKey)")
+                _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+            }
         } else {
             _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
         }
