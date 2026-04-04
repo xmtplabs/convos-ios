@@ -130,4 +130,7 @@ public final class MockMessagingService: MessagingServiceProtocol, @unchecked Se
     public func setConversationNotificationsEnabled(_ enabled: Bool, for conversationId: String) async throws {
         try await _conversationLocalStateWriter.setMuted(!enabled, for: conversationId)
     }
+
+    public func sendTypingIndicator(isTyping: Bool, for conversationId: String) async throws {
+    }
 }

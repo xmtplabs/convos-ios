@@ -34,185 +34,236 @@ struct MessagesGroupView: View {
         DesignConstants.Spacing.step2x
     }
 
-    @ViewBuilder
-    private func senderLabel(index: Int, message: AnyMessage, isFullWidthAttachment: Bool) -> some View {
-        let isReply = if case .reply = message { true } else { false }
-        if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
-            let tapNameAction = { onTapAvatar(message) }
-            Button(action: tapNameAction) {
-                HStack(spacing: DesignConstants.Spacing.stepX) {
-                    Text(group.sender.displayName)
-                    if group.sender.isAgent && group.sender.profile.isOutOfCredits {
-                        Image(systemName: "battery.0percent")
-                    }
-                }
-            }
+    private var senderLabel: some View {
+        senderLabelContent
             .scaleEffect(isAppearing ? 0.9 : 1.0)
             .opacity(isAppearing ? 0.0 : 1.0)
-            .offset(
-                x: 0.0,
-                y: isAppearing ? 100 : 0
-            )
+            .offset(x: 0.0, y: isAppearing ? 100 : 0)
             .blur(radius: isAppearing ? 10.0 : 0.0)
             .font(.footnote)
             .foregroundColor(group.sender.isAgent ? group.sender.agentVerification.nameColor : .secondary)
             .padding(.leading, avatarWidth + DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x)
             .padding(.bottom, DesignConstants.Spacing.stepHalf)
-        }
     }
 
-    @ViewBuilder
-    private func messageRow(
-        message: AnyMessage,
-        bubbleType: MessageBubbleType,
-        isFailed: Bool,
-        isLast: Bool,
-        isFullWidthAttachment: Bool
-    ) -> some View {
-        HStack(alignment: .bottom, spacing: avatarSpacing) {
-            if !group.sender.isCurrentUser && !isFullWidthAttachment {
-                Color.clear
-                    .frame(width: avatarSize, height: avatarSize)
-            }
-
-            MessagesGroupItemView(
-                message: message,
-                bubbleType: bubbleType,
-                shouldBlurPhotos: shouldBlurPhotos,
-                onTapAvatar: onTapAvatar,
-                onTapInvite: onTapInvite,
-                onReply: onReply,
-                onPhotoRevealed: onPhotoRevealed,
-                onPhotoHidden: onPhotoHidden,
-                onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-                omitTrailingPadding: isFailed
-            )
-            .zIndex(100)
-            .id("messages-group-item-\(message.differenceIdentifier)")
-            .transition(
-                .asymmetric(
-                    insertion: .identity,
-                    removal: .opacity
-                )
-            )
-            .overlay(alignment: .bottomLeading) {
-                if isLast && !group.sender.isCurrentUser {
-                    MessageAvatarView(profile: group.sender.profile, size: avatarSize, agentVerification: group.sender.agentVerification)
-                        .offset(x: -(avatarSize + avatarSpacing))
-                        .onTapGesture {
-                            onTapAvatar(message)
-                        }
-                        .scaleEffect(isAppearing ? 0.9 : 1.0)
-                        .opacity(isAppearing ? 0.0 : 1.0)
-                        .offset(
-                            x: isAppearing ? -80 : 0,
-                            y: 0.0
-                        )
-                        .id("profile-\(group.id)")
-                        .accessibilityLabel("View \(group.sender.profile.displayName)'s profile")
-                        .accessibilityAddTraits(.isButton)
-                }
-            }
-
-            if isFailed {
-                FailedMessageButton(
-                    message: message,
-                    onRetry: onRetryMessage,
-                    onDelete: onDeleteMessage
-                )
-                .padding(.leading, DesignConstants.Spacing.step3x - avatarSpacing)
-                .padding(.trailing, DesignConstants.Spacing.step4x)
-            }
-        }
-        .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
-
-        if !message.reactions.isEmpty {
-            ReactionIndicatorView(
-                reactions: message.reactions,
-                isOutgoing: message.sender.isCurrentUser,
-                onTap: { onTapReactions(message) }
-            )
-            .padding(
-                .leading,
-                message.sender.isCurrentUser
-                    ? 0
-                    : (isFullWidthAttachment ? DesignConstants.Spacing.step4x : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x)
-            )
-            .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
-            .padding(.bottom, DesignConstants.Spacing.stepX)
-            .transition(.identity)
-            .zIndex(50)
-            .id("reactions-\(message.differenceIdentifier)")
-        }
-    }
-
-    @ViewBuilder
-    private func messageStatus(message: AnyMessage, isFailed: Bool, showsSentStatus: Bool) -> some View {
-        if isFailed {
-            HStack(spacing: DesignConstants.Spacing.stepHalf) {
-                Spacer()
-                Text("Not Delivered")
-            }
-            .transition(.blurReplace)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .padding(.leading, DesignConstants.Spacing.step2x)
-            .padding(.trailing, DesignConstants.Spacing.step4x)
-            .font(.caption)
-            .foregroundStyle(.colorCaution)
-            .zIndex(-1)
-            .id("failed-status-\(message.differenceIdentifier)")
-            .accessibilityLabel("Message not delivered")
-        } else if showsSentStatus {
+    private var senderLabelContent: some View {
+        let tapAction = { if let msg = group.allMessages.first { onTapAvatar(msg) } }
+        return Button(action: tapAction) {
             HStack(spacing: DesignConstants.Spacing.stepX) {
-                Spacer()
-                if group.onlyVisibleToSender {
-                    Text("Only visible to you")
-                        .font(.caption)
-                    ProfileAvatarView(
-                        profile: group.sender.profile,
-                        profileImage: nil,
-                        useSystemPlaceholder: false
-                    )
-                    .frame(width: 16, height: 16)
-                } else {
-                    Text("Sent")
-                        .font(.caption)
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundStyle(.colorFillTertiary)
-                        .frame(width: 16, height: 16)
+                Text(group.sender.profile.displayName)
+                if group.sender.isAgent && group.sender.profile.isOutOfCredits {
+                    Image(systemName: "battery.0percent")
                 }
             }
-            .transition(.blurReplace)
-            .padding(.vertical, DesignConstants.Spacing.stepX)
-            .padding(.leading, DesignConstants.Spacing.step2x)
-            .padding(.trailing, DesignConstants.Spacing.step4x)
-            .foregroundStyle(.colorTextSecondary)
-            .zIndex(-1)
-            .id("sent-status-\(message.differenceIdentifier)")
-            .accessibilityLabel(group.onlyVisibleToSender ? "Only visible to you" : "Message sent")
         }
+        .buttonStyle(.plain)
     }
 
-    @ViewBuilder
-    private func messageGroup(index: Int, message: AnyMessage) -> some View {
-        let isFullWidthAttachment = message.content.isAttachment
-        let isLast = message == group.messages.last
-        let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
-        let showsSentStatus = isLast
-            && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers)
-            && message.status == .published
-        let isFailed = message.sender.isCurrentUser && message.status == .failed
+    private func avatarOverlay(onTap: (() -> Void)? = nil) -> some View {
+        MessageAvatarView(profile: group.sender.profile, size: avatarSize, agentVerification: group.sender.agentVerification)
+            .offset(x: -(avatarSize + avatarSpacing))
+            .onTapGesture { onTap?() }
+            .scaleEffect(isAppearing ? 0.9 : 1.0)
+            .opacity(isAppearing ? 0.0 : 1.0)
+            .offset(
+                x: isAppearing ? -80 : 0,
+                y: 0.0
+            )
+            .id("profile-\(group.id)")
+            .accessibilityLabel("View \(group.sender.profile.displayName)'s profile")
+            .accessibilityAddTraits(.isButton)
+    }
 
-        senderLabel(index: index, message: message, isFullWidthAttachment: isFullWidthAttachment)
-        messageRow(message: message, bubbleType: bubbleType, isFailed: isFailed, isLast: isLast, isFullWidthAttachment: isFullWidthAttachment)
-        messageStatus(message: message, isFailed: isFailed, showsSentStatus: showsSentStatus)
+    private var singleTyperIndicator: some View {
+        let isTypingOnly = group.allMessages.isEmpty
+
+        return Group {
+            if isTypingOnly && !group.sender.isCurrentUser {
+                senderLabel
+            }
+
+            HStack(alignment: .bottom, spacing: avatarSpacing) {
+                if !group.sender.isCurrentUser {
+                    Color.clear
+                        .frame(width: avatarSize, height: avatarSize)
+                }
+
+                TypingIndicatorBubbleView(senderName: group.sender.profile.displayName)
+                    .overlay(alignment: .bottomLeading) {
+                        if !group.sender.isCurrentUser {
+                            avatarOverlay()
+                        }
+                    }
+            }
+            .padding(.leading, !group.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+        }
+        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
+        .id("typing-indicator-\(group.id)")
+    }
+
+    private var multiTyperIndicator: some View {
+        let typers = group.allTypingMembers
+        let names = typers.compactMap(\.profile.displayName)
+        let accessibilityText: String = {
+            switch names.count {
+            case 0: return "People are typing"
+            case 1: return "\(names[0]) is typing"
+            case 2: return "\(names[0]) and \(names[1]) are typing"
+            default: return "\(names.count) people are typing"
+            }
+        }()
+
+        let visibleCount = min(typers.count, 3)
+        let overlapOffset: CGFloat = 8
+        let stackWidth = avatarSize + CGFloat(visibleCount - 1) * (avatarSize - overlapOffset)
+
+        return HStack(alignment: .bottom, spacing: avatarSpacing) {
+            HStack(spacing: -overlapOffset) {
+                ForEach(Array(typers.prefix(3).enumerated()), id: \.element.id) { index, member in
+                    MessageAvatarView(profile: member.profile, size: avatarSize)
+                        .overlay(
+                            Circle()
+                                .stroke(Color(.systemBackground), lineWidth: 2)
+                        )
+                        .zIndex(Double(index))
+                }
+            }
+            .frame(width: stackWidth, alignment: .leading)
+
+            TypingIndicatorBubbleView(senderName: nil)
+        }
+        .padding(.leading, DesignConstants.Spacing.step4x)
+        .transition(.opacity.combined(with: .scale(scale: 0.8, anchor: .bottomLeading)))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityText)
+        .id("typing-indicator-multi")
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
-            let allMessages = group.allMessages
-            ForEach(Array(allMessages.enumerated()), id: \.element.messageId) { index, message in
-                messageGroup(index: index, message: message)
+            ForEach(Array(group.allMessages.enumerated()), id: \.element.messageId) { index, message in
+                let isReply: Bool = if case .reply = message { true } else { false }
+                let isFullWidthAttachment: Bool = message.content.isAttachment
+
+                if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
+                    senderLabel
+                }
+
+                let isLastInGroup: Bool = message == group.messages.last
+                let isLast: Bool = isLastInGroup && !group.showsTypingIndicator
+                let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
+                let showsSentStatus: Bool = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
+                let isFailed: Bool = message.sender.isCurrentUser && message.status == .failed
+
+                HStack(alignment: .bottom, spacing: avatarSpacing) {
+                    if !group.sender.isCurrentUser && !isFullWidthAttachment {
+                        Color.clear
+                            .frame(width: avatarSize, height: avatarSize)
+                    }
+
+                    MessagesGroupItemView(
+                        message: message,
+                        bubbleType: bubbleType,
+                        shouldBlurPhotos: shouldBlurPhotos,
+                        onTapAvatar: onTapAvatar,
+                        onTapInvite: onTapInvite,
+                        onReply: onReply,
+                        onPhotoRevealed: onPhotoRevealed,
+                        onPhotoHidden: onPhotoHidden,
+                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                        omitTrailingPadding: isFailed
+                    )
+                    .zIndex(100)
+                    .id("messages-group-item-\(message.differenceIdentifier)")
+                    .transition(
+                        .asymmetric(
+                            insertion: .identity,
+                            removal: .opacity
+                        )
+                    )
+                    .overlay(alignment: .bottomLeading) {
+                        if isLast && !group.sender.isCurrentUser {
+                            avatarOverlay { onTapAvatar(message) }
+                        }
+                    }
+
+                    if isFailed {
+                        FailedMessageButton(
+                            message: message,
+                            onRetry: onRetryMessage,
+                            onDelete: onDeleteMessage
+                        )
+                        .padding(.leading, DesignConstants.Spacing.step3x - avatarSpacing)
+                        .padding(.trailing, DesignConstants.Spacing.step4x)
+                    }
+                }
+                .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
+
+                if !message.reactions.isEmpty {
+                    ReactionIndicatorView(
+                        reactions: message.reactions,
+                        isOutgoing: message.sender.isCurrentUser,
+                        onTap: { onTapReactions(message) }
+                    )
+                    .padding(.leading, message.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step4x : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x))
+                    .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+                    .padding(.bottom, DesignConstants.Spacing.stepX)
+                    .transition(.identity)
+                    .zIndex(50)
+                    .id("reactions-\(message.differenceIdentifier)")
+                }
+
+                if isFailed {
+                    HStack(spacing: DesignConstants.Spacing.stepHalf) {
+                        Spacer()
+                        Text("Not Delivered")
+                    }
+                    .transition(.blurReplace)
+                    .padding(.vertical, DesignConstants.Spacing.stepX)
+                    .padding(.leading, DesignConstants.Spacing.step2x)
+                    .padding(.trailing, DesignConstants.Spacing.step4x)
+                    .font(.caption)
+                    .foregroundStyle(.colorCaution)
+                    .zIndex(-1)
+                    .id("failed-status-\(message.differenceIdentifier)")
+                    .accessibilityLabel("Message not delivered")
+                } else if showsSentStatus {
+                    HStack(spacing: DesignConstants.Spacing.stepX) {
+                        Spacer()
+                        if group.onlyVisibleToSender {
+                            Text("Only visible to you")
+                                .font(.caption)
+                            ProfileAvatarView(
+                                profile: group.sender.profile,
+                                profileImage: nil,
+                                useSystemPlaceholder: false
+                            )
+                            .frame(width: 16, height: 16)
+                        } else {
+                            Text("Sent")
+                                .font(.caption)
+                            Image(systemName: "checkmark.circle.fill")
+                                .foregroundStyle(.colorFillTertiary)
+                                .frame(width: 16, height: 16)
+                        }
+                    }
+                    .transition(.blurReplace)
+                    .padding(.vertical, DesignConstants.Spacing.stepX)
+                    .padding(.leading, DesignConstants.Spacing.step2x)
+                    .padding(.trailing, DesignConstants.Spacing.step4x)
+                    .foregroundStyle(.colorTextSecondary)
+                    .zIndex(-1)
+                    .id("sent-status-\(message.differenceIdentifier)")
+                    .accessibilityLabel(group.onlyVisibleToSender ? "Only visible to you" : "Message sent")
+                }
+            }
+
+            if group.showsTypingIndicator {
+                if group.isMultiTyper {
+                    multiTyperIndicator
+                } else {
+                    singleTyperIndicator
+                }
             }
         }
         .id("message-group-container-\(group.id)")

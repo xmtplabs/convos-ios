@@ -46,6 +46,9 @@ public final class MockInboxStateManager: InboxStateManagerProtocol, @unchecked 
     public func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?) async {
     }
 
+    public func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void) async {
+    }
+
     public func requestDiscovery() async {
     }
 

@@ -17,6 +17,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case agentOutOfCredits(Profile)
     case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
     case assistantPresentInfo(agent: ConversationMember, inviterName: String?)
+    case typingIndicator(typers: [ConversationMember])
 
     public var id: String {
         switch self {
@@ -36,6 +37,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "assistant-join"
         case .assistantPresentInfo:
             return "assistant-present-info"
+        case .typingIndicator:
+            return "typing-indicator"
         }
     }
 
@@ -63,7 +66,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo, .typingIndicator:
             return nil
         }
     }
@@ -101,6 +104,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-assistantJoinStatus"
         case .assistantPresentInfo:
             return "MessagesListItemTypeCell-assistantPresentInfo"
+        case .typingIndicator:
+            return "TypingIndicatorCollectionCell"
         }
     }
 
@@ -114,6 +119,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-agentOutOfCredits",
             "MessagesListItemTypeCell-assistantJoinStatus",
             "MessagesListItemTypeCell-assistantPresentInfo",
+            "TypingIndicatorCollectionCell",
         ]
     }
 

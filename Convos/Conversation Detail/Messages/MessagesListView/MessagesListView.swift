@@ -131,6 +131,9 @@ struct MessagesListView: View {
                                             .padding(.horizontal, DesignConstants.Spacing.step4x)
                                     }
                                 }
+
+                            case .typingIndicator:
+                                EmptyView()
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in

@@ -35,6 +35,15 @@ final class CellFactory {
         with item: MessagesListItemType,
         config: CellConfig
     ) -> UICollectionViewCell {
+        if case .typingIndicator(let typers) = item {
+            let cell = collectionView.dequeueReusableCell(
+                withReuseIdentifier: TypingIndicatorCollectionCell.reuseIdentifier,
+                for: indexPath
+            ) as! TypingIndicatorCollectionCell
+            cell.prepare(with: typers)
+            return cell
+        }
+
         let cell = collectionView.dequeueReusableCell(
             withReuseIdentifier: MessagesListItemTypeCell.reuseIdentifier,
             for: indexPath
