@@ -564,6 +564,9 @@ private struct AttachmentPlaceholder: View {
                 isLoading = false
                 isLoadingVideo = true
                 videoLoadFailed = false
+                if attachment.width == nil {
+                    onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
+                }
             }
 
             do {
