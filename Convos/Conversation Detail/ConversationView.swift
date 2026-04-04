@@ -27,9 +27,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             && GlobalConvoDefaults.shared.assistantsEnabled
     }
 
-    var body: some View {
+    private var messagesView: some View {
         @Bindable var onboardingCoordinator = viewModel.onboardingCoordinator
-        MessagesView(
+        return MessagesView(
             conversation: viewModel.conversation,
             messages: viewModel.messagesWithTypingIndicator,
             invite: viewModel.invite,
@@ -150,6 +150,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 .padding(.horizontal, DesignConstants.Spacing.step4x)
             }
         )
+    }
+
+    var body: some View {
+        messagesView
         .onChange(of: viewModel.selectedAttachmentImage) { oldValue, newValue in
             if let image = newValue {
                 viewModel.onPhotoSelected(image)
