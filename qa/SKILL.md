@@ -45,7 +45,10 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 26 | `qa/tests/26-failed-message-send.md` | Failed message send: "Not Delivered" state, retry, and delete |
 | 27 | `qa/tests/27-send-receive-video.md` | Send and receive video messages, inline playback, blur/reveal, context menu, size limit |
 | 28 | `qa/tests/28-receive-file-attachments.md` | Receive file attachments (PDF, text, CSV, JSON), file bubble display, QuickLook preview, Save to Files |
+| 28b | `qa/tests/28-app-icon-badge-count.md` | App icon badge count for unread conversations |
 | 29 | `qa/tests/29-typing-indicators.md` | Typing indicators: receive, dismiss, message-arrival clearing, grouping, expiry |
+| 30 | `qa/tests/30-verified-assistants.md` | Verified assistant UI: badges, labels, skills button, agent vs assistant distinction |
+| 31 | `qa/tests/31-convos-button-invite.md` | Convos button: create and share invite link from media bar |
 
 ## Running Tests
 

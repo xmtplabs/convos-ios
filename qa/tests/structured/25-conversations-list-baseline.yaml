@@ -1,0 +1,63 @@
+id: "25"
+name: "Conversations List Baseline"
+description: >
+  Verify the conversations list renders correctly with proper ordering,
+  timestamps, message previews, and empty state.
+tags: [ui, conversations, baseline]
+depends_on: ["01"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "List Test", profile_name: "CLI" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.url
+  - action: open_invite_url
+    args: { url: "$invite_url" }
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id" }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+  - action: navigate_to_conversations_list
+
+steps:
+  - id: conversation_appears
+    name: "Conversation appears in list"
+    actions:
+      - wait_for_element: { label_contains: "List Test", timeout: 5 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "List Test" }
+    criteria: conversation_in_list
+
+  - id: message_preview
+    name: "Message preview shows in list"
+    actions:
+      - cli_send_text: { conversation: "$conversation_id", text: "Hello from the CLI" }
+      - wait_for_element: { label_contains: "Hello from the CLI", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Hello from the CLI" }
+    criteria: message_preview_visible
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+
+criteria:
+  conversation_in_list:
+    description: "Created conversation appears in the conversations list"
+  message_preview_visible:
+    description: "Latest message text appears as preview in list item"

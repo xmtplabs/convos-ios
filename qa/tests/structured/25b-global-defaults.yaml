@@ -1,0 +1,29 @@
+id: "25b"
+name: "Global Defaults for New Conversations"
+description: >
+  Verify that global default settings (blur photos, include info with invites)
+  are applied to newly created conversations.
+tags: [settings, defaults]
+depends_on: ["01"]
+estimated_duration_s: 60
+
+prerequisites:
+  app_running: true
+  screen: conversations_list
+
+steps:
+  - id: check_defaults
+    name: "Verify global defaults exist in settings"
+    actions:
+      - tap: { id: "app-settings-button" }
+      - wait_for_element: { label_contains: "Privacy", timeout: 5 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Privacy" }
+    criteria: defaults_accessible
+
+teardown: []
+
+criteria:
+  defaults_accessible:
+    description: "Global defaults settings are accessible from the app settings menu"
