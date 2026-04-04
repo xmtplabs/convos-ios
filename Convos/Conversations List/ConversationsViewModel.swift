@@ -337,8 +337,11 @@ final class ConversationsViewModel {
             .sink { [weak self] notification in
                 guard let self,
                       let conversationId = notification.userInfo?["conversationId"] as? String else { return }
+                self.selectedConversationId = nil
                 self.newConversationViewModel = nil
-                self.selectedConversationId = conversationId
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+                    self?.selectedConversationId = conversationId
+                }
             }
             .store(in: &cancellables)
 

@@ -14,7 +14,8 @@ struct PendingInvite {
 
 @MainActor
 @Observable
-class ConversationViewModel {
+class ConversationViewModel: Identifiable {
+    nonisolated let id: String = UUID().uuidString
     // MARK: - Private
 
     private let session: any SessionManagerProtocol
@@ -247,6 +248,7 @@ class ConversationViewModel {
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
+    var presentingDMConversationId: String?
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var replyingToMessage: AnyMessage?
