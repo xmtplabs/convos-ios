@@ -23,32 +23,30 @@ struct ReactionsDrawerView: View {
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            let maxDrawerHeight: CGFloat = geometry.size.height * 0.7
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                Text("Reactions")
-                    .font(.system(.largeTitle))
-                    .fontWeight(.bold)
-                    .padding(.bottom, DesignConstants.Spacing.step2x)
+        VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+            Text("Reactions")
+                .font(.system(.largeTitle))
+                .fontWeight(.bold)
+                .padding(.bottom, DesignConstants.Spacing.step2x)
 
-                ScrollView {
-                    VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
-                        ForEach(sortedReactions, id: \.id) { reaction in
-                            ReactionRowView(
-                                reaction: reaction,
-                                onRemove: reaction.sender.isCurrentUser ? { onRemoveReaction?(reaction) } : nil
-                            )
-                        }
+            ScrollView {
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.step4x) {
+                    ForEach(sortedReactions, id: \.id) { reaction in
+                        ReactionRowView(
+                            reaction: reaction,
+                            onRemove: reaction.sender.isCurrentUser ? { onRemoveReaction?(reaction) } : nil
+                        )
                     }
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .scrollIndicatorsFlash(onAppear: true)
-                .scrollContentBackground(.hidden)
             }
-            .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
-            .padding(.bottom, DesignConstants.Spacing.step3x)
-            .frame(minHeight: 160, maxHeight: maxDrawerHeight)
+            .scrollBounceBehavior(.basedOnSize)
+            .scrollIndicatorsFlash(onAppear: true)
+            .scrollContentBackground(.hidden)
+            .frame(minHeight: 120, idealHeight: 400, maxHeight: 600)
         }
+        .padding([.leading, .top, .trailing], DesignConstants.Spacing.step10x)
+        .padding(.bottom, DesignConstants.Spacing.step3x)
+        .frame(minHeight: 160)
     }
 }
 
