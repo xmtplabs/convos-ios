@@ -8,10 +8,34 @@ import UserNotifications
 
 struct PendingInvite {
     let code: String
-    let fullURL: String
+    var fullURL: String
     let range: Range<String.Index>
     var linkedConversationClientId: String?
     var linkedConversationInboxId: String?
+    var linkedConversationId: String?
+    var explodeDuration: ExplodeDuration?
+}
+
+enum ExplodeDuration: CaseIterable {
+    case oneHour
+    case oneDay
+    case oneWeek
+
+    var label: String {
+        switch self {
+        case .oneHour: return "1 hour"
+        case .oneDay: return "1 day"
+        case .oneWeek: return "1 week"
+        }
+    }
+
+    var timeInterval: TimeInterval {
+        switch self {
+        case .oneHour: return 3600
+        case .oneDay: return 86400
+        case .oneWeek: return 604800
+        }
+    }
 }
 
 @MainActor
@@ -65,6 +89,8 @@ class ConversationViewModel {
     private var convosButtonCancellable: AnyCancellable?
     @ObservationIgnored
     private var convosButtonTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var explodeDurationTask: Task<Void, Never>?
     @ObservationIgnored
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
@@ -369,6 +395,7 @@ class ConversationViewModel {
         explodeTask?.cancel()
         assistantJoinTask?.cancel()
         convosButtonTask?.cancel()
+        explodeDurationTask?.cancel()
     }
 
     // MARK: - Init
@@ -1522,6 +1549,47 @@ extension UNUserNotificationCenter {
     }
 }
 
+// MARK: - Linked Conversation Explosion
+
+extension ConversationViewModel {
+    func setInviteExplodeDuration(_ duration: ExplodeDuration?) {
+        explodeDurationTask?.cancel()
+        pendingInvite?.explodeDuration = duration
+        guard let duration,
+              let clientId = pendingInvite?.linkedConversationClientId,
+              let inboxId = pendingInvite?.linkedConversationInboxId,
+              let conversationId = pendingInvite?.linkedConversationId else { return }
+        explodeDurationTask = Task { [weak self] in
+            guard let self else { return }
+            let newURL = await scheduleLinkedConversationExplosion(
+                duration: duration, clientId: clientId, inboxId: inboxId, conversationId: conversationId
+            )
+            guard !Task.isCancelled, let newURL else { return }
+            await MainActor.run {
+                self.pendingInvite?.fullURL = newURL
+            }
+        }
+    }
+
+    func scheduleLinkedConversationExplosion(
+        duration: ExplodeDuration, clientId: String, inboxId: String, conversationId: String
+    ) async -> String? {
+        do {
+            let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+            let explosionWriter = messagingService.conversationExplosionWriter()
+            let metadataWriter = messagingService.conversationMetadataWriter()
+            let expiresAt = Date().addingTimeInterval(duration.timeInterval)
+            try await explosionWriter.scheduleExplosion(conversationId: conversationId, expiresAt: expiresAt)
+            Log.info("Scheduled explosion for linked conversation \(conversationId) in \(duration.label)")
+            let updatedInvite = try await metadataWriter.refreshInvite(for: conversationId)
+            return updatedInvite?.inviteURLString
+        } catch {
+            Log.error("Failed to schedule explosion for linked conversation: \(error)")
+            return nil
+        }
+    }
+}
+
 // MARK: - Invite URL Detection
 
 extension ConversationViewModel {
@@ -1595,7 +1663,8 @@ extension ConversationViewModel {
                         fullURL: urlString,
                         range: emptyRange,
                         linkedConversationClientId: clientId,
-                        linkedConversationInboxId: convo.inboxId
+                        linkedConversationInboxId: convo.inboxId,
+                        linkedConversationId: convo.id
                     )
                     self.convosButtonCancellable = nil
                 }

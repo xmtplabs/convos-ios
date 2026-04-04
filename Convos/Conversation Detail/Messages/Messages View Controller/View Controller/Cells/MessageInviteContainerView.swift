@@ -101,18 +101,25 @@ struct MessageInviteView: View {
             .clipped()
             .background(.colorBackgroundInverted)
 
-            VStack(alignment: .leading, spacing: 2.0) {
-                Text(title)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(.black)
-                    .font(.callout.weight(.bold))
-                    .fontWeight(.bold)
-                    .truncationMode(.tail)
-                Text(description)
-                    .font(.subheadline)
-                    .multilineTextAlignment(.leading)
-                    .foregroundStyle(.colorTextSecondary)
+            HStack {
+                VStack(alignment: .leading, spacing: 2.0) {
+                    Text(title)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(.black)
+                        .font(.callout.weight(.bold))
+                        .fontWeight(.bold)
+                        .truncationMode(.tail)
+                    Text(description)
+                        .font(.subheadline)
+                        .multilineTextAlignment(.leading)
+                        .foregroundStyle(.colorTextSecondary)
+                }
+
+                if let expiresAt = invite.conversationExpiresAt, expiresAt > Date() {
+                    Spacer()
+                    ExplosionCountdownBadge(expiresAt: expiresAt)
+                }
             }
             .padding(.vertical, DesignConstants.Spacing.step3x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)

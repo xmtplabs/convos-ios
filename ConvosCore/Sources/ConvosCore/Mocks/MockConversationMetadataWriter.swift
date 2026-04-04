@@ -74,4 +74,8 @@ public final class MockConversationMetadataWriter: ConversationMetadataWriterPro
     public func unlockConversation(for conversationId: String) async throws {
         unlockedConversations.append(conversationId)
     }
+
+    public func refreshInvite(for conversationId: String) async throws -> Invite? {
+        nil
+    }
 }

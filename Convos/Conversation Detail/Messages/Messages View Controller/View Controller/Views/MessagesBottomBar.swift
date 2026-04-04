@@ -15,6 +15,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteExplodeDuration: ExplodeDuration?
+    var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -181,6 +183,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 isVideoAttachment: isVideoAttachment,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
+                pendingInviteExplodeDuration: pendingInviteExplodeDuration,
+                onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,

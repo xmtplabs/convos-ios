@@ -13,6 +13,8 @@ struct MessagesInputView: View {
     var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteExplodeDuration: ExplodeDuration?
+    var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForQuickname: Bool
@@ -209,13 +211,17 @@ struct MessagesInputView: View {
     @ViewBuilder
     private func inviteAttachmentPreview(url: String) -> some View {
         ZStack(alignment: .topTrailing) {
-            ComposerInvitePreviewCard(inviteURL: url)
-                .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
-                .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
-                .blur(radius: isPoofingInvite ? 12.0 : 0.0)
-                .opacity(isPoofingInvite ? 0.0 : 1.0)
-                .accessibilityLabel("Invite attachment preview")
-                .accessibilityIdentifier("invite-attachment-preview")
+            ComposerInvitePreviewCard(
+                inviteURL: url,
+                explodeDuration: pendingInviteExplodeDuration,
+                onSetExplodeDuration: onSetInviteExplodeDuration
+            )
+            .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
+            .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
+            .blur(radius: isPoofingInvite ? 12.0 : 0.0)
+            .opacity(isPoofingInvite ? 0.0 : 1.0)
+            .accessibilityLabel("Invite attachment preview")
+            .accessibilityIdentifier("invite-attachment-preview")
 
             Button {
                 withAnimation(.easeOut(duration: 0.2)) {
@@ -404,6 +410,8 @@ private struct ComposerImageAreaModifier: ViewModifier {
 
 private struct ComposerInvitePreviewCard: View {
     let inviteURL: String
+    var explodeDuration: ExplodeDuration?
+    var onSetExplodeDuration: ((ExplodeDuration?) -> Void)?
 
     @State private var ogTitle: String?
     @State private var cachedImage: UIImage?
@@ -443,16 +451,27 @@ private struct ComposerInvitePreviewCard: View {
             .clipped()
             .background(.colorBackgroundMedia)
 
-            VStack(alignment: .leading, spacing: 2.0) {
-                Text(displayTitle)
-                    .font(.callout.weight(.medium))
-                    .foregroundStyle(.colorTextPrimary)
-                    .lineLimit(2)
-                    .truncationMode(.tail)
-                Text("You're invited")
-                    .font(.caption)
-                    .foregroundStyle(.colorTextSecondary)
-                    .lineLimit(1)
+            HStack {
+                VStack(alignment: .leading, spacing: 2.0) {
+                    Text(displayTitle)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.colorTextPrimary)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                    Text("You're invited")
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                if let explodeDuration {
+                    ExplodeCountdownBadge(duration: explodeDuration)
+                        .onTapGesture {}
+                } else if onSetExplodeDuration != nil {
+                    explodeMenu
+                }
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.vertical, DesignConstants.Spacing.step3x)
@@ -463,6 +482,28 @@ private struct ComposerInvitePreviewCard: View {
         .task {
             await fetchMetadata()
         }
+    }
+
+    @ViewBuilder
+    private var explodeMenu: some View {
+        Menu {
+            Section("Explode in") {
+                ForEach(ExplodeDuration.allCases, id: \.self) { duration in
+                    Button {
+                        onSetExplodeDuration?(duration)
+                    } label: {
+                        Text(duration.label)
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "ellipsis")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(.colorTextSecondary)
+                .frame(width: 28, height: 28)
+                .contentShape(Rectangle())
+        }
+        .accessibilityIdentifier("invite-explode-menu")
     }
 
     private func fetchMetadata() async {
@@ -536,5 +577,22 @@ private struct ComposerInvitePreviewCard: View {
             onClearInvite: { pendingInviteURLPreview = nil }
         )
         .padding(DesignConstants.Spacing.step2x)
+    }
+}
+
+struct ExplodeCountdownBadge: View {
+    let duration: ExplodeDuration
+
+    var body: some View {
+        HStack(spacing: 2) {
+            Image(systemName: "burst")
+                .font(.system(size: 10, weight: .semibold))
+            Text(duration.label)
+                .font(.caption2.weight(.semibold))
+        }
+        .foregroundStyle(.colorCaution)
+        .padding(.horizontal, 6)
+        .padding(.vertical, 3)
+        .background(.colorCaution.opacity(0.15), in: Capsule())
     }
 }

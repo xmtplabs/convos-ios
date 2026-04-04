@@ -45,6 +45,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
             isVideoAttachment: viewModel.selectedVideoURL != nil,
             composerLinkPreview: viewModel.pastedLinkPreview,
             pendingInviteURL: viewModel.pendingInvite?.fullURL,
+            pendingInviteExplodeDuration: viewModel.pendingInvite?.explodeDuration,
+            onSetInviteExplodeDuration: { duration in viewModel.setInviteExplodeDuration(duration) },
             sendButtonEnabled: viewModel.sendButtonEnabled,
             profileImage: $viewModel.myProfileViewModel.profileImage,
             onboardingCoordinator: onboardingCoordinator,
