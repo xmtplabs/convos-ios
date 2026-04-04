@@ -230,16 +230,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 }
             }
         }
-        .sheet(item: $viewModel.presentingNewConversationForInvite) { viewModel in
-            NewConversationView(
-                viewModel: viewModel,
-                quicknameViewModel: quicknameViewModel
-            )
-            .background(.colorBackgroundSurfaceless)
-        }
-        .sheet(item: $viewModel.presentingDMConversation) { dmViewModel in
-            DMConversationSheet(viewModel: dmViewModel, quicknameViewModel: quicknameViewModel)
-        }
+        .modifier(ConversationSheets(viewModel: viewModel, quicknameViewModel: quicknameViewModel))
         .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
             AssistantsInfoView(
                 isConfirmation: true,

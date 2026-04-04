@@ -564,6 +564,11 @@ actor StreamProcessor: StreamProcessorProtocol {
                     )
                 }
                 Log.info("Auto-approved DM conversation \(conversation.id.prefix(8)) from pending request")
+                NotificationCenter.default.post(
+                    name: .dmConversationReady,
+                    object: nil,
+                    userInfo: ["conversationId": conversation.id]
+                )
             }
         }
 

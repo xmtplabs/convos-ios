@@ -272,6 +272,8 @@ class ConversationViewModel: Identifiable {
     var allowsDMs: Bool = false
     var autoRevealPhotos: Bool = false
     var dmRequestSentMemberName: String?
+    @ObservationIgnored
+    private var dmReadyCancellable: AnyCancellable?
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -1034,9 +1036,46 @@ extension ConversationViewModel {
                 Log.info("DM request sent to \(member.profile.displayName)")
                 await MainActor.run {
                     self.dmRequestSentMemberName = member.profile.displayName
+                    self.waitForDMConversation(memberInboxId: member.profile.inboxId)
                 }
             } catch {
                 Log.error("Failed to send DM request: \(error)")
+            }
+        }
+    }
+
+    private func waitForDMConversation(memberInboxId: String) {
+        dmReadyCancellable = NotificationCenter.default
+            .publisher(for: .dmConversationReady)
+            .receive(on: DispatchQueue.main)
+            .first()
+            .sink { [weak self] notification in
+                guard let self,
+                      let conversationId = notification.userInfo?["conversationId"] as? String else { return }
+                self.dmReadyCancellable = nil
+                self.dmRequestSentMemberName = nil
+                self.openDMConversation(conversationId: conversationId, memberInboxId: memberInboxId)
+            }
+    }
+
+    private func openDMConversation(conversationId: String, memberInboxId: String) {
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                if let dmInboxId = await session.inboxId(for: conversationId) {
+                    let dmService = session.messagingServiceSync(for: "", inboxId: dmInboxId)
+                    let dmRepo = try await session.conversationRepository(
+                        for: conversationId, inboxId: dmInboxId, clientId: dmService.clientId
+                    )
+                    if let dmConvo = try? dmRepo.fetchConversation() {
+                        let dmVM = ConversationViewModel.createSync(conversation: dmConvo, session: session)
+                        await MainActor.run {
+                            self.presentingDMConversation = dmVM
+                        }
+                    }
+                }
+            } catch {
+                Log.error("Failed to open DM conversation: \(error)")
             }
         }
     }
