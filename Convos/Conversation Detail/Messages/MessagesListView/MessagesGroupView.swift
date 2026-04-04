@@ -140,124 +140,142 @@ struct MessagesGroupView: View {
         .id("typing-indicator-multi")
     }
 
+    @ViewBuilder
+    private func messageGroup(index: Int, message: AnyMessage) -> some View {
+        let isReply: Bool = if case .reply = message { true } else { false }
+        let isFullWidthAttachment: Bool = message.content.isFullBleedAttachment
+
+        if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
+            senderLabel
+        }
+
+        let isLastInGroup: Bool = message == group.messages.last
+        let isLast: Bool = isLastInGroup && !group.showsTypingIndicator
+        let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
+        let showsSentStatus: Bool = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
+        let isFailed: Bool = message.sender.isCurrentUser && message.status == .failed
+
+        messageRowContent(message: message, bubbleType: bubbleType, isFailed: isFailed, isLast: isLast, isFullWidthAttachment: isFullWidthAttachment)
+        reactionRow(message: message, isFullWidthAttachment: isFullWidthAttachment)
+        statusRow(message: message, isFailed: isFailed, showsSentStatus: showsSentStatus)
+    }
+
+    @ViewBuilder
+    private func messageRowContent(message: AnyMessage, bubbleType: MessageBubbleType, isFailed: Bool, isLast: Bool, isFullWidthAttachment: Bool) -> some View {
+        HStack(alignment: .bottom, spacing: avatarSpacing) {
+            if !group.sender.isCurrentUser && !isFullWidthAttachment {
+                Color.clear
+                    .frame(width: avatarSize, height: avatarSize)
+            }
+
+            MessagesGroupItemView(
+                message: message,
+                bubbleType: bubbleType,
+                shouldBlurPhotos: shouldBlurPhotos,
+                onTapAvatar: onTapAvatar,
+                onTapInvite: onTapInvite,
+                onReply: onReply,
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoHidden: onPhotoHidden,
+                onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                onOpenFile: onOpenFile,
+                omitTrailingPadding: isFailed
+            )
+            .zIndex(100)
+            .id("messages-group-item-\(message.differenceIdentifier)")
+            .transition(
+                .asymmetric(
+                    insertion: .identity,
+                    removal: .opacity
+                )
+            )
+            .overlay(alignment: .bottomLeading) {
+                if isLast && !group.sender.isCurrentUser {
+                    avatarOverlay { onTapAvatar(message) }
+                }
+            }
+
+            if isFailed {
+                FailedMessageButton(
+                    message: message,
+                    onRetry: onRetryMessage,
+                    onDelete: onDeleteMessage
+                )
+                .padding(.leading, DesignConstants.Spacing.step3x - avatarSpacing)
+                .padding(.trailing, DesignConstants.Spacing.step4x)
+            }
+        }
+        .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
+    }
+
+    @ViewBuilder
+    private func reactionRow(message: AnyMessage, isFullWidthAttachment: Bool) -> some View {
+        if !message.reactions.isEmpty {
+            ReactionIndicatorView(
+                reactions: message.reactions,
+                isOutgoing: message.sender.isCurrentUser,
+                onTap: { onTapReactions(message) }
+            )
+            .padding(.leading, message.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step4x : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x))
+            .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+            .padding(.bottom, DesignConstants.Spacing.stepX)
+            .transition(.identity)
+            .zIndex(50)
+            .id("reactions-\(message.differenceIdentifier)")
+        }
+    }
+
+    @ViewBuilder
+    private func statusRow(message: AnyMessage, isFailed: Bool, showsSentStatus: Bool) -> some View {
+        if isFailed {
+            HStack(spacing: DesignConstants.Spacing.stepHalf) {
+                Spacer()
+                Text("Not Delivered")
+            }
+            .transition(.blurReplace)
+            .padding(.vertical, DesignConstants.Spacing.stepX)
+            .padding(.leading, DesignConstants.Spacing.step2x)
+            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .font(.caption)
+            .foregroundStyle(.colorCaution)
+            .zIndex(-1)
+            .id("failed-status-\(message.differenceIdentifier)")
+            .accessibilityLabel("Message not delivered")
+        } else if showsSentStatus {
+            HStack(spacing: DesignConstants.Spacing.stepX) {
+                Spacer()
+                if group.onlyVisibleToSender {
+                    Text("Only visible to you")
+                        .font(.caption)
+                    ProfileAvatarView(
+                        profile: group.sender.profile,
+                        profileImage: nil,
+                        useSystemPlaceholder: false
+                    )
+                    .frame(width: 16, height: 16)
+                } else {
+                    Text("Sent")
+                        .font(.caption)
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(.colorFillTertiary)
+                        .frame(width: 16, height: 16)
+                }
+            }
+            .transition(.blurReplace)
+            .padding(.vertical, DesignConstants.Spacing.stepX)
+            .padding(.leading, DesignConstants.Spacing.step2x)
+            .padding(.trailing, DesignConstants.Spacing.step4x)
+            .foregroundStyle(.colorTextSecondary)
+            .zIndex(-1)
+            .id("sent-status-\(message.differenceIdentifier)")
+            .accessibilityLabel(group.onlyVisibleToSender ? "Only visible to you" : "Message sent")
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepX) {
             ForEach(Array(group.allMessages.enumerated()), id: \.element.messageId) { index, message in
-                let isReply: Bool = if case .reply = message { true } else { false }
-                let isFullWidthAttachment: Bool = message.content.isFullBleedAttachment
-
-                if index == 0 && !group.sender.isCurrentUser && !isFullWidthAttachment && !isReply {
-                    senderLabel
-                }
-
-                let isLastInGroup: Bool = message == group.messages.last
-                let isLast: Bool = isLastInGroup && !group.showsTypingIndicator
-                let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
-                let showsSentStatus: Bool = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
-                let isFailed: Bool = message.sender.isCurrentUser && message.status == .failed
-
-                HStack(alignment: .bottom, spacing: avatarSpacing) {
-                    if !group.sender.isCurrentUser && !isFullWidthAttachment {
-                        Color.clear
-                            .frame(width: avatarSize, height: avatarSize)
-                    }
-
-                    MessagesGroupItemView(
-                        message: message,
-                        bubbleType: bubbleType,
-                        shouldBlurPhotos: shouldBlurPhotos,
-                        onTapAvatar: onTapAvatar,
-                        onTapInvite: onTapInvite,
-                        onReply: onReply,
-                        onPhotoRevealed: onPhotoRevealed,
-                        onPhotoHidden: onPhotoHidden,
-                        onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-                        onOpenFile: onOpenFile,
-                        omitTrailingPadding: isFailed
-                    )
-                    .zIndex(100)
-                    .id("messages-group-item-\(message.differenceIdentifier)")
-                    .transition(
-                        .asymmetric(
-                            insertion: .identity,
-                            removal: .opacity
-                        )
-                    )
-                    .overlay(alignment: .bottomLeading) {
-                        if isLast && !group.sender.isCurrentUser {
-                            avatarOverlay { onTapAvatar(message) }
-                        }
-                    }
-
-                    if isFailed {
-                        FailedMessageButton(
-                            message: message,
-                            onRetry: onRetryMessage,
-                            onDelete: onDeleteMessage
-                        )
-                        .padding(.leading, DesignConstants.Spacing.step3x - avatarSpacing)
-                        .padding(.trailing, DesignConstants.Spacing.step4x)
-                    }
-                }
-                .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
-
-                if !message.reactions.isEmpty {
-                    ReactionIndicatorView(
-                        reactions: message.reactions,
-                        isOutgoing: message.sender.isCurrentUser,
-                        onTap: { onTapReactions(message) }
-                    )
-                    .padding(.leading, message.sender.isCurrentUser ? 0 : (isFullWidthAttachment ? DesignConstants.Spacing.step4x : avatarWidth + avatarSpacing + DesignConstants.Spacing.step2x))
-                    .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
-                    .padding(.bottom, DesignConstants.Spacing.stepX)
-                    .transition(.identity)
-                    .zIndex(50)
-                    .id("reactions-\(message.differenceIdentifier)")
-                }
-
-                if isFailed {
-                    HStack(spacing: DesignConstants.Spacing.stepHalf) {
-                        Spacer()
-                        Text("Not Delivered")
-                    }
-                    .transition(.blurReplace)
-                    .padding(.vertical, DesignConstants.Spacing.stepX)
-                    .padding(.leading, DesignConstants.Spacing.step2x)
-                    .padding(.trailing, DesignConstants.Spacing.step4x)
-                    .font(.caption)
-                    .foregroundStyle(.colorCaution)
-                    .zIndex(-1)
-                    .id("failed-status-\(message.differenceIdentifier)")
-                    .accessibilityLabel("Message not delivered")
-                } else if showsSentStatus {
-                    HStack(spacing: DesignConstants.Spacing.stepX) {
-                        Spacer()
-                        if group.onlyVisibleToSender {
-                            Text("Only visible to you")
-                                .font(.caption)
-                            ProfileAvatarView(
-                                profile: group.sender.profile,
-                                profileImage: nil,
-                                useSystemPlaceholder: false
-                            )
-                            .frame(width: 16, height: 16)
-                        } else {
-                            Text("Sent")
-                                .font(.caption)
-                            Image(systemName: "checkmark.circle.fill")
-                                .foregroundStyle(.colorFillTertiary)
-                                .frame(width: 16, height: 16)
-                        }
-                    }
-                    .transition(.blurReplace)
-                    .padding(.vertical, DesignConstants.Spacing.stepX)
-                    .padding(.leading, DesignConstants.Spacing.step2x)
-                    .padding(.trailing, DesignConstants.Spacing.step4x)
-                    .foregroundStyle(.colorTextSecondary)
-                    .zIndex(-1)
-                    .id("sent-status-\(message.differenceIdentifier)")
-                    .accessibilityLabel(group.onlyVisibleToSender ? "Only visible to you" : "Message sent")
-                }
+                messageGroup(index: index, message: message)
             }
 
             if group.showsTypingIndicator {
