@@ -356,6 +356,9 @@ final class MessagesViewController: UIViewController {
         dataSource.onTapUpdateMember = { [weak self] member in
             self?.onTapUpdateMember?(member)
         }
+        dataSource.onOpenFile = { [weak self] attachment in
+            self?.openFileAttachment(attachment)
+        }
         dataSource.onRetryMessage = { [weak self] message in
             self?.onRetryMessage?(message)
         }

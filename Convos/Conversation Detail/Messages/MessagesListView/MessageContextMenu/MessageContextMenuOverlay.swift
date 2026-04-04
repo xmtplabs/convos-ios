@@ -436,21 +436,11 @@ struct MessageContextMenuOverlay: View {
                 )
 
             case .attachment(let attachment):
-                ContextMenuPhotoPreview(
-                    attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                    profile: message.sender.profile, shouldBlur: shouldBlurPhoto,
-                    cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
-                    showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
-                )
+                contextMenuAttachmentPreview(attachment)
 
             case .attachments(let attachments):
                 if let attachment = attachments.first {
-                    ContextMenuPhotoPreview(
-                        attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                        profile: message.sender.profile, shouldBlur: shouldBlurPhoto,
-                        cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
-                        showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
-                    )
+                    contextMenuAttachmentPreview(attachment)
                 }
 
             case .invite(let invite):
@@ -674,6 +664,25 @@ struct MessageContextMenuOverlay: View {
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
     // swiftlint:enable type_name
+    @ViewBuilder
+    private func contextMenuAttachmentPreview(_ attachment: HydratedAttachment) -> some View {
+        let profile = message?.sender.profile ?? Profile(inboxId: "", conversationId: "", name: nil, avatar: nil)
+        if attachment.mediaType == .file {
+            FileAttachmentBubble(
+                attachment: attachment,
+                style: state.bubbleStyle,
+                isOutgoing: state.isOutgoing,
+                profile: profile
+            )
+        } else {
+            ContextMenuPhotoPreview(
+                attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
+                profile: profile, shouldBlur: shouldBlurPhoto,
+                cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
+                showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
+            )
+        }
+    }
 }
 
 // MARK: - Context Menu Photo Preview
