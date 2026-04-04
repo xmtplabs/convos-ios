@@ -8,6 +8,7 @@ public protocol DMLinksWriterProtocol: Sendable {
         dmConversationId: String,
         convoTag: String
     ) async throws
+    func updateConversationId(memberInboxId: String, newConversationId: String) async throws
 }
 
 final class DMLinksWriter: DMLinksWriterProtocol, @unchecked Sendable {
@@ -32,6 +33,15 @@ final class DMLinksWriter: DMLinksWriterProtocol, @unchecked Sendable {
                 createdAt: Date()
             )
             try link.save(db)
+        }
+    }
+
+    func updateConversationId(memberInboxId: String, newConversationId: String) async throws {
+        try await databaseWriter.write { db in
+            try db.execute(
+                sql: "UPDATE dmLink SET dmConversationId = ? WHERE memberInboxId = ? AND dmConversationId LIKE 'pending-%'",
+                arguments: [newConversationId, memberInboxId]
+            )
         }
     }
 }

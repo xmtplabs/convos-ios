@@ -67,6 +67,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     private let localStateWriter: any ConversationLocalStateWriterProtocol
     private let joinRequestsManager: any InviteJoinRequestsManagerProtocol
     private let convoRequestManager: any ConvoRequestManagerProtocol
+    private let dmLinksRepository: any DMLinksRepositoryProtocol
     private let deviceRegistrationManager: (any DeviceRegistrationManagerProtocol)?
     private let databaseWriter: any DatabaseWriter
     private let databaseReader: any DatabaseReader
@@ -106,6 +107,7 @@ actor StreamProcessor: StreamProcessorProtocol {
             databaseWriter: databaseWriter,
             identityStore: identityStore
         )
+        self.dmLinksRepository = DMLinksRepository(databaseReader: databaseReader)
     }
 
     // MARK: - Public Interface
@@ -544,6 +546,24 @@ actor StreamProcessor: StreamProcessorProtocol {
             if hasOutgoingJoinRequest {
                 try await conversation.updateConsentState(state: .allowed)
                 consentState = try conversation.consentState()
+            }
+        }
+
+        if consentState == .unknown {
+            let memberInboxIds = try await conversation.members.map(\.inboxId)
+                .filter { $0 != params.client.inboxId }
+            if !memberInboxIds.isEmpty,
+               try await dmLinksRepository.hasPendingDMForAnyMember(memberInboxIds: memberInboxIds) {
+                try await conversation.updateConsentState(state: .allowed)
+                consentState = try conversation.consentState()
+                let dmLinksWriter = DMLinksWriter(databaseWriter: databaseWriter)
+                for memberId in memberInboxIds {
+                    try? await dmLinksWriter.updateConversationId(
+                        memberInboxId: memberId,
+                        newConversationId: conversation.id
+                    )
+                }
+                Log.info("Auto-approved DM conversation \(conversation.id.prefix(8)) from pending request")
             }
         }
 

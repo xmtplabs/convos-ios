@@ -10,6 +10,14 @@ public final class MockDMLinksRepository: DMLinksRepositoryProtocol, @unchecked 
     public func findByConvoTag(_ convoTag: String) async throws -> DBDMLink? {
         nil
     }
+
+    public func hasPendingDMForMember(inConversation conversationId: String) async throws -> Bool {
+        false
+    }
+
+    public func hasPendingDMForAnyMember(memberInboxIds: [String]) async throws -> Bool {
+        false
+    }
 }
 
 public final class MockDMLinksWriter: DMLinksWriterProtocol, @unchecked Sendable {
@@ -25,4 +33,6 @@ public final class MockDMLinksWriter: DMLinksWriterProtocol, @unchecked Sendable
     ) async throws {
         storedLinks.append((originConversationId, memberInboxId, dmConversationId, convoTag))
     }
+
+    public func updateConversationId(memberInboxId: String, newConversationId: String) async throws {}
 }
