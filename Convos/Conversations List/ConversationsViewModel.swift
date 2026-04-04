@@ -331,20 +331,6 @@ final class ConversationsViewModel {
             }
             .store(in: &cancellables)
 
-        NotificationCenter.default
-            .publisher(for: .navigateToConversation)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] notification in
-                guard let self,
-                      let conversationId = notification.userInfo?["conversationId"] as? String else { return }
-                self.selectedConversationId = nil
-                self.newConversationViewModel = nil
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                    self?.selectedConversationId = conversationId
-                }
-            }
-            .store(in: &cancellables)
-
         // Observe conversation notification taps
         NotificationCenter.default
             .publisher(for: .conversationNotificationTapped)

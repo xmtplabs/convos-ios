@@ -237,6 +237,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             )
             .background(.colorBackgroundSurfaceless)
         }
+        .sheet(item: $viewModel.presentingDMConversation) { dmViewModel in
+            DMConversationSheet(viewModel: dmViewModel, quicknameViewModel: quicknameViewModel)
+        }
         .selfSizingSheet(isPresented: $viewModel.presentingAssistantConfirmation) {
             AssistantsInfoView(
                 isConfirmation: true,

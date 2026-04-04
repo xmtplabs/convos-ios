@@ -245,10 +245,10 @@ class ConversationViewModel: Identifiable {
     var presentingConversationSettings: Bool = false
     var presentingProfileSettings: Bool = false
     var presentingProfileForMember: ConversationMember?
+    var presentingDMConversation: ConversationViewModel?
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
-    var presentingDMConversationId: String?
     var presentingConversationForked: Bool = false
     var presentingReactionsForMessage: AnyMessage?
     var replyingToMessage: AnyMessage?
@@ -999,15 +999,20 @@ extension ConversationViewModel {
                     originConversationId: conversation.id,
                     memberInboxId: member.profile.inboxId
                 ), !existingDMId.hasPrefix("pending-") {
-                    Log.info("Found existing DM conversation \(existingDMId.prefix(8)), navigating")
-                    await MainActor.run {
-                        NotificationCenter.default.post(
-                            name: .navigateToConversation,
-                            object: nil,
-                            userInfo: ["conversationId": existingDMId]
+                    if let dmInboxId = await session.inboxId(for: existingDMId) {
+                        let dmService = session.messagingServiceSync(for: "", inboxId: dmInboxId)
+                        let dmRepo = try await session.conversationRepository(
+                            for: existingDMId, inboxId: dmInboxId, clientId: dmService.clientId
                         )
+                        if let dmConvo = try? dmRepo.fetchConversation() {
+                            let dmVM = ConversationViewModel.createSync(conversation: dmConvo, session: session)
+                            Log.info("Found existing DM conversation \(existingDMId.prefix(8)), presenting as sheet")
+                            await MainActor.run {
+                                self.presentingDMConversation = dmVM
+                            }
+                            return
+                        }
                     }
-                    return
                 }
 
                 let inboxReady = try await service.inboxStateManager.waitForInboxReadyResult()
