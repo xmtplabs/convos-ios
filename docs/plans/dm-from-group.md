@@ -34,12 +34,40 @@ When you toggle this setting, your client sends a `ProfileUpdate` message to the
 
 When you want to DM someone:
 
-- Long-press their avatar in the message list, or
 - Tap their avatar to view their profile, then tap "Send DM"
 
-The "Send DM" button only appears if they have DMs enabled for this convo.
+The "Send DM" button only appears if they have DMs enabled for this convo. If the user has already sent a DM to this member from this group, tapping "Send DM" navigates directly to the existing DM conversation.
 
-Behind the scenes, your client creates a fresh inbox (your new identity for this DM) and sends a DM request as a disappearing message through the 1:1 back channel between your group inbox IDs (the same channel used for join requests), so the tie to the original convo is ephemeral.
+### First DM (new)
+
+1. User taps "Send DM"
+2. Client checks the local DM links table — no existing DM found
+3. Client sends a `convo_request` via the back channel with a convo tag
+4. Client creates a local placeholder conversation in the "pending DM" state
+5. User is navigated to the placeholder conversation, which shows a pending state similar to the invite approval flow (DM icon, "Pending DM", subtitle "Convo will start when other member's device approves")
+6. Client stores a DM link: `(origin_conversation_id, member_inbox_id) → (dm_conversation_id, convo_tag)`
+7. When the receiver's device processes the request and creates the real conversation, it arrives on the sender's stream. The sender's client matches it by convo tag and transitions the placeholder to the active conversation
+
+### Repeat DM (existing)
+
+1. User taps "Send DM"
+2. Client checks the local DM links table — finds existing DM conversation ID
+3. User is navigated directly to the existing DM conversation
+
+### Local DM links table
+
+Each device stores DM relationships locally in a `dm_links` table:
+
+| Column | Type | Description |
+|--------|------|-------------|
+| origin_conversation_id | String | The group where the DM was initiated |
+| member_inbox_id | String | The other member's inbox ID in the origin group |
+| dm_conversation_id | String | The resulting DM conversation ID |
+| convo_tag | String | The tag used to correlate the request with the conversation |
+
+This table is local-only — it never syncs to other devices or members. It is used to:
+- Check if a DM already exists before sending a new request
+- Correlate incoming conversations with pending DM requests
 
 ## Receiving a DM request
 
@@ -48,7 +76,8 @@ When a DM request arrives, your client automatically:
 1. Verifies the request is from someone you share a group with
 2. Checks that you have DMs enabled for that group
 3. Creates the DM conversation and adds the sender
-4. Sets consent state based on your settings:
+4. Stores a DM link on the receiver's side too
+5. Sets consent state based on your settings:
    - If "From everyone": auto-approves
    - If "From select members": checks if sender is in your list, then approves if so
 
