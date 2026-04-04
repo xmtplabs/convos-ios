@@ -3,6 +3,7 @@ import SwiftUI
 struct MessagesMediaButtonsView: View {
     @Binding var isPhotoPickerPresented: Bool
     @Binding var isCameraPresented: Bool
+    let onVoiceMemoTap: () -> Void
     let onConvosAction: () -> Void
 
     var body: some View {
@@ -32,6 +33,19 @@ struct MessagesMediaButtonsView: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Camera")
             .accessibilityIdentifier("camera-button")
+
+            Button {
+                onVoiceMemoTap()
+            } label: {
+                Image(systemName: "waveform")
+                    .font(.system(size: 18.0, weight: .medium))
+                    .foregroundStyle(Color.colorTextSecondary)
+                    .frame(width: Constant.buttonSize, height: Constant.buttonSize)
+                    .contentShape(.circle)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Voice memo")
+            .accessibilityIdentifier("voice-memo-button")
 
             Button {
                 onConvosAction()
@@ -67,6 +81,7 @@ struct MessagesMediaButtonsView: View {
     MessagesMediaButtonsView(
         isPhotoPickerPresented: $isPhotoPickerPresented,
         isCameraPresented: $isCameraPresented,
+        onVoiceMemoTap: {},
         onConvosAction: {}
     )
     .padding()

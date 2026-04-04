@@ -20,9 +20,10 @@ struct ReplyReferenceView: View {
         case .emoji(let emoji):
             return emoji
         case .attachment(let attachment):
-            return attachment.mediaType == .video ? "video" : "photo"
+            return replyLabel(for: attachment)
         case .attachments(let attachments):
-            return attachments.first?.mediaType == .video ? "video" : "photo"
+            if let first = attachments.first { return replyLabel(for: first) }
+            return "photo"
         case .invite:
             return "invite"
         case .linkPreview(let preview):
@@ -100,7 +101,9 @@ struct ReplyReferenceView: View {
             .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
             .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step3x : 0.0)
 
-            if let attachment = parentAttachment, attachment.mediaType == .file {
+            if let attachment = parentAttachment, attachment.mediaType == .audio {
+                ReplyReferenceAudioPreview(attachment: attachment)
+            } else if let attachment = parentAttachment, attachment.mediaType == .file {
                 ReplyReferenceFileBubble(attachment: attachment)
             } else if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
@@ -511,5 +514,60 @@ private struct ReplyReferenceFileBubble: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(Color.colorFillMinimal)
         )
+    }
+}
+
+private struct ReplyReferenceAudioPreview: View {
+    let attachment: HydratedAttachment
+
+    @State private var waveformLevels: [Float]?
+
+    private var durationText: String {
+        guard let duration = attachment.duration else { return "Audio" }
+        let minutes = Int(duration) / 60
+        let seconds = Int(duration) % 60
+        return String(format: "%d:%02d", minutes, seconds)
+    }
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            Image(systemName: "waveform")
+                .font(.system(size: 10))
+                .foregroundStyle(.colorTextSecondary)
+
+            if let levels = waveformLevels {
+                VoiceMemoWaveformView(
+                    levels: levels,
+                    unplayedColor: .colorTextSecondary.opacity(0.4),
+                    barWidth: 1.5,
+                    barSpacing: 1
+                )
+                .frame(width: 60, height: 16)
+            }
+
+            Text(durationText)
+                .font(.caption2)
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.colorFillMinimal)
+        )
+        .task {
+            if let cached = attachment.waveformLevels {
+                waveformLevels = cached
+                return
+            }
+            do {
+                let loader = RemoteAttachmentLoader()
+                let loaded = try await loader.loadAttachmentData(from: attachment.key)
+                let levels = await VoiceMemoWaveformAnalyzer.analyzeLevels(from: loaded.data, sampleCount: 30)
+                await MainActor.run { waveformLevels = levels }
+            } catch {
+                Log.error("Failed to load reply audio waveform: \(error)")
+            }
+        }
     }
 }

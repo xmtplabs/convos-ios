@@ -107,35 +107,40 @@ extension DBLastMessageWithSource {
 
     static func attachmentsPreviewString(attachmentUrls: [String], count: Int) -> String {
         var hasVideo = false
+        var hasAudio = false
         var hasFile = false
         var filename: String?
 
         for url in attachmentUrls {
             if let stored = try? StoredRemoteAttachment.fromJSON(url) {
-                classifyStoredAttachment(stored, hasVideo: &hasVideo, hasFile: &hasFile, filename: &filename)
+                classifyStoredAttachment(stored, hasVideo: &hasVideo, hasAudio: &hasAudio, hasFile: &hasFile, filename: &filename)
             } else if url.hasPrefix("file://") {
-                classifyFileURL(url, hasVideo: &hasVideo, hasFile: &hasFile, filename: &filename)
+                classifyFileURL(url, hasVideo: &hasVideo, hasAudio: &hasAudio, hasFile: &hasFile, filename: &filename)
             }
         }
 
         if count <= 1 {
+            if hasAudio { return "a voice memo" }
             if hasFile, let filename { return filename }
             if hasFile { return "a file" }
             if hasVideo { return "a video" }
             return "a photo"
         }
-        if hasFile || hasVideo { return "\(count) attachments" }
+        if hasFile || hasVideo || hasAudio { return "\(count) attachments" }
         return "\(count) photos"
     }
 
     private static func classifyStoredAttachment(
         _ stored: StoredRemoteAttachment,
         hasVideo: inout Bool,
+        hasAudio: inout Bool,
         hasFile: inout Bool,
         filename: inout String?
     ) {
         if stored.mimeType?.hasPrefix("video/") == true {
             hasVideo = true
+        } else if stored.mimeType?.hasPrefix("audio/") == true {
+            hasAudio = true
         } else if let mime = stored.mimeType, !mime.hasPrefix("image/") {
             hasFile = true
             filename = stored.filename
@@ -151,6 +156,7 @@ extension DBLastMessageWithSource {
     private static func classifyFileURL(
         _ url: String,
         hasVideo: inout Bool,
+        hasAudio: inout Bool,
         hasFile: inout Bool,
         filename: inout String?
     ) {
@@ -159,6 +165,8 @@ extension DBLastMessageWithSource {
         guard !ext.isEmpty, let utType = UTType(filenameExtension: ext) else { return }
         if utType.conforms(to: .movie) || utType.conforms(to: .video) {
             hasVideo = true
+        } else if utType.conforms(to: .audio) {
+            hasAudio = true
         } else if !utType.conforms(to: .image) {
             hasFile = true
             filename = fn

@@ -95,11 +95,17 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     private func messageHeight(for message: AnyMessage, width: CGFloat) -> CGFloat {
         var height: CGFloat
         switch message.content {
+        case .attachment(let attachment) where attachment.mediaType == .audio:
+            height = 44.0
         case .attachment(let attachment):
             height = attachmentHeight(for: attachment, width: width)
         case .attachments(let attachments):
             guard let first = attachments.first else { return 50.0 }
-            height = attachmentHeight(for: first, width: width)
+            if first.mediaType == .audio {
+                height = 44.0
+            } else {
+                height = attachmentHeight(for: first, width: width)
+            }
         case .emoji:
             height = 80.0
         case .text:

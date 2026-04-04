@@ -217,7 +217,32 @@ struct MessagesGroupItemView: View {
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
         let isBlurred = attachment.isHiddenByOwner || (!message.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
 
-        if attachment.mediaType == .file {
+        if attachment.mediaType == .audio {
+            let playAction: () -> Void = {
+                NotificationCenter.default.post(
+                    name: .voiceMemoPlaybackRequested,
+                    object: nil,
+                    userInfo: ["messageId": message.messageId, "attachmentKey": attachment.key]
+                )
+            }
+            MessageContainer(style: bubbleType, isOutgoing: message.sender.isCurrentUser) {
+                VoiceMemoBubbleContent(
+                    message: message,
+                    attachment: attachment,
+                    isOutgoing: message.sender.isCurrentUser,
+                    player: .shared,
+                    isLoading: false
+                )
+            }
+            .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onSingleTap: playAction,
+                onReply: onReply
+            )
+            .id(message.messageId)
+        } else if attachment.mediaType == .file {
             let fileTapAction: () -> Void = { onOpenFile?(attachment) }
             FileAttachmentBubble(
                 attachment: attachment,

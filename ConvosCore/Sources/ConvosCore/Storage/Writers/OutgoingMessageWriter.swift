@@ -27,6 +27,9 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     /// Returns a tracking key for dependency management.
     func sendVideo(at fileURL: URL, replyToMessageId: String?) async throws -> String
 
+    /// Send a voice memo from a local audio file URL.
+    func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String
+
     /// Send a text reply to an existing message.
     func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws
 
@@ -627,6 +630,123 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let fileURL = tempDir.appendingPathComponent("\(taskId).enc")
         try data.write(to: fileURL)
         return fileURL
+    }
+
+    // MARK: - Voice Memo
+
+    func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String? = nil) async throws -> String {
+        let clientMessageId = UUID().uuidString
+        let filename = "voice_memo_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).m4a"
+        let localCacheURL = try photoService.localCacheURL(for: filename)
+
+        try FileManager.default.createDirectory(
+            at: localCacheURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try FileManager.default.copyItem(at: fileURL, to: localCacheURL)
+
+        let trackingKey = localCacheURL.absoluteString
+
+        try await attachmentLocalStateWriter.saveWithDimensions(
+            attachmentKey: trackingKey,
+            conversationId: conversationId,
+            width: 0,
+            height: 0,
+            mimeType: "audio/m4a"
+        )
+
+        if let waveformLevels {
+            try? await attachmentLocalStateWriter.saveWaveformLevels(waveformLevels, for: trackingKey)
+        }
+
+        var replyContext: ReplyContext?
+        if let replyToMessageId {
+            replyContext = try await resolveReplyContext(parentClientMessageId: replyToMessageId)
+        }
+
+        try await savePhotoToDatabase(clientMessageId: clientMessageId, localCacheURL: localCacheURL, replyContext: replyContext)
+
+        let tracker = PhotoUploadProgressTracker.shared
+        tracker.setStage(.preparing, for: trackingKey)
+
+        do {
+            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+
+            let audioData = try Data(contentsOf: fileURL)
+            let attachment = Attachment(
+                filename: filename,
+                mimeType: "audio/m4a",
+                data: audioData
+            )
+
+            let encrypted = try RemoteAttachment.encodeEncrypted(
+                content: attachment,
+                codec: AttachmentCodec()
+            )
+
+            let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
+                filename: filename,
+                contentType: "application/octet-stream"
+            )
+
+            guard let uploadURL = URL(string: presignedURLs.uploadURL) else {
+                throw PhotoAttachmentError.invalidURL
+            }
+
+            let taskId = UUID().uuidString
+            let encryptedFileURL = try saveToTemp(data: encrypted.payload, taskId: taskId)
+
+            tracker.setProgress(stage: .uploading, percentage: 0, for: trackingKey)
+
+            try await backgroundUploadManager.startUpload(
+                fileURL: encryptedFileURL,
+                uploadURL: uploadURL,
+                contentType: "application/octet-stream",
+                taskId: taskId
+            )
+
+            let result = await backgroundUploadManager.waitForCompletion(taskId: taskId)
+
+            guard result.success else {
+                tracker.setStage(.failed, for: trackingKey)
+                try? await markMessageFailed(clientMessageId: clientMessageId)
+                throw result.error ?? PhotoAttachmentError.uploadFailed("Voice memo upload failed")
+            }
+
+            tracker.setStage(.publishing, for: trackingKey)
+
+            let storedAttachment = StoredRemoteAttachment(
+                url: presignedURLs.assetURL,
+                contentDigest: encrypted.digest,
+                secret: encrypted.secret,
+                salt: encrypted.salt,
+                nonce: encrypted.nonce,
+                filename: filename,
+                mimeType: "audio/m4a",
+                mediaDuration: duration
+            )
+
+            let messageId = try await publishAttachment(
+                storedAttachment: storedAttachment,
+                clientMessageId: clientMessageId,
+                trackingKey: trackingKey,
+                thumbnailImage: nil,
+                inboxReady: inboxReady,
+                replyContext: replyContext,
+                mediaType: "voice_memo"
+            )
+
+            try? FileManager.default.removeItem(at: encryptedFileURL)
+
+            QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": "voice_memo"])
+        } catch {
+            Log.error("Failed to send voice memo: \(error)")
+            tracker.setStage(.failed, for: trackingKey)
+            try? await markMessageFailed(clientMessageId: clientMessageId)
+            throw error
+        }
+
+        return trackingKey
     }
 
     // MARK: - Replies

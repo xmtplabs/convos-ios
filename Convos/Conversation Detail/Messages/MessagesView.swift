@@ -65,6 +65,9 @@ struct MessagesView<BottomBarContent: View>: View {
     let isAssistantEnabled: Bool
     let onBottomOverscrollChanged: (CGFloat) -> Void
     let onBottomOverscrollReleased: (CGFloat) -> Void
+    let onVoiceMemoTap: () -> Void
+    @Bindable var voiceMemoRecorder: VoiceMemoRecorder
+    let onSendVoiceMemo: () -> Void
     let onConvosAction: () -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
@@ -139,6 +142,9 @@ struct MessagesView<BottomBarContent: View>: View {
                 onDisplayNameEndedEditing: onDisplayNameEndedEditing,
                 onVideoSelected: onVideoSelected,
                 onProfileSettings: onProfileSettings,
+                onVoiceMemoTap: onVoiceMemoTap,
+                voiceMemoRecorder: voiceMemoRecorder,
+                onSendVoiceMemo: onSendVoiceMemo,
                 onConvosAction: onConvosAction,
                 onBaseHeightChanged: { height in
                     bottomBarHeight = height

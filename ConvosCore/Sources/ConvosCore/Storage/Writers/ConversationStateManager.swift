@@ -213,6 +213,10 @@ public final class ConversationStateManager: ConversationStateManagerProtocol, @
         try await stateMachine.sendVideo(at: fileURL, replyToMessageId: replyToMessageId)
     }
 
+    public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String?) async throws -> String {
+        try await stateMachine.sendVoiceMemo(at: fileURL, duration: duration, waveformLevels: waveformLevels, replyToMessageId: replyToMessageId)
+    }
+
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
         try await stateMachine.sendReply(text: text, toMessageWithClientId: parentClientMessageId)
     }

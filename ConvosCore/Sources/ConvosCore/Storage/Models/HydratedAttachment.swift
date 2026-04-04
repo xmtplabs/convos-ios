@@ -19,6 +19,7 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
     public let thumbnailDataBase64: String?
     public let fileSize: Int?
     public let filename: String?
+    public let waveformLevels: [Float]?
 
     public var filenameExtension: String? {
         guard let filename else { return nil }
@@ -68,7 +69,8 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         duration: Double? = nil,
         thumbnailDataBase64: String? = nil,
         fileSize: Int? = nil,
-        filename: String? = nil
+        filename: String? = nil,
+        waveformLevels: [Float]? = nil
     ) {
         self.key = key
         self.isRevealed = isRevealed
@@ -80,5 +82,6 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
         self.thumbnailDataBase64 = thumbnailDataBase64
         self.fileSize = fileSize
         self.filename = filename
+        self.waveformLevels = waveformLevels
     }
 }

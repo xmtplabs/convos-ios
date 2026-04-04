@@ -31,6 +31,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onDisplayNameEndedEditing: () -> Void
     let onVideoSelected: (URL) -> Void
     let onProfileSettings: () -> Void
+    let onVoiceMemoTap: () -> Void
+    @Bindable var voiceMemoRecorder: VoiceMemoRecorder
+    let onSendVoiceMemo: () -> Void
     let onConvosAction: () -> Void
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
@@ -135,8 +138,52 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         }
     }
 
+    private var isVoiceMemoActive: Bool {
+        switch voiceMemoRecorder.state {
+        case .recording, .recorded: return true
+        case .idle: return false
+        }
+    }
+
     @ViewBuilder
     private var collapsedInputView: some View {
+        if case .recording = voiceMemoRecorder.state {
+            VoiceMemoRecordingView(recorder: voiceMemoRecorder)
+                .frame(minHeight: 52)
+                .clipShape(.capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
+        } else if case .recorded(let url, let duration) = voiceMemoRecorder.state {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Button {
+                    voiceMemoRecorder.cancelRecording()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.colorTextSecondary)
+                        .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
+                }
+                .clipShape(.circle)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .accessibilityLabel("Discard voice memo")
+                .accessibilityIdentifier("voice-memo-cancel-button")
+
+                VoiceMemoReviewView(
+                    audioURL: url,
+                    duration: duration,
+                    levels: voiceMemoRecorder.audioLevels,
+                    onSend: { onSendVoiceMemo() }
+                )
+                .frame(minHeight: 52)
+                .clipShape(.capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
+            }
+        } else {
+            normalInputView
+        }
+    }
+
+    @ViewBuilder
+    private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
             if isMessageInputFocused {
                 Button {
@@ -163,6 +210,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
+                    onVoiceMemoTap: onVoiceMemoTap,
                     onConvosAction: onConvosAction
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
@@ -311,6 +359,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             },
             onVideoSelected: { _ in },
             onProfileSettings: {},
+            onVoiceMemoTap: {},
+            voiceMemoRecorder: VoiceMemoRecorder(),
+            onSendVoiceMemo: {},
             onConvosAction: {},
             onBaseHeightChanged: { height in
                 bottomBarHeight = height

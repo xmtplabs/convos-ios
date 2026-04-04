@@ -46,6 +46,10 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
         return UUID().uuidString
     }
 
+    public func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]?, replyToMessageId: String?) async throws -> String {
+        return UUID().uuidString
+    }
+
     public func sendReply(text: String, toMessageWithClientId parentClientMessageId: String) async throws {
         try await send(text: text)
     }
