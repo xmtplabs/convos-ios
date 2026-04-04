@@ -137,6 +137,11 @@ final class ConvoRequestManager: ConvoRequestManagerProtocol, @unchecked Sendabl
                 inboxId: client.inboxId
             )
 
+            try await databaseWriter.write { db in
+                let updated = dbConversation.with(kind: .dm)
+                try updated.update(db)
+            }
+
             let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseWriter)
             try await localStateWriter.setUnread(true, for: dbConversation.id)
 

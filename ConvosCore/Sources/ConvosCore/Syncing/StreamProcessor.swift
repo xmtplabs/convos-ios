@@ -563,6 +563,12 @@ actor StreamProcessor: StreamProcessorProtocol {
                         newConversationId: conversation.id
                     )
                 }
+                try? await databaseWriter.write { db in
+                    if var dbConvo = try DBConversation.fetchOne(db, key: conversation.id) {
+                        dbConvo = dbConvo.with(kind: .dm)
+                        try dbConvo.update(db)
+                    }
+                }
                 Log.info("Auto-approved DM conversation \(conversation.id.prefix(8)) from pending request")
                 NotificationCenter.default.post(
                     name: .dmConversationReady,

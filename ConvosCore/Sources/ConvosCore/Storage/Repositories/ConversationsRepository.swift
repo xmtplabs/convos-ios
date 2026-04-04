@@ -40,14 +40,49 @@ final class ConversationsRepository: ConversationsRepositoryProtocol {
 
 extension Array where Element == DBConversationDetails {
     func composeConversations(from database: Database) throws -> [Conversation] {
-        let dbConversations: [DBConversationDetails] = self
+        let conversations: [Conversation] = self.compactMap { $0.hydrateConversation() }
 
-        let conversations: [Conversation] = dbConversations
-            .compactMap { dbConversationDetails in
-            dbConversationDetails.hydrateConversation()
+        let dmConversationIds = conversations
+            .filter { $0.kind == .dm }
+            .map(\.id)
+        guard !dmConversationIds.isEmpty else { return conversations }
+
+        let dmLinks = try DBDMLink
+            .filter(dmConversationIds.contains(DBDMLink.Columns.dmConversationId))
+            .fetchAll(database)
+        guard !dmLinks.isEmpty else { return conversations }
+
+        let originIds = Set(dmLinks.map(\.originConversationId))
+        let originConversations = try DBConversation
+            .filter(originIds.contains(DBConversation.Columns.id))
+            .fetchAll(database)
+        let originNames = Dictionary(uniqueKeysWithValues: originConversations.compactMap { c in
+            c.name.map { (c.id, $0) }
+        })
+
+        let memberInboxIds = Set(dmLinks.map(\.memberInboxId))
+        let memberProfiles = try DBMemberProfile
+            .filter(memberInboxIds.contains(DBMemberProfile.Columns.inboxId))
+            .fetchAll(database)
+        let memberNames = Dictionary(memberProfiles.map { ($0.inboxId, $0.name ?? "Somebody") },
+                                     uniquingKeysWith: { first, _ in first })
+
+        var linksByDMId: [String: DBDMLink] = [:]
+        for link in dmLinks {
+            linksByDMId[link.dmConversationId] = link
         }
 
-        return conversations
+        return conversations.map { conversation in
+            guard conversation.kind == .dm,
+                  let link = linksByDMId[conversation.id] else { return conversation }
+            let originName = originNames[link.originConversationId]
+            let memberName = memberNames[link.memberInboxId]
+            guard originName != nil || memberName != nil else { return conversation }
+            return conversation.with(
+                dmOriginConversationName: originName,
+                dmOriginMemberName: memberName
+            )
+        }
     }
 }
 

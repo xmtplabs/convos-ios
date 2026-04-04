@@ -28,6 +28,8 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let includeInfoInPublicPreview: Bool
     public let isDraft: Bool
     public let invite: Invite?
+    public let dmOriginConversationName: String?
+    public let dmOriginMemberName: String?
     public let expiresAt: Date?
     public let debugInfo: ConversationDebugInfo
     public let isLocked: Bool
@@ -187,5 +189,20 @@ public extension Conversation {
         let oneYearFromNow = now.addingTimeInterval(365 * 24 * 60 * 60)
         guard expiresAt < oneYearFromNow else { return nil }
         return expiresAt
+    }
+
+    func with(dmOriginConversationName: String?, dmOriginMemberName: String?) -> Conversation {
+        Conversation(
+            id: id, clientConversationId: clientConversationId, inboxId: inboxId, clientId: clientId,
+            creator: creator, createdAt: createdAt, consent: consent, kind: kind, name: name,
+            description: description, members: members, otherMember: otherMember, messages: messages,
+            isPinned: isPinned, isUnread: isUnread, isMuted: isMuted, pinnedOrder: pinnedOrder,
+            lastMessage: lastMessage, imageURL: imageURL, imageSalt: imageSalt, imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey, includeInfoInPublicPreview: includeInfoInPublicPreview,
+            isDraft: isDraft, invite: invite,
+            dmOriginConversationName: dmOriginConversationName, dmOriginMemberName: dmOriginMemberName,
+            expiresAt: expiresAt, debugInfo: debugInfo, isLocked: isLocked,
+            assistantJoinStatus: assistantJoinStatus
+        )
     }
 }

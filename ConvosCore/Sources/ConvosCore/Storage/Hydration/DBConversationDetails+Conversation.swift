@@ -64,6 +64,8 @@ extension DBConversationDetails {
             includeInfoInPublicPreview: conversation.includeInfoInPublicPreview,
             isDraft: conversation.isDraft,
             invite: conversationInvite?.hydrateInvite(),
+            dmOriginConversationName: nil,
+            dmOriginMemberName: nil,
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,

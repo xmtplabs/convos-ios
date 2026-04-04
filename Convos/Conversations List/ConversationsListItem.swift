@@ -78,6 +78,15 @@ struct ConversationsListItem: View {
 
     private var isPendingInvite: Bool { conversation.isPendingInvite }
 
+    private var dmOriginContext: String? {
+        guard conversation.kind == .dm else { return nil }
+        if let memberName = conversation.dmOriginMemberName,
+           let convoName = conversation.dmOriginConversationName {
+            return "\(memberName) from \(convoName)"
+        }
+        return nil
+    }
+
     private var accessibilityDescription: String {
         var parts: [String] = [title]
         if isPendingInvite { parts.append("verifying") }
@@ -106,7 +115,15 @@ struct ConversationsListItem: View {
                     } else if let message = lastMessage {
                         RelativeDateLabel(date: message.createdAt)
                         Text("·").foregroundStyle(.colorTextTertiary)
-                        Text(message.text)
+                        if let originContext = dmOriginContext {
+                            Text(originContext)
+                        } else {
+                            Text(message.text)
+                        }
+                    } else if let originContext = dmOriginContext {
+                        RelativeDateLabel(date: createdAt)
+                        Text("·").foregroundStyle(.colorTextTertiary)
+                        Text(originContext)
                     } else {
                         RelativeDateLabel(date: createdAt)
                     }

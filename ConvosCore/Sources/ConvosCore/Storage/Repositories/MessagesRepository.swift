@@ -687,6 +687,8 @@ private extension LightweightConversationDetails {
             includeInfoInPublicPreview: conversation.includeInfoInPublicPreview,
             isDraft: conversation.isDraft,
             invite: nil,
+            dmOriginConversationName: nil,
+            dmOriginMemberName: nil,
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
