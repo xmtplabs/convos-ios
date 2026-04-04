@@ -1,6 +1,7 @@
 import Combine
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
 
 public typealias ConversationMessages = (conversationId: String, messages: [AnyMessage])
 
@@ -813,6 +814,17 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         duration = stored.mediaDuration
         thumbnailDataBase64 = stored.thumbnailDataBase64
         filename = stored.filename
+    } else if key.hasPrefix("file://"), let url = URL(string: key) {
+        let name = url.lastPathComponent
+        if let underscoreIndex = name.firstIndex(of: "_") {
+            filename = String(name[name.index(after: underscoreIndex)...])
+        } else {
+            filename = name
+        }
+        if mimeType == nil, let ext = filename.flatMap({ ($0 as NSString).pathExtension.lowercased() }),
+           !ext.isEmpty, let utType = UTType(filenameExtension: ext) {
+            mimeType = utType.preferredMIMEType
+        }
     }
 
     return HydratedAttachment(

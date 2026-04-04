@@ -14,6 +14,7 @@ struct MessagesGroupItemView: View {
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
+    var onOpenFile: ((HydratedAttachment) -> Void)?
     var omitTrailingPadding: Bool = false
 
     @State private var isAppearing: Bool = true
@@ -216,18 +217,35 @@ struct MessagesGroupItemView: View {
     private func attachmentView(for attachment: HydratedAttachment) -> some View {
         let isBlurred = attachment.isHiddenByOwner || (!message.sender.isCurrentUser && shouldBlurPhotos && !attachment.isRevealed)
 
-        VideoTapAttachmentView(
-            attachment: attachment,
-            message: message,
-            isOutgoing: message.sender.isCurrentUser,
-            profile: message.sender.profile,
-            shouldBlurPhotos: shouldBlurPhotos,
-            isBlurred: isBlurred,
-            onPhotoRevealed: onPhotoRevealed,
-            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-            onReply: onReply
-        )
-        .id(message.messageId)
+        if attachment.mediaType == .file {
+            let fileTapAction: () -> Void = { onOpenFile?(attachment) }
+            FileAttachmentBubble(
+                attachment: attachment,
+                style: bubbleType,
+                isOutgoing: message.sender.isCurrentUser,
+                profile: message.sender.profile
+            )
+            .messageGesture(
+                message: message,
+                bubbleStyle: bubbleType,
+                onSingleTap: fileTapAction,
+                onReply: onReply
+            )
+            .id(message.messageId)
+        } else {
+            VideoTapAttachmentView(
+                attachment: attachment,
+                message: message,
+                isOutgoing: message.sender.isCurrentUser,
+                profile: message.sender.profile,
+                shouldBlurPhotos: shouldBlurPhotos,
+                isBlurred: isBlurred,
+                onPhotoRevealed: onPhotoRevealed,
+                onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+                onReply: onReply
+            )
+            .id(message.messageId)
+        }
     }
 }
 
