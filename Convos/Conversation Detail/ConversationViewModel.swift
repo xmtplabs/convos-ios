@@ -532,6 +532,7 @@ class ConversationViewModel {
         observe()
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
+        registerInlineAttachmentRecovery()
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -928,7 +929,8 @@ extension ConversationViewModel {
     }
 
     private func registerInlineAttachmentRecovery() {
-        Task {
+        Task { [weak self] in
+            guard let messagingService = self?.messagingService else { return }
             guard let result = try? await messagingService.inboxStateManager.waitForInboxReadyResult() else { return }
             await InlineAttachmentRecovery.shared.setProvider(result.client.conversationsProvider)
         }
