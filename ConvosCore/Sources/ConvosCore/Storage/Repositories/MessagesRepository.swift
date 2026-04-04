@@ -815,7 +815,7 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         thumbnailDataBase64 = stored.thumbnailDataBase64
         filename = stored.filename
     } else if key.hasPrefix("file://") {
-        let url = URL(fileURLWithPath: String(key.dropFirst(7)))
+        let url = URL(string: key) ?? URL(fileURLWithPath: String(key.dropFirst(7)))
         let name = url.lastPathComponent
         if let underscoreIndex = name.firstIndex(of: "_") {
             filename = String(name[name.index(after: underscoreIndex)...])
