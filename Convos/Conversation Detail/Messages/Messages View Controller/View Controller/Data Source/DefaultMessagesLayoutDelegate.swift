@@ -56,9 +56,9 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         var childCount: Int = 0
 
         for (index, message) in group.messages.enumerated() {
-            let isAttachment = message.content.isAttachment
+            let isFullBleed = message.content.isFullBleedAttachment
 
-            if index == 0 && !group.sender.isCurrentUser && !isAttachment {
+            if index == 0 && !group.sender.isCurrentUser && !isFullBleed {
                 height += 17.0
                 childCount += 1
             }

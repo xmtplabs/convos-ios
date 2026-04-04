@@ -82,9 +82,7 @@ struct MessageContextMenuOverlay: View {
         return shouldBlurPhotos && !photoAttachment.isRevealed
     }
 
-    private var windowSafeTop: CGFloat {
-        (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.windows.first?.safeAreaInsets.top ?? 0
-    }
+    private var windowSafeTop: CGFloat { (UIApplication.shared.connectedScenes.first as? UIWindowScene)?.windows.first?.safeAreaInsets.top ?? 0 }
 
     var body: some View {
         if let message = state.presentedMessage {
@@ -438,21 +436,11 @@ struct MessageContextMenuOverlay: View {
                 )
 
             case .attachment(let attachment):
-                ContextMenuPhotoPreview(
-                    attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                    profile: message.sender.profile, shouldBlur: shouldBlurPhoto,
-                    cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
-                    showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
-                )
+                contextMenuAttachmentPreview(attachment)
 
             case .attachments(let attachments):
                 if let attachment = attachments.first {
-                    ContextMenuPhotoPreview(
-                        attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
-                        profile: message.sender.profile, shouldBlur: shouldBlurPhoto,
-                        cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
-                        showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
-                    )
+                    contextMenuAttachmentPreview(attachment)
                 }
 
             case .invite(let invite):
@@ -676,6 +664,25 @@ struct MessageContextMenuOverlay: View {
         static let defaultReactions: [String] = ["❤️", "👍", "👎", "😂", "😮", "🤔"]
     }
     // swiftlint:enable type_name
+    @ViewBuilder
+    private func contextMenuAttachmentPreview(_ attachment: HydratedAttachment) -> some View {
+        let profile = message?.sender.profile ?? Profile(inboxId: "", conversationId: "", name: nil, avatar: nil)
+        if attachment.mediaType == .file {
+            FileAttachmentBubble(
+                attachment: attachment,
+                style: state.bubbleStyle,
+                isOutgoing: state.isOutgoing,
+                profile: profile
+            )
+        } else {
+            ContextMenuPhotoPreview(
+                attachmentKey: attachment.key, isOutgoing: state.isOutgoing,
+                profile: profile, shouldBlur: shouldBlurPhoto,
+                cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
+                showSenderLabel: !state.isReplyParent, isReplyParent: state.isReplyParent
+            )
+        }
+    }
 }
 
 // MARK: - Context Menu Photo Preview
@@ -744,6 +751,16 @@ private struct ContextMenuPhotoPreview: View {
 
 // MARK: - Save Attachment Helper
 
+private func recoverInlineAttachmentData(fromPath path: String) async throws -> Data {
+    let fileURL = URL(fileURLWithPath: path)
+    let filename = fileURL.lastPathComponent
+    guard let underscoreIndex = filename.firstIndex(of: "_") else {
+        throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+    }
+    let messageId = String(filename[filename.startIndex..<underscoreIndex])
+    return try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+}
+
 private func saveAttachmentToPhotoLibrary(key: String) {
     guard let image = ImageCache.shared.image(for: key) else { return }
     PHPhotoLibrary.shared().performChanges {
@@ -755,10 +772,19 @@ private func saveVideoToPhotoLibrary(key: String) {
     Task {
         do {
             let videoURL: URL
-            let isLocalFile = key.hasPrefix("file://")
-            if isLocalFile {
+            var isTempFile = false
+            if key.hasPrefix("file://") {
                 let path = String(key.dropFirst("file://".count))
-                videoURL = URL(fileURLWithPath: path)
+                if FileManager.default.fileExists(atPath: path) {
+                    videoURL = URL(fileURLWithPath: path)
+                } else {
+                    let data = try await recoverInlineAttachmentData(fromPath: path)
+                    let tempURL = FileManager.default.temporaryDirectory
+                        .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
+                    try data.write(to: tempURL)
+                    videoURL = tempURL
+                    isTempFile = true
+                }
             } else {
                 let loader = RemoteAttachmentLoader()
                 let loaded = try await loader.loadAttachmentData(from: key)
@@ -766,10 +792,11 @@ private func saveVideoToPhotoLibrary(key: String) {
                     .appendingPathComponent("save_video_\(UUID().uuidString).mp4")
                 try loaded.data.write(to: tempURL)
                 videoURL = tempURL
+                isTempFile = true
             }
 
             defer {
-                if !isLocalFile {
+                if isTempFile {
                     try? FileManager.default.removeItem(at: videoURL)
                 }
             }
@@ -779,6 +806,83 @@ private func saveVideoToPhotoLibrary(key: String) {
             }
         } catch {
             Log.error("Failed to save video to photo library: \(error)")
+        }
+    }
+}
+
+// MARK: - File Save/Share Helpers
+
+private func loadFileToTempURL(key: String, filename: String?) async throws -> URL {
+    let name = filename ?? "attachment"
+
+    if key.hasPrefix("file://") {
+        let path = String(key.dropFirst("file://".count))
+        if FileManager.default.fileExists(atPath: path) {
+            return URL(fileURLWithPath: path)
+        }
+
+        let fileURL = URL(fileURLWithPath: path)
+        let fullFilename = fileURL.lastPathComponent
+        if let underscoreIndex = fullFilename.firstIndex(of: "_") {
+            let messageId = String(fullFilename[fullFilename.startIndex..<underscoreIndex])
+            guard !messageId.isEmpty else { throw CocoaError(.fileReadNoSuchFile) }
+            let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+            let tempURL = FileManager.default.temporaryDirectory
+                .appendingPathComponent("share_\(UUID().uuidString)_\(name)")
+            try data.write(to: tempURL)
+            return tempURL
+        }
+
+        throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+    }
+
+    let loader = RemoteAttachmentLoader()
+    let loaded = try await loader.loadAttachmentData(from: key)
+    let tempURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("share_\(UUID().uuidString)_\(name)")
+    try loaded.data.write(to: tempURL)
+    return tempURL
+}
+
+private func saveFileToFiles(key: String, filename: String?) {
+    Task { @MainActor in
+        do {
+            let tempURL = try await loadFileToTempURL(key: key, filename: filename)
+            let picker = UIDocumentPickerViewController(forExporting: [tempURL])
+            picker.shouldShowFileExtensions = true
+            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let root = scene.keyWindow?.rootViewController else { return }
+            var presenter = root
+            while let presented = presenter.presentedViewController {
+                presenter = presented
+            }
+            presenter.present(picker, animated: true)
+        } catch {
+            Log.error("Failed to save file: \(error)")
+        }
+    }
+}
+
+private func shareFile(key: String, filename: String?) {
+    Task { @MainActor in
+        do {
+            let tempURL = try await loadFileToTempURL(key: key, filename: filename)
+            let activityVC = UIActivityViewController(activityItems: [tempURL], applicationActivities: nil)
+            guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+                  let root = scene.keyWindow?.rootViewController else { return }
+            var presenter = root
+            while let presented = presenter.presentedViewController {
+                presenter = presented
+            }
+            activityVC.popoverPresentationController?.sourceView = presenter.view
+            activityVC.popoverPresentationController?.sourceRect = CGRect(
+                x: presenter.view.bounds.midX,
+                y: presenter.view.bounds.midY,
+                width: 0, height: 0
+            )
+            presenter.present(activityVC, animated: true)
+        } catch {
+            Log.error("Failed to share file: \(error)")
         }
     }
 }

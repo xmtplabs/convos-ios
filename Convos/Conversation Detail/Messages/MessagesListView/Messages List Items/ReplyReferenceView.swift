@@ -32,6 +32,15 @@ struct ReplyReferenceView: View {
         }
     }
 
+    private func replyLabel(for attachment: HydratedAttachment) -> String {
+        switch attachment.mediaType {
+        case .video: return "video"
+        case .audio: return "audio"
+        case .file: return attachment.filename ?? "file"
+        default: return "photo"
+        }
+    }
+
     private var parentAttachment: HydratedAttachment? {
         switch parentMessage.content {
         case .attachment(let attachment):
@@ -89,9 +98,11 @@ struct ReplyReferenceView: View {
                     .foregroundStyle(.tertiary)
             }
             .padding(.leading, isOutgoing ? 0.0 : DesignConstants.Spacing.step3x)
-            .padding(.trailing, isOutgoing ? (DesignConstants.Spacing.step4x + DesignConstants.Spacing.step3x) : 0.0)
+            .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step3x : 0.0)
 
-            if let attachment = parentAttachment {
+            if let attachment = parentAttachment, attachment.mediaType == .file {
+                ReplyReferenceFileBubble(attachment: attachment)
+            } else if let attachment = parentAttachment {
                 ReplyReferencePhotoPreview(
                     attachmentKey: attachment.key,
                     isVideo: attachment.mediaType == .video,
@@ -100,11 +111,9 @@ struct ReplyReferenceView: View {
                     onReveal: { onPhotoRevealed?(attachment.key) },
                     onHide: { onPhotoHidden?(attachment.key) }
                 )
-                .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let emoji = parentEmoji {
                 Text(emoji)
                     .font(.largeTitle)
-                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             } else if let invite = parentInvite {
                 if let onTapInvite {
                     let tapAction = { onTapInvite(invite) }
@@ -112,10 +121,8 @@ struct ReplyReferenceView: View {
                         ReplyReferenceInvitePreview(invite: invite)
                     }
                     .buttonStyle(.plain)
-                    .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 } else {
                     ReplyReferenceInvitePreview(invite: invite)
-                        .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
                 }
             } else if let preview = parentLinkPreview {
                 ReplyReferenceLinkPreview(preview: preview)
@@ -134,7 +141,6 @@ struct ReplyReferenceView: View {
                             .layoutPriority(-1)
                     }
                 }
-                .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step4x : 0.0)
             }
         }
         .padding(.top, DesignConstants.Spacing.stepX)
@@ -467,5 +473,43 @@ private struct ReplyReferenceLinkPreview: View {
                 }
             }
         }
+    }
+}
+
+// MARK: - File Reply Preview
+
+private struct ReplyReferenceFileBubble: View {
+    let attachment: HydratedAttachment
+
+    var body: some View {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 6)
+                    .fill(Color.colorFillMinimal)
+                Image(systemName: "doc.fill")
+                    .font(.system(size: 20))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(width: 40, height: 40)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(attachment.filename ?? "File")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .lineLimit(1)
+                if let label = attachment.fileTypeLabel {
+                    Text(label)
+                        .font(.caption2)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(Color.colorFillMinimal)
+        )
     }
 }

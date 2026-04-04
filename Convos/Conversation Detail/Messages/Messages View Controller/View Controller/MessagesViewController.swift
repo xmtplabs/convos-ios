@@ -3,6 +3,7 @@ import ConvosCore
 import DifferenceKit
 import Foundation
 import Observation
+import QuickLook
 import SwiftUI
 import UIKit
 
@@ -192,6 +193,7 @@ final class MessagesViewController: UIViewController {
     var onCopyInviteLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
+    private var filePreviewURL: URL?
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
     }
@@ -353,6 +355,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onTapUpdateMember = { [weak self] member in
             self?.onTapUpdateMember?(member)
+        }
+        dataSource.onOpenFile = { [weak self] attachment in
+            self?.openFileAttachment(attachment)
         }
         dataSource.onRetryMessage = { [weak self] message in
             self?.onRetryMessage?(message)
@@ -855,6 +860,107 @@ extension MessagesViewController: KeyboardListenerDelegate {
         }, completion: { _ in
             self.currentInterfaceActions.options.remove(.changingContentInsets)
         })
+    }
+}
+
+// MARK: - File Attachment QuickLook
+
+extension MessagesViewController: QLPreviewControllerDataSource {
+    private func openFileAttachment(_ attachment: HydratedAttachment) {
+        Task {
+            do {
+                let fileURL = try await loadFileForPreview(attachment)
+                let previewController = QLPreviewController()
+                filePreviewURL = fileURL
+                previewController.dataSource = self
+                previewController.delegate = self
+                present(previewController, animated: true)
+            } catch {
+                Log.error("Failed to open file attachment: \(error)")
+                let alert = UIAlertController(
+                    title: "File Unavailable",
+                    message: "This file is no longer available on this device.",
+                    preferredStyle: .alert
+                )
+                let okAction = UIAlertAction(title: "OK", style: .default)
+                alert.addAction(okAction)
+                present(alert, animated: true)
+            }
+        }
+    }
+
+    private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
+        let filename = attachment.filename ?? "attachment"
+
+        if attachment.key.hasPrefix("file://") {
+            let path = String(attachment.key.dropFirst("file://".count))
+            let sourceURL = URL(fileURLWithPath: path)
+
+            if FileManager.default.fileExists(atPath: path) {
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("preview_\(UUID().uuidString)")
+                    .appendingPathComponent(filename)
+                try FileManager.default.createDirectory(
+                    at: tempURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try FileManager.default.copyItem(at: sourceURL, to: tempURL)
+                return tempURL
+            }
+
+            let messageId = extractMessageId(from: sourceURL)
+            if let messageId {
+                let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
+                let tempURL = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("preview_\(UUID().uuidString)")
+                    .appendingPathComponent(filename)
+                try FileManager.default.createDirectory(
+                    at: tempURL.deletingLastPathComponent(),
+                    withIntermediateDirectories: true
+                )
+                try data.write(to: tempURL)
+                return tempURL
+            }
+
+            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
+        }
+
+        let loader = RemoteAttachmentLoader()
+        let loaded = try await loader.loadAttachmentData(from: attachment.key)
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("preview_\(UUID().uuidString)")
+            .appendingPathComponent(filename)
+        try FileManager.default.createDirectory(
+            at: tempURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
+        try loaded.data.write(to: tempURL)
+        return tempURL
+    }
+
+    private func extractMessageId(from fileURL: URL) -> String? {
+        let filename = fileURL.lastPathComponent
+        guard let underscoreIndex = filename.firstIndex(of: "_") else { return nil }
+        let messageId = String(filename[filename.startIndex..<underscoreIndex])
+        guard !messageId.isEmpty else { return nil }
+        return messageId
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+        filePreviewURL != nil ? 1 : 0
+    }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
+        (filePreviewURL ?? URL(fileURLWithPath: "")) as NSURL
+    }
+}
+
+extension MessagesViewController: @preconcurrency QLPreviewControllerDelegate {
+    func previewControllerDidDismiss(_ controller: QLPreviewController) {
+        if let url = filePreviewURL {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        filePreviewURL = nil
     }
 }
 

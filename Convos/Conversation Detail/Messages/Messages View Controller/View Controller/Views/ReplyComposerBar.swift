@@ -52,6 +52,19 @@ struct ReplyComposerBar: View {
         attachment?.mediaType == .video
     }
 
+    private var isFile: Bool {
+        attachment?.mediaType == .file
+    }
+
+    private func replyLabel(for attachment: HydratedAttachment) -> String {
+        switch attachment.mediaType {
+        case .video: return "Video"
+        case .audio: return "Audio"
+        case .file: return attachment.filename ?? "File"
+        default: return "Photo"
+        }
+    }
+
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
             if let attachment {
