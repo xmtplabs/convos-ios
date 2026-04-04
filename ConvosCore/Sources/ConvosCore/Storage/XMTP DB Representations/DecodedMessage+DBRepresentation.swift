@@ -1,6 +1,7 @@
 import ConvosAppData
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
 import XMTPiOS
 
 extension Character {
@@ -283,13 +284,19 @@ extension XMTPiOS.DecodedMessage {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
         let storedAttachments = remoteAttachments.map { attachment in
+            let inferredMimeType: String? = attachment.filename.flatMap { filename in
+                let ext = (filename as NSString).pathExtension.lowercased()
+                guard !ext.isEmpty else { return nil }
+                return UTType(filenameExtension: ext)?.preferredMIMEType
+            }
             let stored = StoredRemoteAttachment(
                 url: attachment.url,
                 contentDigest: attachment.contentDigest,
                 secret: attachment.secret,
                 salt: attachment.salt,
                 nonce: attachment.nonce,
-                filename: attachment.filename
+                filename: attachment.filename,
+                mimeType: inferredMimeType
             )
             return (try? stored.toJSON()) ?? attachment.url
         }
@@ -309,13 +316,19 @@ extension XMTPiOS.DecodedMessage {
         guard let remoteAttachment = content as? RemoteAttachment else {
             throw DecodedMessageDBRepresentationError.mismatchedContentType
         }
+        let inferredMimeType: String? = remoteAttachment.filename.flatMap { filename in
+            let ext = (filename as NSString).pathExtension.lowercased()
+            guard !ext.isEmpty else { return nil }
+            return UTType(filenameExtension: ext)?.preferredMIMEType
+        }
         let stored = StoredRemoteAttachment(
             url: remoteAttachment.url,
             contentDigest: remoteAttachment.contentDigest,
             secret: remoteAttachment.secret,
             salt: remoteAttachment.salt,
             nonce: remoteAttachment.nonce,
-            filename: remoteAttachment.filename
+            filename: remoteAttachment.filename,
+            mimeType: inferredMimeType
         )
         let json = (try? stored.toJSON()) ?? remoteAttachment.url
         return DBMessageComponents(
