@@ -391,7 +391,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                     conversationId: dbConversation.id,
                     inboxId: profile.inboxId
                 )
-                if existing?.name != nil || existing?.avatar != nil {
+                if existing?.name != nil || existing?.avatar != nil || existing?.memberKind != nil {
                     return
                 }
                 let member = DBMember(inboxId: profile.inboxId)
