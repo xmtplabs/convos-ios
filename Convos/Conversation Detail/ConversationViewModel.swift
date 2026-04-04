@@ -270,7 +270,6 @@ class ConversationViewModel {
     var allowsDMs: Bool = false
     var autoRevealPhotos: Bool = false
     var dmRequestSentMemberName: String?
-    var navigateToDMConversation: ((String) -> Void)?
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -997,10 +996,14 @@ extension ConversationViewModel {
                 if let existingDMId = try await dmLinksRepo.findDMConversationId(
                     originConversationId: conversation.id,
                     memberInboxId: member.profile.inboxId
-                ) {
+                ), !existingDMId.hasPrefix("pending-") {
                     Log.info("Found existing DM conversation \(existingDMId.prefix(8)), navigating")
                     await MainActor.run {
-                        self.navigateToDMConversation?(existingDMId)
+                        NotificationCenter.default.post(
+                            name: .navigateToConversation,
+                            object: nil,
+                            userInfo: ["conversationId": existingDMId]
+                        )
                     }
                     return
                 }

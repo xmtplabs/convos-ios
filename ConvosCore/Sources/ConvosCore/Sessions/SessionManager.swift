@@ -5,6 +5,7 @@ import GRDB
 public extension Notification.Name {
     static let leftConversationNotification: Notification.Name = Notification.Name("LeftConversationNotification")
     static let activeConversationChanged: Notification.Name = Notification.Name("ActiveConversationChanged")
+    static let navigateToConversation: Notification.Name = Notification.Name("NavigateToConversation")
 }
 
 public typealias AnyMessagingService = any MessagingServiceProtocol
