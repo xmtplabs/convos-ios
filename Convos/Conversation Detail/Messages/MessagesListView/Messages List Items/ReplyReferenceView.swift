@@ -106,6 +106,7 @@ struct ReplyReferenceView: View {
                 ReplyReferencePhotoPreview(
                     attachmentKey: attachment.key,
                     isVideo: attachment.mediaType == .video,
+                    thumbnailData: attachment.thumbnailData,
                     parentMessage: parentMessage,
                     shouldBlur: shouldBlurAttachment,
                     onReveal: { onPhotoRevealed?(attachment.key) },
@@ -221,6 +222,7 @@ struct ReplyReferenceView: View {
 private struct ReplyReferencePhotoPreview: View {
     let attachmentKey: String
     let isVideo: Bool
+    let thumbnailData: Data?
     let parentMessage: Message
     let shouldBlur: Bool
     let onReveal: () -> Void
@@ -235,6 +237,7 @@ private struct ReplyReferencePhotoPreview: View {
     init(
         attachmentKey: String,
         isVideo: Bool = false,
+        thumbnailData: Data? = nil,
         parentMessage: Message,
         shouldBlur: Bool,
         onReveal: @escaping () -> Void,
@@ -242,11 +245,22 @@ private struct ReplyReferencePhotoPreview: View {
     ) {
         self.attachmentKey = attachmentKey
         self.isVideo = isVideo
+        self.thumbnailData = thumbnailData
         self.parentMessage = parentMessage
         self.shouldBlur = shouldBlur
         self.onReveal = onReveal
         self.onHide = onHide
-        _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+
+        if isVideo, let thumbnailData {
+            if let thumb = UIImage(data: thumbnailData) {
+                _loadedImage = State(initialValue: thumb)
+            } else {
+                Log.warning("Video thumbnail data failed to decode for attachment: \(attachmentKey)")
+                _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+            }
+        } else {
+            _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+        }
     }
 
     @State private var instanceID: UUID = UUID()
@@ -319,6 +333,7 @@ private struct ReplyReferencePhotoPreview: View {
                 loadedImage = cachedImage
                 return
             }
+            guard !isVideo else { return }
             do {
                 let data = try await Self.loader.loadImageData(from: attachmentKey)
                 if let image = UIImage(data: data) {
