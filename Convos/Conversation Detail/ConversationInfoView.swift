@@ -291,14 +291,14 @@ struct ConversationInfoView: View {
                 title: "Allow DMs",
                 subtitle: "From group members"
             ) {
-                Toggle("", isOn: Binding(
-                    get: { viewModel.allowsDMs },
-                    set: { viewModel.setAllowsDMs($0) }
-                ))
+                Toggle("", isOn: $viewModel.allowsDMs)
                 .labelsHidden()
                 .accessibilityLabel("Allow DMs")
                 .accessibilityValue(viewModel.allowsDMs ? "on" : "off")
                 .accessibilityIdentifier("allow-dms-toggle")
+                .onChange(of: viewModel.allowsDMs) { _, newValue in
+                    viewModel.persistAllowsDMs(newValue)
+                }
             }
 
             FeatureRowItem(

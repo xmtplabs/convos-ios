@@ -1406,16 +1406,13 @@ extension ConversationViewModel {
         }
     }
 
-    func setAllowsDMs(_ allowed: Bool) {
-        allowsDMs = allowed
+    func persistAllowsDMs(_ allowed: Bool) {
         Task { [weak self] in
             guard let self else { return }
             do {
-                let writer = try await session.messagingService(
-                    for: conversation.clientId,
-                    inboxId: conversation.inboxId
-                ).myProfileWriter()
+                let writer = messagingService.myProfileWriter()
                 try await writer.update(allowsDMs: allowed, conversationId: conversation.id)
+                Log.info("Allow DMs updated to \(allowed) for conversation \(conversation.id.prefix(8))")
             } catch {
                 Log.error("Failed to update allow DMs: \(error)")
                 await MainActor.run { self.allowsDMs = !allowed }

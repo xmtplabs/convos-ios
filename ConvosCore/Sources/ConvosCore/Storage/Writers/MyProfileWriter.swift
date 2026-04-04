@@ -148,9 +148,11 @@ class MyProfileWriter: MyProfileWriterProtocol {
     }
 
     func update(allowsDMs: Bool, conversationId: String) async throws {
+        Log.info("Updating allowsDMs=\(allowsDMs) for conversation \(conversationId.prefix(8))")
         let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
         guard let conversation = try await inboxReady.client.conversation(with: conversationId),
               case .group(let group) = conversation else {
+            Log.error("Conversation \(conversationId.prefix(8)) not found for allowsDMs update")
             throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
         }
         let inboxId = inboxReady.client.inboxId
