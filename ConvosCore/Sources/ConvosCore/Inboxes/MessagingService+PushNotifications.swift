@@ -2,6 +2,7 @@ import Combine
 import ConvosProfiles
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
 import UserNotifications
 @preconcurrency import XMTPiOS
 
@@ -462,11 +463,65 @@ extension MessagingService {
             return nil
 
         case ContentTypeRemoteAttachment, ContentTypeMultiRemoteAttachment:
-            return shouldShowSenderName ? "\(senderName) sent a photo" : "sent a photo"
+            let attachmentText = try attachmentNotificationText(for: decodedMessage)
+            return shouldShowSenderName ? "\(senderName) sent \(attachmentText)" : "sent \(attachmentText)"
 
         default:
             return nil
         }
+    }
+
+    private func attachmentNotificationText(for decodedMessage: DecodedMessage) throws -> String {
+        let content = try decodedMessage.content() as Any
+
+        if let attachment = content as? RemoteAttachment {
+            return attachmentPreviewLabel(for: attachment.filename)
+        }
+
+        if let attachments = content as? [RemoteAttachment] {
+            return attachmentsPreviewLabel(for: attachments)
+        }
+
+        return "an attachment"
+    }
+
+    private func attachmentsPreviewLabel(for attachments: [RemoteAttachment]) -> String {
+        guard attachments.count > 1 else {
+            return attachmentPreviewLabel(for: attachments.first?.filename)
+        }
+
+        let mediaTypes = attachments.map { mediaType(for: $0.filename) }
+        if let firstType = mediaTypes.first, mediaTypes.allSatisfy({ $0 == firstType }) {
+            switch firstType {
+            case .image: return "\(attachments.count) photos"
+            case .video: return "\(attachments.count) videos"
+            case .audio: return "\(attachments.count) voice memos"
+            case .file: return "\(attachments.count) files"
+            case .unknown: return "\(attachments.count) attachments"
+            }
+        }
+
+        return "\(attachments.count) attachments"
+    }
+
+    private func attachmentPreviewLabel(for filename: String?) -> String {
+        switch mediaType(for: filename) {
+        case .image: return "a photo"
+        case .video: return "a video"
+        case .audio: return "a voice memo"
+        case .file: return "a file"
+        case .unknown: return "an attachment"
+        }
+    }
+
+    private func mediaType(for filename: String?) -> MediaType {
+        guard let filename else { return .unknown }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty, let utType = UTType(filenameExtension: ext) else { return .unknown }
+        if utType.conforms(to: .image) { return .image }
+        if utType.conforms(to: .movie) || utType.conforms(to: .video) { return .video }
+        if utType.conforms(to: .audio) { return .audio }
+        return .file
     }
 
     private func getSourceMessageText(messageId: String, conversationId: String) async throws -> String? {
