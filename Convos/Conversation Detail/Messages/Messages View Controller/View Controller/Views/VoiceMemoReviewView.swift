@@ -71,9 +71,9 @@ struct VoiceMemoReviewView: View {
                 if player == nil {
                     player = try AVAudioPlayer(contentsOf: audioURL)
                     player?.prepareToPlay()
+                    player?.currentTime = 0
                 }
                 if let player {
-                    player.currentTime = 0
                     guard player.play() else {
                         Log.error("Failed to play voice memo preview: playback returned false")
                         return

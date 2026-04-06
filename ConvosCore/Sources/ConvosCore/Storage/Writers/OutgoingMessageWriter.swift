@@ -514,6 +514,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
             let taskId = UUID().uuidString
             let encryptedFileURL = try saveToTemp(data: encrypted.payload, taskId: taskId)
+            defer { try? FileManager.default.removeItem(at: encryptedFileURL) }
 
             tracker.setProgress(stage: .uploading, percentage: 0, for: trackingKey)
 
@@ -557,8 +558,6 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 replyContext: replyContext,
                 mediaType: params.mediaTypeLabel
             )
-
-            try? FileManager.default.removeItem(at: encryptedFileURL)
 
             QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": params.mediaTypeLabel])
 
