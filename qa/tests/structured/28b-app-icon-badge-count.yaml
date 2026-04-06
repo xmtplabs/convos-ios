@@ -1,0 +1,63 @@
+id: "28b"
+name: "App Icon Badge Count"
+description: >
+  Verify that the app icon badge count reflects unread conversations
+  and clears when conversations are read.
+tags: [notifications, badge, unread]
+depends_on: ["02"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "Badge Test", profile_name: "CLI" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.url
+  - action: open_invite_url
+    args: { url: "$invite_url" }
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id" }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+  - action: navigate_to_conversations_list
+
+steps:
+  - id: unread_indicator
+    name: "Unread indicator shows on conversation"
+    actions:
+      - cli_send_text: { conversation: "$conversation_id", text: "Unread message" }
+      - wait_for_element: { label_contains: "Unread message", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "Unread message" }
+    criteria: unread_shows
+
+  - id: read_clears_indicator
+    name: "Opening conversation clears unread"
+    actions:
+      - tap: { label_contains: "Badge Test" }
+      - wait_for_element: { id: "message-text-field", timeout: 5 }
+      - navigate_to_conversations_list: {}
+      - screenshot: {}
+    criteria: read_clears_unread
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+
+criteria:
+  unread_shows:
+    description: "Unread indicator appears on conversation with new messages"
+  read_clears_unread:
+    description: "Opening and viewing the conversation clears the unread indicator"

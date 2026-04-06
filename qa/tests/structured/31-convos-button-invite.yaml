@@ -1,0 +1,96 @@
+id: "31"
+name: "Convos Button Invite"
+description: >
+  Verify the Convos button in the media bar creates a conversation and
+  generates a shareable invite link that appears in the message composer.
+tags: [invites, convos-button, messaging]
+depends_on: ["02"]
+estimated_duration_s: 120
+
+prerequisites:
+  app_running: true
+  cli_initialized: true
+  screen: conversations_list
+
+state:
+  conversation_id: null
+
+setup:
+  - action: cli_create_conversation
+    args: { name: "Button Test", profile_name: "CLI" }
+    save:
+      conversation_id: result.conversation_id
+  - action: cli_generate_invite
+    args: { conversation: "$conversation_id" }
+    save:
+      invite_url: result.url
+  - action: open_invite_url
+    args: { url: "$invite_url" }
+  - action: cli_process_joins
+    args: { conversation: "$conversation_id" }
+  - action: wait_for_element
+    args: { id: "message-text-field", timeout: 15 }
+
+steps:
+  - id: reveal_media_buttons
+    name: "Reveal media buttons bar"
+    actions:
+      - tap: { id: "message-text-field" }
+      - find_elements: { pattern: "convos-action-button" }
+      - note: >
+          If the convos button isn't visible, tap the chevron/expand button
+          to reveal the media buttons bar.
+      - screenshot: {}
+    verify:
+      - element_exists: { id: "convos-action-button" }
+    criteria: convos_button_visible
+
+  - id: tap_convos_button
+    name: "Tap Convos button to generate invite"
+    actions:
+      - tap: { id: "convos-action-button" }
+      - note: >
+          Wait for the invite link to appear as a link preview card in the
+          composer area. This may take a few seconds as the inbox is created
+          and the invite URL is generated.
+      - wait_for_element: { label_contains: "convos.org", timeout: 15 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "convos.org" }
+    criteria: invite_generated
+
+  - id: send_invite
+    name: "Send the invite link"
+    actions:
+      - tap: { id: "send-message-button" }
+      - wait_for_element: { label_contains: "convos.org", timeout: 10 }
+      - screenshot: {}
+    verify:
+      - element_exists: { label_contains: "convos.org" }
+    criteria: invite_sent
+    note: >
+      The invite URL should appear as a sent message in the conversation.
+
+  - id: clear_pending_invite
+    name: "Clear a pending invite without sending"
+    actions:
+      - tap: { id: "convos-action-button" }
+      - wait_for_element: { label_contains: "convos.org", timeout: 15 }
+      - note: "Tap the clear/dismiss button on the invite preview card"
+      - screenshot: {}
+    criteria: invite_clearable
+    optional: true
+
+teardown:
+  - action: explode_conversation
+    args: { id: "$conversation_id" }
+
+criteria:
+  convos_button_visible:
+    description: "Convos button appears in the media buttons bar"
+  invite_generated:
+    description: "Tapping the Convos button generates an invite link preview in the composer"
+  invite_sent:
+    description: "The invite link can be sent as a message"
+  invite_clearable:
+    description: "A pending invite can be dismissed without sending"
