@@ -2,7 +2,18 @@ import ConvosCore
 import SwiftUI
 
 extension Conversation {
+    var listDMOriginContext: String? {
+        guard let memberName = dmOriginMemberName,
+              let convoName = dmOriginConversationName else { return nil }
+        return "\(memberName) from \(convoName)"
+    }
+
     var title: String {
+        if let listDMOriginContext,
+           name?.isEmpty != false {
+            return listDMOriginContext
+        }
+
         switch kind {
         case .dm:
             return otherMember?.profile.displayName ?? ""
@@ -78,14 +89,7 @@ struct ConversationsListItem: View {
 
     private var isPendingInvite: Bool { conversation.isPendingInvite }
 
-    private var dmOriginContext: String? {
-        guard conversation.kind == .dm else { return nil }
-        if let memberName = conversation.dmOriginMemberName,
-           let convoName = conversation.dmOriginConversationName {
-            return "\(memberName) from \(convoName)"
-        }
-        return nil
-    }
+    private var dmOriginContext: String? { conversation.listDMOriginContext }
 
     private var accessibilityDescription: String {
         var parts: [String] = [title]
@@ -115,11 +119,7 @@ struct ConversationsListItem: View {
                     } else if let message = lastMessage {
                         RelativeDateLabel(date: message.createdAt)
                         Text("·").foregroundStyle(.colorTextTertiary)
-                        if let originContext = dmOriginContext {
-                            Text(originContext)
-                        } else {
-                            Text(message.text)
-                        }
+                        Text(message.text)
                     } else if let originContext = dmOriginContext {
                         RelativeDateLabel(date: createdAt)
                         Text("·").foregroundStyle(.colorTextTertiary)

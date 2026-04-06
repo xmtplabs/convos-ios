@@ -245,7 +245,7 @@ class ConversationViewModel: Identifiable {
     var presentingConversationSettings: Bool = false
     var presentingProfileSettings: Bool = false
     var presentingProfileForMember: ConversationMember?
-    var presentingDMConversation: ConversationViewModel?
+    var pushedDMConversation: ConversationViewModel?
     var presentingNewConversationForInvite: NewConversationViewModel? {
         didSet { oldValue?.cleanUpIfNeeded() }
     }
@@ -1008,9 +1008,9 @@ extension ConversationViewModel {
                         )
                         if let dmConvo = try? dmRepo.fetchConversation() {
                             let dmVM = ConversationViewModel.createSync(conversation: dmConvo, session: session)
-                            Log.info("Found existing DM conversation \(existingDMId.prefix(8)), presenting as sheet")
+                            Log.info("Found existing DM conversation \(existingDMId.prefix(8)), pushing from member profile")
                             await MainActor.run {
-                                self.presentingDMConversation = dmVM
+                                self.pushedDMConversation = dmVM
                             }
                             return
                         }
@@ -1070,7 +1070,7 @@ extension ConversationViewModel {
                     if let dmConvo = try? dmRepo.fetchConversation() {
                         let dmVM = ConversationViewModel.createSync(conversation: dmConvo, session: session)
                         await MainActor.run {
-                            self.presentingDMConversation = dmVM
+                            self.pushedDMConversation = dmVM
                         }
                     }
                 }

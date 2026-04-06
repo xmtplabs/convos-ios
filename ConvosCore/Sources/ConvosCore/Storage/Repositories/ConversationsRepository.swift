@@ -42,9 +42,7 @@ extension Array where Element == DBConversationDetails {
     func composeConversations(from database: Database) throws -> [Conversation] {
         let conversations: [Conversation] = self.compactMap { $0.hydrateConversation() }
 
-        let dmConversationIds = conversations
-            .filter { $0.kind == .dm }
-            .map(\.id)
+        let dmConversationIds = conversations.map(\.id)
         guard !dmConversationIds.isEmpty else { return conversations }
 
         let dmLinks = try DBDMLink
@@ -73,8 +71,7 @@ extension Array where Element == DBConversationDetails {
         }
 
         return conversations.map { conversation in
-            guard conversation.kind == .dm,
-                  let link = linksByDMId[conversation.id] else { return conversation }
+            guard let link = linksByDMId[conversation.id] else { return conversation }
             let originName = originNames[link.originConversationId]
             let memberName = memberNames[link.memberInboxId]
             guard originName != nil || memberName != nil else { return conversation }

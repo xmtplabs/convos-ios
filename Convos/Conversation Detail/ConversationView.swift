@@ -246,13 +246,31 @@ struct ConversationView<MessagesBottomBar: View>: View {
             AssistantsInfoView()
                 .padding(.top, 20)
         }
-        .sheet(item: $viewModel.presentingProfileForMember) { member in
+        .sheet(item: $viewModel.presentingProfileForMember, onDismiss: {
+            viewModel.pushedDMConversation = nil
+        }) { member in
             NavigationStack {
                 ConversationMemberView(viewModel: viewModel, member: member)
+                    .navigationDestination(isPresented: Binding(
+                        get: { viewModel.pushedDMConversation != nil },
+                        set: { isPresented in
+                            if !isPresented {
+                                viewModel.pushedDMConversation = nil
+                            }
+                        }
+                    )) {
+                        if let dmViewModel = viewModel.pushedDMConversation {
+                            DMConversationDestinationView(
+                                viewModel: dmViewModel,
+                                quicknameViewModel: quicknameViewModel
+                            )
+                        }
+                    }
                     .toolbar {
                         ToolbarItem(placement: .cancellationAction) {
                             Button(role: .cancel) {
                                 viewModel.presentingProfileForMember = nil
+                                viewModel.pushedDMConversation = nil
                             }
                         }
                     }

@@ -13,8 +13,5 @@ struct ConversationSheets: ViewModifier {
                 )
                 .background(.colorBackgroundSurfaceless)
             }
-            .sheet(item: $viewModel.presentingDMConversation) { dmViewModel in
-                DMConversationSheet(viewModel: dmViewModel, quicknameViewModel: quicknameViewModel)
-            }
     }
 }
