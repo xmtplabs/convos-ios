@@ -103,6 +103,7 @@ public final class VoiceMemoRecorder: NSObject {
 
         if let url = recordingURL {
             duration = finalDuration
+            audioRecorder = nil
             state = .recorded(url, finalDuration)
         }
     }

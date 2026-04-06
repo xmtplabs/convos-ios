@@ -107,9 +107,7 @@ struct VoiceMemoReviewView: View {
                 if player.isPlaying {
                     self.playbackProgress = player.duration > 0 ? player.currentTime / player.duration : 0
                 } else {
-                    self.playbackTimer?.invalidate()
-                    self.isPlaying = false
-                    self.playbackProgress = 0
+                    self.stopPlayback()
                 }
             }
         }
