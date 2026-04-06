@@ -217,7 +217,12 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
                     onVoiceMemoTap: onVoiceMemoTap,
-                    onConvosAction: onConvosAction
+                    onConvosAction: {
+                        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                            isMessageInputFocused = true
+                        }
+                        onConvosAction()
+                    }
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(height: DesignConstants.Spacing.step12x)

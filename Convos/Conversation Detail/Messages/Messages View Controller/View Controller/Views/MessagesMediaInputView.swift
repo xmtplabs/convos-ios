@@ -7,7 +7,7 @@ struct MessagesMediaButtonsView: View {
     let onConvosAction: () -> Void
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.stepX) {
+        HStack(spacing: DesignConstants.Spacing.step2x) {
             Button {
                 isPhotoPickerPresented = true
             } label: {

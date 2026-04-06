@@ -2,6 +2,7 @@ import AVFoundation
 import Combine
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
 @preconcurrency import XMTPiOS
 
 public protocol OutgoingMessageWriterProtocol: Sendable {
@@ -92,6 +93,16 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         var replyContext: ReplyContext?
     }
 
+    private struct QueuedAudioMessage {
+        let clientMessageId: String
+        let localCacheURL: URL
+        let filename: String
+        let trackingKey: String
+        let mimeType: String
+        let duration: Double?
+        var replyContext: ReplyContext?
+    }
+
     private struct QueuedEagerPhoto {
         let trackingKey: String
     }
@@ -100,6 +111,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         case text(QueuedTextMessage)
         case photo(QueuedPhotoMessage)
         case video(QueuedVideoMessage)
+        case audio(QueuedAudioMessage)
         case eagerPhoto(QueuedEagerPhoto)
     }
 
@@ -462,6 +474,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             try? await attachmentLocalStateWriter.saveWaveformLevels(waveformLevels, for: trackingKey)
         }
 
+        if let duration = params.duration {
+            try? await attachmentLocalStateWriter.saveDuration(duration, for: trackingKey)
+        }
+
         var replyContext: ReplyContext?
         if let replyToMessageId {
             replyContext = try await resolveReplyContext(parentClientMessageId: replyToMessageId)
@@ -738,6 +754,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                     try await publishPhoto(queued)
                 case .video(let queued):
                     try await publishVideo(queued)
+                case .audio(let queued):
+                    try await publishAudio(queued)
                 case .eagerPhoto(let queued):
                     try await processEagerPhoto(trackingKey: queued.trackingKey)
                 }
@@ -746,6 +764,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 case .photo(let queued):
                     await markPhotoFailed(trackingKey: queued.localCacheURL.absoluteString)
                 case .video(let queued):
+                    await markPhotoFailed(trackingKey: queued.trackingKey)
+                case .audio(let queued):
                     await markPhotoFailed(trackingKey: queued.trackingKey)
                 case .eagerPhoto(let queued):
                     await markPhotoFailed(trackingKey: queued.trackingKey)
@@ -1077,6 +1097,85 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": "video_retry"])
     }
 
+    private func publishAudio(_ queued: QueuedAudioMessage) async throws {
+        let tracker = PhotoUploadProgressTracker.shared
+        tracker.setStage(.preparing, for: queued.trackingKey)
+
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+
+        let audioData = try Data(contentsOf: queued.localCacheURL)
+        let attachment = Attachment(
+            filename: queued.filename,
+            mimeType: queued.mimeType,
+            data: audioData
+        )
+
+        let encrypted = try RemoteAttachment.encodeEncrypted(
+            content: attachment,
+            codec: AttachmentCodec()
+        )
+
+        let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
+            filename: queued.filename,
+            contentType: "application/octet-stream"
+        )
+
+        guard let uploadURL = URL(string: presignedURLs.uploadURL) else {
+            tracker.setStage(.failed, for: queued.trackingKey)
+            try? await markMessageFailed(clientMessageId: queued.clientMessageId)
+            throw PhotoAttachmentError.invalidURL
+        }
+
+        let taskId = UUID().uuidString
+        let encryptedFileURL = try saveToTemp(data: encrypted.payload, taskId: taskId)
+
+        tracker.setProgress(stage: .uploading, percentage: 0, for: queued.trackingKey)
+
+        try await backgroundUploadManager.startUpload(
+            fileURL: encryptedFileURL,
+            uploadURL: uploadURL,
+            contentType: "application/octet-stream",
+            taskId: taskId
+        )
+
+        let result = await backgroundUploadManager.waitForCompletion(taskId: taskId)
+
+        guard result.success else {
+            tracker.setStage(.failed, for: queued.trackingKey)
+            try? await markMessageFailed(clientMessageId: queued.clientMessageId)
+            throw result.error ?? PhotoAttachmentError.uploadFailed("Audio upload failed")
+        }
+
+        tracker.setStage(.publishing, for: queued.trackingKey)
+
+        let storedAttachment = StoredRemoteAttachment(
+            url: presignedURLs.assetURL,
+            contentDigest: encrypted.digest,
+            secret: encrypted.secret,
+            salt: encrypted.salt,
+            nonce: encrypted.nonce,
+            filename: queued.filename,
+            mimeType: queued.mimeType,
+            mediaWidth: nil,
+            mediaHeight: nil,
+            mediaDuration: queued.duration,
+            thumbnailDataBase64: nil
+        )
+
+        let messageId = try await publishAttachment(
+            storedAttachment: storedAttachment,
+            clientMessageId: queued.clientMessageId,
+            trackingKey: queued.trackingKey,
+            thumbnailImage: nil,
+            inboxReady: inboxReady,
+            replyContext: queued.replyContext,
+            mediaType: "voice_memo"
+        )
+
+        try? FileManager.default.removeItem(at: encryptedFileURL)
+        QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": "voice_memo_retry"])
+    }
+
     private func completeXMTPSend(
         queued: QueuedPhotoMessage,
         prepared: PreparedBackgroundUpload,
@@ -1302,16 +1401,26 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             return
         }
 
-        let isVideo = localFileURL.pathExtension.lowercased() == "mp4"
-            || localFileURL.pathExtension.lowercased() == "mov"
+        let localState = try await databaseWriter.read { db in
+            try AttachmentLocalState
+                .filter(AttachmentLocalState.Columns.attachmentKey == localFileURL.absoluteString)
+                .fetchOne(db)
+        }
+
+        let mediaType = detectRetryMediaType(
+            mimeType: localState?.mimeType,
+            filename: localFileURL.lastPathComponent
+        )
 
         try await databaseWriter.write { db in
             try message.with(status: .unpublished).save(db)
         }
 
-        if isVideo {
-            let filename = localFileURL.lastPathComponent
-            let trackingKey = localFileURL.absoluteString
+        let filename = localFileURL.lastPathComponent
+        let trackingKey = localFileURL.absoluteString
+
+        switch mediaType {
+        case .video:
             let queued = QueuedVideoMessage(
                 clientMessageId: message.clientMessageId,
                 localCacheURL: localFileURL,
@@ -1320,15 +1429,24 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 replyContext: replyContext
             )
             messageQueue.append(.video(queued))
-            startProcessingIfNeeded()
-        } else {
+        case .audio:
+            let queued = QueuedAudioMessage(
+                clientMessageId: message.clientMessageId,
+                localCacheURL: localFileURL,
+                filename: filename,
+                trackingKey: trackingKey,
+                mimeType: localState?.mimeType ?? "audio/m4a",
+                duration: localState?.duration,
+                replyContext: replyContext
+            )
+            messageQueue.append(.audio(queued))
+        case .image, .unknown:
             guard let imageData = try? Data(contentsOf: localFileURL),
                   let image = ImageType(data: imageData) else {
                 Log.error("Cannot retry photo: failed to load image from \(localFileURL.path)")
                 return
             }
 
-            let filename = localFileURL.lastPathComponent
             let queued = QueuedPhotoMessage(
                 clientMessageId: message.clientMessageId,
                 image: image,
@@ -1337,8 +1455,29 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 replyContext: replyContext
             )
             messageQueue.append(.photo(queued))
-            startProcessingIfNeeded()
+        case .file:
+            Log.error("Cannot retry attachment: unsupported file type for \(localFileURL.path)")
+            return
         }
+
+        startProcessingIfNeeded()
+    }
+
+    private func detectRetryMediaType(mimeType: String?, filename: String?) -> MediaType {
+        if let mimeType {
+            if mimeType.hasPrefix("image/") { return .image }
+            if mimeType.hasPrefix("video/") { return .video }
+            if mimeType.hasPrefix("audio/") { return .audio }
+            return .file
+        }
+
+        guard let filename else { return .unknown }
+        let ext = (filename as NSString).pathExtension.lowercased()
+        guard !ext.isEmpty, let utType = UTType(filenameExtension: ext) else { return .unknown }
+        if utType.conforms(to: .image) { return .image }
+        if utType.conforms(to: .movie) || utType.conforms(to: .video) { return .video }
+        if utType.conforms(to: .audio) { return .audio }
+        return .file
     }
 
     private func resolveLocalCacheURL(from storedJSON: String) -> URL? {

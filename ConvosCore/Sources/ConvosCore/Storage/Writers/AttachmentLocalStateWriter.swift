@@ -19,6 +19,7 @@ public protocol AttachmentLocalStateWriterProtocol: Sendable {
     ) async throws
     func migrateKey(from oldKey: String, to newKey: String) async throws
     func saveWaveformLevels(_ levels: [Float], for attachmentKey: String) async throws
+    func saveDuration(_ duration: Double, for attachmentKey: String) async throws
 }
 
 public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtocol, Sendable {
@@ -139,7 +140,8 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 height: existing.height,
                 isHiddenByOwner: existing.isHiddenByOwner,
                 mimeType: existing.mimeType,
-                waveformLevels: existing.waveformLevels
+                waveformLevels: existing.waveformLevels,
+                duration: existing.duration
             )
             try migrated.save(db)
 
@@ -159,6 +161,17 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 .updateAll(db, AttachmentLocalState.Columns.waveformLevels.set(to: levelsJSON))
             if count == 0 {
                 Log.error("[AttachmentLocalState] No record found for waveform levels save: \(attachmentKey.prefix(50))...")
+            }
+        }
+    }
+
+    public func saveDuration(_ duration: Double, for attachmentKey: String) async throws {
+        try await databaseWriter.write { db in
+            let count = try AttachmentLocalState
+                .filter(AttachmentLocalState.Columns.attachmentKey == attachmentKey)
+                .updateAll(db, AttachmentLocalState.Columns.duration.set(to: duration))
+            if count == 0 {
+                Log.error("[AttachmentLocalState] No record found for duration save: \(attachmentKey.prefix(50))...")
             }
         }
     }

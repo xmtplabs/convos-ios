@@ -405,6 +405,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addDurationToAttachmentLocalState") { db in
+            try db.alter(table: "attachmentLocalState") { t in
+                t.add(column: "duration", .double)
+            }
+        }
+
         return migrator
     }
 }

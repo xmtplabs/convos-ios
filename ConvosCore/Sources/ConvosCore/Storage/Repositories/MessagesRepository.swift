@@ -835,6 +835,10 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         waveformLevels = decoded
     }
 
+    if duration == nil {
+        duration = localState?.duration
+    }
+
     return HydratedAttachment(
         key: key,
         isRevealed: localState?.isRevealed ?? false,
