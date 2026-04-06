@@ -163,6 +163,50 @@ public enum ConvosAPI {
         }
     }
 
+    public struct InviteCodeStatusResponse: Codable, Sendable {
+        public let success: Bool
+        public let data: InviteCodeStatus
+
+        public init(success: Bool, data: InviteCodeStatus) {
+            self.success = success
+            self.data = data
+        }
+    }
+
+    public struct InviteCodeStatus: Codable, Sendable {
+        public let code: String
+        public let name: String?
+        public let maxRedemptions: Int
+        public let redemptionCount: Int
+        public let remainingRedemptions: Int
+
+        public init(code: String, name: String?, maxRedemptions: Int, redemptionCount: Int, remainingRedemptions: Int) {
+            self.code = code
+            self.name = name
+            self.maxRedemptions = maxRedemptions
+            self.redemptionCount = redemptionCount
+            self.remainingRedemptions = remainingRedemptions
+        }
+    }
+
+    public struct RedeemInviteCodeResponse: Codable, Sendable {
+        public let success: Bool
+        public let data: RedeemInviteCodeData
+
+        public init(success: Bool, data: RedeemInviteCodeData) {
+            self.success = success
+            self.data = data
+        }
+    }
+
+    public struct RedeemInviteCodeData: Codable, Sendable {
+        public let inviteCode: InviteCodeStatus
+
+        public init(inviteCode: InviteCodeStatus) {
+            self.inviteCode = inviteCode
+        }
+    }
+
     // MARK: - Common Error Response
 
     public struct ErrorResponse: Codable {
