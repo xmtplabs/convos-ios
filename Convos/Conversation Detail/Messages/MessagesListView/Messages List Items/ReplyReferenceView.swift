@@ -34,12 +34,10 @@ struct ReplyReferenceView: View {
     }
 
     private func replyLabel(for attachment: HydratedAttachment) -> String {
-        switch attachment.mediaType {
-        case .video: return "video"
-        case .audio: return "audio"
-        case .file: return attachment.filename ?? "file"
-        default: return "photo"
+        if attachment.mediaType == .file, let filename = attachment.filename {
+            return filename
         }
+        return attachment.mediaType.previewLabel.replacingOccurrences(of: "a ", with: "")
     }
 
     private var parentAttachment: HydratedAttachment? {

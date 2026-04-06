@@ -152,10 +152,14 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 .frame(minHeight: 52)
                 .clipShape(.capsule)
                 .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffectID("media", in: namespace)
+                .glassEffectTransition(.matchedGeometry)
         } else if case .recorded(let url, let duration) = voiceMemoRecorder.state {
             HStack(spacing: DesignConstants.Spacing.step2x) {
                 Button {
-                    voiceMemoRecorder.cancelRecording()
+                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                        voiceMemoRecorder.cancelRecording()
+                    }
                 } label: {
                     Image(systemName: "xmark")
                         .font(.system(size: 14, weight: .semibold))
@@ -176,6 +180,8 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 .frame(minHeight: 52)
                 .clipShape(.capsule)
                 .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffectID("media", in: namespace)
+                .glassEffectTransition(.matchedGeometry)
             }
         } else {
             normalInputView

@@ -1,3 +1,4 @@
+import ConvosCore
 import SwiftUI
 
 struct ConversationView<MessagesBottomBar: View>: View {
@@ -311,6 +312,10 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 PhotosInfoSheet()
             }
         )
+        .onDisappear {
+            VoiceMemoPlayer.shared.stop()
+            viewModel.voiceMemoRecorder.cancelRecording()
+        }
     }
 }
 

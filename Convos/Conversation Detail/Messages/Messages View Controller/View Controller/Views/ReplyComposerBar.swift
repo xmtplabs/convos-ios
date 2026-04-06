@@ -62,12 +62,12 @@ struct ReplyComposerBar: View {
     }
 
     private func replyLabel(for attachment: HydratedAttachment) -> String {
-        switch attachment.mediaType {
-        case .video: return "Video"
-        case .audio: return "Audio"
-        case .file: return attachment.filename ?? "File"
-        default: return "Photo"
+        if attachment.mediaType == .file, let filename = attachment.filename {
+            return filename
         }
+        return attachment.mediaType.previewLabel
+            .replacingOccurrences(of: "a ", with: "")
+            .capitalized
     }
 
     var body: some View {

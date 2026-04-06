@@ -417,35 +417,50 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         eagerUploads.removeValue(forKey: trackingKey)
     }
 
-    // MARK: - Video
+    // MARK: - File Attachment Upload (shared by video, voice memo, and future types)
 
-    func sendVideo(at fileURL: URL, replyToMessageId: String? = nil) async throws -> String {
-        let compressionService = VideoCompressionService()
-        let compressed = try await compressionService.compressVideo(at: fileURL)
+    struct AttachmentUploadParams {
+        let dataURL: URL
+        let filename: String
+        let mimeType: String
+        var width: Int?
+        var height: Int?
+        var duration: Double?
+        var thumbnailData: Data?
+        var waveformLevels: [Float]?
+        var mediaTypeLabel: String = "attachment"
+    }
 
+    private func sendFileAttachment(
+        params: AttachmentUploadParams,
+        replyToMessageId: String?
+    ) async throws -> String {
         let clientMessageId = UUID().uuidString
-        let filename = "video_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).mp4"
-        let localCacheURL = try photoService.localCacheURL(for: filename)
+        let localCacheURL = try photoService.localCacheURL(for: params.filename)
 
         try FileManager.default.createDirectory(
             at: localCacheURL.deletingLastPathComponent(),
             withIntermediateDirectories: true
         )
-        try FileManager.default.copyItem(at: compressed.fileURL, to: localCacheURL)
+        try FileManager.default.copyItem(at: params.dataURL, to: localCacheURL)
 
         let trackingKey = localCacheURL.absoluteString
 
-        if let thumbnailImage = ImageType(data: compressed.thumbnail) {
+        if let thumbnailData = params.thumbnailData, let thumbnailImage = ImageType(data: thumbnailData) {
             ImageCacheContainer.shared.cacheImage(thumbnailImage, for: trackingKey, storageTier: .persistent)
         }
 
         try await attachmentLocalStateWriter.saveWithDimensions(
             attachmentKey: trackingKey,
             conversationId: conversationId,
-            width: compressed.width,
-            height: compressed.height,
-            mimeType: compressed.mimeType
+            width: params.width ?? 0,
+            height: params.height ?? 0,
+            mimeType: params.mimeType
         )
+
+        if let waveformLevels = params.waveformLevels {
+            try? await attachmentLocalStateWriter.saveWaveformLevels(waveformLevels, for: trackingKey)
+        }
 
         var replyContext: ReplyContext?
         if let replyToMessageId {
@@ -460,11 +475,11 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         do {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
 
-            let videoData = try Data(contentsOf: compressed.fileURL)
+            let fileData = try Data(contentsOf: params.dataURL)
             let attachment = Attachment(
-                filename: filename,
-                mimeType: "video/mp4",
-                data: videoData
+                filename: params.filename,
+                mimeType: params.mimeType,
+                data: fileData
             )
 
             let encrypted = try RemoteAttachment.encodeEncrypted(
@@ -473,7 +488,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             )
 
             let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
-                filename: filename,
+                filename: params.filename,
                 contentType: "application/octet-stream"
             )
 
@@ -498,12 +513,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             guard result.success else {
                 tracker.setStage(.failed, for: trackingKey)
                 try? await markMessageFailed(clientMessageId: clientMessageId)
-                throw result.error ?? PhotoAttachmentError.uploadFailed("Video upload failed")
+                throw result.error ?? PhotoAttachmentError.uploadFailed("\(params.mediaTypeLabel) upload failed")
             }
 
             tracker.setStage(.publishing, for: trackingKey)
-
-            let thumbnailBase64 = compressed.thumbnail.base64EncodedString()
 
             let storedAttachment = StoredRemoteAttachment(
                 url: presignedURLs.assetURL,
@@ -511,28 +524,27 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 secret: encrypted.secret,
                 salt: encrypted.salt,
                 nonce: encrypted.nonce,
-                filename: filename,
-                mimeType: "video/mp4",
-                mediaWidth: compressed.width,
-                mediaHeight: compressed.height,
-                mediaDuration: compressed.duration,
-                thumbnailDataBase64: thumbnailBase64
+                filename: params.filename,
+                mimeType: params.mimeType,
+                mediaWidth: params.width,
+                mediaHeight: params.height,
+                mediaDuration: params.duration,
+                thumbnailDataBase64: params.thumbnailData?.base64EncodedString()
             )
 
             let messageId = try await publishAttachment(
                 storedAttachment: storedAttachment,
                 clientMessageId: clientMessageId,
                 trackingKey: trackingKey,
-                thumbnailImage: ImageType(data: compressed.thumbnail),
+                thumbnailImage: params.thumbnailData.flatMap { ImageType(data: $0) },
                 inboxReady: inboxReady,
                 replyContext: replyContext,
-                mediaType: "video"
+                mediaType: params.mediaTypeLabel
             )
 
             try? FileManager.default.removeItem(at: encryptedFileURL)
-            try? FileManager.default.removeItem(at: compressed.fileURL)
 
-            QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": "video"])
+            QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": params.mediaTypeLabel])
 
             return trackingKey
         } catch {
@@ -540,6 +552,28 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             try? await markMessageFailed(clientMessageId: clientMessageId)
             throw error
         }
+    }
+
+    // MARK: - Video
+
+    func sendVideo(at fileURL: URL, replyToMessageId: String? = nil) async throws -> String {
+        let compressionService = VideoCompressionService()
+        let compressed = try await compressionService.compressVideo(at: fileURL)
+
+        let params = AttachmentUploadParams(
+            dataURL: compressed.fileURL,
+            filename: "video_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).mp4",
+            mimeType: "video/mp4",
+            width: compressed.width,
+            height: compressed.height,
+            duration: compressed.duration,
+            thumbnailData: compressed.thumbnail,
+            mediaTypeLabel: "video"
+        )
+
+        let trackingKey = try await sendFileAttachment(params: params, replyToMessageId: replyToMessageId)
+        try? FileManager.default.removeItem(at: compressed.fileURL)
+        return trackingKey
     }
 
     private func publishAttachment(
@@ -635,118 +669,16 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     // MARK: - Voice Memo
 
     func sendVoiceMemo(at fileURL: URL, duration: TimeInterval, waveformLevels: [Float]? = nil, replyToMessageId: String? = nil) async throws -> String {
-        let clientMessageId = UUID().uuidString
-        let filename = "voice_memo_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).m4a"
-        let localCacheURL = try photoService.localCacheURL(for: filename)
-
-        try FileManager.default.createDirectory(
-            at: localCacheURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try FileManager.default.copyItem(at: fileURL, to: localCacheURL)
-
-        let trackingKey = localCacheURL.absoluteString
-
-        try await attachmentLocalStateWriter.saveWithDimensions(
-            attachmentKey: trackingKey,
-            conversationId: conversationId,
-            width: 0,
-            height: 0,
-            mimeType: "audio/m4a"
+        let params = AttachmentUploadParams(
+            dataURL: fileURL,
+            filename: "voice_memo_\(Int(Date().timeIntervalSince1970))_\(UUID().uuidString.prefix(8)).m4a",
+            mimeType: "audio/m4a",
+            duration: duration,
+            waveformLevels: waveformLevels,
+            mediaTypeLabel: "voice_memo"
         )
 
-        if let waveformLevels {
-            try? await attachmentLocalStateWriter.saveWaveformLevels(waveformLevels, for: trackingKey)
-        }
-
-        var replyContext: ReplyContext?
-        if let replyToMessageId {
-            replyContext = try await resolveReplyContext(parentClientMessageId: replyToMessageId)
-        }
-
-        try await savePhotoToDatabase(clientMessageId: clientMessageId, localCacheURL: localCacheURL, replyContext: replyContext)
-
-        let tracker = PhotoUploadProgressTracker.shared
-        tracker.setStage(.preparing, for: trackingKey)
-
-        do {
-            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
-
-            let audioData = try Data(contentsOf: fileURL)
-            let attachment = Attachment(
-                filename: filename,
-                mimeType: "audio/m4a",
-                data: audioData
-            )
-
-            let encrypted = try RemoteAttachment.encodeEncrypted(
-                content: attachment,
-                codec: AttachmentCodec()
-            )
-
-            let presignedURLs = try await inboxReady.apiClient.getPresignedUploadURL(
-                filename: filename,
-                contentType: "application/octet-stream"
-            )
-
-            guard let uploadURL = URL(string: presignedURLs.uploadURL) else {
-                throw PhotoAttachmentError.invalidURL
-            }
-
-            let taskId = UUID().uuidString
-            let encryptedFileURL = try saveToTemp(data: encrypted.payload, taskId: taskId)
-
-            tracker.setProgress(stage: .uploading, percentage: 0, for: trackingKey)
-
-            try await backgroundUploadManager.startUpload(
-                fileURL: encryptedFileURL,
-                uploadURL: uploadURL,
-                contentType: "application/octet-stream",
-                taskId: taskId
-            )
-
-            let result = await backgroundUploadManager.waitForCompletion(taskId: taskId)
-
-            guard result.success else {
-                tracker.setStage(.failed, for: trackingKey)
-                try? await markMessageFailed(clientMessageId: clientMessageId)
-                throw result.error ?? PhotoAttachmentError.uploadFailed("Voice memo upload failed")
-            }
-
-            tracker.setStage(.publishing, for: trackingKey)
-
-            let storedAttachment = StoredRemoteAttachment(
-                url: presignedURLs.assetURL,
-                contentDigest: encrypted.digest,
-                secret: encrypted.secret,
-                salt: encrypted.salt,
-                nonce: encrypted.nonce,
-                filename: filename,
-                mimeType: "audio/m4a",
-                mediaDuration: duration
-            )
-
-            let messageId = try await publishAttachment(
-                storedAttachment: storedAttachment,
-                clientMessageId: clientMessageId,
-                trackingKey: trackingKey,
-                thumbnailImage: nil,
-                inboxReady: inboxReady,
-                replyContext: replyContext,
-                mediaType: "voice_memo"
-            )
-
-            try? FileManager.default.removeItem(at: encryptedFileURL)
-
-            QAEvent.emit(.message, "sent", ["id": messageId, "conversation": conversationId, "type": "voice_memo"])
-        } catch {
-            Log.error("Failed to send voice memo: \(error)")
-            tracker.setStage(.failed, for: trackingKey)
-            try? await markMessageFailed(clientMessageId: clientMessageId)
-            throw error
-        }
-
-        return trackingKey
+        return try await sendFileAttachment(params: params, replyToMessageId: replyToMessageId)
     }
 
     // MARK: - Replies
