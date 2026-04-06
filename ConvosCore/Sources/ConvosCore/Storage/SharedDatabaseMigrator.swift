@@ -399,6 +399,18 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addWaveformLevelsToAttachmentLocalState") { db in
+            try db.alter(table: "attachmentLocalState") { t in
+                t.add(column: "waveformLevels", .text)
+            }
+        }
+
+        migrator.registerMigration("addDurationToAttachmentLocalState") { db in
+            try db.alter(table: "attachmentLocalState") { t in
+                t.add(column: "duration", .double)
+            }
+        }
+
         return migrator
     }
 }

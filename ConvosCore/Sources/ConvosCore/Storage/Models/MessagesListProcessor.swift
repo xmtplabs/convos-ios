@@ -135,14 +135,14 @@ public final class MessagesListProcessor: Sendable {
             }
             isFirstVisible = false
 
-            let isAttachment = content.isAttachment
+            let isFullBleedAttachment = content.isFullBleedAttachment
             let senderId = msg.senderId
 
             if addedDateSeparator {
                 groupStartIndex = index
                 groupEndIndex = index
                 currentSenderId = senderId
-            } else if isAttachment {
+            } else if isFullBleedAttachment {
                 if groupStartIndex >= 0, currentSenderId != nil {
                     flush(
                         &items, messages, groupStartIndex, groupEndIndex,
@@ -180,7 +180,7 @@ public final class MessagesListProcessor: Sendable {
             }
 
             lastMessageDate = messageDate
-            lastWasAttachment = isAttachment
+            lastWasAttachment = isFullBleedAttachment
         }
 
         if groupStartIndex >= 0, currentSenderId != nil {

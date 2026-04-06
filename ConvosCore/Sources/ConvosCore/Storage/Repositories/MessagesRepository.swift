@@ -828,6 +828,17 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         }
     }
 
+    var waveformLevels: [Float]?
+    if let levelsJSON = localState?.waveformLevels,
+       let data = levelsJSON.data(using: .utf8),
+       let decoded = try? JSONDecoder().decode([Float].self, from: data) {
+        waveformLevels = decoded
+    }
+
+    if duration == nil {
+        duration = localState?.duration
+    }
+
     return HydratedAttachment(
         key: key,
         isRevealed: localState?.isRevealed ?? false,
@@ -837,6 +848,7 @@ private func hydrateAttachment(key: String, localState: AttachmentLocalState?) -
         mimeType: mimeType,
         duration: duration,
         thumbnailDataBase64: thumbnailDataBase64,
-        filename: filename
+        filename: filename,
+        waveformLevels: waveformLevels
     )
 }

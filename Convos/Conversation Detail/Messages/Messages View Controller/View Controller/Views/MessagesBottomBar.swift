@@ -3,7 +3,7 @@ import PhotosUI
 import SwiftUI
 
 enum MessagesViewInputFocus: Hashable {
-    case message, displayName, conversationName
+    case message, displayName, conversationName, voiceMemoRecording
 }
 
 struct MessagesBottomBar<BottomBarContent: View>: View {
@@ -31,18 +31,23 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     let onDisplayNameEndedEditing: () -> Void
     let onVideoSelected: (URL) -> Void
     let onProfileSettings: () -> Void
+    let onVoiceMemoTap: () -> Void
+    @Bindable var voiceMemoRecorder: VoiceMemoRecorder
+    let onSendVoiceMemo: () -> Void
     let onConvosAction: () -> Void
     let onBaseHeightChanged: (CGFloat) -> Void
     @ViewBuilder let bottomBarContent: () -> BottomBarContent
 
     @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
 
+    @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
     @State private var isMessageInputFocused: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var previousFocus: MessagesViewInputFocus?
+    @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
     @Namespace private var namespace: Namespace.ID
 
@@ -53,6 +58,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             bottomBarContent()
+            VoiceMemoKeyboardFocusKeeper(
+                focusState: $focusState,
+                text: $voiceMemoKeyboardKeeperText
+            )
             GlassEffectContainer {
                 ZStack {
                     if !isExpanded {
@@ -77,7 +86,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
 
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isExpanded = newValue == .displayName
-                isMessageInputFocused = newValue == .message
+                isMessageInputFocused = newValue == .message || newValue == .voiceMemoRecording
             }
         }
         .onChange(of: messageText) { _, _ in
@@ -85,6 +94,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isMessageInputFocused = true
             }
+        }
+        .onChange(of: isVoiceMemoActive) { wasActive, isActive in
+            guard wasActive, !isActive else { return }
+            restoreVoiceMemoFocusIfNeeded()
         }
         .onChange(of: isPhotoPickerPresented) { _, newValue in
             if newValue {
@@ -135,8 +148,79 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         }
     }
 
+    private var isVoiceMemoActive: Bool {
+        switch voiceMemoRecorder.state {
+        case .recording, .recorded: return true
+        case .idle: return false
+        }
+    }
+
+    private func startVoiceMemoRecording() {
+        if let currentFocus = focusCoordinator.currentFocus {
+            voiceMemoReturnFocus = currentFocus
+            focusCoordinator.moveFocus(to: .voiceMemoRecording)
+        } else {
+            voiceMemoReturnFocus = nil
+        }
+        onVoiceMemoTap()
+    }
+
+    private func restoreVoiceMemoFocusIfNeeded() {
+        guard focusCoordinator.currentFocus == .voiceMemoRecording,
+              let voiceMemoReturnFocus else {
+            self.voiceMemoReturnFocus = nil
+            return
+        }
+
+        focusCoordinator.moveFocus(to: voiceMemoReturnFocus)
+        self.voiceMemoReturnFocus = nil
+    }
+
     @ViewBuilder
     private var collapsedInputView: some View {
+        if case .recording = voiceMemoRecorder.state {
+            VoiceMemoRecordingView(recorder: voiceMemoRecorder)
+                .frame(minHeight: 52)
+                .clipShape(.capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffectID("media", in: namespace)
+                .glassEffectTransition(.matchedGeometry)
+        } else if case .recorded(let url, let duration) = voiceMemoRecorder.state {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Button {
+                    withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                        voiceMemoRecorder.cancelRecording()
+                    }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.colorTextSecondary)
+                        .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
+                }
+                .clipShape(.circle)
+                .glassEffect(.regular.interactive(), in: .circle)
+                .accessibilityLabel("Discard voice memo")
+                .accessibilityIdentifier("voice-memo-cancel-button")
+
+                VoiceMemoReviewView(
+                    audioURL: url,
+                    duration: duration,
+                    levels: voiceMemoRecorder.audioLevels,
+                    onSend: { onSendVoiceMemo() }
+                )
+                .frame(minHeight: 52)
+                .clipShape(.capsule)
+                .glassEffect(.regular.interactive(), in: .capsule)
+                .glassEffectID("media", in: namespace)
+                .glassEffectTransition(.matchedGeometry)
+            }
+        } else {
+            normalInputView
+        }
+    }
+
+    @ViewBuilder
+    private var normalInputView: some View {
         HStack(alignment: .bottom, spacing: DesignConstants.Spacing.step2x) {
             if isMessageInputFocused {
                 Button {
@@ -163,7 +247,13 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
-                    onConvosAction: onConvosAction
+                    onVoiceMemoTap: startVoiceMemoRecording,
+                    onConvosAction: {
+                        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                            isMessageInputFocused = true
+                        }
+                        onConvosAction()
+                    }
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(height: DesignConstants.Spacing.step12x)
@@ -311,6 +401,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             },
             onVideoSelected: { _ in },
             onProfileSettings: {},
+            onVoiceMemoTap: {},
+            voiceMemoRecorder: VoiceMemoRecorder(),
+            onSendVoiceMemo: {},
             onConvosAction: {},
             onBaseHeightChanged: { height in
                 bottomBarHeight = height

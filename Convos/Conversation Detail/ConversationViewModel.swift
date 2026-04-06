@@ -3,6 +3,7 @@ import Combine
 import ConvosCore
 import ConvosCoreiOS
 import Observation
+import SwiftUI
 import UIKit
 import UserNotifications
 
@@ -232,6 +233,7 @@ class ConversationViewModel {
     var selectedVideoURL: URL?
     var selectedVideoThumbnail: UIImage?
     private var videoThumbnailTask: Task<Void, Never>?
+    var voiceMemoRecorder: VoiceMemoRecorder = VoiceMemoRecorder()
     private(set) var currentEagerUploadKey: String?
     var canRemoveMembers: Bool {
         conversation.creator.isCurrentUser
@@ -583,6 +585,7 @@ class ConversationViewModel {
     private func observe() {
         messagesListRepository.startObserving()
         setupTypingIndicatorHandler()
+        setupVoiceMemoPlaybackObserver()
         messagesListRepository.messagesListPublisher
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -805,6 +808,76 @@ extension ConversationViewModel {
                 self.onPhotoAttached()
             } catch {
                 Log.error("Failed to generate video thumbnail: \(error)")
+            }
+        }
+    }
+
+    func setupVoiceMemoPlaybackObserver() {
+        NotificationCenter.default.addObserver(
+            forName: .voiceMemoPlaybackRequested,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard self != nil,
+                  let userInfo = notification.userInfo,
+                  let messageId = userInfo["messageId"] as? String,
+                  let attachmentKey = userInfo["attachmentKey"] as? String else { return }
+
+            Task { @MainActor in
+                let player = VoiceMemoPlayer.shared
+                if player.currentlyPlayingMessageId == messageId {
+                    if player.state == .playing {
+                        player.pause()
+                        return
+                    } else if player.state == .paused {
+                        player.resume()
+                        return
+                    }
+                }
+
+                do {
+                    let loader = RemoteAttachmentLoader()
+                    let loaded = try await loader.loadAttachmentData(from: attachmentKey)
+                    try player.play(data: loaded.data, messageId: messageId)
+                } catch {
+                    Log.error("Failed to play voice memo: \(error)")
+                }
+            }
+        }
+    }
+
+    func onVoiceMemoTapped() {
+        guard case .idle = voiceMemoRecorder.state else { return }
+        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+            do {
+                try voiceMemoRecorder.startRecording()
+            } catch {
+                Log.error("Failed to start voice memo recording: \(error)")
+            }
+        }
+    }
+
+    func sendVoiceMemo() {
+        guard case .recorded(let url, let duration) = voiceMemoRecorder.state else { return }
+        let levels = voiceMemoRecorder.audioLevels
+        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+            voiceMemoRecorder.resetState()
+        }
+
+        let messageWriter = cachedMessageWriter
+        let replyTarget = replyingToMessage
+        replyingToMessage = nil
+
+        Task {
+            do {
+                _ = try await messageWriter.sendVoiceMemo(
+                    at: url,
+                    duration: duration,
+                    waveformLevels: levels.isEmpty ? nil : levels,
+                    replyToMessageId: replyTarget?.messageId
+                )
+            } catch {
+                Log.error("Error sending voice memo: \(error)")
             }
         }
     }

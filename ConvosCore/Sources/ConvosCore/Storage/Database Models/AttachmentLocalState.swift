@@ -13,6 +13,8 @@ struct AttachmentLocalState: FetchableRecord, PersistableRecord, Codable, Hashab
         static let height: Column = Column(CodingKeys.height)
         static let isHiddenByOwner: Column = Column(CodingKeys.isHiddenByOwner)
         static let mimeType: Column = Column(CodingKeys.mimeType)
+        static let waveformLevels: Column = Column(CodingKeys.waveformLevels)
+        static let duration: Column = Column(CodingKeys.duration)
     }
 
     let attachmentKey: String
@@ -23,6 +25,8 @@ struct AttachmentLocalState: FetchableRecord, PersistableRecord, Codable, Hashab
     let height: Int?
     let isHiddenByOwner: Bool
     let mimeType: String?
+    let waveformLevels: String?
+    let duration: Double?
 
     static let conversationForeignKey: ForeignKey = ForeignKey([Columns.conversationId], to: [DBConversation.Columns.id])
     static let conversation: BelongsToAssociation<AttachmentLocalState, DBConversation> = belongsTo(DBConversation.self, using: conversationForeignKey)
@@ -35,7 +39,9 @@ struct AttachmentLocalState: FetchableRecord, PersistableRecord, Codable, Hashab
         width: Int? = nil,
         height: Int? = nil,
         isHiddenByOwner: Bool = false,
-        mimeType: String? = nil
+        mimeType: String? = nil,
+        waveformLevels: String? = nil,
+        duration: Double? = nil
     ) {
         self.attachmentKey = attachmentKey
         self.conversationId = conversationId
@@ -45,5 +51,7 @@ struct AttachmentLocalState: FetchableRecord, PersistableRecord, Codable, Hashab
         self.height = height
         self.isHiddenByOwner = isHiddenByOwner
         self.mimeType = mimeType
+        self.waveformLevels = waveformLevels
+        self.duration = duration
     }
 }

@@ -85,7 +85,18 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         return height
     }
 
-    private func attachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
+    private func estimatedAttachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
+        switch attachment.mediaType {
+        case .audio:
+            return 44.0
+        case .file:
+            return 60.0
+        case .image, .video, .unknown:
+            return imageAttachmentHeight(for: attachment, width: width)
+        }
+    }
+
+    private func imageAttachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
         guard let w = attachment.width, let h = attachment.height, w > 0, h > 0 else {
             return width * 0.75
         }
@@ -96,10 +107,10 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
         var height: CGFloat
         switch message.content {
         case .attachment(let attachment):
-            height = attachmentHeight(for: attachment, width: width)
+            height = estimatedAttachmentHeight(for: attachment, width: width)
         case .attachments(let attachments):
             guard let first = attachments.first else { return 50.0 }
-            height = attachmentHeight(for: first, width: width)
+            height = estimatedAttachmentHeight(for: first, width: width)
         case .emoji:
             height = 80.0
         case .text:

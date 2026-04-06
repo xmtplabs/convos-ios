@@ -667,7 +667,17 @@ struct MessageContextMenuOverlay: View {
     @ViewBuilder
     private func contextMenuAttachmentPreview(_ attachment: HydratedAttachment) -> some View {
         let profile = message?.sender.profile ?? Profile(inboxId: "", conversationId: "", name: nil, avatar: nil)
-        if attachment.mediaType == .file {
+        if attachment.mediaType == .audio, let message {
+            MessageContainer(style: state.bubbleStyle, isOutgoing: state.isOutgoing) {
+                VoiceMemoBubbleContent(
+                    message: message,
+                    attachment: attachment,
+                    isOutgoing: state.isOutgoing,
+                    player: .shared,
+                    isLoading: false
+                )
+            }
+        } else if attachment.mediaType == .file {
             FileAttachmentBubble(
                 attachment: attachment,
                 style: state.bubbleStyle,

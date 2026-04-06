@@ -17,9 +17,10 @@ struct ReplyComposerBar: View {
         case .emoji(let emoji):
             return emoji
         case .attachment(let attachment):
-            return attachment.mediaType == .video ? "Video" : "Photo"
+            return replyLabel(for: attachment)
         case .attachments(let attachments):
-            return attachments.first?.mediaType == .video ? "Video" : "Photo"
+            if let first = attachments.first { return replyLabel(for: first) }
+            return "Photo"
         case .invite:
             return "Invite"
         case .linkPreview(let preview):
@@ -56,18 +57,27 @@ struct ReplyComposerBar: View {
         attachment?.mediaType == .file
     }
 
+    private var isAudio: Bool {
+        attachment?.mediaType == .audio
+    }
+
     private func replyLabel(for attachment: HydratedAttachment) -> String {
-        switch attachment.mediaType {
-        case .video: return "Video"
-        case .audio: return "Audio"
-        case .file: return attachment.filename ?? "File"
-        default: return "Photo"
+        if attachment.mediaType == .file, let filename = attachment.filename {
+            return filename
         }
+        return attachment.mediaType.previewLabel
+            .replacingOccurrences(of: "a ", with: "")
+            .capitalized
     }
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
-            if let attachment {
+            if isAudio {
+                Image(systemName: "waveform")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.colorTextSecondary)
+                    .frame(width: 40, height: 40)
+            } else if let attachment {
                 ReplyPhotoThumbnail(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment, isVideo: isVideo)
             }
 

@@ -103,19 +103,22 @@ final class FocusCoordinator {
             return previousFocus ?? defaultFocus ?? .message
 
         case (.displayName, .editProfile),
-            (.message, .editProfile):
+            (.message, .editProfile),
+            (.voiceMemoRecording, .editProfile):
             return .message
 
         case (.conversationName, .conversationSettings):
             // After editing conversation name in settings, move to message field (or default)
             return defaultFocus ?? .message
 
-        case (.message, .conversation):
+        case (.message, .conversation),
+            (.voiceMemoRecording, .conversation):
             // When sending a message, always re-focus the message field
             return .message
 
-        case (.message, _):
-            // Message field ends editing, go to default
+        case (.message, _),
+            (.voiceMemoRecording, _):
+            // Message field and voice memo keeper end editing, go to default
             return defaultFocus
 
         default:
@@ -288,9 +291,9 @@ final class FocusCoordinator {
     }
 
     private func updateFocusForSizeClassChange() {
-        // Only auto-adjust if we're currently at nil or .message
+        // Only auto-adjust if we're currently at nil, .message, or .voiceMemoRecording
         // Don't interrupt active editing of displayName or conversationName
-        guard currentFocus == nil || currentFocus == .message else {
+        guard currentFocus == nil || currentFocus == .message || currentFocus == .voiceMemoRecording else {
             return
         }
 

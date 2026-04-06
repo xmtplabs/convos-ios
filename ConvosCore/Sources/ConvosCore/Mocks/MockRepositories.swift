@@ -245,4 +245,10 @@ public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterPro
             revealedAttachments[newKey] = conversationId
         }
     }
+
+    public func saveWaveformLevels(_ levels: [Float], for attachmentKey: String) async throws {
+    }
+
+    public func saveDuration(_ duration: Double, for attachmentKey: String) async throws {
+    }
 }

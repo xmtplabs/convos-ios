@@ -18,6 +18,8 @@ public protocol AttachmentLocalStateWriterProtocol: Sendable {
         mimeType: String?
     ) async throws
     func migrateKey(from oldKey: String, to newKey: String) async throws
+    func saveWaveformLevels(_ levels: [Float], for attachmentKey: String) async throws
+    func saveDuration(_ duration: Double, for attachmentKey: String) async throws
 }
 
 public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtocol, Sendable {
@@ -137,7 +139,9 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 width: existing.width,
                 height: existing.height,
                 isHiddenByOwner: existing.isHiddenByOwner,
-                mimeType: existing.mimeType
+                mimeType: existing.mimeType,
+                waveformLevels: existing.waveformLevels,
+                duration: existing.duration
             )
             try migrated.save(db)
 
@@ -146,6 +150,29 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
                 .deleteAll(db)
 
             Log.info("[AttachmentLocalState] Migrated from \(oldKey.prefix(30))... to \(newKey.prefix(30))... (dims: \(existing.width ?? -1)x\(existing.height ?? -1))")
+        }
+    }
+
+    public func saveWaveformLevels(_ levels: [Float], for attachmentKey: String) async throws {
+        let levelsJSON = String(data: try JSONEncoder().encode(levels), encoding: .utf8)
+        try await databaseWriter.write { db in
+            let count = try AttachmentLocalState
+                .filter(AttachmentLocalState.Columns.attachmentKey == attachmentKey)
+                .updateAll(db, AttachmentLocalState.Columns.waveformLevels.set(to: levelsJSON))
+            if count == 0 {
+                Log.error("[AttachmentLocalState] No record found for waveform levels save: \(attachmentKey.prefix(50))...")
+            }
+        }
+    }
+
+    public func saveDuration(_ duration: Double, for attachmentKey: String) async throws {
+        try await databaseWriter.write { db in
+            let count = try AttachmentLocalState
+                .filter(AttachmentLocalState.Columns.attachmentKey == attachmentKey)
+                .updateAll(db, AttachmentLocalState.Columns.duration.set(to: duration))
+            if count == 0 {
+                Log.error("[AttachmentLocalState] No record found for duration save: \(attachmentKey.prefix(50))...")
+            }
         }
     }
 }
