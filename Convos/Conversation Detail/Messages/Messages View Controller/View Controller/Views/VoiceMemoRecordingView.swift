@@ -68,7 +68,28 @@ struct VoiceMemoRecordingView: View {
     }
 }
 
+struct VoiceMemoKeyboardFocusKeeper: View {
+    @FocusState.Binding var focusState: MessagesViewInputFocus?
+    @Binding var text: String
+
+    init(focusState: FocusState<MessagesViewInputFocus?>.Binding, text: Binding<String>) {
+        _focusState = focusState
+        _text = text
+    }
+
+    var body: some View {
+        TextField("", text: $text)
+            .focused($focusState, equals: .voiceMemoRecording)
+            .frame(width: 1, height: 1)
+            .opacity(0.01)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+}
+
 #Preview {
+    @Previewable @FocusState var focusState: MessagesViewInputFocus?
+
     VoiceMemoRecordingView(recorder: VoiceMemoRecorder())
         .padding()
 }

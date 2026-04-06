@@ -3,7 +3,7 @@ import PhotosUI
 import SwiftUI
 
 enum MessagesViewInputFocus: Hashable {
-    case message, displayName, conversationName
+    case message, displayName, conversationName, voiceMemoRecording
 }
 
 struct MessagesBottomBar<BottomBarContent: View>: View {
@@ -40,12 +40,14 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
 
     @State private var quicknameSettings: QuicknameSettingsViewModel = .shared
 
+    @State private var voiceMemoKeyboardKeeperText: String = ""
     @State private var isExpanded: Bool = false
     @State private var isMessageInputFocused: Bool = false
     @State private var isImagePickerPresented: Bool = false
     @State private var isCameraPresented: Bool = false
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var previousFocus: MessagesViewInputFocus?
+    @State private var voiceMemoReturnFocus: MessagesViewInputFocus?
     @State private var didSelectPhotoThisSession: Bool = false
     @Namespace private var namespace: Namespace.ID
 
@@ -56,6 +58,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var body: some View {
         VStack(spacing: 0) {
             bottomBarContent()
+            VoiceMemoKeyboardFocusKeeper(
+                focusState: $focusState,
+                text: $voiceMemoKeyboardKeeperText
+            )
             GlassEffectContainer {
                 ZStack {
                     if !isExpanded {
@@ -80,7 +86,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
 
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isExpanded = newValue == .displayName
-                isMessageInputFocused = newValue == .message
+                isMessageInputFocused = newValue == .message || newValue == .voiceMemoRecording
             }
         }
         .onChange(of: messageText) { _, _ in
@@ -88,6 +94,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                 isMessageInputFocused = true
             }
+        }
+        .onChange(of: isVoiceMemoActive) { wasActive, isActive in
+            guard wasActive, !isActive else { return }
+            restoreVoiceMemoFocusIfNeeded()
         }
         .onChange(of: isPhotoPickerPresented) { _, newValue in
             if newValue {
@@ -143,6 +153,27 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
         case .recording, .recorded: return true
         case .idle: return false
         }
+    }
+
+    private func startVoiceMemoRecording() {
+        if let currentFocus = focusCoordinator.currentFocus {
+            voiceMemoReturnFocus = currentFocus
+            focusCoordinator.moveFocus(to: .voiceMemoRecording)
+        } else {
+            voiceMemoReturnFocus = nil
+        }
+        onVoiceMemoTap()
+    }
+
+    private func restoreVoiceMemoFocusIfNeeded() {
+        guard focusCoordinator.currentFocus == .voiceMemoRecording,
+              let voiceMemoReturnFocus else {
+            self.voiceMemoReturnFocus = nil
+            return
+        }
+
+        focusCoordinator.moveFocus(to: voiceMemoReturnFocus)
+        self.voiceMemoReturnFocus = nil
     }
 
     @ViewBuilder
@@ -216,7 +247,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 MessagesMediaButtonsView(
                     isPhotoPickerPresented: $isPhotoPickerPresented,
                     isCameraPresented: $isCameraPresented,
-                    onVoiceMemoTap: onVoiceMemoTap,
+                    onVoiceMemoTap: startVoiceMemoRecording,
                     onConvosAction: {
                         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                             isMessageInputFocused = true
