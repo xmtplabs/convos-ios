@@ -3,6 +3,7 @@ import Combine
 import ConvosCore
 import ConvosCoreiOS
 import Observation
+import SwiftUI
 import UIKit
 import UserNotifications
 
@@ -847,17 +848,21 @@ extension ConversationViewModel {
 
     func onVoiceMemoTapped() {
         guard case .idle = voiceMemoRecorder.state else { return }
-        do {
-            try voiceMemoRecorder.startRecording()
-        } catch {
-            Log.error("Failed to start voice memo recording: \(error)")
+        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+            do {
+                try voiceMemoRecorder.startRecording()
+            } catch {
+                Log.error("Failed to start voice memo recording: \(error)")
+            }
         }
     }
 
     func sendVoiceMemo() {
         guard case .recorded(let url, let duration) = voiceMemoRecorder.state else { return }
         let levels = voiceMemoRecorder.audioLevels
-        voiceMemoRecorder.resetState()
+        withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+            voiceMemoRecorder.resetState()
+        }
 
         let messageWriter = cachedMessageWriter
         let replyTarget = replyingToMessage

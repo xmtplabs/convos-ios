@@ -154,10 +154,12 @@ public final class AttachmentLocalStateWriter: AttachmentLocalStateWriterProtoco
     public func saveWaveformLevels(_ levels: [Float], for attachmentKey: String) async throws {
         let levelsJSON = String(data: try JSONEncoder().encode(levels), encoding: .utf8)
         try await databaseWriter.write { db in
-            try db.execute(
-                sql: "UPDATE attachmentLocalState SET waveformLevels = ? WHERE attachmentKey = ?",
-                arguments: [levelsJSON, attachmentKey]
-            )
+            let count = try AttachmentLocalState
+                .filter(AttachmentLocalState.Columns.attachmentKey == attachmentKey)
+                .updateAll(db, AttachmentLocalState.Columns.waveformLevels.set(to: levelsJSON))
+            if count == 0 {
+                Log.error("[AttachmentLocalState] No record found for waveform levels save: \(attachmentKey.prefix(50))...")
+            }
         }
     }
 }

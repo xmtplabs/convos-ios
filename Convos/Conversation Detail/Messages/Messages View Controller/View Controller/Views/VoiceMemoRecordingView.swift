@@ -44,7 +44,9 @@ struct VoiceMemoRecordingView: View {
                 .frame(minWidth: 36, alignment: .trailing)
 
             Button {
-                recorder.stopRecording()
+                withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
+                    recorder.stopRecording()
+                }
             } label: {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 14))

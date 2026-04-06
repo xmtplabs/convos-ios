@@ -53,6 +53,10 @@ public final class VoiceMemoRecorder: NSObject {
         recorder.delegate = self
         recorder.isMeteringEnabled = true
         guard recorder.record() else {
+            if let url = recordingURL {
+                try? FileManager.default.removeItem(at: url)
+            }
+            recordingURL = nil
             state = .idle
             return
         }

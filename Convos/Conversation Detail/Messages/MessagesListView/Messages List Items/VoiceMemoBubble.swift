@@ -5,6 +5,8 @@ extension Notification.Name {
     static let voiceMemoPlaybackRequested: Notification.Name = .init("voiceMemoPlaybackRequested")
 }
 
+private let sharedAttachmentLoader: RemoteAttachmentLoader = RemoteAttachmentLoader()
+
 struct VoiceMemoAttachmentView: View {
     let message: AnyMessage
     let attachment: HydratedAttachment
@@ -50,8 +52,7 @@ struct VoiceMemoAttachmentView: View {
         guard !isLoading else { return }
         isLoading = true
         do {
-            let loader = RemoteAttachmentLoader()
-            let loaded = try await loader.loadAttachmentData(from: attachment.key)
+            let loaded = try await sharedAttachmentLoader.loadAttachmentData(from: attachment.key)
             audioData = loaded.data
             try await MainActor.run {
                 try player.play(data: loaded.data, messageId: message.messageId)
@@ -138,8 +139,7 @@ struct VoiceMemoBubbleContent: View {
 
     private func loadAndCacheWaveform() async {
         do {
-            let loader = RemoteAttachmentLoader()
-            let loaded = try await loader.loadAttachmentData(from: attachment.key)
+            let loaded = try await sharedAttachmentLoader.loadAttachmentData(from: attachment.key)
             let levels = await VoiceMemoWaveformAnalyzer.analyzeLevels(from: loaded.data)
             await MainActor.run { analyzedLevels = levels }
         } catch {

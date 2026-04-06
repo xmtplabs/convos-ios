@@ -6,6 +6,20 @@ public enum MediaType: String, Codable, Sendable {
     case audio
     case file
     case unknown
+
+    public var previewLabel: String {
+        switch self {
+        case .image: return "a photo"
+        case .video: return "a video"
+        case .audio: return "a voice memo"
+        case .file: return "a file"
+        case .unknown: return "an attachment"
+        }
+    }
+
+    public var isFullBleed: Bool {
+        self == .image || self == .video
+    }
 }
 
 public struct HydratedAttachment: Hashable, Codable, Sendable {
