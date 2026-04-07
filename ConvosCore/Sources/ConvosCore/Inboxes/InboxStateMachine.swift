@@ -942,6 +942,8 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Resume the syncing manager
         await syncingManager?.resume()
 
+        await checkStaleInstallation(client: result.client)
+
         emitStateChange(.ready(clientId: clientId, result: result))
         Log.info("Inbox returned to ready state")
     }
