@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import GRDB
 
@@ -7,6 +8,20 @@ public struct InboxesRepository {
 
     public init(databaseReader: any DatabaseReader) {
         self.databaseReader = databaseReader
+    }
+
+    /// Publishes `true` when any non-vault inbox is flagged as stale (installation revoked).
+    public func anyInboxStalePublisher() -> AnyPublisher<Bool, Never> {
+        ValueObservation
+            .tracking { db in
+                try DBInbox
+                    .filter(DBInbox.Columns.isVault == false)
+                    .filter(DBInbox.Columns.isStale == true)
+                    .fetchCount(db) > 0
+            }
+            .publisher(in: databaseReader)
+            .replaceError(with: false)
+            .eraseToAnyPublisher()
     }
 
     /// Fetch all inboxes from the database

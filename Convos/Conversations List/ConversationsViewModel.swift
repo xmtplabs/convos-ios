@@ -107,6 +107,7 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
+    var isDeviceStale: Bool = false
     private var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -365,6 +366,15 @@ final class ConversationsViewModel {
                 self?.conversationsCount = conversationsCount
             }
             .store(in: &cancellables)
+
+        InboxesRepository(databaseReader: session.databaseReader)
+            .anyInboxStalePublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] isStale in
+                self?.isDeviceStale = isStale
+            }
+            .store(in: &cancellables)
+
         conversationsRepository.conversationsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
