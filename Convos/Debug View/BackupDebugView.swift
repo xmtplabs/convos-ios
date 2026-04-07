@@ -314,6 +314,7 @@ struct BackupDebugView: View {
             identityStore: identityStore,
             environment: environment
         )
+        let vaultManager = session.vaultService as? VaultManager
 
         return RestoreManager(
             vaultKeyStore: vaultKeyStore,
@@ -321,6 +322,7 @@ struct BackupDebugView: View {
             databaseManager: databaseManager,
             archiveImporter: archiveImporter,
             restoreLifecycleController: session as? any RestoreLifecycleControlling,
+            vaultManager: vaultManager,
             environment: environment
         )
     }

@@ -33,6 +33,7 @@ public actor RestoreManager {
     private let databaseManager: any DatabaseManagerProtocol
     private let archiveImporter: any RestoreArchiveImporter
     private let restoreLifecycleController: (any RestoreLifecycleControlling)?
+    private let vaultManager: VaultManager?
     private let environment: AppEnvironment
 
     public private(set) var state: RestoreState = .idle
@@ -44,6 +45,7 @@ public actor RestoreManager {
         databaseManager: any DatabaseManagerProtocol,
         archiveImporter: any RestoreArchiveImporter,
         restoreLifecycleController: (any RestoreLifecycleControlling)? = nil,
+        vaultManager: VaultManager? = nil,
         environment: AppEnvironment
     ) {
         self.vaultKeyStore = vaultKeyStore
@@ -55,6 +57,7 @@ public actor RestoreManager {
         self.databaseManager = databaseManager
         self.archiveImporter = archiveImporter
         self.restoreLifecycleController = restoreLifecycleController
+        self.vaultManager = vaultManager
         self.environment = environment
     }
 
@@ -111,6 +114,8 @@ public actor RestoreManager {
                 Log.error("[Restore] failed to mark conversations inactive: \(error)")
             }
 
+            await reCreateVault()
+
             if preparedForRestore {
                 Log.info("[Restore] resuming sessions")
                 await restoreLifecycleController?.finishRestore()
@@ -129,6 +134,34 @@ public actor RestoreManager {
             state = .failed(error.localizedDescription)
             BackupBundle.cleanup(directory: stagingDir)
             throw error
+        }
+    }
+
+    // MARK: - Vault re-creation
+
+    private func reCreateVault() async {
+        guard let vaultManager else {
+            Log.info("[Restore] no VaultManager provided, skipping vault re-creation")
+            return
+        }
+
+        Log.info("[Restore] re-creating vault with fresh keys")
+        do {
+            try await vaultManager.reCreate(
+                databaseWriter: databaseManager.dbWriter,
+                environment: environment
+            )
+            Log.info("[Restore] vault re-created")
+
+            Log.info("[Restore] broadcasting restored keys to new vault")
+            do {
+                try await vaultManager.shareAllKeys()
+                Log.info("[Restore] broadcast restored keys to new vault")
+            } catch {
+                Log.warning("[Restore] failed to broadcast keys to new vault (non-fatal): \(error)")
+            }
+        } catch {
+            Log.error("[Restore] vault re-creation failed: \(error)")
         }
     }
 
