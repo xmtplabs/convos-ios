@@ -87,7 +87,8 @@ private func makeUpdate(
             creator: otherUser,
             addedMembers: addedMembers.isEmpty ? [.mock(isCurrentUser: false, name: "NewMember")] : addedMembers,
             removedMembers: removedMembers,
-            metadataChanges: []
+            metadataChanges: [],
+            isReconnection: false
         )),
         date: date,
         reactions: []
@@ -501,7 +502,8 @@ struct MessagesListProcessorUpdateTests {
                 creator: otherUser,
                 addedMembers: [],
                 removedMembers: [],
-                metadataChanges: [.init(field: .metadata, oldValue: nil, newValue: "data")]
+                metadataChanges: [.init(field: .metadata, oldValue: nil, newValue: "data")],
+                isReconnection: false
             )),
             date: now,
             reactions: []
@@ -844,7 +846,8 @@ struct MessagesListProcessorAssistantJoinTests {
                     creator: otherUser,
                     addedMembers: [agentMember],
                     removedMembers: [],
-                    metadataChanges: []
+                    metadataChanges: [],
+                    isReconnection: false
                 )),
                 date: now.addingTimeInterval(5),
                 reactions: []
