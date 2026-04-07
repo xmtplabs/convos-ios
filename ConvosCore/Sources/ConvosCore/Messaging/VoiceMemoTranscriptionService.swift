@@ -337,7 +337,14 @@ extension VoiceMemoTranscriptionService {
             return true
         }
 
+        /// Promote a previously-reserved slot to a running slot holding the given
+        /// task. If the slot is no longer in the `.reserved` state — because the
+        /// detached task already finished and called `clear(messageId:)` while the
+        /// caller was suspending on this actor hop — do nothing, so we don't
+        /// resurrect a stale entry that would lock the message id out of future
+        /// transcription attempts.
         func storeTask(_ task: Task<Void, Never>, for messageId: String) {
+            guard case .reserved = slots[messageId] else { return }
             slots[messageId] = .running(task)
         }
 
