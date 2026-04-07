@@ -108,6 +108,9 @@ final class ConversationsViewModel {
 
     var conversations: [Conversation] = []
     var isDeviceStale: Bool = false
+    var canStartOrJoinConversations: Bool {
+        !isDeviceStale
+    }
     @ObservationIgnored
     private var staleInboxIds: Set<String> = []
     private var hiddenConversationIds: Set<String> = []
@@ -279,6 +282,7 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation
@@ -286,6 +290,7 @@ final class ConversationsViewModel {
     }
 
     func onJoinConvo() {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .scanner
@@ -293,6 +298,7 @@ final class ConversationsViewModel {
     }
 
     private func join(from inviteCode: String) {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: inviteCode)
@@ -384,6 +390,9 @@ final class ConversationsViewModel {
                 self.staleInboxIds = ids
                 // Re-filter the currently visible conversations so stale ones hide immediately.
                 self.conversations = self.conversations.filter { !ids.contains($0.inboxId) }
+                if self.isDeviceStale {
+                    self.newConversationViewModel = nil
+                }
                 // Clear selection if the selected conversation belongs to a now-stale inbox.
                 if let selectedId = self._selectedConversationId,
                    !self.conversations.contains(where: { $0.id == selectedId }) {
