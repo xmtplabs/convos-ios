@@ -174,6 +174,27 @@ public actor VaultManager {
             try await inboxWriter.save(inboxId: inboxId, clientId: installationId, isVault: true)
             bootstrapState = .ready
             Log.info("[Vault.bootstrap] bootstrapped successfully: inboxId=\(inboxId)")
+
+            // Diagnostic: log whether this vault installation is still active on the network.
+            // If this returns false, it usually means another device restored from backup and
+            // revoked this device's vault installation. The conversation-level stale detection
+            // (InboxStateMachine) should handle the user-facing recovery — this log is just
+            // for diagnosing rare partial-revocation states during QA.
+            if let xmtpClient = await vaultClient.xmtpClient {
+                do {
+                    let state = try await xmtpClient.inboxState(refreshFromNetwork: true)
+                    let isActive = state.installations.contains { $0.id == installationId }
+                    if isActive {
+                        Log.info("[Vault.bootstrap] vault installation is active on network ✓")
+                    } else {
+                        Log.warning("[Vault.bootstrap] vault installation NOT in active list — vault is stale (likely revoked by another device)")
+                        QAEvent.emit(.vault, "stale_detected", ["inboxId": inboxId])
+                    }
+                } catch {
+                    Log.debug("[Vault.bootstrap] inboxState check failed (non-fatal): \(error)")
+                }
+            }
+
             await keyCoordinator.startObservingInboxes()
 
             healthCheck = VaultHealthCheck(
