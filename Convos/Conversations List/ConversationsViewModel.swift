@@ -107,9 +107,22 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
-    var isDeviceStale: Bool = false
+    var staleDeviceState: StaleDeviceState = .healthy
+
+    /// True when any inbox is stale (partial or full). Drives banner visibility.
+    var isDeviceStale: Bool {
+        staleDeviceState.hasAnyStaleInboxes
+    }
+
+    /// True when the device is fully stale (every used inbox revoked).
+    var isFullStale: Bool {
+        staleDeviceState == .fullStale
+    }
+
+    /// User can still start/join conversations when there's at least one
+    /// healthy inbox (i.e., not in fullStale).
     var canStartOrJoinConversations: Bool {
-        !isDeviceStale
+        staleDeviceState.hasUsableInboxes
     }
     @ObservationIgnored
     private var staleInboxIds: Set<String> = []
@@ -310,6 +323,68 @@ final class ConversationsViewModel {
         appSettingsViewModel.deleteAllData {}
     }
 
+    // MARK: - Stale state handling
+
+    /// Reacts to changes in the device's stale-installation state.
+    ///
+    /// Behavior per state:
+    /// - `healthy` → no action
+    /// - `partialStale` → cancel any in-flight new conversation flow that
+    ///   may have been started before the partial state was detected; the
+    ///   user can still create new conversations in remaining healthy inboxes
+    /// - `fullStale` → close any in-flight new conversation flow, dismiss
+    ///   the selection, and trigger an automatic local reset (countdown
+    ///   handled by the UI)
+    private func handleStaleStateTransition(
+        from previous: StaleDeviceState,
+        to current: StaleDeviceState
+    ) {
+        guard previous != current else { return }
+
+        let event: String
+        switch (previous, current) {
+        case (.healthy, .partialStale): event = "healthy_to_partial"
+        case (.healthy, .fullStale): event = "healthy_to_full"
+        case (.partialStale, .fullStale): event = "partial_to_full"
+        case (.partialStale, .healthy): event = "partial_to_healthy"
+        case (.fullStale, .partialStale): event = "full_to_partial"
+        case (.fullStale, .healthy): event = "full_to_healthy"
+        default: event = "unknown_transition"
+        }
+        Log.info("[StaleDevice] state transition: \(event)")
+
+        switch current {
+        case .healthy:
+            isPendingFullStaleAutoReset = false
+        case .partialStale:
+            // Continue allowing new convos in healthy inboxes — only close
+            // an in-flight flow if it can no longer complete.
+            isPendingFullStaleAutoReset = false
+        case .fullStale:
+            newConversationViewModel = nil
+            selectedConversation = nil
+            // Trigger the auto-reset countdown. The view binds to
+            // `isPendingFullStaleAutoReset` to render a cancellable countdown.
+            isPendingFullStaleAutoReset = true
+        }
+    }
+
+    /// True when the UI should be showing the auto-reset countdown for full stale.
+    /// The view layer renders a "Resetting in N seconds" countdown that the user
+    /// can cancel — `cancelFullStaleAutoReset()` clears this back to false.
+    var isPendingFullStaleAutoReset: Bool = false
+
+    func cancelFullStaleAutoReset() {
+        isPendingFullStaleAutoReset = false
+        Log.info("[StaleDevice] auto-reset cancelled by user")
+    }
+
+    func confirmFullStaleAutoReset() {
+        Log.info("[StaleDevice] auto-reset confirmed")
+        isPendingFullStaleAutoReset = false
+        deleteAllData()
+    }
+
     func leave(conversation: Conversation) {
         if let index = conversations.firstIndex(of: conversation) {
             conversations.remove(at: index)
@@ -376,10 +451,13 @@ final class ConversationsViewModel {
             .store(in: &cancellables)
 
         let inboxesRepository = InboxesRepository(databaseReader: session.databaseReader)
-        inboxesRepository.anyInboxStalePublisher()
+        inboxesRepository.staleDeviceStatePublisher()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] isStale in
-                self?.isDeviceStale = isStale
+            .sink { [weak self] state in
+                guard let self else { return }
+                let previousState = self.staleDeviceState
+                self.staleDeviceState = state
+                self.handleStaleStateTransition(from: previousState, to: state)
             }
             .store(in: &cancellables)
 
