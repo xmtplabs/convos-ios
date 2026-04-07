@@ -168,6 +168,56 @@ struct InboxWriterTests {
         try? await fixtures.cleanup()
     }
 
+    @Test("markStale flips an inbox's isStale flag")
+    func testMarkStaleFlipsFlag() async throws {
+        let fixtures = TestFixtures()
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+
+        let inboxId = "stale-inbox"
+        _ = try await inboxWriter.save(inboxId: inboxId, clientId: ClientId.generate().value)
+
+        let initial = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: inboxId)?.isStale
+        }
+        #expect(initial == false)
+
+        try await inboxWriter.markStale(inboxId: inboxId)
+        let afterMark = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: inboxId)?.isStale
+        }
+        #expect(afterMark == true)
+
+        try await inboxWriter.markStale(inboxId: inboxId, false)
+        let afterClear = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: inboxId)?.isStale
+        }
+        #expect(afterClear == false)
+
+        try? await fixtures.cleanup()
+    }
+
+    @Test("markStale only affects the targeted inbox")
+    func testMarkStaleIsScopedToOneInbox() async throws {
+        let fixtures = TestFixtures()
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+
+        _ = try await inboxWriter.save(inboxId: "inbox-a", clientId: ClientId.generate().value)
+        _ = try await inboxWriter.save(inboxId: "inbox-b", clientId: ClientId.generate().value)
+
+        try await inboxWriter.markStale(inboxId: "inbox-a")
+
+        let stale = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: "inbox-a")?.isStale
+        }
+        let other = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: "inbox-b")?.isStale
+        }
+        #expect(stale == true)
+        #expect(other == false)
+
+        try? await fixtures.cleanup()
+    }
+
     @Test("deleteAll removes data from all tables")
     func testDeleteAllRemovesAllData() async throws {
         let fixtures = TestFixtures()

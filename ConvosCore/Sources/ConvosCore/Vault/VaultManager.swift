@@ -303,20 +303,24 @@ public actor VaultManager {
         }
 
         Log.info("[Vault.reCreate] step 4/5: deleting old vault inbox row from GRDB")
-        if let oldInboxId {
-            do {
-                try await databaseWriter.write { db in
+        do {
+            try await databaseWriter.write { db in
+                if let oldInboxId {
                     try db.execute(
                         sql: "DELETE FROM inbox WHERE inboxId = ? AND isVault = 1",
                         arguments: [oldInboxId]
                     )
+                } else {
+                    // No known inboxId — match the keychain cleanup behaviour and
+                    // remove all vault inbox rows so the next bootstrap doesn't
+                    // collide with an orphan via InboxWriterError.duplicateVault.
+                    try db.execute(sql: "DELETE FROM inbox WHERE isVault = 1")
                 }
-                Log.info("[Vault.reCreate] step 4/5: deleted old DBInbox row for inboxId=\(oldInboxId)")
-            } catch {
-                Log.warning("[Vault.reCreate] step 4/5: failed to delete old DBInbox row: \(error)")
             }
-        } else {
-            Log.warning("[Vault.reCreate] step 4/5: no oldInboxId available, skipping DBInbox row cleanup")
+            Log.info("[Vault.reCreate] step 4/5: deleted old DBInbox row(s)")
+        } catch {
+            Log.error("[Vault.reCreate] step 4/5: failed to delete old DBInbox row(s): \(error)")
+            throw VaultReCreateError.bootstrapFailed("failed to delete old vault inbox row(s): \(error.localizedDescription)")
         }
 
         let afterDeleteCount = (try? await databaseWriter.read { db in
