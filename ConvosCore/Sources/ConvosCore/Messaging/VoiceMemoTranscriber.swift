@@ -101,12 +101,23 @@ public actor VoiceMemoTranscriber: VoiceMemoTranscribing {
         // and a fresh `transcribe(messageId:)` call may have already replaced
         // the slot with a new task. Only clear the slot if it still points at
         // the slot we own, so we don't accidentally orphan that newer task.
+        //
+        // The inner task is unstructured, so caller cancellation does NOT
+        // automatically propagate into it — we have to explicitly cancel it on
+        // the way out, otherwise SpeechAnalyzer keeps chewing on the audio in
+        // the background until it finishes naturally.
         do {
             let result = try await slot.task.value
             if inFlight[messageId]?.id == slot.id {
                 inFlight[messageId] = nil
             }
             return result
+        } catch is CancellationError {
+            slot.task.cancel()
+            if inFlight[messageId]?.id == slot.id {
+                inFlight[messageId] = nil
+            }
+            throw CancellationError()
         } catch {
             if inFlight[messageId]?.id == slot.id {
                 inFlight[messageId] = nil

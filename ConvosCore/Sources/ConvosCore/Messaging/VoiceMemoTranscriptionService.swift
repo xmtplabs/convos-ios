@@ -39,6 +39,10 @@ public protocol VoiceMemoTranscriptionServicing: Sendable {
 }
 
 public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicing, @unchecked Sendable {
+    /// Filename prefix used by `writeTemporaryAudioFile(data:mimeType:)` so the
+    /// init-time cleanup pass can identify orphaned voice memo temp files.
+    private static let temporaryFilenamePrefix: String = "convos-voice-memo-"
+
     private let transcriber: any VoiceMemoTranscribing
     private let attachmentLoader: any RemoteAttachmentLoaderProtocol
     private let transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol
@@ -56,6 +60,12 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
         self.attachmentLoader = attachmentLoader
         self.transcriptRepository = transcriptRepository
         self.transcriptWriter = transcriptWriter
+        // Sweep any voice memo temp files left over from a previous run — if the
+        // app crashed or was force-quit during transcription, the per-job defer
+        // block in `runTranscriptionJob` never had a chance to delete them.
+        Task.detached(priority: .background) {
+            Self.purgeOrphanedTemporaryFiles()
+        }
     }
 
     public func enqueueIfNeeded(
@@ -186,6 +196,12 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
             )
             Log.info("[VoiceMemoTranscription] Saved transcript for message \(messageId) (\(text.count) chars)")
         } catch is CancellationError {
+            // Cancellation propagates from the outer task to the `await` here,
+            // but the transcriber's inner unstructured task is not
+            // automatically cancelled. Tell the transcriber explicitly so it
+            // stops the SpeechAnalyzer pipeline instead of leaving it running
+            // in the background until it finishes the audio file naturally.
+            await transcriber.cancel(messageId: messageId)
             Log.info("[VoiceMemoTranscription] Transcription cancelled for \(messageId)")
         } catch {
             Log.error("[VoiceMemoTranscription] Transcription failed for \(messageId): \(error)")
@@ -241,10 +257,48 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
     private static func writeTemporaryAudioFile(data: Data, mimeType: String) throws -> URL {
         let ext = fileExtension(forMimeType: mimeType)
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("convos-voice-memo-\(UUID().uuidString)")
+            .appendingPathComponent("\(temporaryFilenamePrefix)\(UUID().uuidString)")
             .appendingPathExtension(ext)
         try data.write(to: url, options: .atomic)
         return url
+    }
+
+    /// Best-effort sweep of stale `convos-voice-memo-*` files in the temporary
+    /// directory. Runs on a background task at service init so a crash or force
+    /// quit during transcription doesn't leak files until iOS reclaims them.
+    /// Files less than 60 seconds old are spared in case another concurrent
+    /// transcription is mid-flight.
+    private static func purgeOrphanedTemporaryFiles() {
+        let fileManager = FileManager.default
+        let tempDirectory = fileManager.temporaryDirectory
+        let now = Date()
+        do {
+            let contents = try fileManager.contentsOfDirectory(
+                at: tempDirectory,
+                includingPropertiesForKeys: [.contentModificationDateKey],
+                options: [.skipsHiddenFiles]
+            )
+            var purged = 0
+            for url in contents {
+                guard url.lastPathComponent.hasPrefix(temporaryFilenamePrefix) else { continue }
+                let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?
+                    .contentModificationDate ?? .distantPast
+                guard now.timeIntervalSince(modified) > 60 else { continue }
+                do {
+                    try fileManager.removeItem(at: url)
+                    purged += 1
+                } catch {
+                    Log.error("[VoiceMemoTranscription] Failed to purge stale temp file \(url.lastPathComponent): \(error)")
+                }
+            }
+            if purged > 0 {
+                Log.info("[VoiceMemoTranscription] Purged \(purged) stale voice memo temp file(s)")
+            }
+        } catch {
+            // No access to the temp directory or it doesn't exist yet — nothing
+            // to clean up.
+            Log.info("[VoiceMemoTranscription] Skipping stale temp file purge: \(error.localizedDescription)")
+        }
     }
 
     private static func fileExtension(forMimeType mimeType: String) -> String {

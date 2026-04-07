@@ -201,6 +201,44 @@ struct VoiceMemoTranscriptionServiceTests {
         #expect(permanentlyFailed.isEmpty)
     }
 
+    @Test("cancellation propagates to the transcriber so the SpeechAnalyzer pipeline stops")
+    func testCancellationPropagatesToTranscriber() async throws {
+        let transcriber = StubTranscriber(
+            result: .failure(CancellationError())
+        )
+        let attachmentLoader = StubAttachmentLoader()
+        let repository = StubTranscriptRepository()
+        let writer = StubTranscriptWriter()
+
+        let service = VoiceMemoTranscriptionService(
+            transcriber: transcriber,
+            attachmentLoader: attachmentLoader,
+            transcriptRepository: repository,
+            transcriptWriter: writer
+        )
+
+        await service.enqueueIfNeeded(
+            messageId: "msg-1",
+            conversationId: "conv-1",
+            attachmentKey: "key-1",
+            mimeType: "audio/m4a"
+        )
+
+        try await waitUntil(timeout: .seconds(2)) {
+            await transcriber.cancelCallSnapshot().contains("msg-1")
+        }
+
+        let cancelCalls = await transcriber.cancelCallSnapshot()
+        let permanentlyFailed = await writer.permanentlyFailedSnapshot()
+        let failed = await writer.failedSnapshot()
+        // The orchestrator told the transcriber to cancel its in-flight work,
+        // and the cancellation arm did NOT persist a failure row — cancellation
+        // is a transient state, not a recoverable or permanent failure.
+        #expect(cancelCalls == ["msg-1"])
+        #expect(permanentlyFailed.isEmpty)
+        #expect(failed.isEmpty)
+    }
+
     @Test("empty transcript is treated as permanent since retrying same audio produces same result")
     func testEmptyTranscriptIsPermanent() async throws {
         let transcriber = StubTranscriber(
@@ -352,6 +390,7 @@ private actor StubTranscriber: VoiceMemoTranscribing {
     private let result: Result<String, Error>
     private let delay: Duration
     private var calls: Int = 0
+    private var cancelCalls: [String] = []
 
     init(result: Result<String, Error>, delay: Duration = .zero) {
         self.result = result
@@ -359,6 +398,7 @@ private actor StubTranscriber: VoiceMemoTranscribing {
     }
 
     func callCount() -> Int { calls }
+    func cancelCallSnapshot() -> [String] { cancelCalls }
 
     func transcribe(messageId: String, fileURL: URL) async throws -> String {
         calls += 1
@@ -368,7 +408,9 @@ private actor StubTranscriber: VoiceMemoTranscribing {
         return try result.get()
     }
 
-    func cancel(messageId: String) async {}
+    func cancel(messageId: String) async {
+        cancelCalls.append(messageId)
+    }
 }
 
 private actor StubAttachmentLoader: RemoteAttachmentLoaderProtocol {
