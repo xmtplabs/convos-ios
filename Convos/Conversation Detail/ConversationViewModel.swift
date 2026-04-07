@@ -1041,6 +1041,22 @@ extension ConversationViewModel {
         messagesListRepository.setTranscriptExpanded(!isExpanded, for: messageId)
     }
 
+    func retryTranscript(for item: VoiceMemoTranscriptListItem) {
+        let service = voiceMemoTranscriptionService
+        let messageId = item.parentMessageId
+        let conversationId = item.conversationId
+        let attachmentKey = item.attachmentKey
+        let mimeType = item.mimeType ?? "audio/m4a"
+        Task.detached(priority: .userInitiated) {
+            await service.retry(
+                messageId: messageId,
+                conversationId: conversationId,
+                attachmentKey: attachmentKey,
+                mimeType: mimeType
+            )
+        }
+    }
+
     func retryMessage(_ message: AnyMessage) {
         let messageWriter = cachedMessageWriter
         let messageId = message.messageId

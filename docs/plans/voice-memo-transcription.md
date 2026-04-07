@@ -243,15 +243,37 @@ Proceed with a local-only architecture where transcript data is persisted in a d
   - `Convos/Conversation Detail/Messages/MessagesListView/MessagesListView.swift`
 - estimated layout heights handled in `DefaultMessagesLayoutDelegate.swift`
 
-### Not yet wired
-- Failure affordance
-  - failed transcripts are stored but the row does not yet show a retry button; failures are silent
-- Persistence of expand/collapse across launches
-  - expand state still lives only in the repository's in-memory `Set`
-- QA / tests
-  - no unit tests for the storage layer yet
-  - no unit tests for `VoiceMemoTranscriptionService` (would benefit from a mock transcriber + mock attachment loader)
-  - no QA scenario file yet (`qa/tests/32-voice-memo-transcription.md`)
+### Failure / retry path
+- `VoiceMemoTranscriptionServicing.retry(...)` bypasses the "already has a transcript" guard.
+- `VoiceMemoTranscriptionService` still skips failed transcripts on a normal `enqueueIfNeeded` (so we don't loop), but a user-initiated retry forces the job through.
+- `VoiceMemoTranscriptListItem` now carries `mimeType` and `errorDescription`. The transcript row renders the error description as a small subdued line and a `Try again` capsule button when `status == .failed`. The button is wired through `CellConfig.onRetryTranscript` → data source → view controller → `MessagesViewRepresentable` → `MessagesView` → `ConversationView` → `ConversationViewModel.retryTranscript(for:)`.
+- `LoadedAttachment` gained an explicit `public init` so tests and other modules can construct one.
+
+### Persistence of expand/collapse
+- New helper `Convos/Conversation Detail/Messages/MessagesListView/VoiceMemoTranscriptExpansionStore.swift` stores the set of expanded message ids in `UserDefaults`, keyed by `VoiceMemoTranscriptExpansionStore.<conversationId>`.
+- `MessagesListRepository` loads the set on init and writes it back on every toggle.
+
+### Tests
+- `ConvosCore/Tests/ConvosCoreTests/VoiceMemoTranscriptStorageTests.swift` exercises the writer/repository round-trip via an in-memory `MockDatabaseManager`. Covers: `markPending`, `saveCompleted` preserves `createdAt`, `saveFailed` records the error and keeps `createdAt`, and per-conversation scoping. A small `seedConversationStub` helper inserts the minimum non-null columns of `conversation` so the FK on `voiceMemoTranscript.conversationId` is satisfied.
+- `ConvosCore/Tests/ConvosCoreTests/VoiceMemoTranscriptionServiceTests.swift` exercises the orchestration layer with stub actors for the transcriber, attachment loader, repository, and writer. Covers:
+  - happy path writes pending then completed
+  - existing completed transcript causes early return without invoking the transcriber or loader
+  - existing failed transcript is not auto-retried by `enqueueIfNeeded`
+  - explicit `retry(...)` bypasses the failed-skip and re-runs the transcriber
+  - transcriber failure path writes via `saveFailed`
+  - attachment loader failure path writes via `saveFailed` without invoking the transcriber
+  - two concurrent `enqueueIfNeeded` calls for the same message id deduplicate to a single run
+- All 11 new tests pass under `xcodebuild test -scheme ConvosCore`.
+
+### QA scenario
+- `qa/tests/32-voice-memo-transcription.md` registered in `qa/SKILL.md`. Exercises:
+  - receiving a voice memo and waiting for the transcript row
+  - tap to expand / tap to collapse
+  - persistence of the expanded state across an app relaunch
+  - no transcript row for non-audio attachments (photos)
+  - no transcript row for outgoing voice memos
+  - optional failure / retry affordance (best-effort, environment dependent)
+- The test uses `say` on macOS to generate a small spoken-English `.m4a` payload that the on-device transcriber should handle reliably.
 
 ## Next implementation steps
 
@@ -264,23 +286,22 @@ Done. `VoiceMemoTranscriber` runs `SpeechAnalyzer` + `SpeechTranscriber` against
 ### Step C — background triggering ✅ (initial version)
 Done at the view-model level: `ConversationViewModel` observes the messages publisher and triggers transcription for incoming audio attachments on open and on every update. This satisfies the "transcription happens without user interaction" goal for foregrounded conversations. A truly background path (e.g. when the app receives a voice memo push notification while suspended) is still out of scope.
 
-### Step D — UX polish (not started)
-- Failure affordance (retry button, inline "Transcript unavailable — try again")
-- Optional persistence of expand/collapse across launches
-- Optional smarter scroll-to-bottom behavior when a transcript first arrives and pushes content off screen
+### Step D — UX polish ✅
+Done. Failed transcripts now show an inline error description and a `Try again` capsule button. Tapping it calls `VoiceMemoTranscriptionService.retry(...)`, which bypasses the "already failed" skip. Expand/collapse state persists across launches via `VoiceMemoTranscriptExpansionStore` (UserDefaults, keyed per conversation).
 
-### Step E — QA (not started)
-- New QA scenario file `qa/tests/32-voice-memo-transcription.md`
-- Exercise:
-  - receiving a voice memo
-  - transcript appearing later
-  - expanding and collapsing
-  - persistence across relaunch
-  - no transcript row for non-audio attachments
+Still optional / not pursued:
+- Smarter scroll-to-bottom behavior when a transcript first arrives and pushes content off screen.
+- Custom failure copy per `VoiceMemoTranscriberError` case (currently we surface `localizedDescription`, which is already user-friendly enough).
+
+### Step E — QA ✅
+Done.
+- `ConvosCore/Tests/ConvosCoreTests/VoiceMemoTranscriptStorageTests.swift` (4 tests) and `ConvosCore/Tests/ConvosCoreTests/VoiceMemoTranscriptionServiceTests.swift` (7 tests) all pass under `xcodebuild test -scheme ConvosCore`.
+- `qa/tests/32-voice-memo-transcription.md` written and registered in `qa/SKILL.md`.
 
 ## Branch state
 - Branch: `jarod/voice-memo-transcription-plan`
 - Build: succeeds against `Convos (Dev)` simulator scheme on `convos-jarod-voice-memo-transcription-plan`
-- Lint: `swiftlint lint` reports 0 violations across changed files
+- Tests: 11 new unit tests pass; existing tests untouched
+- Lint: `swiftlint lint --strict` reports 0 violations across 500 files
 - Manual smoke test: app launches on the simulator without crashes
-- Remaining work: UX polish (D), tests, and QA scenario (E)
+- Remaining work: live QA execution of `qa/tests/32-voice-memo-transcription.md` once a real device or simulator with the on-device speech model installed is available

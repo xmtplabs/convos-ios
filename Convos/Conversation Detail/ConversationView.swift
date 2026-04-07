@@ -106,6 +106,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
             onToggleTranscript: { messageId in
                 viewModel.toggleTranscriptExpansion(for: messageId)
             },
+            onRetryTranscript: { item in
+                viewModel.retryTranscript(for: item)
+            },
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,

@@ -12,26 +12,32 @@ public struct VoiceMemoTranscriptListItem: Hashable, Equatable, Sendable {
     public let parentMessageId: String
     public let conversationId: String
     public let attachmentKey: String
+    public let mimeType: String?
     public let isOutgoing: Bool
     public let status: VoiceMemoTranscriptStatus
     public let text: String?
+    public let errorDescription: String?
     public let isExpanded: Bool
 
     public init(
         parentMessageId: String,
         conversationId: String,
         attachmentKey: String,
+        mimeType: String? = nil,
         isOutgoing: Bool,
         status: VoiceMemoTranscriptStatus,
         text: String?,
+        errorDescription: String? = nil,
         isExpanded: Bool
     ) {
         self.parentMessageId = parentMessageId
         self.conversationId = conversationId
         self.attachmentKey = attachmentKey
+        self.mimeType = mimeType
         self.isOutgoing = isOutgoing
         self.status = status
         self.text = text
+        self.errorDescription = errorDescription
         self.isExpanded = isExpanded
     }
 }

@@ -168,6 +168,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         item: transcript,
                         onToggleTranscript: { messageId in
                             config.onToggleTranscript(messageId)
+                        },
+                        onRetryTranscript: { item in
+                            config.onRetryTranscript(item)
                         }
                     )
                     .padding(.horizontal, DesignConstants.Spacing.step4x)

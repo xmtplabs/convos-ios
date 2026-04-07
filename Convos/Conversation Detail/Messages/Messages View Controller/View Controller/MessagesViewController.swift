@@ -194,6 +194,7 @@ final class MessagesViewController: UIViewController {
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
     var onToggleTranscript: ((String) -> Void)?
+    var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     private var filePreviewURL: URL?
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
@@ -380,6 +381,9 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onToggleTranscript = { [weak self] messageId in
             self?.onToggleTranscript?(messageId)
+        }
+        dataSource.onRetryTranscript = { [weak self] item in
+            self?.onRetryTranscript?(item)
         }
 
         setupImmediateTouchGesture()

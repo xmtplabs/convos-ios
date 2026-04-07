@@ -33,6 +33,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private let messagesRepository: any MessagesRepositoryProtocol
     private let transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol
     private let conversationId: String
+    private let transcriptExpansionStore: VoiceMemoTranscriptExpansionStore
     private let messagesListSubject: CurrentValueSubject<[MessagesListItemType], Never> = .init([])
     private var cancellables: Set<AnyCancellable> = .init()
     private var dismissCancellable: AnyCancellable?
@@ -67,11 +68,15 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     init(
         messagesRepository: any MessagesRepositoryProtocol,
         transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol,
-        conversationId: String
+        conversationId: String,
+        transcriptExpansionStore: VoiceMemoTranscriptExpansionStore? = nil
     ) {
         self.messagesRepository = messagesRepository
         self.transcriptRepository = transcriptRepository
         self.conversationId = conversationId
+        self.transcriptExpansionStore = transcriptExpansionStore
+            ?? VoiceMemoTranscriptExpansionStore(conversationId: conversationId)
+        self.expandedTranscriptMessageIds = self.transcriptExpansionStore.loadExpandedMessageIds()
     }
 
     func setTranscriptExpanded(_ expanded: Bool, for messageId: String) {
@@ -80,6 +85,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         } else {
             expandedTranscriptMessageIds.remove(messageId)
         }
+        transcriptExpansionStore.save(expandedTranscriptMessageIds)
         let reprocessed = processMessages(lastRawMessages)
         messagesListSubject.send(reprocessed)
     }
@@ -155,9 +161,11 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
                     parentMessageId: message.messageId,
                     conversationId: conversationId,
                     attachmentKey: attachment.key,
+                    mimeType: attachment.mimeType,
                     isOutgoing: live.senderIsCurrentUser,
                     status: transcript.status,
                     text: transcript.text,
+                    errorDescription: transcript.errorDescription,
                     isExpanded: expandedTranscriptMessageIds.contains(message.messageId)
                 )
                 result.append(.voiceMemoTranscript(row))

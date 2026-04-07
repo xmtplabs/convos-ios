@@ -19,6 +19,16 @@ public protocol VoiceMemoTranscriptionServicing: Sendable {
         attachmentKey: String,
         mimeType: String
     ) async
+
+    /// Re-runs transcription for a voice memo that previously failed (or completed).
+    /// Bypasses the "already has a transcript" guard. Intended to be called from an
+    /// explicit user retry action.
+    func retry(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String
+    ) async
 }
 
 public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicing, @unchecked Sendable {
@@ -47,23 +57,56 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
         attachmentKey: String,
         mimeType: String
     ) async {
+        await enqueue(
+            messageId: messageId,
+            conversationId: conversationId,
+            attachmentKey: attachmentKey,
+            mimeType: mimeType,
+            forceRetry: false
+        )
+    }
+
+    public func retry(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String
+    ) async {
+        await enqueue(
+            messageId: messageId,
+            conversationId: conversationId,
+            attachmentKey: attachmentKey,
+            mimeType: mimeType,
+            forceRetry: true
+        )
+    }
+
+    private func enqueue(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String,
+        forceRetry: Bool
+    ) async {
         let shouldStart = await state.reserveSlotIfFree(for: messageId)
         guard shouldStart else { return }
 
-        do {
-            if let existing = try await transcriptRepository.transcript(for: messageId) {
-                switch existing.status {
-                case .completed, .pending, .failed:
-                    // Skip when we already have a transcript or a previous attempt failed;
-                    // retries should be explicit user action.
-                    await state.clear(messageId: messageId)
-                    return
+        if !forceRetry {
+            do {
+                if let existing = try await transcriptRepository.transcript(for: messageId) {
+                    switch existing.status {
+                    case .completed, .pending, .failed:
+                        // Skip when we already have a transcript or a previous attempt failed;
+                        // retries should be explicit user action.
+                        await state.clear(messageId: messageId)
+                        return
+                    }
                 }
+            } catch {
+                Log.error("[VoiceMemoTranscription] Failed to read existing transcript for \(messageId): \(error)")
+                await state.clear(messageId: messageId)
+                return
             }
-        } catch {
-            Log.error("[VoiceMemoTranscription] Failed to read existing transcript for \(messageId): \(error)")
-            await state.clear(messageId: messageId)
-            return
         }
 
         let task = Task.detached { [weak self] in

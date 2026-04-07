@@ -248,6 +248,13 @@ public final class MockVoiceMemoTranscriptionService: VoiceMemoTranscriptionServ
         attachmentKey: String,
         mimeType: String
     ) async {}
+
+    public func retry(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String
+    ) async {}
 }
 
 // MARK: - Mock Attachment Local State Writer
