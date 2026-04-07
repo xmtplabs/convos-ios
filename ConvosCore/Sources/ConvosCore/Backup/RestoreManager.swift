@@ -230,8 +230,15 @@ public actor RestoreManager {
                 return (key, identity)
             } catch {
                 Log.info("[Restore] vault key (inboxId=\(identity.inboxId)) failed: \(error)")
-                BackupBundle.cleanup(directory: stagingDir)
-                try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+                // Reset staging dir for the next attempt. If reset fails (e.g. disk full),
+                // log and continue — let the loop try the next key, then surface
+                // RestoreError.decryptionFailed at the end.
+                do {
+                    BackupBundle.cleanup(directory: stagingDir)
+                    try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+                } catch {
+                    Log.warning("[Restore] failed to reset staging directory between key attempts: \(error)")
+                }
             }
         }
 
