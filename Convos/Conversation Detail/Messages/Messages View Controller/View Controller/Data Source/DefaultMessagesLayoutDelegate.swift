@@ -45,6 +45,10 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 return .estimated(CGSize(width: width, height: 48.0))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
+            case .voiceMemoTranscript(let transcript):
+                let lines: CGFloat = transcript.isExpanded ? 6.0 : 2.0
+                let textHeight: CGFloat = transcript.text == nil ? 24.0 : 18.0 * lines
+                return .estimated(CGSize(width: width, height: textHeight + 32.0))
             }
         case .footer, .header:
             return .exact(.zero)

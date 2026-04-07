@@ -112,6 +112,14 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockPhotoPreferencesWriter()
     }
 
+    public func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
+        MockVoiceMemoTranscriptRepository()
+    }
+
+    public func voiceMemoTranscriptWriter() -> any VoiceMemoTranscriptWriterProtocol {
+        MockVoiceMemoTranscriptWriter()
+    }
+
     public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
         MockAttachmentLocalStateWriter()
     }

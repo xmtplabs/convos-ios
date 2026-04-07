@@ -28,10 +28,15 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     // MARK: - Private Properties
 
     private let messagesRepository: any MessagesRepositoryProtocol
+    private let transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol
+    private let conversationId: String
     private let messagesListSubject: CurrentValueSubject<[MessagesListItemType], Never> = .init([])
     private var cancellables: Set<AnyCancellable> = .init()
     private var dismissCancellable: AnyCancellable?
+    private var transcriptCancellable: AnyCancellable?
     private var lastRawMessages: [AnyMessage] = []
+    private var transcripts: [String: VoiceMemoTranscript] = [:]
+    private var expandedTranscriptMessageIds: Set<String> = []
     var currentOtherMemberCount: Int = 0
 
     // MARK: - Public Properties
@@ -56,8 +61,24 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     private var hasStartedObserving: Bool = false
 
-    init(messagesRepository: any MessagesRepositoryProtocol) {
+    init(
+        messagesRepository: any MessagesRepositoryProtocol,
+        transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol,
+        conversationId: String
+    ) {
         self.messagesRepository = messagesRepository
+        self.transcriptRepository = transcriptRepository
+        self.conversationId = conversationId
+    }
+
+    func setTranscriptExpanded(_ expanded: Bool, for messageId: String) {
+        if expanded {
+            expandedTranscriptMessageIds.insert(messageId)
+        } else {
+            expandedTranscriptMessageIds.remove(messageId)
+        }
+        let reprocessed = processMessages(lastRawMessages)
+        messagesListSubject.send(reprocessed)
     }
 
     func startObserving() {
@@ -71,6 +92,15 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
                 self?.messagesListSubject.send(processedMessages)
             }
             .store(in: &cancellables)
+
+        transcriptCancellable = transcriptRepository.transcriptsPublisher(in: conversationId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] transcripts in
+                guard let self else { return }
+                self.transcripts = transcripts
+                let reprocessed = self.processMessages(self.lastRawMessages)
+                self.messagesListSubject.send(reprocessed)
+            }
     }
 
     // MARK: - Public Methods
@@ -94,8 +124,44 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         lastRawMessages = messages
         let items = MessagesListProcessor.process(messages, otherMemberCount: currentOtherMemberCount)
-        scheduleAssistantJoinDismissIfNeeded(items)
-        return items
+        let withTranscripts = injectTranscriptRows(into: items, messages: messages)
+        scheduleAssistantJoinDismissIfNeeded(withTranscripts)
+        return withTranscripts
+    }
+
+    private func injectTranscriptRows(
+        into items: [MessagesListItemType],
+        messages: [AnyMessage]
+    ) -> [MessagesListItemType] {
+        guard !transcripts.isEmpty else { return items }
+
+        let messagesById = Dictionary(uniqueKeysWithValues: messages.map { ($0.messageId, $0) })
+
+        var result: [MessagesListItemType] = []
+        result.reserveCapacity(items.count)
+
+        for item in items {
+            result.append(item)
+            guard case .messages(let group) = item else { continue }
+            for message in group.messages {
+                guard case .attachment(let attachment) = message.content,
+                      attachment.mediaType == .audio,
+                      let transcript = transcripts[message.messageId] else { continue }
+                guard let live = messagesById[message.messageId] else { continue }
+                let row = VoiceMemoTranscriptListItem(
+                    parentMessageId: message.messageId,
+                    conversationId: conversationId,
+                    attachmentKey: attachment.key,
+                    isOutgoing: live.senderIsCurrentUser,
+                    status: transcript.status,
+                    text: transcript.text,
+                    isExpanded: expandedTranscriptMessageIds.contains(message.messageId)
+                )
+                result.append(.voiceMemoTranscript(row))
+            }
+        }
+
+        return result
     }
 
     private func scheduleAssistantJoinDismissIfNeeded(_ items: [MessagesListItemType]) {

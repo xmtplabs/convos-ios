@@ -162,6 +162,11 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
                 case .typingIndicator:
                     EmptyView()
+
+                case .voiceMemoTranscript(let transcript):
+                    VoiceMemoTranscriptRow(item: transcript)
+                        .padding(.horizontal, DesignConstants.Spacing.step4x)
+                        .padding(.bottom, DesignConstants.Spacing.step2x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

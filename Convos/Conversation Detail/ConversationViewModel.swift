@@ -451,7 +451,11 @@ class ConversationViewModel {
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
         self.conversationRepository = conversationStateManager.draftConversationRepository
-        let messagesListRepo = MessagesListRepository(messagesRepository: messagesRepository)
+        let messagesListRepo = MessagesListRepository(
+            messagesRepository: messagesRepository,
+            transcriptRepository: session.voiceMemoTranscriptRepository(),
+            conversationId: conversation.id
+        )
         messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         self.messagesListRepository = messagesListRepo
         self.outgoingMessageWriter = conversationStateManager
@@ -525,7 +529,11 @@ class ConversationViewModel {
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
         let messagesRepository = conversationStateManager.draftConversationRepository.messagesRepository
-        let messagesListRepo2 = MessagesListRepository(messagesRepository: messagesRepository)
+        let messagesListRepo2 = MessagesListRepository(
+            messagesRepository: messagesRepository,
+            transcriptRepository: session.voiceMemoTranscriptRepository(),
+            conversationId: conversation.id
+        )
         messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         self.messagesListRepository = messagesListRepo2
         self.outgoingMessageWriter = conversationStateManager

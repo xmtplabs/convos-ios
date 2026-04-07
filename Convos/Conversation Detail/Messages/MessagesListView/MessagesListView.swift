@@ -134,6 +134,10 @@ struct MessagesListView: View {
 
                             case .typingIndicator:
                                 EmptyView()
+
+                            case .voiceMemoTranscript(let transcript):
+                                VoiceMemoTranscriptRow(item: transcript)
+                                    .padding(.bottom, DesignConstants.Spacing.step2x)
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in

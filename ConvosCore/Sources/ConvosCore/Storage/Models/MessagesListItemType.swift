@@ -8,6 +8,34 @@ public enum MessageBubbleType: Sendable {
     case normal, tailed, none
 }
 
+public struct VoiceMemoTranscriptListItem: Hashable, Equatable, Sendable {
+    public let parentMessageId: String
+    public let conversationId: String
+    public let attachmentKey: String
+    public let isOutgoing: Bool
+    public let status: VoiceMemoTranscriptStatus
+    public let text: String?
+    public let isExpanded: Bool
+
+    public init(
+        parentMessageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        isOutgoing: Bool,
+        status: VoiceMemoTranscriptStatus,
+        text: String?,
+        isExpanded: Bool
+    ) {
+        self.parentMessageId = parentMessageId
+        self.conversationId = conversationId
+        self.attachmentKey = attachmentKey
+        self.isOutgoing = isOutgoing
+        self.status = status
+        self.text = text
+        self.isExpanded = isExpanded
+    }
+}
+
 public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case update(id: String, update: ConversationUpdate, origin: AnyMessage.Origin)
     case date(DateGroup)
@@ -18,6 +46,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case assistantJoinStatus(AssistantJoinStatus, requesterName: String?, date: Date)
     case assistantPresentInfo(agent: ConversationMember, inviterName: String?)
     case typingIndicator(typers: [ConversationMember])
+    case voiceMemoTranscript(VoiceMemoTranscriptListItem)
 
     public var id: String {
         switch self {
@@ -39,6 +68,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "assistant-present-info"
         case .typingIndicator:
             return "typing-indicator"
+        case .voiceMemoTranscript(let item):
+            return "voice-memo-transcript-\(item.parentMessageId)"
         }
     }
 
@@ -66,7 +97,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return origin
         case .messages(let group):
             return group.messages.last?.origin
-        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo, .typingIndicator:
+        case .date, .invite, .conversationInfo, .agentOutOfCredits, .assistantJoinStatus, .assistantPresentInfo, .typingIndicator, .voiceMemoTranscript:
             return nil
         }
     }
@@ -81,6 +112,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return .center
         case .agentOutOfCredits:
             return .fullWidth
+        case .voiceMemoTranscript(let item):
+            return item.isOutgoing ? .trailing : .leading
         default:
             return .fullWidth
         }
@@ -106,6 +139,8 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             return "MessagesListItemTypeCell-assistantPresentInfo"
         case .typingIndicator:
             return "TypingIndicatorCollectionCell"
+        case .voiceMemoTranscript:
+            return "MessagesListItemTypeCell-voiceMemoTranscript"
         }
     }
 
@@ -119,6 +154,7 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
             "MessagesListItemTypeCell-agentOutOfCredits",
             "MessagesListItemTypeCell-assistantJoinStatus",
             "MessagesListItemTypeCell-assistantPresentInfo",
+            "MessagesListItemTypeCell-voiceMemoTranscript",
             "TypingIndicatorCollectionCell",
         ]
     }

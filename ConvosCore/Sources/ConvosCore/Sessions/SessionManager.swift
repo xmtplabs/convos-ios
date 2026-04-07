@@ -335,6 +335,14 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         PhotoPreferencesWriter(databaseWriter: databaseWriter)
     }
 
+    public func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol {
+        VoiceMemoTranscriptRepository(databaseReader: databaseReader)
+    }
+
+    public func voiceMemoTranscriptWriter() -> any VoiceMemoTranscriptWriterProtocol {
+        VoiceMemoTranscriptWriter(databaseWriter: databaseWriter)
+    }
+
     public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
         AttachmentLocalStateWriter(databaseWriter: databaseWriter)
     }
