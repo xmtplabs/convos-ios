@@ -278,7 +278,10 @@ public actor VaultManager {
                 try await vaultKeyStore.delete(inboxId: oldInboxId)
                 Log.info("[Vault.reCreate] step 3/5: deleted old vault key for inboxId=\(oldInboxId)")
             } catch {
-                Log.warning("[Vault.reCreate] step 3/5: failed to delete old vault key for \(oldInboxId): \(error)")
+                // Critical: if we can't delete the old key, the next bootstrap will pick it up
+                // and we'll re-create with the same inboxId — which means no new vault.
+                Log.error("[Vault.reCreate] step 3/5: failed to delete old vault key for \(oldInboxId): \(error)")
+                throw VaultReCreateError.bootstrapFailed("failed to delete old vault key: \(error.localizedDescription)")
             }
 
             // Verify deletion and log any remaining keys
@@ -287,7 +290,12 @@ public actor VaultManager {
         } else if let vaultKeyStore {
             // No known inboxId (e.g., disconnect failed before we captured it) — delete all
             Log.warning("[Vault.reCreate] step 3/5: no oldInboxId available, deleting all vault keys")
-            try? await vaultKeyStore.deleteAll()
+            do {
+                try await vaultKeyStore.deleteAll()
+            } catch {
+                Log.error("[Vault.reCreate] step 3/5: failed to delete all vault keys: \(error)")
+                throw VaultReCreateError.bootstrapFailed("failed to delete vault keys: \(error.localizedDescription)")
+            }
             let remainingKeys = (try? await vaultKeyStore.loadAll()) ?? []
             Log.info("[Vault.reCreate] step 3/5: keychain now has \(remainingKeys.count) vault key(s) remaining")
         } else {
@@ -332,8 +340,10 @@ public actor VaultManager {
         Log.info("[Vault.reCreate] after: inboxId=\(newInboxId) installationId=\(newInstallationId)")
 
         if let oldInboxId, oldInboxId == newInboxId {
-            Log.error("[Vault.reCreate] !!! WARNING: new inboxId matches old inboxId — vault may not have been re-created properly")
-        } else if let oldInboxId {
+            Log.error("[Vault.reCreate] new inboxId matches old inboxId — vault re-creation failed")
+            throw VaultReCreateError.bootstrapFailed("new inboxId (\(newInboxId)) matches old inboxId — re-creation did not produce a fresh vault")
+        }
+        if let oldInboxId {
             Log.info("[Vault.reCreate] confirmed fresh vault: oldInboxId=\(oldInboxId) != newInboxId=\(newInboxId)")
         }
 
