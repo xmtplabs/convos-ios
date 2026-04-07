@@ -493,20 +493,8 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             }
             let genericData = item[kSecAttrGeneric as String] as? Data
 
-            let deleteQuery: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccessGroup as String: accessGroup,
-                kSecAttrAccount as String: account,
-                kSecAttrSynchronizable as String: kCFBooleanFalse as Any
-            ]
-            let deleteStatus = SecItemDelete(deleteQuery as CFDictionary)
-            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
-                Log.error("Synchronizable migration: failed to delete non-synchronizable item \(account), status: \(deleteStatus)")
-                failedCount += 1
-                continue
-            }
-
+            // Add synchronizable copy first, then delete the non-synchronizable original.
+            // This ensures the data is never left unrecoverable if SecItemAdd fails.
             var addQuery: [String: Any] = [
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
@@ -521,12 +509,28 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             }
 
             let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
-            if addStatus == errSecSuccess || addStatus == errSecDuplicateItem {
-                migratedCount += 1
-            } else {
-                Log.error("Synchronizable migration: failed to add synchronizable item \(account), status: \(addStatus)")
+            guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+                Log.error("Synchronizable migration: failed to add synchronizable item \(account), status: \(addStatus). Original left untouched.")
                 failedCount += 1
+                continue
             }
+
+            // Synchronizable copy is now in the keychain, safe to delete the original
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrAccount as String: account,
+                kSecAttrSynchronizable as String: kCFBooleanFalse as Any
+            ]
+            let deleteStatus = SecItemDelete(deleteQuery as CFDictionary)
+            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+                Log.error("Synchronizable migration: failed to delete non-synchronizable item \(account) after add, status: \(deleteStatus). Synchronizable copy is in place — will retry next launch.")
+                failedCount += 1
+                continue
+            }
+
+            migratedCount += 1
         }
 
         guard failedCount == 0 else {
