@@ -140,29 +140,43 @@ public actor RestoreManager {
     // MARK: - Vault re-creation
 
     private func reCreateVault() async {
+        Log.info("[Restore.reCreateVault] === START ===")
+
         guard let vaultManager else {
-            Log.info("[Restore] no VaultManager provided, skipping vault re-creation")
+            Log.warning("[Restore.reCreateVault] no VaultManager provided, skipping vault re-creation")
             return
         }
 
-        Log.info("[Restore] re-creating vault with fresh keys")
+        let vaultInboxBefore = await vaultManager.vaultInboxId ?? "nil"
+        Log.info("[Restore.reCreateVault] vault inboxId before re-create: \(vaultInboxBefore)")
+
+        Log.info("[Restore.reCreateVault] calling VaultManager.reCreate")
         do {
             try await vaultManager.reCreate(
                 databaseWriter: databaseManager.dbWriter,
                 environment: environment
             )
-            Log.info("[Restore] vault re-created")
+            let vaultInboxAfter = await vaultManager.vaultInboxId ?? "nil"
+            Log.info("[Restore.reCreateVault] vault re-created successfully, new inboxId=\(vaultInboxAfter)")
 
-            Log.info("[Restore] broadcasting restored keys to new vault")
+            let keyCount = (try? await databaseManager.dbReader.read { db in
+                try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM inbox WHERE isVault = 0
+                    """) ?? 0
+            }) ?? 0
+            Log.info("[Restore.reCreateVault] broadcasting restored conversation keys to new vault (\(keyCount) conversation inbox(es))")
+
             do {
                 try await vaultManager.shareAllKeys()
-                Log.info("[Restore] broadcast restored keys to new vault")
+                Log.info("[Restore.reCreateVault] broadcast complete")
             } catch {
-                Log.warning("[Restore] failed to broadcast keys to new vault (non-fatal): \(error)")
+                Log.warning("[Restore.reCreateVault] broadcast failed (non-fatal): \(error)")
             }
         } catch {
-            Log.error("[Restore] vault re-creation failed: \(error)")
+            Log.error("[Restore.reCreateVault] vault re-creation failed: \(error)")
         }
+
+        Log.info("[Restore.reCreateVault] === DONE ===")
     }
 
     // MARK: - Wipe

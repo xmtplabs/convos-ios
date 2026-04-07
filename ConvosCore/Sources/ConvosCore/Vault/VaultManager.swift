@@ -122,7 +122,9 @@ public actor VaultManager {
         }
 
         do {
+            Log.info("[Vault.bootstrap] starting, loading or creating vault identity")
             let identity = try await loadOrCreateVaultIdentity(vaultKeyStore: vaultKeyStore)
+            Log.info("[Vault.bootstrap] identity loaded: inboxId=\(identity.inboxId) clientId=\(identity.clientId)")
 
             let signingKey = identity.keys.signingKey
             let api = XMTPAPIOptionsBuilder.build(environment: environment)
@@ -140,6 +142,7 @@ public actor VaultManager {
                 dbEncryptionKey: identity.keys.databaseKey
             )
 
+            Log.info("[Vault.bootstrap] connecting XMTP client for signing key identity=\(signingKey.identity.identifier)")
             try await connect(signingKey: signingKey, options: options)
 
             guard let inboxId = await vaultInboxId,
@@ -147,10 +150,14 @@ public actor VaultManager {
                 throw VaultClientError.notConnected
             }
 
+            Log.info("[Vault.bootstrap] XMTP client connected: inboxId=\(inboxId) installationId=\(installationId)")
+
             if identity.inboxId == "vault-pending" || identity.clientId != installationId {
                 if identity.inboxId == "vault-pending" {
+                    Log.info("[Vault.bootstrap] persisting vault identity to keychain (was vault-pending, now inboxId=\(inboxId) clientId=\(installationId))")
                     try? await vaultKeyStore.delete(inboxId: "vault-pending")
                 } else {
+                    Log.info("[Vault.bootstrap] updating vault keychain entry: inboxId=\(inboxId) oldClientId=\(identity.clientId) newClientId=\(installationId)")
                     try? await vaultKeyStore.delete(inboxId: inboxId)
                 }
                 _ = try? await vaultKeyStore.save(
@@ -158,12 +165,15 @@ public actor VaultManager {
                     clientId: installationId,
                     keys: identity.keys
                 )
+            } else {
+                Log.info("[Vault.bootstrap] keychain identity already up-to-date (inboxId=\(inboxId))")
             }
 
+            Log.info("[Vault.bootstrap] saving vault inbox row to GRDB: inboxId=\(inboxId) clientId=\(installationId)")
             let inboxWriter = InboxWriter(dbWriter: databaseWriter)
             try await inboxWriter.save(inboxId: inboxId, clientId: installationId, isVault: true)
             bootstrapState = .ready
-            Log.info("Vault bootstrapped: inboxId=\(inboxId)")
+            Log.info("[Vault.bootstrap] bootstrapped successfully: inboxId=\(inboxId)")
             await keyCoordinator.startObservingInboxes()
 
             healthCheck = VaultHealthCheck(
@@ -183,14 +193,18 @@ public actor VaultManager {
 
     private func loadOrCreateVaultIdentity(vaultKeyStore: VaultKeyStore) async throws -> KeychainIdentity {
         if let existing = try? await vaultKeyStore.loadAny() {
+            Log.info("[Vault.loadOrCreateVaultIdentity] found existing vault identity: inboxId=\(existing.inboxId)")
             return existing
         }
+        Log.info("[Vault.loadOrCreateVaultIdentity] no existing vault identity, generating fresh keys")
         let newKeys = try KeychainIdentityKeys.generate()
-        return try await vaultKeyStore.save(
+        let saved = try await vaultKeyStore.save(
             inboxId: "vault-pending",
             clientId: "vault-pending",
             keys: newKeys
         )
+        Log.info("[Vault.loadOrCreateVaultIdentity] saved new vault-pending identity, awaiting inboxId from XMTP")
+        return saved
     }
 
     // MARK: - Lifecycle
@@ -218,26 +232,56 @@ public actor VaultManager {
         databaseWriter: any DatabaseWriter,
         environment: AppEnvironment
     ) async throws {
-        Log.info("[Vault] reCreate: tearing down current vault")
+        Log.info("[Vault.reCreate] === START ===")
 
         let oldInboxId = await vaultInboxId
+        let oldInstallationId = await vaultClient.installationId
+        let oldBootstrapState = stateDescription
+        Log.info("[Vault.reCreate] before: inboxId=\(oldInboxId ?? "nil") installationId=\(oldInstallationId ?? "nil") state=\(oldBootstrapState)")
 
+        if let vaultKeyStore {
+            let beforeKeys = (try? await vaultKeyStore.loadAll()) ?? []
+            Log.info("[Vault.reCreate] before: keychain has \(beforeKeys.count) vault key(s): \(beforeKeys.map(\.inboxId))")
+        }
+
+        let beforeInboxCount: Int
+        do {
+            beforeInboxCount = try await databaseWriter.read { db in
+                try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM inbox WHERE isVault = 1") ?? 0
+            }
+            Log.info("[Vault.reCreate] before: GRDB has \(beforeInboxCount) vault inbox row(s)")
+        } catch {
+            Log.warning("[Vault.reCreate] failed to count vault inbox rows: \(error)")
+        }
+
+        Log.info("[Vault.reCreate] step 1/4: disconnecting current vault client")
         await vaultClient.disconnect()
         bootstrapState = .notStarted
+        Log.info("[Vault.reCreate] step 1/4: disconnected, bootstrap state reset to notStarted")
 
+        Log.info("[Vault.reCreate] step 2/4: deleting old vault key from keychain")
         if let vaultKeyStore, let oldInboxId {
             do {
                 try await vaultKeyStore.delete(inboxId: oldInboxId)
-                Log.info("[Vault] reCreate: deleted old vault key for inboxId=\(oldInboxId)")
+                Log.info("[Vault.reCreate] step 2/4: deleted old vault key for inboxId=\(oldInboxId)")
             } catch {
-                Log.warning("[Vault] reCreate: failed to delete old vault key: \(error)")
+                Log.warning("[Vault.reCreate] step 2/4: failed to delete old vault key for \(oldInboxId): \(error)")
             }
+
+            // Verify deletion and log any remaining keys
+            let remainingKeys = (try? await vaultKeyStore.loadAll()) ?? []
+            Log.info("[Vault.reCreate] step 2/4: keychain now has \(remainingKeys.count) vault key(s) remaining: \(remainingKeys.map(\.inboxId))")
         } else if let vaultKeyStore {
             // No known inboxId (e.g., disconnect failed before we captured it) — delete all
+            Log.warning("[Vault.reCreate] step 2/4: no oldInboxId available, deleting all vault keys")
             try? await vaultKeyStore.deleteAll()
-            Log.info("[Vault] reCreate: deleted all vault keys (no specific inboxId)")
+            let remainingKeys = (try? await vaultKeyStore.loadAll()) ?? []
+            Log.info("[Vault.reCreate] step 2/4: keychain now has \(remainingKeys.count) vault key(s) remaining")
+        } else {
+            Log.warning("[Vault.reCreate] step 2/4: no vaultKeyStore available, skipping keychain cleanup")
         }
 
+        Log.info("[Vault.reCreate] step 3/4: deleting old vault inbox row from GRDB")
         if let oldInboxId {
             do {
                 try await databaseWriter.write { db in
@@ -246,21 +290,46 @@ public actor VaultManager {
                         arguments: [oldInboxId]
                     )
                 }
-                Log.info("[Vault] reCreate: deleted old DBInbox row for inboxId=\(oldInboxId)")
+                Log.info("[Vault.reCreate] step 3/4: deleted old DBInbox row for inboxId=\(oldInboxId)")
             } catch {
-                Log.warning("[Vault] reCreate: failed to delete old DBInbox row: \(error)")
+                Log.warning("[Vault.reCreate] step 3/4: failed to delete old DBInbox row: \(error)")
             }
+        } else {
+            Log.warning("[Vault.reCreate] step 3/4: no oldInboxId available, skipping DBInbox row cleanup")
         }
 
-        Log.info("[Vault] reCreate: bootstrapping fresh vault")
+        let afterDeleteCount = (try? await databaseWriter.read { db in
+            try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM inbox WHERE isVault = 1") ?? 0
+        }) ?? -1
+        Log.info("[Vault.reCreate] step 3/4: GRDB now has \(afterDeleteCount) vault inbox row(s) remaining")
+
+        Log.info("[Vault.reCreate] step 4/4: bootstrapping fresh vault (new keys, new identity)")
         await bootstrapVault(databaseWriter: databaseWriter, environment: environment)
 
+        let afterBootstrapState = stateDescription
+        Log.info("[Vault.reCreate] step 4/4: bootstrap finished with state=\(afterBootstrapState)")
+
         guard case .ready = bootstrapState else {
-            throw VaultReCreateError.bootstrapFailed(stateDescription)
+            Log.error("[Vault.reCreate] === FAILED === bootstrap did not reach ready state: \(afterBootstrapState)")
+            throw VaultReCreateError.bootstrapFailed(afterBootstrapState)
         }
 
         let newInboxId = await vaultInboxId ?? "unknown"
-        Log.info("[Vault] reCreate: completed, new inboxId=\(newInboxId)")
+        let newInstallationId = await vaultClient.installationId ?? "unknown"
+        Log.info("[Vault.reCreate] after: inboxId=\(newInboxId) installationId=\(newInstallationId)")
+
+        if let oldInboxId, oldInboxId == newInboxId {
+            Log.error("[Vault.reCreate] !!! WARNING: new inboxId matches old inboxId — vault may not have been re-created properly")
+        } else if let oldInboxId {
+            Log.info("[Vault.reCreate] confirmed fresh vault: oldInboxId=\(oldInboxId) != newInboxId=\(newInboxId)")
+        }
+
+        if let vaultKeyStore {
+            let afterKeys = (try? await vaultKeyStore.loadAll()) ?? []
+            Log.info("[Vault.reCreate] after: keychain has \(afterKeys.count) vault key(s): \(afterKeys.map(\.inboxId))")
+        }
+
+        Log.info("[Vault.reCreate] === DONE ===")
     }
 
     private var stateDescription: String {
