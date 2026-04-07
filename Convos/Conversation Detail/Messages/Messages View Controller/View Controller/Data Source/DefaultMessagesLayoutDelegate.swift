@@ -66,6 +66,17 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             height += messageHeight(for: message, width: width)
             childCount += 1
 
+            // Inline voice memo transcript row, when one exists for this message.
+            // The transcript cell sits inside the same MessagesGroupItemView VStack
+            // directly under the voice memo bubble, so its height is part of the
+            // parent message cell's height, not a separate list item. The VStack
+            // uses `spacing: 0` so we don't add inter-child spacing, just the row's
+            // explicit `.padding(.top, stepX)`.
+            if let transcript = group.voiceMemoTranscripts[message.messageId] {
+                height += DesignConstants.Spacing.stepX
+                height += estimatedTranscriptHeight(for: transcript)
+            }
+
             if !message.reactions.isEmpty {
                 height += 34.0
                 childCount += 1
@@ -88,15 +99,40 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     private func estimatedAttachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
         switch attachment.mediaType {
         case .audio:
-            // 44pt for the voice memo bubble + ~52pt reserved for the inline
-            // transcript row that we render directly below incoming voice memos.
-            // This is just an estimate; the cell self-sizes once SwiftUI runs
-            // its real layout pass.
-            return 44.0 + 52.0
+            // VoiceMemoBubbleContent: 12pt top padding + 36pt play button + 12pt
+            // bottom padding = 60pt. Any inline transcript row is added separately
+            // in `estimatedHeight(for:width:)` so outgoing voice memos (which never
+            // get a transcript) don't reserve space they won't use.
+            return 60.0
         case .file:
             return 60.0
         case .image, .video, .unknown:
             return imageAttachmentHeight(for: attachment, width: width)
+        }
+    }
+
+    /// Estimated rendered height of a `VoiceMemoTranscriptRow` for layout pre-flight.
+    /// The numbers here are measured empirically from SwiftUI's actual output so the
+    /// initial collection view content size matches the final size closely enough
+    /// that there is no visible jump when the cells finish self-sizing.
+    private func estimatedTranscriptHeight(for transcript: VoiceMemoTranscriptListItem) -> CGFloat {
+        switch transcript.status {
+        case .notRequested:
+            // Capsule-only row ("Tap to transcribe").
+            return 46
+        case .failed:
+            // Capsule + optional error description line.
+            let hasDetail = transcript.errorDescription?.isEmpty == false
+            return hasDetail ? 72 : 46
+        case .pending:
+            // Spinner + "Transcribing…" text.
+            return 40
+        case .completed:
+            // Caption2 header + 2-line preview text. Measured at ~56pt on a real
+            // device; see `[LayoutHeights] fitting=158.3` logs against the
+            // bare voice memo bubble at 97.7pt (delta = 60.6pt which includes the
+            // `stepX` top padding added by the parent VStack).
+            return 56
         }
     }
 

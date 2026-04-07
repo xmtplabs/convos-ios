@@ -349,6 +349,10 @@ private actor StubTranscriptRepository: VoiceMemoTranscriptRepositoryProtocol {
         Just([:]).eraseToAnyPublisher()
     }
 
+    nonisolated func fetchAllTranscripts(in conversationId: String) throws -> [String: VoiceMemoTranscript] {
+        [:]
+    }
+
     func transcript(for messageId: String) async throws -> VoiceMemoTranscript? {
         byMessageId[messageId]
     }

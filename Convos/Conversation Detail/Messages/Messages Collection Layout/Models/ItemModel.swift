@@ -49,4 +49,14 @@ struct ItemModel {
         self.calculatedSize = nil
         preferredSize = calculatedSize
     }
+
+    /// Replaces the preferred (estimated) size with a fresh value while clearing
+    /// the cached calculated size. Used when a cell is reloaded because its content
+    /// changed and the previously self-sized height no longer applies — forcing a
+    /// new self-sizing pass against the new estimate on the next layout.
+    mutating func resetSize(toPreferredSize newPreferredSize: CGSize) {
+        calculatedSize = nil
+        calculatedOnce = false
+        preferredSize = newPreferredSize
+    }
 }

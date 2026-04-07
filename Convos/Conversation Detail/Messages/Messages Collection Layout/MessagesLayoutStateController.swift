@@ -827,7 +827,17 @@ final class MessagesLayoutStateController<Layout: MessagesLayoutProtocol> {
             reloadedIndexes.insert(indexPathAfterUpdate)
             let oldHeight = item.frame.height
             let configuration = layoutRepresentation.configuration(for: .cell, at: indexPathAfterUpdate)
-            applyConfiguration(configuration, to: &item)
+            item.alignment = configuration.alignment
+            item.interItemSpacing = configuration.interItemSpacing
+            if let calculatedSize = configuration.calculatedSize {
+                item.calculatedSize = calculatedSize
+                item.calculatedOnce = true
+            } else {
+                // Reload means the cell's content has changed, so the previously
+                // self-sized height is stale. Swap in the new estimate and force
+                // another self-sizing pass.
+                item.resetSize(toPreferredSize: configuration.preferredSize)
+            }
             afterUpdateModel.replaceItem(item, at: indexPathAfterUpdate)
             visibleBoundsBeforeUpdate.offsettingBy(dx: 0, dy: item.frame.height - oldHeight)
         }
@@ -842,7 +852,18 @@ final class MessagesLayoutStateController<Layout: MessagesLayoutProtocol> {
 
             let oldHeight = item.frame.height
             let configuration = layoutRepresentation.configuration(for: .cell, at: indexPathAfterUpdate)
-            applyConfiguration(configuration, to: &item)
+            item.alignment = configuration.alignment
+            item.interItemSpacing = configuration.interItemSpacing
+            if let calculatedSize = configuration.calculatedSize {
+                item.calculatedSize = calculatedSize
+                item.calculatedOnce = true
+            } else {
+                // Reconfigure means the cell's content has changed (e.g. a voice
+                // memo transcript flipping from .notRequested to .completed). The
+                // previously self-sized height is stale, so swap in the new
+                // estimate and force another self-sizing pass.
+                item.resetSize(toPreferredSize: configuration.preferredSize)
+            }
             afterUpdateModel.replaceItem(item, at: indexPathAfterUpdate)
             visibleBoundsBeforeUpdate.offsettingBy(dx: 0, dy: item.frame.height - oldHeight)
         }

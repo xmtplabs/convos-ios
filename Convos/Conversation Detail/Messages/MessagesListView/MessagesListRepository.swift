@@ -103,6 +103,12 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     func fetchInitial() throws -> [MessagesListItemType] {
         let messages = try messagesRepository.fetchInitial()
+        // Seed the stored transcripts synchronously so the very first list
+        // emission already carries any persisted transcripts. Otherwise the
+        // transcripts publisher subscription in startObserving() lags behind
+        // the initial fetch by one run loop, causing transcript rows to
+        // "animate in" a moment after the conversation opens.
+        storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationId)) ?? [:]
         return processMessages(messages)
     }
 

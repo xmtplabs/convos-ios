@@ -4,6 +4,12 @@ import GRDB
 
 public protocol VoiceMemoTranscriptRepositoryProtocol: Sendable {
     func transcript(for messageId: String) async throws -> VoiceMemoTranscript?
+    /// Synchronously fetch all stored transcripts for a conversation. Used by the
+    /// messages list repository during `fetchInitial()` so the first emitted list
+    /// already carries any persisted transcripts — otherwise transcript rows
+    /// "animate in" a moment after the conversation opens when the
+    /// `ValueObservation` publisher catches up.
+    func fetchAllTranscripts(in conversationId: String) throws -> [String: VoiceMemoTranscript]
     func transcriptPublisher(for messageId: String) -> AnyPublisher<VoiceMemoTranscript?, Never>
     func transcriptsPublisher(in conversationId: String) -> AnyPublisher<[String: VoiceMemoTranscript], Never>
 }
@@ -21,6 +27,17 @@ public final class VoiceMemoTranscriptRepository: VoiceMemoTranscriptRepositoryP
                 .filter(DBVoiceMemoTranscript.Columns.messageId == messageId)
                 .fetchOne(db)?
                 .model
+        }
+    }
+
+    public func fetchAllTranscripts(in conversationId: String) throws -> [String: VoiceMemoTranscript] {
+        try databaseReader.read { db in
+            let rows = try DBVoiceMemoTranscript
+                .filter(DBVoiceMemoTranscript.Columns.conversationId == conversationId)
+                .fetchAll(db)
+            return rows.reduce(into: [String: VoiceMemoTranscript]()) { result, row in
+                result[row.messageId] = row.model
+            }
         }
     }
 

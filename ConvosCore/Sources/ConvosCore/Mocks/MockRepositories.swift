@@ -217,6 +217,10 @@ public final class MockVoiceMemoTranscriptRepository: VoiceMemoTranscriptReposit
         nil
     }
 
+    public func fetchAllTranscripts(in conversationId: String) throws -> [String: VoiceMemoTranscript] {
+        [:]
+    }
+
     public func transcriptPublisher(for messageId: String) -> AnyPublisher<VoiceMemoTranscript?, Never> {
         Just(nil).eraseToAnyPublisher()
     }
