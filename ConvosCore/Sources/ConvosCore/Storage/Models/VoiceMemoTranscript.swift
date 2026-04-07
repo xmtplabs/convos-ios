@@ -1,6 +1,11 @@
 import Foundation
 
 public enum VoiceMemoTranscriptStatus: String, Codable, Hashable, Sendable {
+    /// Display-only state for an incoming voice memo that the app has not yet been
+    /// asked to transcribe (typically because the user has not granted speech
+    /// recognition permission). This case is never persisted; the database only
+    /// holds rows for transcripts that have actually started, completed, or failed.
+    case notRequested = "not_requested"
     case pending
     case completed
     case failed

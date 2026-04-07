@@ -45,10 +45,6 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
                 return .estimated(CGSize(width: width, height: 48.0))
             case .typingIndicator:
                 return .estimated(CGSize(width: width, height: 48.0))
-            case .voiceMemoTranscript(let transcript):
-                let lines: CGFloat = transcript.isExpanded ? 6.0 : 2.0
-                let textHeight: CGFloat = transcript.text == nil ? 24.0 : 18.0 * lines
-                return .estimated(CGSize(width: width, height: textHeight + 32.0))
             }
         case .footer, .header:
             return .exact(.zero)
@@ -92,7 +88,11 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
     private func estimatedAttachmentHeight(for attachment: HydratedAttachment, width: CGFloat) -> CGFloat {
         switch attachment.mediaType {
         case .audio:
-            return 44.0
+            // 44pt for the voice memo bubble + ~52pt reserved for the inline
+            // transcript row that we render directly below incoming voice memos.
+            // This is just an estimate; the cell self-sizes once SwiftUI runs
+            // its real layout pass.
+            return 44.0 + 52.0
         case .file:
             return 60.0
         case .image, .video, .unknown:

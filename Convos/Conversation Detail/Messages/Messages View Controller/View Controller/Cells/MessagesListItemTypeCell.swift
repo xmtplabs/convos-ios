@@ -97,7 +97,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
                         onOpenFile: config.onOpenFile,
                         onRetryMessage: config.onRetryMessage,
-                        onDeleteMessage: config.onDeleteMessage
+                        onDeleteMessage: config.onDeleteMessage,
+                        onRetryTranscript: config.onRetryTranscript
                     )
 
                 case .invite(let invite):
@@ -162,19 +163,6 @@ class MessagesListItemTypeCell: UICollectionViewCell {
 
                 case .typingIndicator:
                     EmptyView()
-
-                case .voiceMemoTranscript(let transcript):
-                    VoiceMemoTranscriptRow(
-                        item: transcript,
-                        onToggleTranscript: { messageId in
-                            config.onToggleTranscript(messageId)
-                        },
-                        onRetryTranscript: { item in
-                            config.onRetryTranscript(item)
-                        }
-                    )
-                    .padding(.horizontal, DesignConstants.Spacing.step4x)
-                    .padding(.bottom, DesignConstants.Spacing.step2x)
                 }
             }
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)

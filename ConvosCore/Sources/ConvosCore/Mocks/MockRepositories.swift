@@ -255,6 +255,8 @@ public final class MockVoiceMemoTranscriptionService: VoiceMemoTranscriptionServ
         attachmentKey: String,
         mimeType: String
     ) async {}
+
+    public func hasSpeechPermission() -> Bool { true }
 }
 
 // MARK: - Mock Attachment Local State Writer

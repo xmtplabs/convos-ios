@@ -21,9 +21,6 @@ protocol MessagesListRepositoryProtocol {
     var hasMoreMessages: Bool { get }
 
     var currentOtherMemberCount: Int { get set }
-
-    /// Toggles the expanded state for a voice memo transcript row.
-    func setTranscriptExpanded(_ expanded: Bool, for messageId: String)
 }
 
 @MainActor
@@ -33,14 +30,17 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     private let messagesRepository: any MessagesRepositoryProtocol
     private let transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol
     private let conversationId: String
-    private let transcriptExpansionStore: VoiceMemoTranscriptExpansionStore
+    /// Returns whether the user has granted on-device speech recognition permission.
+    /// Used to suppress the synthetic "Tap to transcribe" affordance once the user
+    /// has authorized transcription — from that point forward, voice memos with no
+    /// stored transcript row should silently auto-transcribe rather than prompt.
+    private let speechPermissionProvider: @MainActor () -> Bool
     private let messagesListSubject: CurrentValueSubject<[MessagesListItemType], Never> = .init([])
     private var cancellables: Set<AnyCancellable> = .init()
     private var dismissCancellable: AnyCancellable?
     private var transcriptCancellable: AnyCancellable?
     private var lastRawMessages: [AnyMessage] = []
-    private var transcripts: [String: VoiceMemoTranscript] = [:]
-    private var expandedTranscriptMessageIds: Set<String> = []
+    private var storedTranscripts: [String: VoiceMemoTranscript] = [:]
     var currentOtherMemberCount: Int = 0
 
     // MARK: - Public Properties
@@ -69,25 +69,12 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         messagesRepository: any MessagesRepositoryProtocol,
         transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol,
         conversationId: String,
-        transcriptExpansionStore: VoiceMemoTranscriptExpansionStore? = nil
+        speechPermissionProvider: @escaping @MainActor () -> Bool = { false }
     ) {
         self.messagesRepository = messagesRepository
         self.transcriptRepository = transcriptRepository
         self.conversationId = conversationId
-        self.transcriptExpansionStore = transcriptExpansionStore
-            ?? VoiceMemoTranscriptExpansionStore(conversationId: conversationId)
-        self.expandedTranscriptMessageIds = self.transcriptExpansionStore.loadExpandedMessageIds()
-    }
-
-    func setTranscriptExpanded(_ expanded: Bool, for messageId: String) {
-        if expanded {
-            expandedTranscriptMessageIds.insert(messageId)
-        } else {
-            expandedTranscriptMessageIds.remove(messageId)
-        }
-        transcriptExpansionStore.save(expandedTranscriptMessageIds)
-        let reprocessed = processMessages(lastRawMessages)
-        messagesListSubject.send(reprocessed)
+        self.speechPermissionProvider = speechPermissionProvider
     }
 
     func startObserving() {
@@ -106,7 +93,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] transcripts in
                 guard let self else { return }
-                self.transcripts = transcripts
+                self.storedTranscripts = transcripts
                 let reprocessed = self.processMessages(self.lastRawMessages)
                 self.messagesListSubject.send(reprocessed)
             }
@@ -132,46 +119,53 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     private func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
         lastRawMessages = messages
-        let items = MessagesListProcessor.process(messages, otherMemberCount: currentOtherMemberCount)
-        let withTranscripts = injectTranscriptRows(into: items, messages: messages)
-        scheduleAssistantJoinDismissIfNeeded(withTranscripts)
-        return withTranscripts
+        let transcripts = synthesizeTranscriptItems(messages: messages)
+        let items = MessagesListProcessor.process(
+            messages,
+            otherMemberCount: currentOtherMemberCount,
+            voiceMemoTranscripts: transcripts
+        )
+        scheduleAssistantJoinDismissIfNeeded(items)
+        return items
     }
 
-    private func injectTranscriptRows(
-        into items: [MessagesListItemType],
+    /// Build the per-message transcript map. Every incoming voice memo with a
+    /// stored DB row gets an entry. Voice memos *without* a stored row only get a
+    /// synthetic `.notRequested` entry when the user has not yet granted speech
+    /// recognition permission — that's the only state where the UI should expose
+    /// a "Tap to transcribe" affordance. After permission has been granted the
+    /// scheduler auto-enqueues these messages, so the row should stay hidden until
+    /// the writer flips it to `.pending`.
+    private func synthesizeTranscriptItems(
         messages: [AnyMessage]
-    ) -> [MessagesListItemType] {
-        guard !transcripts.isEmpty else { return items }
-
-        let messagesById = Dictionary(uniqueKeysWithValues: messages.map { ($0.messageId, $0) })
-
-        var result: [MessagesListItemType] = []
-        result.reserveCapacity(items.count)
-
-        for item in items {
-            result.append(item)
-            guard case .messages(let group) = item else { continue }
-            for message in group.messages {
-                guard case .attachment(let attachment) = message.content,
-                      attachment.mediaType == .audio,
-                      let transcript = transcripts[message.messageId] else { continue }
-                guard let live = messagesById[message.messageId] else { continue }
-                let row = VoiceMemoTranscriptListItem(
-                    parentMessageId: message.messageId,
-                    conversationId: conversationId,
-                    attachmentKey: attachment.key,
-                    mimeType: attachment.mimeType,
-                    isOutgoing: live.senderIsCurrentUser,
-                    status: transcript.status,
-                    text: transcript.text,
-                    errorDescription: transcript.errorDescription,
-                    isExpanded: expandedTranscriptMessageIds.contains(message.messageId)
-                )
-                result.append(.voiceMemoTranscript(row))
+    ) -> [String: VoiceMemoTranscriptListItem] {
+        let permissionGranted = speechPermissionProvider()
+        var result: [String: VoiceMemoTranscriptListItem] = [:]
+        for message in messages {
+            guard let attachment = message.content.primaryVoiceMemoAttachment else { continue }
+            // Outgoing voice memos are never transcribed; skip them entirely so the
+            // map doesn't carry rows we won't render.
+            guard !message.senderIsCurrentUser else { continue }
+            let stored = storedTranscripts[message.messageId]
+            if stored == nil, permissionGranted {
+                // Auto-transcribe path: don't fabricate a row. The scheduler will
+                // call markPending shortly and the writer-driven publisher will
+                // surface the real `.pending` row when it lands.
+                continue
             }
+            let item = VoiceMemoTranscriptListItem(
+                parentMessageId: message.messageId,
+                conversationId: conversationId,
+                attachmentKey: attachment.key,
+                mimeType: attachment.mimeType,
+                senderDisplayName: message.sender.profile.displayName,
+                isOutgoing: false,
+                status: stored?.status ?? .notRequested,
+                text: stored?.text,
+                errorDescription: stored?.errorDescription
+            )
+            result[message.messageId] = item
         }
-
         return result
     }
 
@@ -189,7 +183,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .delay(for: .seconds(remaining), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let reprocessed = MessagesListProcessor.process(self.lastRawMessages, otherMemberCount: self.currentOtherMemberCount)
+                let reprocessed = self.processMessages(self.lastRawMessages)
                 self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
                 self.messagesListSubject.send(reprocessed)
             }

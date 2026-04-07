@@ -1,4 +1,5 @@
 import AVFoundation
+import ConvosLogging
 import Foundation
 import Speech
 
@@ -82,10 +83,8 @@ public actor VoiceMemoTranscriber: VoiceMemoTranscribing {
     private static func runTranscription(fileURL: URL) async throws -> String {
         try await ensureAuthorized()
 
-        let locale = await pickLocale()
-        guard let locale else {
-            throw VoiceMemoTranscriberError.unsupportedLocale
-        }
+        let locale = try await pickLocale()
+        Log.info("[VoiceMemoTranscription] Using locale \(locale.identifier) for transcription")
 
         let transcriber = SpeechTranscriber(
             locale: locale,
@@ -159,32 +158,64 @@ public actor VoiceMemoTranscriber: VoiceMemoTranscribing {
         }
     }
 
-    private static func pickLocale() async -> Locale? {
+    private static func pickLocale() async throws -> Locale {
         let supported = await SpeechTranscriber.supportedLocales
-        guard !supported.isEmpty else { return nil }
+        let installed = await SpeechTranscriber.installedLocales
+        Log.info(
+            "[VoiceMemoTranscription] supportedLocales=\(supported.count) installedLocales=\(installed.count) current=\(Locale.current.identifier)"
+        )
 
+        // 1. Prefer an installed locale that matches the user's current locale.
         if let equivalent = await SpeechTranscriber.supportedLocale(equivalentTo: Locale.current) {
             return equivalent
         }
 
-        if let englishUS = supported.first(where: { $0.identifier == "en_US" }) {
+        // 2. Otherwise prefer any installed locale (avoids a model download).
+        if let firstInstalled = installed.first {
+            return firstInstalled
+        }
+
+        // 3. Otherwise prefer en-US from the supported set so the asset installer
+        //    has a clear target.
+        if let englishUS = supported.first(where: { $0.identifier.hasPrefix("en_US") || $0.identifier.hasPrefix("en-US") }) {
             return englishUS
         }
-        return supported.first
+
+        // 4. Otherwise pick any supported locale.
+        if let any = supported.first {
+            return any
+        }
+
+        // 5. Last resort: hand-roll en-US. The asset installer will tell us if the
+        //    speech model isn't actually available for this device.
+        Log.warning("[VoiceMemoTranscription] No supported or installed locales reported by SpeechTranscriber; falling back to en-US")
+        return Locale(identifier: "en_US")
     }
 
     private static func ensureAssetsInstalled(for modules: [any SpeechModule]) async throws {
         let status = await AssetInventory.status(forModules: modules)
+        Log.info("[VoiceMemoTranscription] AssetInventory status: \(status)")
         switch status {
         case .installed:
             return
         case .supported, .downloading:
-            if let request = try await AssetInventory.assetInstallationRequest(supporting: modules) {
-                try await request.downloadAndInstall()
-            } else {
+            do {
+                if let request = try await AssetInventory.assetInstallationRequest(supporting: modules) {
+                    Log.info("[VoiceMemoTranscription] Downloading speech assets…")
+                    try await request.downloadAndInstall()
+                    Log.info("[VoiceMemoTranscription] Speech assets installed")
+                } else {
+                    Log.warning("[VoiceMemoTranscription] AssetInventory returned no installation request")
+                    throw VoiceMemoTranscriberError.assetsUnavailable
+                }
+            } catch let error as VoiceMemoTranscriberError {
+                throw error
+            } catch {
+                Log.error("[VoiceMemoTranscription] Asset installation failed: \(error)")
                 throw VoiceMemoTranscriberError.assetsUnavailable
             }
         case .unsupported:
+            Log.warning("[VoiceMemoTranscription] Speech model is unsupported on this device")
             throw VoiceMemoTranscriberError.assetsUnavailable
         @unknown default:
             throw VoiceMemoTranscriberError.assetsUnavailable

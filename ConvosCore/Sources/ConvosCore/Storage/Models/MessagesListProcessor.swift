@@ -3,14 +3,23 @@ import Foundation
 public final class MessagesListProcessor: Sendable {
     private static let hourInSeconds: TimeInterval = 3600
 
-    public static func process(_ messages: [AnyMessage], otherMemberCount: Int = 0) -> [MessagesListItemType] {
-        return processMessages(messages, otherMemberCount: otherMemberCount)
+    public static func process(
+        _ messages: [AnyMessage],
+        otherMemberCount: Int = 0,
+        voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+    ) -> [MessagesListItemType] {
+        return processMessages(
+            messages,
+            otherMemberCount: otherMemberCount,
+            voiceMemoTranscripts: voiceMemoTranscripts
+        )
     }
 
     // swiftlint:disable:next cyclomatic_complexity function_body_length
     private static func processMessages(
         _ messages: [AnyMessage],
-        otherMemberCount: Int = 0
+        otherMemberCount: Int = 0,
+        voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
     ) -> [MessagesListItemType] {
         guard !messages.isEmpty else { return [] }
 
@@ -68,7 +77,8 @@ public final class MessagesListProcessor: Sendable {
                 if groupStartIndex >= 0, currentSenderId != nil {
                     flush(
                         &items, messages, groupStartIndex, groupEndIndex,
-                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
                     )
                     groupStartIndex = -1
                     currentSenderId = nil
@@ -97,7 +107,8 @@ public final class MessagesListProcessor: Sendable {
                 if groupStartIndex >= 0, currentSenderId != nil {
                     flush(
                         &items, messages, groupStartIndex, groupEndIndex,
-                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
                     )
                     groupStartIndex = -1
                     currentSenderId = nil
@@ -121,7 +132,8 @@ public final class MessagesListProcessor: Sendable {
                     if groupStartIndex >= 0, currentSenderId != nil {
                         flush(
                             &items, messages, groupStartIndex, groupEndIndex,
-                            false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx
+                            false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                            voiceMemoTranscripts
                         )
                         groupStartIndex = -1
                         currentSenderId = nil
@@ -146,19 +158,22 @@ public final class MessagesListProcessor: Sendable {
                 if groupStartIndex >= 0, currentSenderId != nil {
                     flush(
                         &items, messages, groupStartIndex, groupEndIndex,
-                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx
+                        false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                        voiceMemoTranscripts
                     )
                 }
                 flush(
                     &items, messages, index, index,
-                    false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx
+                    false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                    voiceMemoTranscripts
                 )
                 groupStartIndex = -1
                 currentSenderId = nil
             } else if let currentId = currentSenderId, currentId != senderId {
                 flush(
                     &items, messages, groupStartIndex, groupEndIndex,
-                    false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx
+                    false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                    voiceMemoTranscripts
                 )
                 groupStartIndex = index
                 groupEndIndex = index
@@ -166,7 +181,8 @@ public final class MessagesListProcessor: Sendable {
             } else if lastWasAttachment, currentSenderId != nil {
                 flush(
                     &items, messages, groupStartIndex, groupEndIndex,
-                    false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx
+                    false, false, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                    voiceMemoTranscripts
                 )
                 groupStartIndex = index
                 groupEndIndex = index
@@ -187,7 +203,8 @@ public final class MessagesListProcessor: Sendable {
             let isCU = messages[groupStartIndex].senderIsCurrentUser
             flush(
                 &items, messages, groupStartIndex, groupEndIndex,
-                true, isCU, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx
+                true, isCU, &lastCUGroupIdx, trackedMemberCount, &lastOVIdx,
+                voiceMemoTranscripts
             )
         }
 
@@ -215,16 +232,32 @@ public final class MessagesListProcessor: Sendable {
         _ isLastGroupSentByCurrentUser: Bool,
         _ lastCurrentUserIndex: inout Int?,
         _ memberCount: Int,
-        _ lastOnlyVisibleIndex: inout Int?
+        _ lastOnlyVisibleIndex: inout Int?,
+        _ voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
     ) {
         let startMsg = messages[start]
         let sender = startMsg.sender
+
+        // Pull out the transcript rows whose parent message lives in this group so the
+        // group carries everything it needs to render itself. The map is usually empty
+        // (no voice memos in this group) so the per-group cost is negligible.
+        var groupTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
+        if !voiceMemoTranscripts.isEmpty {
+            for index in start...end {
+                let messageId = messages[index].messageId
+                if let transcript = voiceMemoTranscripts[messageId] {
+                    groupTranscripts[messageId] = transcript
+                }
+            }
+        }
+
         var group = MessagesGroup(
             id: "group-" + startMsg.messageId,
             sender: sender,
             messages: messages[start...end],
             isLastGroup: isLastGroup,
-            isLastGroupSentByCurrentUser: isLastGroupSentByCurrentUser
+            isLastGroupSentByCurrentUser: isLastGroupSentByCurrentUser,
+            voiceMemoTranscripts: groupTranscripts
         )
 
         if sender.isCurrentUser {

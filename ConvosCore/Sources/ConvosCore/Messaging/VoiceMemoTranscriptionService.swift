@@ -1,5 +1,6 @@
 import ConvosLogging
 import Foundation
+import Speech
 
 /// Coordinates local voice memo transcription jobs: deduplicates work, loads the
 /// encrypted attachment, persists pending/completed/failed state via the writer, and
@@ -29,6 +30,12 @@ public protocol VoiceMemoTranscriptionServicing: Sendable {
         attachmentKey: String,
         mimeType: String
     ) async
+
+    /// Whether the user has already granted on-device speech recognition permission.
+    /// Used by the auto-enqueue scheduler to decide whether transcription should
+    /// happen automatically (post-authorization) or whether the UI should instead
+    /// show a "Tap to transcribe" affordance for the very first voice memo.
+    func hasSpeechPermission() -> Bool
 }
 
 public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicing, @unchecked Sendable {
@@ -81,6 +88,10 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
         )
     }
 
+    public func hasSpeechPermission() -> Bool {
+        SFSpeechRecognizer.authorizationStatus() == .authorized
+    }
+
     private func enqueue(
         messageId: String,
         conversationId: String,
@@ -100,6 +111,11 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
                         // retries should be explicit user action.
                         await state.clear(messageId: messageId)
                         return
+                    case .notRequested:
+                        // .notRequested is a display-only state and should never
+                        // be persisted; if we ever see it in the DB, treat it as
+                        // "no record" and proceed.
+                        break
                     }
                 }
             } catch {

@@ -452,10 +452,12 @@ class ConversationViewModel {
         let messagesRepository = session.messagesRepository(for: conversation.id)
         self.conversationStateManager = messagingService.conversationStateManager(for: conversation.id)
         self.conversationRepository = conversationStateManager.draftConversationRepository
+        let transcriptionService = session.voiceMemoTranscriptionService()
         let messagesListRepo = MessagesListRepository(
             messagesRepository: messagesRepository,
             transcriptRepository: session.voiceMemoTranscriptRepository(),
-            conversationId: conversation.id
+            conversationId: conversation.id,
+            speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
         messagesListRepo.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         self.messagesListRepository = messagesListRepo
@@ -477,7 +479,7 @@ class ConversationViewModel {
         self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
         self.photoPreferencesWriter = session.photoPreferencesWriter()
         self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
-        self.voiceMemoTranscriptionService = session.voiceMemoTranscriptionService()
+        self.voiceMemoTranscriptionService = transcriptionService
         self.typingIndicatorManager = .shared
 
         do {
@@ -532,10 +534,12 @@ class ConversationViewModel {
         self.conversationStateManager = conversationStateManager
         self.conversationRepository = conversationStateManager.draftConversationRepository
         let messagesRepository = conversationStateManager.draftConversationRepository.messagesRepository
+        let transcriptionService = session.voiceMemoTranscriptionService()
         let messagesListRepo2 = MessagesListRepository(
             messagesRepository: messagesRepository,
             transcriptRepository: session.voiceMemoTranscriptRepository(),
-            conversationId: conversation.id
+            conversationId: conversation.id,
+            speechPermissionProvider: { transcriptionService.hasSpeechPermission() }
         )
         messagesListRepo2.currentOtherMemberCount = conversation.membersWithoutCurrent.count
         self.messagesListRepository = messagesListRepo2
@@ -557,7 +561,7 @@ class ConversationViewModel {
         self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
         self.photoPreferencesWriter = session.photoPreferencesWriter()
         self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
-        self.voiceMemoTranscriptionService = session.voiceMemoTranscriptionService()
+        self.voiceMemoTranscriptionService = transcriptionService
         self.typingIndicatorManager = .shared
 
         do {
@@ -609,6 +613,7 @@ class ConversationViewModel {
                 self.scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
             }
             .store(in: &cancellables)
+
         conversationRepository.conversationPublisher
             .receive(on: DispatchQueue.main)
             .compactMap { $0 }
@@ -1028,17 +1033,6 @@ extension ConversationViewModel {
 
     func cancelReply() {
         replyingToMessage = nil
-    }
-
-    func toggleTranscriptExpansion(for messageId: String) {
-        let isExpanded = messages.contains { item in
-            if case .voiceMemoTranscript(let transcript) = item,
-               transcript.parentMessageId == messageId {
-                return transcript.isExpanded
-            }
-            return false
-        }
-        messagesListRepository.setTranscriptExpanded(!isExpanded, for: messageId)
     }
 
     func retryTranscript(for item: VoiceMemoTranscriptListItem) {
@@ -1851,13 +1845,17 @@ extension ConversationViewModel {
 
     fileprivate func scheduleVoiceMemoTranscriptionsIfNeeded(in items: [MessagesListItemType]) {
         let service = voiceMemoTranscriptionService
+        // Only auto-enqueue once the user has granted speech recognition permission.
+        // Before that point, the row shows a "Tap to transcribe" affordance and the
+        // user kicks off the very first transcription manually (which is what causes
+        // iOS to surface the permission prompt).
+        guard service.hasSpeechPermission() else { return }
         let conversationId = conversation.id
         for item in items {
             guard case .messages(let group) = item else { continue }
             for message in group.messages {
                 guard !message.senderIsCurrentUser else { continue }
-                guard case .attachment(let attachment) = message.content else { continue }
-                guard attachment.mediaType == .audio else { continue }
+                guard let attachment = message.content.primaryVoiceMemoAttachment else { continue }
                 let messageId = message.messageId
                 let attachmentKey = attachment.key
                 let mimeType = attachment.mimeType ?? "audio/m4a"

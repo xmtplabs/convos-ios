@@ -31,7 +31,6 @@ final class MessagesCollectionViewDataSource: NSObject {
     var onCopyInviteLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
-    var onToggleTranscript: ((String) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var hasAssistant: Bool = false
     var isAssistantJoinPending: Bool = false
@@ -120,9 +119,6 @@ extension MessagesCollectionViewDataSource: UICollectionViewDataSource {
             },
             onInviteAssistant: { [weak self] in
                 self?.onInviteAssistant?()
-            },
-            onToggleTranscript: { [weak self] messageId in
-                self?.onToggleTranscript?(messageId)
             },
             onRetryTranscript: { [weak self] item in
                 self?.onRetryTranscript?(item)

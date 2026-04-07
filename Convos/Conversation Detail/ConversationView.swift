@@ -103,9 +103,6 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 }
             },
             onInviteAssistant: { viewModel.onRequestAssistantJoin() },
-            onToggleTranscript: { messageId in
-                viewModel.toggleTranscriptExpansion(for: messageId)
-            },
             onRetryTranscript: { item in
                 viewModel.retryTranscript(for: item)
             },

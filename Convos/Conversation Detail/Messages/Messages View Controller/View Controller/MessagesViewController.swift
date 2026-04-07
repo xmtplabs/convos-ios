@@ -193,7 +193,6 @@ final class MessagesViewController: UIViewController {
     var onCopyInviteLink: (() -> Void)?
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
-    var onToggleTranscript: ((String) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     private var filePreviewURL: URL?
     var hasAssistant: Bool = false {
@@ -378,9 +377,6 @@ final class MessagesViewController: UIViewController {
         }
         dataSource.onInviteAssistant = { [weak self] in
             self?.onInviteAssistant?()
-        }
-        dataSource.onToggleTranscript = { [weak self] messageId in
-            self?.onToggleTranscript?(messageId)
         }
         dataSource.onRetryTranscript = { [weak self] item in
             self?.onRetryTranscript?(item)

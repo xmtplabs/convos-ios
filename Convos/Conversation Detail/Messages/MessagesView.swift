@@ -60,7 +60,6 @@ struct MessagesView<BottomBarContent: View>: View {
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
     let onInviteAssistant: () -> Void
-    let onToggleTranscript: (String) -> Void
     let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
@@ -105,7 +104,6 @@ struct MessagesView<BottomBarContent: View>: View {
             onCopyInviteLink: onCopyInviteLink,
             onConvoCode: onConvoCode,
             onInviteAssistant: onInviteAssistant,
-            onToggleTranscript: onToggleTranscript,
             onRetryTranscript: onRetryTranscript,
             hasAssistant: hasAssistant,
             isAssistantJoinPending: isAssistantJoinPending,
