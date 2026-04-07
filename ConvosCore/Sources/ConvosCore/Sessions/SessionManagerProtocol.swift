@@ -41,6 +41,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func photoPreferencesWriter() -> any PhotoPreferencesWriterProtocol
     func voiceMemoTranscriptRepository() -> any VoiceMemoTranscriptRepositoryProtocol
     func voiceMemoTranscriptWriter() -> any VoiceMemoTranscriptWriterProtocol
+    func voiceMemoTranscriptionService() -> any VoiceMemoTranscriptionServicing
 
     func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
 

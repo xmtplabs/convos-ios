@@ -36,6 +36,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
     private var initializationTask: Task<Void, Never>?
+    private let voiceMemoTranscriptionServiceLock: NSLock = NSLock()
+    private var _voiceMemoTranscriptionService: (any VoiceMemoTranscriptionServicing)?
     private var unusedInboxPrepTask: Task<Void, Never>?
     private let deviceRegistrationManager: any DeviceRegistrationManagerProtocol
     private let notificationChangeReporter: any NotificationChangeReporterType
@@ -341,6 +343,20 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
     public func voiceMemoTranscriptWriter() -> any VoiceMemoTranscriptWriterProtocol {
         VoiceMemoTranscriptWriter(databaseWriter: databaseWriter)
+    }
+
+    public func voiceMemoTranscriptionService() -> any VoiceMemoTranscriptionServicing {
+        voiceMemoTranscriptionServiceLock.lock()
+        defer { voiceMemoTranscriptionServiceLock.unlock() }
+        if let existing = _voiceMemoTranscriptionService {
+            return existing
+        }
+        let service = VoiceMemoTranscriptionService(
+            transcriptRepository: voiceMemoTranscriptRepository(),
+            transcriptWriter: voiceMemoTranscriptWriter()
+        )
+        _voiceMemoTranscriptionService = service
+        return service
     }
 
     public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {

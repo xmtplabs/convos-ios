@@ -212,85 +212,66 @@ Proceed with a local-only architecture where transcript data is persisted in a d
   - `ConvosCore/Sources/ConvosCore/Storage/Writers/VoiceMemoTranscriptWriter.swift`
   - new `voiceMemoTranscript` table migration in `SharedDatabaseMigrator.swift`
 - Session plumbing
-  - `voiceMemoTranscriptRepository()` and `voiceMemoTranscriptWriter()` added to `SessionManagerProtocol`
-  - real implementations on `SessionManager`
+  - `voiceMemoTranscriptRepository()`, `voiceMemoTranscriptWriter()`, and `voiceMemoTranscriptionService()` on `SessionManagerProtocol`
+  - real implementations on `SessionManager` (transcription service is cached lazily per session)
   - mock implementations on `MockInboxesService` and `MockRepositories.swift`
 - Messages list integration
   - new `VoiceMemoTranscriptListItem` value type and `MessagesListItemType.voiceMemoTranscript` case
   - reuse identifier and alignment handling for the new case
-  - `MessagesListRepository` now accepts a transcript repository and a conversation id, observes transcripts, and injects transcript rows directly under each voice memo
-  - basic local expand/collapse state tracked in `MessagesListRepository.expandedTranscriptMessageIds`
-- UI scaffolding
-  - new SwiftUI view `Convos/Conversation Detail/Messages/MessagesListView/Messages List Items/VoiceMemoTranscriptRow.swift`
-  - rendered from both rendering paths:
-    - `Convos/Conversation Detail/Messages/Messages View Controller/View Controller/Cells/MessagesListItemTypeCell.swift`
-    - `Convos/Conversation Detail/Messages/MessagesListView/MessagesListView.swift`
-  - estimated layout heights handled in `DefaultMessagesLayoutDelegate.swift`
+  - `MessagesListRepository` accepts a transcript repository and a conversation id, observes transcripts, and injects transcript rows directly under each voice memo
+  - local expand/collapse state tracked in `MessagesListRepository.expandedTranscriptMessageIds`
+  - `setTranscriptExpanded(_:for:)` is exposed on `MessagesListRepositoryProtocol`
+- Expand / collapse UI plumbing
+  - `VoiceMemoTranscriptRow` now takes an `onToggleTranscript` callback, shows a chevron when a completed transcript is available, and toggles between compact (2-line) and full text
+  - `CellConfig`, `MessagesCollectionViewDataSource`, `MessagesCollectionDataSource`, `MessagesListItemTypeCell`, `MessagesViewController`, `MessagesViewRepresentable`, `MessagesView`, and `ConversationView` all thread `onToggleTranscript` through
+  - `ConversationViewModel.toggleTranscriptExpansion(for:)` flips the expanded state on the repository
+- On-device transcription service
+  - `ConvosCore/Sources/ConvosCore/Messaging/VoiceMemoTranscriber.swift` – actor that wraps `SpeechAnalyzer` + `SpeechTranscriber`, picks an on-device locale, downloads/installs speech assets via `AssetInventory.assetInstallationRequest`, and deduplicates per message id
+  - `ConvosCore/Sources/ConvosCore/Messaging/VoiceMemoTranscriptionService.swift` – orchestrator that:
+    - uses a `State` actor to reserve a slot per message id (prevents duplicate scheduling)
+    - skips messages that already have any transcript row
+    - marks `pending`, loads the encrypted audio via `RemoteAttachmentLoader`, writes it to a temporary file, runs the transcriber, and writes `completed` / `failed` via `VoiceMemoTranscriptWriter`
+  - `Info.plist` key `NSSpeechRecognitionUsageDescription` added to the Convos Dev / Prod / Local build configurations
+- Background triggering
+  - `ConversationViewModel.scheduleVoiceMemoTranscriptionsIfNeeded(in:)` scans each messages-publisher emission and the initial fetch for incoming `audio/*` attachments, then calls the service on a detached `.utility` task
+  - Outgoing voice memos are skipped
+
+### UI scaffolding (from the previous step)
+- new SwiftUI view `Convos/Conversation Detail/Messages/MessagesListView/Messages List Items/VoiceMemoTranscriptRow.swift`
+- rendered from both rendering paths:
+  - `Convos/Conversation Detail/Messages/Messages View Controller/View Controller/Cells/MessagesListItemTypeCell.swift`
+  - `Convos/Conversation Detail/Messages/MessagesListView/MessagesListView.swift`
+- estimated layout heights handled in `DefaultMessagesLayoutDelegate.swift`
 
 ### Not yet wired
-- Tap-to-expand path
-  - `VoiceMemoTranscriptRow` does not yet receive an action callback
-  - `MessagesListItemTypeCell` and `MessagesListView` do not yet thread an `onToggleTranscript` callback
-  - `ConversationViewModel` does not yet expose a method that calls `MessagesListRepository.setTranscriptExpanded(_:for:)`
-- Local transcription service
-  - no `VoiceMemoTranscriber` exists yet
-  - no on-device Apple speech integration yet
-  - no background scheduling that observes received voice memos and triggers transcription
-  - no orchestration that calls `VoiceMemoTranscriptWriter.markPending` / `saveCompleted` / `saveFailed`
+- Failure affordance
+  - failed transcripts are stored but the row does not yet show a retry button; failures are silent
+- Persistence of expand/collapse across launches
+  - expand state still lives only in the repository's in-memory `Set`
 - QA / tests
   - no unit tests for the storage layer yet
-  - no QA scenario file yet
+  - no unit tests for `VoiceMemoTranscriptionService` (would benefit from a mock transcriber + mock attachment loader)
+  - no QA scenario file yet (`qa/tests/32-voice-memo-transcription.md`)
 
 ## Next implementation steps
 
-### Step A — expand/collapse plumbing
-Goal: tapping a transcript row toggles between collapsed preview and full text without losing local state.
+### Step A — expand/collapse plumbing ✅
+Done. Tapping a completed transcript row toggles between the 2-line preview and the full transcript. State lives in-memory on the `MessagesListRepository` and is not yet persisted across relaunches.
 
-Suggested edits:
-- Add an `onToggleTranscript: (String) -> Void` to:
-  - `Convos/Conversation Detail/Messages/MessagesListView/Messages List Items/VoiceMemoTranscriptRow.swift`
-  - `CellConfig` in `Convos/Conversation Detail/Messages/Messages View Controller/View Controller/Data Source/CellFactory.swift`
-  - `MessagesListView.swift`
-  - the conversation rendering path that builds `CellConfig`
-- Expose a method on `ConversationViewModel`:
-  - `func toggleTranscriptExpansion(for messageId: String)`
-  - which calls `messagesListRepository.setTranscriptExpanded(...)`
-- Apply a tap gesture or button in `VoiceMemoTranscriptRow` that calls the toggle.
+### Step B — local on-device transcription service ✅
+Done. `VoiceMemoTranscriber` runs `SpeechAnalyzer` + `SpeechTranscriber` against a temp file written from the decrypted attachment data. `VoiceMemoTranscriptionService` is the orchestration layer that deduplicates, checks the repository, and calls the writer at the right lifecycle points. Authorization (`NSSpeechRecognitionUsageDescription`) is now declared in the Convos app build configurations.
 
-### Step B — local on-device transcription service
-Goal: receive voice memo → transcribe locally → persist transcript record → list updates automatically via existing publisher path.
+### Step C — background triggering ✅ (initial version)
+Done at the view-model level: `ConversationViewModel` observes the messages publisher and triggers transcription for incoming audio attachments on open and on every update. This satisfies the "transcription happens without user interaction" goal for foregrounded conversations. A truly background path (e.g. when the app receives a voice memo push notification while suspended) is still out of scope.
 
-Suggested shape:
-- New file `ConvosCore/Sources/ConvosCore/Messaging/VoiceMemoTranscriber.swift`
-  - `public actor VoiceMemoTranscriber`
-  - `func transcribe(messageId: String, conversationId: String, attachmentKey: String, fileURL: URL) async throws -> String`
-  - deduplicate by `messageId`
-  - support cancellation
-- Use Apple’s on-device speech transcription API. Validate availability against the deployment target during implementation.
-- Wrap calls in a small orchestration type, for example `VoiceMemoTranscriptionService`, that:
-  - exposes `enqueueIfNeeded(message:)`
-  - uses the `VoiceMemoTranscriptRepository` to skip already-transcribed messages
-  - calls `VoiceMemoTranscriptWriter.markPending` before starting
-  - calls `saveCompleted` or `saveFailed` when done
-
-### Step C — background triggering
-Goal: when a received voice memo becomes locally available, transcription runs without user interaction.
-
-Suggested integration points:
-- Hook in after the existing remote attachment hydration path so the orchestrator is notified of new locally available audio attachments
-- Skip transcription for outgoing voice memos unless explicitly enabled
-- Avoid duplicate work via the writer/repository check
-- Run inside a `Task` that respects app lifecycle and cancellation
-
-### Step D — UX polish
-- Clear collapsed/expanded transitions
-- Failure state affordance
+### Step D — UX polish (not started)
+- Failure affordance (retry button, inline "Transcript unavailable — try again")
 - Optional persistence of expand/collapse across launches
-- Optional retry button on failed transcripts
+- Optional smarter scroll-to-bottom behavior when a transcript first arrives and pushes content off screen
 
-### Step E — QA
-- new QA scenario file `qa/tests/32-voice-memo-transcription.md`
-- exercise:
+### Step E — QA (not started)
+- New QA scenario file `qa/tests/32-voice-memo-transcription.md`
+- Exercise:
   - receiving a voice memo
   - transcript appearing later
   - expanding and collapsing
@@ -299,5 +280,7 @@ Suggested integration points:
 
 ## Branch state
 - Branch: `jarod/voice-memo-transcription-plan`
-- Build: succeeds against `Convos (Dev)` simulator scheme
-- Storage and list integration are landed but the UI is read-only and the transcription service is not yet implemented
+- Build: succeeds against `Convos (Dev)` simulator scheme on `convos-jarod-voice-memo-transcription-plan`
+- Lint: `swiftlint lint` reports 0 violations across changed files
+- Manual smoke test: app launches on the simulator without crashes
+- Remaining work: UX polish (D), tests, and QA scenario (E)

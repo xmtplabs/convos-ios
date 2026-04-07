@@ -20,6 +20,7 @@ struct MessagesListView: View {
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
     let onInviteAssistant: () -> Void
+    let onToggleTranscript: ((String) -> Void)?
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
@@ -136,8 +137,11 @@ struct MessagesListView: View {
                                 EmptyView()
 
                             case .voiceMemoTranscript(let transcript):
-                                VoiceMemoTranscriptRow(item: transcript)
-                                    .padding(.bottom, DesignConstants.Spacing.step2x)
+                                VoiceMemoTranscriptRow(
+                                    item: transcript,
+                                    onToggleTranscript: onToggleTranscript
+                                )
+                                .padding(.bottom, DesignConstants.Spacing.step2x)
                             }
                         }
                         .onScrollVisibilityChange(threshold: 0.1) { isVisible in

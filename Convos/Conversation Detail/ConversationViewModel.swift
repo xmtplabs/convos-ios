@@ -81,6 +81,7 @@ class ConversationViewModel {
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
+    private let voiceMemoTranscriptionService: any VoiceMemoTranscriptionServicing
     private let applyGlobalDefaultsForNewConversation: Bool
     private let typingIndicatorManager: TypingIndicatorManager
 
@@ -476,6 +477,7 @@ class ConversationViewModel {
         self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
         self.photoPreferencesWriter = session.photoPreferencesWriter()
         self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
+        self.voiceMemoTranscriptionService = session.voiceMemoTranscriptionService()
         self.typingIndicatorManager = .shared
 
         do {
@@ -508,6 +510,7 @@ class ConversationViewModel {
         }
         startOnboarding()
         registerInlineAttachmentRecovery()
+        scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
     }
 
     // Alternative initializer for draft conversations with pre-loaded dependencies
@@ -554,6 +557,7 @@ class ConversationViewModel {
         self.photoPreferencesRepository = session.photoPreferencesRepository(for: conversation.id)
         self.photoPreferencesWriter = session.photoPreferencesWriter()
         self.attachmentLocalStateWriter = session.attachmentLocalStateWriter()
+        self.voiceMemoTranscriptionService = session.voiceMemoTranscriptionService()
         self.typingIndicatorManager = .shared
 
         do {
@@ -570,6 +574,7 @@ class ConversationViewModel {
         loadPhotoPreferences()
         observeTypingIndicators(typingIndicatorManager)
         registerInlineAttachmentRecovery()
+        scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
 
         self.editingConversationName = conversation.name ?? ""
         self.editingDescription = conversation.description ?? ""
@@ -601,6 +606,7 @@ class ConversationViewModel {
                 guard let self else { return }
                 self.clearTypingForNewMessages(old: self.messages, new: messages)
                 self.messages = messages
+                self.scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
             }
             .store(in: &cancellables)
         conversationRepository.conversationPublisher
@@ -1022,6 +1028,17 @@ extension ConversationViewModel {
 
     func cancelReply() {
         replyingToMessage = nil
+    }
+
+    func toggleTranscriptExpansion(for messageId: String) {
+        let isExpanded = messages.contains { item in
+            if case .voiceMemoTranscript(let transcript) = item,
+               transcript.parentMessageId == messageId {
+                return transcript.isExpanded
+            }
+            return false
+        }
+        messagesListRepository.setTranscriptExpanded(!isExpanded, for: messageId)
     }
 
     func retryMessage(_ message: AnyMessage) {
@@ -1814,6 +1831,30 @@ extension ConversationViewModel {
             senderInboxId: group.sender.profile.inboxId
         )
         updateTypingMembers(from: typingIndicatorManager)
+    }
+
+    fileprivate func scheduleVoiceMemoTranscriptionsIfNeeded(in items: [MessagesListItemType]) {
+        let service = voiceMemoTranscriptionService
+        let conversationId = conversation.id
+        for item in items {
+            guard case .messages(let group) = item else { continue }
+            for message in group.messages {
+                guard !message.senderIsCurrentUser else { continue }
+                guard case .attachment(let attachment) = message.content else { continue }
+                guard attachment.mediaType == .audio else { continue }
+                let messageId = message.messageId
+                let attachmentKey = attachment.key
+                let mimeType = attachment.mimeType ?? "audio/m4a"
+                Task.detached(priority: .utility) {
+                    await service.enqueueIfNeeded(
+                        messageId: messageId,
+                        conversationId: conversationId,
+                        attachmentKey: attachmentKey,
+                        mimeType: mimeType
+                    )
+                }
+            }
+        }
     }
 
     func stopTyping() {

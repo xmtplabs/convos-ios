@@ -239,6 +239,17 @@ public final class MockVoiceMemoTranscriptWriter: VoiceMemoTranscriptWriterProto
     }
 }
 
+public final class MockVoiceMemoTranscriptionService: VoiceMemoTranscriptionServicing, @unchecked Sendable {
+    public init() {}
+
+    public func enqueueIfNeeded(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String
+    ) async {}
+}
+
 // MARK: - Mock Attachment Local State Writer
 
 public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterProtocol, @unchecked Sendable {

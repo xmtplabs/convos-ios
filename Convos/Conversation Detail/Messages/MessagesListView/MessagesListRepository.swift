@@ -21,6 +21,9 @@ protocol MessagesListRepositoryProtocol {
     var hasMoreMessages: Bool { get }
 
     var currentOtherMemberCount: Int { get set }
+
+    /// Toggles the expanded state for a voice memo transcript row.
+    func setTranscriptExpanded(_ expanded: Bool, for messageId: String)
 }
 
 @MainActor

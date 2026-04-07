@@ -23,6 +23,7 @@ protocol MessagesCollectionDataSource: UICollectionViewDataSource, MessagesLayou
     var onCopyInviteLink: (() -> Void)? { get set }
     var onConvoCode: (() -> Void)? { get set }
     var onInviteAssistant: (() -> Void)? { get set }
+    var onToggleTranscript: ((String) -> Void)? { get set }
     var hasAssistant: Bool { get set }
     var isAssistantJoinPending: Bool { get set }
     var isAssistantEnabled: Bool { get set }

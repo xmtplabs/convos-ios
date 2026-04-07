@@ -1724,6 +1724,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -1770,6 +1771,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
@@ -2012,6 +2014,7 @@
 				INFOPLIST_KEY_ITSAppUsesNonExemptEncryption = NO;
 				INFOPLIST_KEY_NSCameraUsageDescription = "Scan a convo code to join a convo instantly. You can use your Camera app, too.";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "To record video messages with audio";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Convos transcribes voice memos on your device so you can read them.";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchStoryboardName = LaunchScreen;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;

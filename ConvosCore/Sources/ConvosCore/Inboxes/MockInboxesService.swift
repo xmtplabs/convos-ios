@@ -120,6 +120,10 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockVoiceMemoTranscriptWriter()
     }
 
+    public func voiceMemoTranscriptionService() -> any VoiceMemoTranscriptionServicing {
+        MockVoiceMemoTranscriptionService()
+    }
+
     public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
         MockAttachmentLocalStateWriter()
     }
