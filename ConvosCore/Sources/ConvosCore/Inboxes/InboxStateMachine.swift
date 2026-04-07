@@ -748,7 +748,27 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             Log.error("Failed to persist installationId for inbox \(result.client.inboxId) (non-fatal): \(error)")
         }
 
-        await checkStaleInstallation(client: result.client)
+        // Check whether this installation is still active (detects revocation by another device)
+        let staleInboxId = result.client.inboxId
+        let staleIsActive: Bool?
+        do {
+            staleIsActive = try await result.client.isInstallationActive()
+        } catch {
+            Log.warning("[Stale] inbox \(staleInboxId): check failed (non-fatal): \(error)")
+            staleIsActive = nil
+        }
+        if let staleIsActive {
+            if staleIsActive {
+                Log.info("[Stale] inbox \(staleInboxId): installation is active ✓")
+                let writer = InboxWriter(dbWriter: databaseWriter)
+                try? await writer.markStale(inboxId: staleInboxId, false)
+            } else {
+                Log.warning("[Stale] inbox \(staleInboxId): installation NOT in active list — marking stale")
+                let writer = InboxWriter(dbWriter: databaseWriter)
+                try? await writer.markStale(inboxId: staleInboxId, true)
+                QAEvent.emit(.inbox, "stale_detected", ["inboxId": staleInboxId])
+            }
+        }
 
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
@@ -942,7 +962,26 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         // Resume the syncing manager
         await syncingManager?.resume()
 
-        await checkStaleInstallation(client: result.client)
+        // Re-check stale state in case the user restored on another device while this one was backgrounded
+        let foregroundInboxId = result.client.inboxId
+        let foregroundIsActive: Bool?
+        do {
+            foregroundIsActive = try await result.client.isInstallationActive()
+        } catch {
+            Log.warning("[Stale] inbox \(foregroundInboxId): foreground check failed (non-fatal): \(error)")
+            foregroundIsActive = nil
+        }
+        if let foregroundIsActive {
+            let writer = InboxWriter(dbWriter: databaseWriter)
+            if foregroundIsActive {
+                Log.info("[Stale] inbox \(foregroundInboxId): foreground check — installation is active ✓")
+                try? await writer.markStale(inboxId: foregroundInboxId, false)
+            } else {
+                Log.warning("[Stale] inbox \(foregroundInboxId): foreground check — installation NOT in active list, marking stale")
+                try? await writer.markStale(inboxId: foregroundInboxId, true)
+                QAEvent.emit(.inbox, "stale_detected", ["inboxId": foregroundInboxId, "trigger": "foreground"])
+            }
+        }
 
         emitStateChange(.ready(clientId: clientId, result: result))
         Log.info("Inbox returned to ready state")
@@ -1138,34 +1177,6 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         if !attachmentKeys.isEmpty {
             Log.info("Removing \(attachmentKeys.count) persistent photo(s) for inbox clientId: \(clientId)")
             ImageCacheContainer.shared.removePersistentImages(for: attachmentKeys)
-        }
-    }
-
-    // MARK: - Stale Detection
-
-    /// Checks if the current installation is still active on the XMTP network for this inbox.
-    ///
-    /// Used to detect when the user has restored their account on a different device — device B's
-    /// restore will revoke this device's installations. We catch that state by querying the
-    /// authoritative inbox state from the network and verifying our installationId is still listed.
-    ///
-    /// Marks the inbox as stale in GRDB if the installationId is not in the active list. Failures
-    /// are non-fatal and silent — next check catches up.
-    private func checkStaleInstallation(client: any XMTPClientProvider) async {
-        do {
-            let isActive = try await client.isInstallationActive()
-            if isActive {
-                Log.info("[Stale] inbox \(client.inboxId): installation is active ✓")
-                let writer = InboxWriter(dbWriter: databaseWriter)
-                try? await writer.markStale(inboxId: client.inboxId, false)
-            } else {
-                Log.warning("[Stale] inbox \(client.inboxId): installation NOT in active list — marking stale")
-                let writer = InboxWriter(dbWriter: databaseWriter)
-                try await writer.markStale(inboxId: client.inboxId, true)
-                QAEvent.emit(.inbox, "stale_detected", ["inboxId": client.inboxId])
-            }
-        } catch {
-            Log.warning("[Stale] inbox \(client.inboxId): check failed (non-fatal): \(error)")
         }
     }
 

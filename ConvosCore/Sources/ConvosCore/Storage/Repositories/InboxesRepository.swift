@@ -24,6 +24,21 @@ public struct InboxesRepository {
             .eraseToAnyPublisher()
     }
 
+    /// Publishes the set of inboxIds that are currently stale.
+    public func staleInboxIdsPublisher() -> AnyPublisher<Set<String>, Never> {
+        ValueObservation
+            .tracking { db in
+                let ids = try DBInbox
+                    .filter(DBInbox.Columns.isStale == true)
+                    .select(DBInbox.Columns.inboxId, as: String.self)
+                    .fetchAll(db)
+                return Set(ids)
+            }
+            .publisher(in: databaseReader)
+            .replaceError(with: Set<String>())
+            .eraseToAnyPublisher()
+    }
+
     /// Fetch all inboxes from the database
     public func allInboxes() throws -> [Inbox] {
         try databaseReader.read { db in

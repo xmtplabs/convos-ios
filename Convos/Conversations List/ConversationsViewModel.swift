@@ -108,6 +108,8 @@ final class ConversationsViewModel {
 
     var conversations: [Conversation] = []
     var isDeviceStale: Bool = false
+    @ObservationIgnored
+    private var staleInboxIds: Set<String> = []
     private var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -367,11 +369,21 @@ final class ConversationsViewModel {
             }
             .store(in: &cancellables)
 
-        InboxesRepository(databaseReader: session.databaseReader)
-            .anyInboxStalePublisher()
+        let inboxesRepository = InboxesRepository(databaseReader: session.databaseReader)
+        inboxesRepository.anyInboxStalePublisher()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] isStale in
                 self?.isDeviceStale = isStale
+            }
+            .store(in: &cancellables)
+
+        inboxesRepository.staleInboxIdsPublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ids in
+                guard let self else { return }
+                self.staleInboxIds = ids
+                // Re-filter the currently visible conversations so stale ones hide immediately.
+                self.conversations = self.conversations.filter { !ids.contains($0.inboxId) }
             }
             .store(in: &cancellables)
 
@@ -379,9 +391,11 @@ final class ConversationsViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
                 guard let self else { return }
+                let filtered = conversations
+                    .filter { !self.staleInboxIds.contains($0.inboxId) }
                 self.conversations = hiddenConversationIds.isEmpty
-                    ? conversations
-                    : conversations.filter { !hiddenConversationIds.contains($0.id) }
+                    ? filtered
+                    : filtered.filter { !hiddenConversationIds.contains($0.id) }
 
                 // Clear selection if selected conversation no longer exists
                 if let selectedId = _selectedConversationId,

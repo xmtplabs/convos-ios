@@ -95,6 +95,14 @@ struct ConversationsView: View {
                         conversationsCollectionView
                     }
                 }
+                .safeAreaInset(edge: .top) {
+                    if viewModel.isDeviceStale {
+                        StaleDeviceBanner(onDeleteData: viewModel.deleteAllData)
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+                            .background(.colorBackgroundSurfaceless)
+                    }
+                }
                 .onGeometryChange(for: CGSize.self) {
                     $0.size
                 } action: { newValue in
