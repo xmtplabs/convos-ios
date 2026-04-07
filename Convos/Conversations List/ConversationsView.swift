@@ -124,10 +124,14 @@ struct ConversationsView: View {
                 .safeAreaInset(edge: .top) {
                     if viewModel.isDeviceStale {
                         let learnMoreAction = { presentingStaleDeviceInfo = true }
-                        StaleDeviceBanner(onDeleteData: viewModel.deleteAllData, onLearnMore: learnMoreAction)
-                            .padding(.top, 8)
-                            .padding(.bottom, 4)
-                            .background(.colorBackgroundSurfaceless)
+                        StaleDeviceBanner(
+                            state: viewModel.staleDeviceState,
+                            onResetDevice: viewModel.deleteAllData,
+                            onLearnMore: learnMoreAction
+                        )
+                        .padding(.top, 8)
+                        .padding(.bottom, 4)
+                        .background(.colorBackgroundSurfaceless)
                     }
                 }
                 .onGeometryChange(for: CGSize.self) {
@@ -312,7 +316,21 @@ struct ConversationsView: View {
             PinLimitInfoView()
         }
         .selfSizingSheet(isPresented: $presentingStaleDeviceInfo) {
-            StaleDeviceInfoView(onDeleteData: viewModel.deleteAllData)
+            StaleDeviceInfoView(
+                state: viewModel.staleDeviceState,
+                onResetDevice: viewModel.deleteAllData
+            )
+        }
+        .fullScreenCover(isPresented: $viewModel.isPendingFullStaleAutoReset) {
+            ZStack {
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+                FullStaleAutoResetCountdown(
+                    onReset: { viewModel.confirmFullStaleAutoReset() },
+                    onCancel: { viewModel.cancelFullStaleAutoReset() }
+                )
+            }
+            .presentationBackground(.clear)
         }
         .background {
             Color.clear
