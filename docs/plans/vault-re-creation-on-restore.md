@@ -59,29 +59,41 @@ Restore flow:
 
 ### Step 8 in detail
 
-**8a. Preserve old vault as read-only artifact**
+**8a. Revoke device A's installation from the old vault**
 
-Rename the old vault XMTP database on disk from its current location to a `.restored-YYYYMMDD-HHMMSS` suffix. This keeps it on disk for debugging and any manual recovery, but takes it out of the active vault path so the VaultManager bootstrap doesn't pick it up.
+Before disconnecting the old vault client, call `revokeAllOtherInstallations` on it using the old vault's signing key (still in the keychain at this point). This kills device A's installation on the old vault inboxId via the XMTP network, matching the same behavior already applied to restored conversation inboxes.
 
-**8b. Clear old vault key from keychain**
+Why this matters: without revocation, device A keeps a zombie installation on the old vault forever. Combined with the per-conversation revocations that already happen, this ensures device A is fully replaced, not just partially.
 
-Delete the old vault key from both local and iCloud keychain stores. The old key corresponds to an inboxId whose installation is no longer usable — leaving it in iCloud would cause future devices to pick up the dead vault.
+If revocation fails (network down, key unavailable), log and continue — not fatal. The user can retry the restore or manually clean up later.
+
+**8b. Disconnect the old vault client**
+
+Tear down the XMTP client for the old vault. The bootstrap state resets to `.notStarted`.
+
+**8c. Clear old vault key from keychain**
+
+Delete the old vault key from both local and iCloud keychain stores. The old key corresponds to an inboxId whose installation is now revoked — leaving it in iCloud would cause future devices to pick up the dead vault.
 
 Open question: do we want to preserve the old key in a *separate* iCloud keychain service (e.g., `org.convos.vault-identity.restored`) as an audit trail? Probably not worth it for v1.
 
-**8c. Create new vault**
+**8d. Clear old DBInbox row**
 
-Call `VaultManager.bootstrap()` with a fresh identity (new inboxId, new signing/db keys). This follows the existing "first-time creation" path:
+Delete the old vault's `DBInbox` row so the bootstrap doesn't pick it up and fail the clientId-mismatch check.
+
+**8e. Create new vault**
+
+Call `VaultManager.bootstrapVault()` with a fresh identity (new inboxId, new signing/db keys). This follows the existing "first-time creation" path:
 - Generate new keys
 - Create XMTP client
 - Save to both local and iCloud keychain (via `VaultKeyStore`)
 - Save DBInbox row with `isVault: true`
 
-**8d. Broadcast restored conversation keys to new vault**
+**8f. Broadcast restored conversation keys to new vault**
 
-Call `VaultManager.broadcastAllKeys()` to publish every restored conversation key as a `DeviceKeyBundle` message in the new vault group. This makes the new vault the source of truth for future devices.
+Call `VaultManager.shareAllKeys()` to publish every restored conversation key as a `DeviceKeyBundle` message in the new vault group. This makes the new vault the source of truth for future devices.
 
-**8e. Mark restore complete**
+**8g. Mark restore complete**
 
 State transitions to `.completed`, sessions resume.
 
@@ -91,13 +103,13 @@ No schema changes. The existing `DBInbox` table and `VaultKeyStore` cover everyt
 
 ### Failure modes
 
-**Old vault rename fails**: log error, continue — worst case, the old vault DB lingers and may need manual cleanup. Not a blocker.
+**Old vault revocation fails**: log warning, continue. Device A's vault installation lingers as a zombie, but the new vault on device B still works. Not a blocker.
 
-**New vault creation fails**: restore state transitions to `.failed`. User is in a half-restored state (conversations restored, no active vault). Recovery: retry. Keychain deletion from step 8b should be idempotent.
+**New vault creation fails**: restore state transitions to `.failed`. User is in a half-restored state (conversations restored, no active vault). Recovery: retry. Keychain deletion should be idempotent.
 
-**broadcastAllKeys fails after new vault created**: log warning, continue. The conversations are still usable — the vault will have keys broadcast to it on the next normal sync cycle (when new messages arrive). Not fatal.
+**shareAllKeys fails after new vault created**: log warning, continue. The conversations are still usable — the vault will have keys broadcast to it on the next normal sync cycle (when new messages arrive). Not fatal.
 
-**Edge case: no conversations in backup**: step 8d is a no-op. New vault is created empty. Fine.
+**Edge case: no conversations in backup**: step 8f is a no-op. New vault is created empty. Fine.
 
 ### Interaction with existing code
 
