@@ -199,6 +199,78 @@ public actor VaultManager {
         await vaultClient.disconnect()
     }
 
+    /// Tears down the current vault and bootstraps a fresh one with new keys.
+    ///
+    /// Used after restore: the restored vault is inactive because the new
+    /// installation was never added to the old vault's MLS group, and the vault
+    /// is a single-user group with no third party to trigger re-addition.
+    /// This method:
+    ///   1. Disconnects the current vault client
+    ///   2. Deletes the old vault key from local + iCloud keychain
+    ///   3. Deletes the old DBInbox row for the vault
+    ///   4. Re-runs `bootstrapVault()` which generates fresh keys and creates
+    ///      a new vault (new inboxId, new MLS group)
+    ///
+    /// The old vault XMTP database file on disk is left as-is — it's no longer
+    /// referenced by anything, but we don't touch it to avoid risk. A future
+    /// cleanup pass can remove orphaned vault DB files.
+    public func reCreate(
+        databaseWriter: any DatabaseWriter,
+        environment: AppEnvironment
+    ) async throws {
+        Log.info("[Vault] reCreate: tearing down current vault")
+
+        let oldInboxId = await vaultInboxId
+
+        await vaultClient.disconnect()
+        bootstrapState = .notStarted
+
+        if let vaultKeyStore, let oldInboxId {
+            do {
+                try await vaultKeyStore.delete(inboxId: oldInboxId)
+                Log.info("[Vault] reCreate: deleted old vault key for inboxId=\(oldInboxId)")
+            } catch {
+                Log.warning("[Vault] reCreate: failed to delete old vault key: \(error)")
+            }
+        } else if let vaultKeyStore {
+            // No known inboxId (e.g., disconnect failed before we captured it) — delete all
+            try? await vaultKeyStore.deleteAll()
+            Log.info("[Vault] reCreate: deleted all vault keys (no specific inboxId)")
+        }
+
+        if let oldInboxId {
+            do {
+                try await databaseWriter.write { db in
+                    try db.execute(
+                        sql: "DELETE FROM inbox WHERE inboxId = ? AND isVault = 1",
+                        arguments: [oldInboxId]
+                    )
+                }
+                Log.info("[Vault] reCreate: deleted old DBInbox row for inboxId=\(oldInboxId)")
+            } catch {
+                Log.warning("[Vault] reCreate: failed to delete old DBInbox row: \(error)")
+            }
+        }
+
+        Log.info("[Vault] reCreate: bootstrapping fresh vault")
+        await bootstrapVault(databaseWriter: databaseWriter, environment: environment)
+
+        guard case .ready = bootstrapState else {
+            throw VaultReCreateError.bootstrapFailed(stateDescription)
+        }
+
+        let newInboxId = await vaultInboxId ?? "unknown"
+        Log.info("[Vault] reCreate: completed, new inboxId=\(newInboxId)")
+    }
+
+    private var stateDescription: String {
+        switch bootstrapState {
+        case .notStarted: return "notStarted"
+        case .ready: return "ready"
+        case .failed(let reason): return "failed(\(reason))"
+        }
+    }
+
     public var vaultInstallationId: String? {
         get async { await vaultClient.installationId }
     }
@@ -351,5 +423,16 @@ extension VaultManager: VaultClientDelegate {
 
     nonisolated public func vaultClient(_ client: VaultClient, didEncounterError error: any Error) {
         Log.error("VaultClient error: \(error)")
+    }
+}
+
+public enum VaultReCreateError: Error, LocalizedError {
+    case bootstrapFailed(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case .bootstrapFailed(let reason):
+            return "Vault re-create failed during bootstrap: \(reason)"
+        }
     }
 }
