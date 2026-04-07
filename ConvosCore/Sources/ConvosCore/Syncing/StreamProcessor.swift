@@ -219,8 +219,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                             conversation: conversation,
                             inboxId: params.client.inboxId
                         )
+                    } catch is CancellationError {
+                        throw CancellationError()
                     } catch {
-                        Log.warning("conversationWriter.store failed, retrying without sync: \(error)")
+                        Log.warning("conversationWriter.store failed, falling back to existing DBConversation: \(error)")
                         guard let existing = try await databaseReader.read({ db in
                             try DBConversation.fetchOne(db, id: conversation.id)
                         }) else {

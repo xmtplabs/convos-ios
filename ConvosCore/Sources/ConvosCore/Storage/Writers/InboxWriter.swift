@@ -49,6 +49,8 @@ struct InboxWriter {
             }
 
             if let existingInbox = try DBInbox.fetchOne(db, id: inboxId) {
+                var currentInbox = existingInbox
+
                 if existingInbox.clientId != clientId {
                     if isVault {
                         Log.info("Vault clientId changed (new installation): \(existingInbox.clientId) → \(clientId)")
@@ -56,30 +58,31 @@ struct InboxWriter {
                             sql: "UPDATE inbox SET clientId = ? WHERE inboxId = ?",
                             arguments: [clientId, inboxId]
                         )
-                        return try DBInbox.fetchOne(db, id: inboxId) ?? existingInbox
+                        currentInbox = try DBInbox.fetchOne(db, id: inboxId) ?? existingInbox
+                    } else {
+                        Log.error("""
+                            ClientId mismatch detected!
+                            InboxId: \(inboxId)
+                            Existing clientId: \(existingInbox.clientId)
+                            Attempted clientId: \(clientId)
+                            """)
+                        throw InboxWriterError.clientIdMismatch(
+                            inboxId: inboxId,
+                            existingClientId: existingInbox.clientId,
+                            newClientId: clientId
+                        )
                     }
-                    Log.error("""
-                        ClientId mismatch detected!
-                        InboxId: \(inboxId)
-                        Existing clientId: \(existingInbox.clientId)
-                        Attempted clientId: \(clientId)
-                        """)
-                    throw InboxWriterError.clientIdMismatch(
-                        inboxId: inboxId,
-                        existingClientId: existingInbox.clientId,
-                        newClientId: clientId
-                    )
                 }
 
                 guard let installationId else {
-                    return existingInbox
+                    return currentInbox
                 }
 
-                guard existingInbox.installationId != installationId else {
-                    return existingInbox
+                guard currentInbox.installationId != installationId else {
+                    return currentInbox
                 }
 
-                var updatedInbox = existingInbox
+                var updatedInbox = currentInbox
                 updatedInbox.installationId = installationId
                 try updatedInbox.update(db)
                 return updatedInbox

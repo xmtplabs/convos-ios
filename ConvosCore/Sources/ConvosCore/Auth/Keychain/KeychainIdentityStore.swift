@@ -219,6 +219,7 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
     public static let icloudService: String = "org.convos.ios.KeychainIdentityStore.v2.icloud"
     private static let localFormatMigrationKeyPrefix: String = "KeychainIdentityStore.localFormatMigrationComplete"
+    private static let synchronizableMigrationKeyPrefix: String = "KeychainIdentityStore.synchronizableMigrationComplete"
 
     // MARK: - Initialization
 
@@ -430,6 +431,111 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
 
         UserDefaults.standard.set(true, forKey: migrationKey)
         Log.info("Keychain format migration: completed, migrated \(migratedCount)/\(items.count) item(s)")
+    }
+
+    /// Migrates existing keychain items to be synchronizable via iCloud Keychain.
+    ///
+    /// Items saved before the `synchronizable` flag was introduced default to non-synchronizable.
+    /// Queries with `synchronizable: true` will not find those items, so existing users would
+    /// lose access to their vault keys after enabling iCloud sync. This migration finds any
+    /// non-synchronizable items in the given service and re-saves them with
+    /// `kSecAttrSynchronizable: true` so they become visible to the new synchronizable store
+    /// and begin syncing to iCloud Keychain.
+    ///
+    /// Safe to call on every app launch — tracked per-service in UserDefaults.
+    public nonisolated static func migrateToSynchronizableIfNeeded(
+        accessGroup: String,
+        service: String,
+        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlock
+    ) {
+        migrationLock.lock()
+        defer { migrationLock.unlock() }
+
+        let migrationKey = "\(synchronizableMigrationKeyPrefix).\(service)"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        // Query items with kSecAttrSynchronizable: false (explicit non-synchronizable)
+        // Using kSecAttrSynchronizableAny would also match already-migrated items.
+        let loadQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnData as String: true,
+            kSecReturnAttributes as String: true
+        ]
+
+        var result: CFTypeRef?
+        let loadStatus = SecItemCopyMatching(loadQuery as CFDictionary, &result)
+
+        guard loadStatus == errSecSuccess, let items = result as? [[String: Any]] else {
+            if loadStatus == errSecItemNotFound {
+                UserDefaults.standard.set(true, forKey: migrationKey)
+                Log.info("Synchronizable migration: no items to migrate for \(service)")
+            } else {
+                Log.error("Synchronizable migration: failed to load items for \(service), status: \(loadStatus)")
+            }
+            return
+        }
+
+        Log.info("Synchronizable migration: migrating \(items.count) item(s) for \(service)")
+
+        var migratedCount = 0
+        var failedCount = 0
+
+        for item in items {
+            guard let account = item[kSecAttrAccount as String] as? String,
+                  let data = item[kSecValueData as String] as? Data else {
+                Log.warning("Synchronizable migration: skipping item with missing account or data")
+                failedCount += 1
+                continue
+            }
+            let genericData = item[kSecAttrGeneric as String] as? Data
+
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrAccount as String: account,
+                kSecAttrSynchronizable as String: kCFBooleanFalse as Any
+            ]
+            let deleteStatus = SecItemDelete(deleteQuery as CFDictionary)
+            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+                Log.error("Synchronizable migration: failed to delete non-synchronizable item \(account), status: \(deleteStatus)")
+                failedCount += 1
+                continue
+            }
+
+            var addQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrAccount as String: account,
+                kSecAttrAccessible as String: accessibility,
+                kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
+                kSecValueData as String: data
+            ]
+            if let genericData {
+                addQuery[kSecAttrGeneric as String] = genericData
+            }
+
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            if addStatus == errSecSuccess || addStatus == errSecDuplicateItem {
+                migratedCount += 1
+            } else {
+                Log.error("Synchronizable migration: failed to add synchronizable item \(account), status: \(addStatus)")
+                failedCount += 1
+            }
+        }
+
+        guard failedCount == 0 else {
+            Log.error("Synchronizable migration: completed with failures, migrated \(migratedCount)/\(items.count) item(s) for \(service). Will retry on next launch")
+            return
+        }
+
+        UserDefaults.standard.set(true, forKey: migrationKey)
+        Log.info("Synchronizable migration: completed, migrated \(migratedCount)/\(items.count) item(s) for \(service)")
     }
 
     // MARK: - Public Interface
