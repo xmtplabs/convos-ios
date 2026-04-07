@@ -9,6 +9,11 @@ public enum VoiceMemoTranscriptStatus: String, Codable, Hashable, Sendable {
     case pending
     case completed
     case failed
+    /// Persisted marker for a transcript job that failed in a way that retrying
+    /// cannot fix (e.g. on-device speech models are not available on this device).
+    /// The scheduler skips these rows so the job does not retry; the UI hides
+    /// them entirely so the user sees no stale "Tap to try again" affordance.
+    case permanentlyFailed = "permanently_failed"
 }
 
 public struct VoiceMemoTranscript: Codable, Hashable, Sendable {

@@ -153,6 +153,13 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             // map doesn't carry rows we won't render.
             guard !message.senderIsCurrentUser else { continue }
             let stored = storedTranscripts[message.messageId]
+            // Permanently failed transcripts (e.g. on-device speech models are
+            // unavailable) are kept in the database so the scheduler does not
+            // re-enqueue them, but the UI hides them so the user doesn't see a
+            // misleading retry affordance. Nothing to render here.
+            if stored?.status == .permanentlyFailed {
+                continue
+            }
             if stored == nil, permissionGranted {
                 // Auto-transcribe path: don't fabricate a row. The scheduler will
                 // call markPending shortly and the writer-driven publisher will

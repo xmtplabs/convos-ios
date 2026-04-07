@@ -28,6 +28,33 @@ public enum VoiceMemoTranscriberError: Error, LocalizedError, Sendable {
             return "Transcription was cancelled"
         }
     }
+
+    /// Whether retrying transcription with the same audio is likely to fail again
+    /// in the same way. Used by `VoiceMemoTranscriptionService` to decide whether
+    /// to surface a failure row + retry button or to silently swallow the failure
+    /// (so we don't lie to the user with a "Tap to try again" affordance that
+    /// can never succeed).
+    public var isPermanentFailure: Bool {
+        switch self {
+        case .assetsUnavailable, .unsupportedLocale:
+            // The on-device speech model is not present and either cannot be
+            // downloaded for this locale, or the device/simulator does not
+            // support on-device speech at all. No amount of retrying will fix
+            // this.
+            return true
+        case .authorizationDenied:
+            // Recoverable only via Settings, but the in-app retry button does
+            // not actually drive the user to Settings, so treat as permanent.
+            return true
+        case .emptyTranscript:
+            // The audio decoded fine but contained no speech (silent recording,
+            // background noise only, etc.). Retrying against the same audio
+            // will produce the same empty result, so hide the cell entirely.
+            return true
+        case .audioFileUnreadable, .cancelled:
+            return false
+        }
+    }
 }
 
 /// Abstraction around the on-device transcription pipeline so we can mock it in tests

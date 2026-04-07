@@ -133,6 +133,12 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             // bare voice memo bubble at 97.7pt (delta = 60.6pt which includes the
             // `stepX` top padding added by the parent VStack).
             return 56
+        case .permanentlyFailed:
+            // `MessagesListRepository.synthesizeTranscriptItems` strips these
+            // rows from the map so they are never attached to a `MessagesGroup`,
+            // meaning this code path is unreachable in practice. The exhaustive
+            // switch still needs a branch for compile-time completeness.
+            return 0
         }
     }
 

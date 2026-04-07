@@ -147,7 +147,7 @@ struct VoiceMemoTranscriptRow: View {
     /// own primary content (the call-to-action capsules and the pending spinner).
     private var showsHeaderLabel: Bool {
         switch displayStatus {
-        case .notRequested, .failed, .pending:
+        case .notRequested, .failed, .pending, .permanentlyFailed:
             return false
         case .completed:
             return true
@@ -198,6 +198,7 @@ struct VoiceMemoTranscriptRow: View {
         case .pending: return "waveform"
         case .completed: return "text.bubble"
         case .failed: return "exclamationmark.bubble"
+        case .permanentlyFailed: return "text.bubble" // row is hidden; value unused
         }
     }
 
@@ -207,6 +208,7 @@ struct VoiceMemoTranscriptRow: View {
         case .pending: return "Transcribing…"
         case .completed: return "Transcript"
         case .failed: return "Transcript unavailable"
+        case .permanentlyFailed: return "" // row is hidden; value unused
         }
     }
 }

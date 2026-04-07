@@ -5,6 +5,22 @@ public protocol VoiceMemoTranscriptWriterProtocol: Sendable {
     func markPending(messageId: String, conversationId: String, attachmentKey: String) async throws
     func saveCompleted(messageId: String, conversationId: String, attachmentKey: String, text: String) async throws
     func saveFailed(messageId: String, conversationId: String, attachmentKey: String, errorDescription: String?) async throws
+    /// Marks a transcript as permanently failed — the job tried, the transcriber
+    /// returned an unrecoverable error (e.g. on-device speech models are not
+    /// available), and retrying will not help. The scheduler skips rows in this
+    /// state so no retry loop happens, and the UI hides them so the user is not
+    /// shown a retry affordance that will always fail.
+    func markPermanentlyFailed(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        errorDescription: String?
+    ) async throws
+    /// Removes any existing transcript row for the given message id. Used by
+    /// tests and cleanup paths; the production transcription service does not
+    /// call this for permanent failures anymore, it uses `markPermanentlyFailed`
+    /// to avoid re-enqueue loops.
+    func deleteTranscript(messageId: String) async throws
 }
 
 public final class VoiceMemoTranscriptWriter: VoiceMemoTranscriptWriterProtocol, Sendable {
@@ -55,6 +71,34 @@ public final class VoiceMemoTranscriptWriter: VoiceMemoTranscriptWriterProtocol,
                 updatedAt: Date()
             )
         )
+    }
+
+    public func markPermanentlyFailed(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        errorDescription: String?
+    ) async throws {
+        let existing = try await existingTranscript(messageId: messageId)
+        try await upsert(
+            VoiceMemoTranscript(
+                messageId: messageId,
+                conversationId: conversationId,
+                attachmentKey: attachmentKey,
+                status: .permanentlyFailed,
+                errorDescription: errorDescription,
+                createdAt: existing?.createdAt ?? Date(),
+                updatedAt: Date()
+            )
+        )
+    }
+
+    public func deleteTranscript(messageId: String) async throws {
+        try await databaseWriter.write { db in
+            _ = try DBVoiceMemoTranscript
+                .filter(DBVoiceMemoTranscript.Columns.messageId == messageId)
+                .deleteAll(db)
+        }
     }
 
     private func existingTranscript(messageId: String) async throws -> VoiceMemoTranscript? {

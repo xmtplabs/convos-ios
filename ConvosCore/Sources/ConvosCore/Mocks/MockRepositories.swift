@@ -241,6 +241,17 @@ public final class MockVoiceMemoTranscriptWriter: VoiceMemoTranscriptWriterProto
 
     public func saveFailed(messageId: String, conversationId: String, attachmentKey: String, errorDescription: String?) async throws {
     }
+
+    public func markPermanentlyFailed(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        errorDescription: String?
+    ) async throws {
+    }
+
+    public func deleteTranscript(messageId: String) async throws {
+    }
 }
 
 public final class MockVoiceMemoTranscriptionService: VoiceMemoTranscriptionServicing, @unchecked Sendable {

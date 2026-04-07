@@ -106,9 +106,10 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
             do {
                 if let existing = try await transcriptRepository.transcript(for: messageId) {
                     switch existing.status {
-                    case .completed, .pending, .failed:
-                        // Skip when we already have a transcript or a previous attempt failed;
-                        // retries should be explicit user action.
+                    case .completed, .pending, .failed, .permanentlyFailed:
+                        // Skip when we already have a transcript, a previous attempt
+                        // failed (retries should be explicit user action), or a
+                        // previous attempt failed permanently (retries cannot help).
                         await state.clear(messageId: messageId)
                         return
                     case .notRequested:
@@ -161,7 +162,7 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
             fileURL = try Self.writeTemporaryAudioFile(data: loaded.data, mimeType: loaded.mimeType)
         } catch {
             Log.error("[VoiceMemoTranscription] Failed to load audio for \(messageId): \(error)")
-            await saveFailure(
+            await persistFailure(
                 messageId: messageId,
                 conversationId: conversationId,
                 attachmentKey: attachmentKey,
@@ -188,7 +189,7 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
             Log.info("[VoiceMemoTranscription] Transcription cancelled for \(messageId)")
         } catch {
             Log.error("[VoiceMemoTranscription] Transcription failed for \(messageId): \(error)")
-            await saveFailure(
+            await persistFailure(
                 messageId: messageId,
                 conversationId: conversationId,
                 attachmentKey: attachmentKey,
@@ -199,12 +200,32 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
         await state.clear(messageId: messageId)
     }
 
-    private func saveFailure(
+    /// Records the failure in a way that's appropriate for the user. Permanent
+    /// failures (e.g. on-device speech models are not available) cannot be
+    /// recovered from by retrying, so we mark the row as `.permanentlyFailed`
+    /// — this keeps an entry in the database (so the scheduler's "already has
+    /// a row" check short-circuits and no retry loop occurs) while still
+    /// telling the UI synthesis path to hide the row entirely. Recoverable
+    /// failures still produce a `failed` row so the user can manually retry.
+    private func persistFailure(
         messageId: String,
         conversationId: String,
         attachmentKey: String,
         error: Error
     ) async {
+        if let transcribeError = error as? VoiceMemoTranscriberError, transcribeError.isPermanentFailure {
+            do {
+                try await transcriptWriter.markPermanentlyFailed(
+                    messageId: messageId,
+                    conversationId: conversationId,
+                    attachmentKey: attachmentKey,
+                    errorDescription: error.localizedDescription
+                )
+            } catch {
+                Log.error("[VoiceMemoTranscription] Failed to mark permanently failed for \(messageId): \(error)")
+            }
+            return
+        }
         do {
             try await transcriptWriter.saveFailed(
                 messageId: messageId,

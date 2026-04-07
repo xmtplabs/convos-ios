@@ -167,10 +167,10 @@ struct VoiceMemoTranscriptionServiceTests {
         #expect(completed.first?.text == "Second attempt")
     }
 
-    @Test("transcriber failures are written via saveFailed and surfaced as errorDescription")
-    func testFailurePathWritesFailed() async throws {
+    @Test("recoverable transcriber failures are written via saveFailed and surfaced as errorDescription")
+    func testRecoverableFailurePathWritesFailed() async throws {
         let transcriber = StubTranscriber(
-            result: .failure(VoiceMemoTranscriberError.emptyTranscript)
+            result: .failure(VoiceMemoTranscriberError.audioFileUnreadable)
         )
         let attachmentLoader = StubAttachmentLoader()
         let repository = StubTranscriptRepository()
@@ -194,9 +194,77 @@ struct VoiceMemoTranscriptionServiceTests {
 
         let failed = await writer.failedSnapshot()
         let pending = await writer.pendingSnapshot()
+        let permanentlyFailed = await writer.permanentlyFailedSnapshot()
         #expect(pending.count == 1)
         #expect(failed.count == 1)
-        #expect(failed.first?.errorDescription?.contains("empty") == true)
+        #expect(failed.first?.errorDescription?.contains("read") == true)
+        #expect(permanentlyFailed.isEmpty)
+    }
+
+    @Test("empty transcript is treated as permanent since retrying same audio produces same result")
+    func testEmptyTranscriptIsPermanent() async throws {
+        let transcriber = StubTranscriber(
+            result: .failure(VoiceMemoTranscriberError.emptyTranscript)
+        )
+        let attachmentLoader = StubAttachmentLoader()
+        let repository = StubTranscriptRepository()
+        let writer = StubTranscriptWriter()
+
+        let service = VoiceMemoTranscriptionService(
+            transcriber: transcriber,
+            attachmentLoader: attachmentLoader,
+            transcriptRepository: repository,
+            transcriptWriter: writer
+        )
+
+        await service.enqueueIfNeeded(
+            messageId: "msg-1",
+            conversationId: "conv-1",
+            attachmentKey: "key-1",
+            mimeType: "audio/m4a"
+        )
+
+        try await waitUntil(timeout: .seconds(2)) { await writer.permanentlyFailedSnapshot().count == 1 }
+
+        let permanentlyFailed = await writer.permanentlyFailedSnapshot()
+        let failed = await writer.failedSnapshot()
+        #expect(permanentlyFailed.count == 1)
+        #expect(permanentlyFailed.first?.messageId == "msg-1")
+        #expect(failed.isEmpty)
+    }
+
+    @Test("permanent transcriber failures mark the row .permanentlyFailed so the scheduler skips it and the UI hides it")
+    func testPermanentFailurePathMarksPermanentlyFailed() async throws {
+        let transcriber = StubTranscriber(
+            result: .failure(VoiceMemoTranscriberError.assetsUnavailable)
+        )
+        let attachmentLoader = StubAttachmentLoader()
+        let repository = StubTranscriptRepository()
+        let writer = StubTranscriptWriter()
+
+        let service = VoiceMemoTranscriptionService(
+            transcriber: transcriber,
+            attachmentLoader: attachmentLoader,
+            transcriptRepository: repository,
+            transcriptWriter: writer
+        )
+
+        await service.enqueueIfNeeded(
+            messageId: "msg-1",
+            conversationId: "conv-1",
+            attachmentKey: "key-1",
+            mimeType: "audio/m4a"
+        )
+
+        try await waitUntil(timeout: .seconds(2)) { await writer.permanentlyFailedSnapshot().count == 1 }
+
+        let permanentlyFailed = await writer.permanentlyFailedSnapshot()
+        let failed = await writer.failedSnapshot()
+        let deleted = await writer.deletedSnapshot()
+        #expect(permanentlyFailed.count == 1)
+        #expect(permanentlyFailed.first?.messageId == "msg-1")
+        #expect(failed.isEmpty)
+        #expect(deleted.isEmpty)
     }
 
     @Test("attachment loader failures are written via saveFailed without invoking the transcriber")
@@ -362,10 +430,14 @@ private actor StubTranscriptWriter: VoiceMemoTranscriptWriterProtocol {
     private(set) var pending: [VoiceMemoTranscript] = []
     private(set) var completed: [VoiceMemoTranscript] = []
     private(set) var failed: [VoiceMemoTranscript] = []
+    private(set) var permanentlyFailed: [VoiceMemoTranscript] = []
+    private(set) var deletedMessageIds: [String] = []
 
     func pendingSnapshot() -> [VoiceMemoTranscript] { pending }
     func completedSnapshot() -> [VoiceMemoTranscript] { completed }
     func failedSnapshot() -> [VoiceMemoTranscript] { failed }
+    func permanentlyFailedSnapshot() -> [VoiceMemoTranscript] { permanentlyFailed }
+    func deletedSnapshot() -> [String] { deletedMessageIds }
 
     func markPending(messageId: String, conversationId: String, attachmentKey: String) async throws {
         pending.append(
@@ -417,5 +489,33 @@ private actor StubTranscriptWriter: VoiceMemoTranscriptWriterProtocol {
                 updatedAt: Date()
             )
         )
+    }
+
+    func markPermanentlyFailed(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        errorDescription: String?
+    ) async throws {
+        permanentlyFailed.append(
+            VoiceMemoTranscript(
+                messageId: messageId,
+                conversationId: conversationId,
+                attachmentKey: attachmentKey,
+                status: .permanentlyFailed,
+                text: nil,
+                errorDescription: errorDescription,
+                createdAt: Date(),
+                updatedAt: Date()
+            )
+        )
+    }
+
+    func deleteTranscript(messageId: String) async throws {
+        deletedMessageIds.append(messageId)
+        pending.removeAll { $0.messageId == messageId }
+        failed.removeAll { $0.messageId == messageId }
+        completed.removeAll { $0.messageId == messageId }
+        permanentlyFailed.removeAll { $0.messageId == messageId }
     }
 }
