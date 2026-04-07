@@ -75,33 +75,49 @@ public protocol VoiceMemoTranscribing: Sendable {
 /// `SpeechTranscriber`). Deduplicates concurrent work per message id so repeated UI
 /// hydration does not schedule duplicate jobs.
 public actor VoiceMemoTranscriber: VoiceMemoTranscribing {
-    private var inFlight: [String: Task<String, Error>] = [:]
+    private struct InFlightSlot {
+        let id: UUID
+        let task: Task<String, Error>
+    }
+
+    private var inFlight: [String: InFlightSlot] = [:]
 
     public init() {}
 
     public func transcribe(messageId: String, fileURL: URL) async throws -> String {
         if let existing = inFlight[messageId] {
-            return try await existing.value
+            return try await existing.task.value
         }
 
-        let task = Task<String, Error> {
-            try await Self.runTranscription(fileURL: fileURL)
-        }
-        inFlight[messageId] = task
+        let slot = InFlightSlot(
+            id: UUID(),
+            task: Task<String, Error> {
+                try await Self.runTranscription(fileURL: fileURL)
+            }
+        )
+        inFlight[messageId] = slot
 
+        // After the await we may have been preempted by a `cancel(messageId:)`
+        // and a fresh `transcribe(messageId:)` call may have already replaced
+        // the slot with a new task. Only clear the slot if it still points at
+        // the slot we own, so we don't accidentally orphan that newer task.
         do {
-            let result = try await task.value
-            inFlight[messageId] = nil
+            let result = try await slot.task.value
+            if inFlight[messageId]?.id == slot.id {
+                inFlight[messageId] = nil
+            }
             return result
         } catch {
-            inFlight[messageId] = nil
+            if inFlight[messageId]?.id == slot.id {
+                inFlight[messageId] = nil
+            }
             throw error
         }
     }
 
     public func cancel(messageId: String) async {
-        if let task = inFlight.removeValue(forKey: messageId) {
-            task.cancel()
+        if let slot = inFlight.removeValue(forKey: messageId) {
+            slot.task.cancel()
         }
     }
 
