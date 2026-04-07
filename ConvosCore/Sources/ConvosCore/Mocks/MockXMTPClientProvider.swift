@@ -73,6 +73,10 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         // No-op for mock
     }
 
+    public func isInstallationActive() async throws -> Bool {
+        true
+    }
+
     public func requestDeviceSync() async throws {
         // No-op for mock
     }

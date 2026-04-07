@@ -114,6 +114,15 @@ struct InboxWriter {
         }
     }
 
+    func markStale(inboxId: String, _ isStale: Bool = true) async throws {
+        try await dbWriter.write { db in
+            try db.execute(
+                sql: "UPDATE inbox SET isStale = ? WHERE inboxId = ?",
+                arguments: [isStale, inboxId]
+            )
+        }
+    }
+
     func deleteAll() async throws {
         try await dbWriter.write { db in
             // Delete children before parents to respect foreign keys.
