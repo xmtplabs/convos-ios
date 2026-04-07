@@ -439,6 +439,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addIsStaleToInbox") { db in
+            try db.alter(table: "inbox") { t in
+                t.add(column: "isStale", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         return migrator
     }
 }
