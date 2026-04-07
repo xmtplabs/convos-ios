@@ -384,6 +384,11 @@ final class ConversationsViewModel {
                 self.staleInboxIds = ids
                 // Re-filter the currently visible conversations so stale ones hide immediately.
                 self.conversations = self.conversations.filter { !ids.contains($0.inboxId) }
+                // Clear selection if the selected conversation belongs to a now-stale inbox.
+                if let selectedId = self._selectedConversationId,
+                   !self.conversations.contains(where: { $0.id == selectedId }) {
+                    self.selectedConversationId = nil
+                }
             }
             .store(in: &cancellables)
 
@@ -397,9 +402,9 @@ final class ConversationsViewModel {
                     ? filtered
                     : filtered.filter { !hiddenConversationIds.contains($0.id) }
 
-                // Clear selection if selected conversation no longer exists
+                // Clear selection if selected conversation no longer exists in the filtered list
                 if let selectedId = _selectedConversationId,
-                   !conversations.contains(where: { $0.id == selectedId }) {
+                   !self.conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
                 }
 
