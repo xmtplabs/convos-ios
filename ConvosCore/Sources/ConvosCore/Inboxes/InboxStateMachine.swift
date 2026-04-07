@@ -718,20 +718,23 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             storedInstallationId = nil
         }
 
+        Log.info("[Revoke] inbox \(result.client.inboxId): storedInstallationId=\(storedInstallationId ?? "nil") newInstallationId=\(result.client.installationId)")
+
         if let storedInstallationId {
             if storedInstallationId != result.client.installationId {
+                Log.info("[Revoke] inbox \(result.client.inboxId): installationId changed, revoking all other installations")
                 do {
                     let identity = try await identityStore.identity(for: result.client.inboxId)
                     try await revokeInstallationsHandler(result.client, identity.keys.signingKey)
-                    Log.info("Revoked all other installations for inbox: \(result.client.inboxId)")
+                    Log.info("[Revoke] inbox \(result.client.inboxId): revoked all other installations ✓")
                 } catch {
-                    Log.warning("Failed to revoke other installations for inbox \(result.client.inboxId) (non-fatal): \(error)")
+                    Log.warning("[Revoke] inbox \(result.client.inboxId): revocation failed (non-fatal): \(error)")
                 }
             } else {
-                Log.debug("Skipping installation revocation for inbox \(result.client.inboxId) because installationId is unchanged")
+                Log.info("[Revoke] inbox \(result.client.inboxId): installationId unchanged, skipping")
             }
         } else {
-            Log.debug("Skipping installation revocation for inbox \(result.client.inboxId) because no stored installationId was found")
+            Log.info("[Revoke] inbox \(result.client.inboxId): no stored installationId, skipping (first-time auth)")
         }
 
         do {

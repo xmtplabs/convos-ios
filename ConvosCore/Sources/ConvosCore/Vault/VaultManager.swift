@@ -254,34 +254,47 @@ public actor VaultManager {
             Log.warning("[Vault.reCreate] failed to count vault inbox rows: \(error)")
         }
 
-        Log.info("[Vault.reCreate] step 1/4: disconnecting current vault client")
+        Log.info("[Vault.reCreate] step 1/5: revoking other installations on old vault")
+        if let oldInboxId, let vaultKeyStore {
+            do {
+                let identity = try await vaultKeyStore.load(inboxId: oldInboxId)
+                try await revokeAllOtherInstallations(signingKey: identity.keys.signingKey)
+                Log.info("[Vault.reCreate] step 1/5: revoked other installations on old vault inboxId=\(oldInboxId)")
+            } catch {
+                Log.warning("[Vault.reCreate] step 1/5: revocation failed (non-fatal): \(error)")
+            }
+        } else {
+            Log.info("[Vault.reCreate] step 1/5: skipped — no old vault identity available")
+        }
+
+        Log.info("[Vault.reCreate] step 2/5: disconnecting current vault client")
         await vaultClient.disconnect()
         bootstrapState = .notStarted
-        Log.info("[Vault.reCreate] step 1/4: disconnected, bootstrap state reset to notStarted")
+        Log.info("[Vault.reCreate] step 2/5: disconnected, bootstrap state reset to notStarted")
 
-        Log.info("[Vault.reCreate] step 2/4: deleting old vault key from keychain")
+        Log.info("[Vault.reCreate] step 3/5: deleting old vault key from keychain")
         if let vaultKeyStore, let oldInboxId {
             do {
                 try await vaultKeyStore.delete(inboxId: oldInboxId)
-                Log.info("[Vault.reCreate] step 2/4: deleted old vault key for inboxId=\(oldInboxId)")
+                Log.info("[Vault.reCreate] step 3/5: deleted old vault key for inboxId=\(oldInboxId)")
             } catch {
-                Log.warning("[Vault.reCreate] step 2/4: failed to delete old vault key for \(oldInboxId): \(error)")
+                Log.warning("[Vault.reCreate] step 3/5: failed to delete old vault key for \(oldInboxId): \(error)")
             }
 
             // Verify deletion and log any remaining keys
             let remainingKeys = (try? await vaultKeyStore.loadAll()) ?? []
-            Log.info("[Vault.reCreate] step 2/4: keychain now has \(remainingKeys.count) vault key(s) remaining: \(remainingKeys.map(\.inboxId))")
+            Log.info("[Vault.reCreate] step 3/5: keychain now has \(remainingKeys.count) vault key(s) remaining: \(remainingKeys.map(\.inboxId))")
         } else if let vaultKeyStore {
             // No known inboxId (e.g., disconnect failed before we captured it) — delete all
-            Log.warning("[Vault.reCreate] step 2/4: no oldInboxId available, deleting all vault keys")
+            Log.warning("[Vault.reCreate] step 3/5: no oldInboxId available, deleting all vault keys")
             try? await vaultKeyStore.deleteAll()
             let remainingKeys = (try? await vaultKeyStore.loadAll()) ?? []
-            Log.info("[Vault.reCreate] step 2/4: keychain now has \(remainingKeys.count) vault key(s) remaining")
+            Log.info("[Vault.reCreate] step 3/5: keychain now has \(remainingKeys.count) vault key(s) remaining")
         } else {
-            Log.warning("[Vault.reCreate] step 2/4: no vaultKeyStore available, skipping keychain cleanup")
+            Log.warning("[Vault.reCreate] step 3/5: no vaultKeyStore available, skipping keychain cleanup")
         }
 
-        Log.info("[Vault.reCreate] step 3/4: deleting old vault inbox row from GRDB")
+        Log.info("[Vault.reCreate] step 4/5: deleting old vault inbox row from GRDB")
         if let oldInboxId {
             do {
                 try await databaseWriter.write { db in
@@ -290,24 +303,24 @@ public actor VaultManager {
                         arguments: [oldInboxId]
                     )
                 }
-                Log.info("[Vault.reCreate] step 3/4: deleted old DBInbox row for inboxId=\(oldInboxId)")
+                Log.info("[Vault.reCreate] step 4/5: deleted old DBInbox row for inboxId=\(oldInboxId)")
             } catch {
-                Log.warning("[Vault.reCreate] step 3/4: failed to delete old DBInbox row: \(error)")
+                Log.warning("[Vault.reCreate] step 4/5: failed to delete old DBInbox row: \(error)")
             }
         } else {
-            Log.warning("[Vault.reCreate] step 3/4: no oldInboxId available, skipping DBInbox row cleanup")
+            Log.warning("[Vault.reCreate] step 4/5: no oldInboxId available, skipping DBInbox row cleanup")
         }
 
         let afterDeleteCount = (try? await databaseWriter.read { db in
             try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM inbox WHERE isVault = 1") ?? 0
         }) ?? -1
-        Log.info("[Vault.reCreate] step 3/4: GRDB now has \(afterDeleteCount) vault inbox row(s) remaining")
+        Log.info("[Vault.reCreate] step 4/5: GRDB now has \(afterDeleteCount) vault inbox row(s) remaining")
 
-        Log.info("[Vault.reCreate] step 4/4: bootstrapping fresh vault (new keys, new identity)")
+        Log.info("[Vault.reCreate] step 5/5: bootstrapping fresh vault (new keys, new identity)")
         await bootstrapVault(databaseWriter: databaseWriter, environment: environment)
 
         let afterBootstrapState = stateDescription
-        Log.info("[Vault.reCreate] step 4/4: bootstrap finished with state=\(afterBootstrapState)")
+        Log.info("[Vault.reCreate] step 5/5: bootstrap finished with state=\(afterBootstrapState)")
 
         guard case .ready = bootstrapState else {
             Log.error("[Vault.reCreate] === FAILED === bootstrap did not reach ready state: \(afterBootstrapState)")
