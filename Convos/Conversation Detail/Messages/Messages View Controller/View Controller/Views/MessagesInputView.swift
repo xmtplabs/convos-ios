@@ -19,6 +19,7 @@ struct MessagesInputView: View {
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForQuickname: Bool
     let messagesTextFieldEnabled: Bool
+    let isCollapsed: Bool
     private let focused: MessagesViewInputFocus = .message
     let onProfilePhotoTap: () -> Void
     let onSendMessage: () -> Void
@@ -99,7 +100,7 @@ struct MessagesInputView: View {
     private var messageTextField: some View {
         Group {
             TextField(
-                "Chat as \(profile.displayName)",
+                isCollapsed ? "Chat" : "Chat as \(profile.displayName)",
                 text: $messageText,
                 axis: .vertical
             )
@@ -572,6 +573,7 @@ private struct ComposerInvitePreviewCard: View {
             focusState: $focusState,
             animateAvatarForQuickname: animateAvatarForQuickname,
             messagesTextFieldEnabled: true,
+            isCollapsed: true,
             onProfilePhotoTap: {},
             onSendMessage: {},
             onClearInvite: { pendingInviteURLPreview = nil }
