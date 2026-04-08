@@ -15,9 +15,7 @@ struct VoiceMemoAttachmentView: View {
     let onReply: (AnyMessage) -> Void
 
     @State private var player: VoiceMemoPlayer = .shared
-    @State private var audioData: Data?
     @State private var isLoading: Bool = false
-    @State private var playTrigger: Int = 0
 
     var body: some View {
         MessageContainer(style: bubbleType, isOutgoing: message.sender.isCurrentUser) {
@@ -32,36 +30,8 @@ struct VoiceMemoAttachmentView: View {
         .messageGesture(
             message: message,
             bubbleStyle: bubbleType,
-            onSingleTap: { playTrigger += 1 },
             onReply: onReply
         )
-        .onChange(of: playTrigger) {
-            Task { await togglePlayback() }
-        }
-    }
-
-    private func togglePlayback() async {
-        if let data = audioData {
-            do {
-                try player.togglePlayback(data: data, messageId: message.messageId)
-            } catch {
-                Log.error("Failed to play voice memo: \(error)")
-            }
-            return
-        }
-
-        guard !isLoading else { return }
-        isLoading = true
-        do {
-            let loaded = try await sharedAttachmentLoader.loadAttachmentData(from: attachment.key)
-            audioData = loaded.data
-            try await MainActor.run {
-                try player.play(data: loaded.data, messageId: message.messageId)
-            }
-        } catch {
-            Log.error("Failed to load voice memo: \(error)")
-        }
-        isLoading = false
     }
 }
 
