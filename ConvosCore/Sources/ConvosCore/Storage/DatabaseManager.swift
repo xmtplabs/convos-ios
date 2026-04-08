@@ -67,8 +67,15 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
                 try rollbackQueue.backup(to: dbPool)
                 try SharedDatabaseMigrator.shared.migrate(database: dbPool)
                 Log.info("[Restore] rollback succeeded")
-            } catch {
-                Log.error("[Restore] rollback failed: \(error)")
+            } catch let rollbackError as Error {
+                // Rollback or its post-restore migration failed. The DB is in a
+                // potentially-inconsistent state — surface a dedicated error so
+                // the caller knows it's worse than just a failed restore.
+                Log.error("[Restore] rollback failed (original error: \(error)) — \(rollbackError)")
+                throw DatabaseManagerError.rollbackFailed(
+                    original: error,
+                    rollback: rollbackError
+                )
             }
             throw error
         }
@@ -118,5 +125,19 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
         let migrator = SharedDatabaseMigrator.shared
         try migrator.migrate(database: dbPool)
         return dbPool
+    }
+}
+
+public enum DatabaseManagerError: Error, LocalizedError {
+    /// The restore failed AND the rollback also failed. The DB is in a
+    /// potentially-inconsistent state — the caller should treat this as
+    /// recoverable only via app reinstall or a fresh restore attempt.
+    case rollbackFailed(original: any Error, rollback: any Error)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .rollbackFailed(original, rollback):
+            return "Database restore failed and rollback also failed. Original error: \(original.localizedDescription). Rollback error: \(rollback.localizedDescription)"
+        }
     }
 }
