@@ -263,10 +263,22 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
                     Log.info("[PERF] message.process: \(perfElapsed)ms id=\(message.id)")
+                } catch is CancellationError {
+                    // This function is `async` (not `async throws`), so we
+                    // cannot rethrow. Log and return early — the enclosing
+                    // stream loop calls `try Task.checkCancellation()` at
+                    // the top of every iteration, so the task exits on the
+                    // next message. One extra in-flight message is acceptable
+                    // for cooperative cancellation here.
+                    Log.debug("Group message processing cancelled")
+                    return
                 } catch {
                     Log.error("Failed processing group message: \(error.localizedDescription)")
                 }
             }
+        } catch is CancellationError {
+            Log.debug("Message processing cancelled")
+            return
         } catch {
             Log.warning("Stopped processing message from error: \(error.localizedDescription)")
         }
