@@ -198,8 +198,8 @@ struct RestoreManagerTests {
         try? await fixtures.cleanup()
     }
 
-    @Test("Restore completes even without vault archive in bundle")
-    func testMissingVaultArchiveIsNonFatal() async throws {
+    @Test("Restore aborts when vault archive is missing from the bundle")
+    func testMissingVaultArchiveAborts() async throws {
         let fixtures = TestFixtures()
         let identityStore = MockKeychainIdentityStore()
         let (vaultKeyStore, vaultEncryptionKey) = try await seedVaultKey(store: identityStore)
@@ -221,14 +221,24 @@ struct RestoreManagerTests {
             environment: .tests
         )
 
-        try await manager.restoreFromBackup(bundleURL: bundleURL)
+        // Without a vault archive, there are no conversation keys to restore.
+        // Continuing would wipe local state and replace the database with no
+        // way to decrypt the resulting conversations — silent data loss.
+        // Verify the restore aborts before any destructive operation runs.
+        await #expect(throws: Error.self) {
+            try await manager.restoreFromBackup(bundleURL: bundleURL)
+        }
 
         let finalState = await manager.state
-        guard case .completed = finalState else {
-            Issue.record("Expected completed state, got \(finalState)")
+        guard case .failed = finalState else {
+            Issue.record("Expected failed state, got \(finalState)")
             try? await fixtures.cleanup()
             return
         }
+
+        // Verify no destructive operation ran: the conversation archive importer
+        // should not have been invoked since we bail before reaching that step.
+        #expect(archiveImporter.importedArchives.isEmpty)
 
         try? await fixtures.cleanup()
     }
