@@ -29,7 +29,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     private let messagesRepository: any MessagesRepositoryProtocol
     private let transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol
-    private let conversationId: String
+    private let conversationIdSubject: CurrentValueSubject<String, Never>
     /// Returns whether the user has granted on-device speech recognition permission.
     /// Used to suppress the synthetic "Tap to transcribe" affordance once the user
     /// has authorized transcription — from that point forward, voice memos with no
@@ -52,7 +52,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> {
         messagesRepository.conversationMessagesPublisher
             .map { [weak self] conversationId, messages in
-                let processedMessages = self?.processMessages(messages) ?? []
+                let processedMessages = self?.processMessages(messages, conversationId: conversationId) ?? []
                 return (conversationId, processedMessages)
             }
             .handleEvents(receiveOutput: { [weak self] _, processedMessages in
@@ -73,7 +73,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     ) {
         self.messagesRepository = messagesRepository
         self.transcriptRepository = transcriptRepository
-        self.conversationId = conversationId
+        self.conversationIdSubject = .init(conversationId)
         self.speechPermissionProvider = speechPermissionProvider
     }
 
@@ -82,21 +82,22 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         hasStartedObserving = true
         messagesRepository.messagesPublisher
             .map { [weak self] messages in
-                self?.processMessages(messages) ?? []
+                self?.processMessages(messages, conversationId: self?.conversationIdSubject.value) ?? []
             }
             .sink { [weak self] processedMessages in
                 self?.messagesListSubject.send(processedMessages)
             }
             .store(in: &cancellables)
 
-        transcriptCancellable = transcriptRepository.transcriptsPublisher(in: conversationId)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] transcripts in
-                guard let self else { return }
-                self.storedTranscripts = transcripts
-                let reprocessed = self.processMessages(self.lastRawMessages)
-                self.messagesListSubject.send(reprocessed)
+        conversationMessagesListPublisher
+            .map(\ .0)
+            .removeDuplicates()
+            .sink { [weak self] conversationId in
+                self?.handleConversationIdChanged(conversationId)
             }
+            .store(in: &cancellables)
+
+        observeTranscripts(for: conversationIdSubject.value)
     }
 
     // MARK: - Public Methods
@@ -108,8 +109,8 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         // transcripts publisher subscription in startObserving() lags behind
         // the initial fetch by one run loop, causing transcript rows to
         // "animate in" a moment after the conversation opens.
-        storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationId)) ?? [:]
-        return processMessages(messages)
+        storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationIdSubject.value)) ?? [:]
+        return processMessages(messages, conversationId: conversationIdSubject.value)
     }
 
     func fetchPrevious() throws {
@@ -123,9 +124,9 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     // MARK: - Private Methods
 
-    private func processMessages(_ messages: [AnyMessage]) -> [MessagesListItemType] {
+    private func processMessages(_ messages: [AnyMessage], conversationId: String?) -> [MessagesListItemType] {
         lastRawMessages = messages
-        let transcripts = synthesizeTranscriptItems(messages: messages)
+        let transcripts = synthesizeTranscriptItems(messages: messages, conversationId: conversationId)
         let items = MessagesListProcessor.process(
             messages,
             otherMemberCount: currentOtherMemberCount,
@@ -143,9 +144,11 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     /// scheduler auto-enqueues these messages, so the row should stay hidden until
     /// the writer flips it to `.pending`.
     private func synthesizeTranscriptItems(
-        messages: [AnyMessage]
+        messages: [AnyMessage],
+        conversationId: String?
     ) -> [String: VoiceMemoTranscriptListItem] {
         let permissionGranted = speechPermissionProvider()
+        let effectiveConversationId = conversationId ?? conversationIdSubject.value
         var result: [String: VoiceMemoTranscriptListItem] = [:]
         for message in messages {
             guard let attachment = message.content.primaryVoiceMemoAttachment else { continue }
@@ -168,7 +171,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             }
             let item = VoiceMemoTranscriptListItem(
                 parentMessageId: message.messageId,
-                conversationId: conversationId,
+                conversationId: effectiveConversationId,
                 attachmentKey: attachment.key,
                 mimeType: attachment.mimeType,
                 senderDisplayName: message.sender.profile.displayName,
@@ -180,6 +183,25 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             result[message.messageId] = item
         }
         return result
+    }
+
+    private func handleConversationIdChanged(_ conversationId: String) {
+        guard conversationIdSubject.value != conversationId else { return }
+        conversationIdSubject.send(conversationId)
+        storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationId)) ?? [:]
+        observeTranscripts(for: conversationId)
+    }
+
+    private func observeTranscripts(for conversationId: String) {
+        transcriptCancellable?.cancel()
+        transcriptCancellable = transcriptRepository.transcriptsPublisher(in: conversationId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] transcripts in
+                guard let self else { return }
+                self.storedTranscripts = transcripts
+                let reprocessed = self.processMessages(self.lastRawMessages, conversationId: self.conversationIdSubject.value)
+                self.messagesListSubject.send(reprocessed)
+            }
     }
 
     private func scheduleAssistantJoinDismissIfNeeded(_ items: [MessagesListItemType]) {
@@ -196,7 +218,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .delay(for: .seconds(remaining), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let reprocessed = self.processMessages(self.lastRawMessages)
+                let reprocessed = self.processMessages(self.lastRawMessages, conversationId: self.conversationIdSubject.value)
                 self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
                 self.messagesListSubject.send(reprocessed)
             }
