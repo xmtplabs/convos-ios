@@ -45,6 +45,7 @@ public struct CompressedVideo: Sendable {
 public protocol VideoCompressionServiceProtocol: Sendable {
     func compressVideo(at sourceURL: URL) async throws -> CompressedVideo
     func generateThumbnail(for asset: AVAsset) async throws -> Data
+    func loadVideoDimensions(from url: URL) async throws -> CGSize
 }
 
 public final class VideoCompressionService: VideoCompressionServiceProtocol, Sendable {
@@ -115,6 +116,20 @@ public final class VideoCompressionService: VideoCompressionServiceProtocol, Sen
             thumbnail: thumbnail,
             mimeType: "video/mp4"
         )
+    }
+
+    /// Loads the natural video dimensions from a local or remote URL, accounting for
+    /// the track's preferred transform so rotated portrait videos return portrait
+    /// dimensions (width < height).
+    public func loadVideoDimensions(from url: URL) async throws -> CGSize {
+        let asset = AVURLAsset(url: url)
+        guard let videoTrack = try await asset.loadTracks(withMediaType: .video).first else {
+            throw VideoCompressionError.invalidAsset
+        }
+        let naturalSize = try await videoTrack.load(.naturalSize)
+        let transform = try await videoTrack.load(.preferredTransform)
+        let transformedSize = naturalSize.applying(transform)
+        return CGSize(width: abs(transformedSize.width), height: abs(transformedSize.height))
     }
 
     public func generateThumbnail(for asset: AVAsset) async throws -> Data {

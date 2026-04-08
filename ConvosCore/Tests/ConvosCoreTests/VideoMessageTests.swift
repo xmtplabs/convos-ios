@@ -182,6 +182,19 @@ struct VideoMessageTests {
         #expect(VideoCompressionService.maxFileSizeBytes == 25 * 1024 * 1024)
     }
 
+    @Test("loadVideoDimensions throws for a non-video URL")
+    func testLoadVideoDimensionsInvalidAsset() async throws {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("not-a-video-\(UUID().uuidString).mp4")
+        try Data("this is not a video".utf8).write(to: tempURL)
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+
+        let service = VideoCompressionService()
+        await #expect(throws: (any Error).self) {
+            try await service.loadVideoDimensions(from: tempURL)
+        }
+    }
+
     // MARK: - Attachments Preview String
 
     @Test("Single photo attachment shows 'a photo'")
