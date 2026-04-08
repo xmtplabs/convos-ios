@@ -607,6 +607,9 @@ private struct AttachmentPlaceholder: View {
 
             do {
                 let videoURL = try await resolveVideoURL(for: attachment.key)
+                if attachment.width == nil {
+                    await loadVideoDimensionsIfPossible(from: videoURL)
+                }
                 let player = AVPlayer(url: videoURL)
                 await player.seek(to: .zero)
                 inlinePlayer = player
@@ -666,6 +669,27 @@ private struct AttachmentPlaceholder: View {
         }
 
         isLoading = false
+    }
+
+    /// Reads the natural video dimensions from a decrypted local video file and
+    /// reports them via `onDimensionsLoaded` so the aspect ratio is persisted for
+    /// future renders. This is the fallback for incoming videos that arrive without
+    /// sender-provided dimensions (e.g. inline attachments from clients that do not
+    /// populate `StoredRemoteAttachment.mediaWidth`/`mediaHeight`, or remote
+    /// attachments without an accompanying thumbnail).
+    private func loadVideoDimensionsIfPossible(from videoURL: URL) async {
+        let service = VideoCompressionService()
+        do {
+            let size = try await service.loadVideoDimensions(from: videoURL)
+            let width = Int(size.width.rounded())
+            let height = Int(size.height.rounded())
+            guard width > 0, height > 0 else { return }
+            await MainActor.run {
+                onDimensionsLoaded(width, height)
+            }
+        } catch {
+            Log.warning("Failed to read video dimensions: \(error)")
+        }
     }
 
     private func resolveVideoURL(for key: String) async throws -> URL {
