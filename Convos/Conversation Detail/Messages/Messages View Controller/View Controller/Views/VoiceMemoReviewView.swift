@@ -24,7 +24,7 @@ struct VoiceMemoReviewView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(.colorTextPrimary)
                     .frame(width: 32, height: 32)
-                    .background(.colorFillMinimal, in: Circle())
+                    .background(.colorFillTertiary, in: Circle())
             }
             .accessibilityLabel(isPlaying ? "Pause" : "Play")
             .accessibilityIdentifier("voice-memo-play-button")
@@ -47,9 +47,9 @@ struct VoiceMemoReviewView: View {
             } label: {
                 Image(systemName: "arrow.up")
                     .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.colorTextPrimaryInverted)
                     .frame(width: 32, height: 32)
-                    .background(.colorTextPrimary, in: Circle())
+                    .background(.colorFillPrimary, in: Circle())
             }
             .accessibilityLabel("Send voice memo")
             .accessibilityIdentifier("voice-memo-send-button")

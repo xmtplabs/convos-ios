@@ -393,7 +393,11 @@ class ConversationViewModel {
     @ObservationIgnored
     private var explodeTask: Task<Void, Never>?
 
+    @ObservationIgnored
+    private var voiceMemoPlaybackTask: Task<Void, Never>?
+
     deinit {
+        voiceMemoPlaybackTask?.cancel()
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
         assistantJoinTask?.cancel()
@@ -832,35 +836,43 @@ extension ConversationViewModel {
     }
 
     func setupVoiceMemoPlaybackObserver() {
+        NotificationCenter.default.removeObserver(self, name: .voiceMemoPlaybackRequested, object: nil)
         NotificationCenter.default.addObserver(
-            forName: .voiceMemoPlaybackRequested,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            guard self != nil,
-                  let userInfo = notification.userInfo,
-                  let messageId = userInfo["messageId"] as? String,
-                  let attachmentKey = userInfo["attachmentKey"] as? String else { return }
+            self,
+            selector: #selector(handleVoiceMemoPlaybackRequested(_:)),
+            name: .voiceMemoPlaybackRequested,
+            object: nil
+        )
+    }
 
-            Task { @MainActor in
-                let player = VoiceMemoPlayer.shared
-                if player.currentlyPlayingMessageId == messageId {
-                    if player.state == .playing {
-                        player.pause()
-                        return
-                    } else if player.state == .paused {
-                        player.resume()
-                        return
-                    }
-                }
+    @objc
+    private func handleVoiceMemoPlaybackRequested(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let messageId = userInfo["messageId"] as? String,
+              let attachmentKey = userInfo["attachmentKey"] as? String else { return }
 
-                do {
-                    let loader = RemoteAttachmentLoader()
-                    let loaded = try await loader.loadAttachmentData(from: attachmentKey)
-                    try player.play(data: loaded.data, messageId: messageId)
-                } catch {
-                    Log.error("Failed to play voice memo: \(error)")
+        voiceMemoPlaybackTask?.cancel()
+        voiceMemoPlaybackTask = Task { @MainActor in
+            let player = VoiceMemoPlayer.shared
+            if player.currentlyPlayingMessageId == messageId {
+                if player.state == .playing {
+                    player.pause()
+                    return
+                } else if player.state == .paused {
+                    player.resume()
+                    return
                 }
+            }
+
+            do {
+                let loader = RemoteAttachmentLoader()
+                let loaded = try await loader.loadAttachmentData(from: attachmentKey)
+                guard !Task.isCancelled else { return }
+                try player.play(data: loaded.data, messageId: messageId)
+            } catch is CancellationError {
+                return
+            } catch {
+                Log.error("Failed to play voice memo: \(error)")
             }
         }
     }
