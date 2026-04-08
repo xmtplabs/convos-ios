@@ -251,9 +251,12 @@ public actor RestoreManager {
         state = .importingVault
         let vaultArchivePath = BackupBundle.vaultArchivePath(in: directory)
 
+        // Without a vault archive, we have no conversation keys to restore. Continuing
+        // would wipe local state and replace the database with nothing to decrypt the
+        // resulting conversations — silent data loss. Bail before any destructive op.
         guard FileManager.default.fileExists(atPath: vaultArchivePath.path) else {
-            Log.warning("[Restore] no vault archive in bundle, skipping key extraction")
-            return []
+            Log.error("[Restore] vault archive missing from bundle — aborting before destructive operations")
+            throw RestoreError.missingVaultArchive
         }
 
         return try await vaultArchiveImporter.importVaultArchive(from: vaultArchivePath, encryptionKey: encryptionKey)
