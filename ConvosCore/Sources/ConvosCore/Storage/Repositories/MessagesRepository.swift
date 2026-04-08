@@ -180,52 +180,51 @@ class MessagesRepository: MessagesRepositoryProtocol {
         let targetLimit = currentLimit + pageSize
 
         // Synchronously check and acquire the pagination lock
-        // This ensures only one pagination operation can proceed at a time
+        // This ensures only one pagination operation can proceed at a time.
+        // The flag is cleared from the ValueObservation closure once the
+        // publisher re-emits with the new limit, not here — otherwise the
+        // async observation would see a stale _isLoadingPrevious and mark
+        // paginated messages as .inserted / .existing instead of .paginated.
         let shouldProceed = stateQueue.sync { () -> Bool in
-            // Check if we can proceed with pagination
             guard !_isLoadingPrevious && _hasMoreMessages else {
                 return false
             }
-            // Atomically set the loading flag before any state changes
             _isLoadingPrevious = true
             return true
         }
 
-        // Early return if we shouldn't proceed (already loading or no more messages)
         guard shouldProceed else { return }
 
-        // Ensure we always reset the loading flag, even if the read throws
-        defer {
-            stateQueue.sync(flags: .barrier) {
-                self._isLoadingPrevious = false
-            }
-        }
-
-        // Increment the limit
-        currentLimit = targetLimit
-
-        // The publisher will automatically update with the new messages
-        try dbReader.read { [weak self] db in
-            guard let self else { return }
-
-            let totalCount = try DBMessage
+        // Check if there are more messages to load before bumping the limit.
+        // If not, clear the loading flag and bail out.
+        let totalCount = try dbReader.read { db in
+            try DBMessage
                 .filter(DBMessage.Columns.conversationId == capturedConversationId)
                 .filter(DBMessage.Columns.messageType != DBMessageType.reaction.rawValue)
                 .fetchCount(db)
-
-            self.stateQueue.sync(flags: .barrier) {
-                // Verify the conversation hasn't changed before updating state
-                // If it has changed, abort without updating state as this pagination
-                // was for the previous conversation
-                guard self.conversationId == capturedConversationId else {
-                    return
-                }
-
-                if totalCount <= targetLimit {
-                    self._hasMoreMessages = false
-                }
-            }
         }
+
+        let shouldBumpLimit = stateQueue.sync(flags: .barrier) { () -> Bool in
+            guard self.conversationId == capturedConversationId else {
+                self._isLoadingPrevious = false
+                return false
+            }
+            if totalCount <= currentLimit {
+                self._hasMoreMessages = false
+                self._isLoadingPrevious = false
+                return false
+            }
+            if totalCount <= targetLimit {
+                self._hasMoreMessages = false
+            }
+            return true
+        }
+
+        guard shouldBumpLimit else { return }
+
+        // Increment the limit. The publisher will re-emit with the new limit
+        // and the ValueObservation closure will clear _isLoadingPrevious.
+        currentLimit = targetLimit
     }
 
     lazy var conversationMessagesPublisher: AnyPublisher<ConversationMessages, Never> = {
@@ -273,9 +272,15 @@ class MessagesRepository: MessagesRepositoryProtocol {
                             isPaginating: currentState.isPaginating
                         )
 
-                        // Update seenMessageIds atomically
+                        // Update seenMessageIds atomically and clear the pagination flag.
+                        // Clearing here (after messages have been composed with the updated
+                        // limit) ensures origin is correctly set to .paginated for newly
+                        // loaded messages before the UI observes them.
                         stateQueue.sync(flags: .barrier) {
                             unsafeSelf._seenMessageIds = updatedSeenIds
+                            if currentState.isPaginating {
+                                unsafeSelf._isLoadingPrevious = false
+                            }
                         }
 
                         return messages

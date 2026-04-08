@@ -429,6 +429,9 @@ final class MessagesViewController: UIViewController {
 
     private func loadPreviousMessages() {
         guard let onLoadPreviousMessages = onLoadPreviousMessages else { return }
+        // Don't set the loading flag if there are no more messages to load —
+        // the repository will no-op and we'd never clear the flag.
+        guard state?.hasLoadedAllMessages == false else { return }
         currentControllerActions.options.insert(.loadingPreviousMessages)
         onLoadPreviousMessages()
     }
@@ -509,8 +512,13 @@ extension MessagesViewController {
                                 animated: Bool = true,
                                 requiresIsolatedProcess: Bool,
                                 completion: (() -> Void)? = nil) {
-        if currentControllerActions.options.contains(.loadingPreviousMessages),
-           messages.contains(where: { $0.origin == .paginated }) {
+        // Clear the pagination loading flag whenever we receive a batch of messages.
+        // Previously this only cleared on messages with .paginated origin, but if the
+        // repository decides there are no more messages to load (totalCount <= limit),
+        // it returns without triggering a new publisher emission, leaving the flag
+        // stuck forever. Clearing on any update is safe because fetchPrevious has its
+        // own concurrency guard, and hasMoreMessages gates further pagination requests.
+        if currentControllerActions.options.contains(.loadingPreviousMessages) {
             currentControllerActions.options.remove(.loadingPreviousMessages)
         }
 
