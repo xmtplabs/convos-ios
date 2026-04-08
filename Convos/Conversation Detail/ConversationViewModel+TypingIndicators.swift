@@ -150,8 +150,10 @@ extension ConversationViewModel {
                 isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
                 showsTypingIndicator: true,
                 allTypingMembers: [typer],
+                readByProfiles: lastGroup.readByProfiles,
                 onlyVisibleToSender: lastGroup.onlyVisibleToSender,
-                isLastGroupBeforeOtherMembers: lastGroup.isLastGroupBeforeOtherMembers
+                isLastGroupBeforeOtherMembers: lastGroup.isLastGroupBeforeOtherMembers,
+                voiceMemoTranscripts: lastGroup.voiceMemoTranscripts
             )
             updated[lastIndex] = .messages(updatedGroup)
             return updated
