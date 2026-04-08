@@ -249,6 +249,9 @@ public extension ConversationUpdate {
         } else if let metadataChange = metadataChanges.first,
                   metadataChange.field == .name,
                   let updatedName = metadataChange.newValue {
+            if updatedName.isEmpty {
+                return "\(creatorDisplayName) removed the convo name"
+            }
             return "\(creatorDisplayName) changed the convo name to \"\(updatedName)\""
         } else if let metadataChange = metadataChanges.first,
                   metadataChange.field == .image,
@@ -257,6 +260,9 @@ public extension ConversationUpdate {
         } else if let metadataChange = metadataChanges.first,
                   metadataChange.field == .description,
                   let newValue = metadataChange.newValue {
+            if newValue.isEmpty {
+                return "\(creatorDisplayName) removed the convo description"
+            }
             return "\(creatorDisplayName) changed the convo description to \"\(newValue)\""
         } else if let metadataChange = metadataChanges.first,
                   metadataChange.field == .expiresAt,
