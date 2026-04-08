@@ -76,9 +76,9 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         )
                             .id(update.differenceIdentifier)
                             .padding(.top, DesignConstants.Spacing.step4x)
-                            .padding(.bottom, update.addedAgent ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
+                            .padding(.bottom, update.addedVerifiedAssistant ? DesignConstants.Spacing.step3x : DesignConstants.Spacing.step4x)
                             .padding(.horizontal, DesignConstants.Spacing.step4x)
-                        if update.addedAgent {
+                        if update.addedVerifiedAssistant {
                             AssistantJoinedInfoView()
                                 .padding(.horizontal, DesignConstants.Spacing.step4x)
                         }
