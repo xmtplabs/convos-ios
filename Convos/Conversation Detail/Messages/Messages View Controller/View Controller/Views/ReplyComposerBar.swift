@@ -1,3 +1,4 @@
+import AVFoundation
 import ConvosCore
 import SwiftUI
 
@@ -78,7 +79,12 @@ struct ReplyComposerBar: View {
                     .foregroundStyle(.colorTextSecondary)
                     .frame(width: 40, height: 40)
             } else if let attachment {
-                ReplyPhotoThumbnail(attachmentKey: attachment.key, shouldBlur: shouldBlurAttachment, isVideo: isVideo)
+                ReplyPhotoThumbnail(
+                    attachmentKey: attachment.key,
+                    thumbnailData: attachment.thumbnailData,
+                    shouldBlur: shouldBlurAttachment,
+                    isVideo: isVideo
+                )
             }
 
             VStack(alignment: .leading, spacing: 2.0) {
@@ -125,6 +131,7 @@ struct ReplyComposerBar: View {
 
 private struct ReplyPhotoThumbnail: View {
     let attachmentKey: String
+    let thumbnailData: Data?
     let shouldBlur: Bool
     var isVideo: Bool = false
 
@@ -133,11 +140,17 @@ private struct ReplyPhotoThumbnail: View {
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
     private static let thumbnailSize: CGFloat = 40.0
 
-    init(attachmentKey: String, shouldBlur: Bool, isVideo: Bool = false) {
+    init(attachmentKey: String, thumbnailData: Data?, shouldBlur: Bool, isVideo: Bool = false) {
         self.attachmentKey = attachmentKey
+        self.thumbnailData = thumbnailData
         self.shouldBlur = shouldBlur
         self.isVideo = isVideo
-        _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+
+        if isVideo, let thumbnailData, let thumb = UIImage(data: thumbnailData) {
+            _loadedImage = State(initialValue: thumb)
+        } else {
+            _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
+        }
     }
 
     var body: some View {
@@ -171,6 +184,20 @@ private struct ReplyPhotoThumbnail: View {
                 return
             }
             do {
+                if isVideo {
+                    let loaded = try await Self.loader.loadAttachmentData(from: attachmentKey)
+                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("reply-thumb-\(UUID().uuidString).mp4")
+                    try loaded.data.write(to: tempURL)
+                    defer { try? FileManager.default.removeItem(at: tempURL) }
+                    let asset = AVURLAsset(url: tempURL)
+                    let thumbnail = try await VideoCompressionService().generateThumbnail(for: asset)
+                    if let image = UIImage(data: thumbnail) {
+                        ImageCache.shared.cacheImage(image, for: attachmentKey, storageTier: .persistent)
+                        loadedImage = image
+                    }
+                    return
+                }
+
                 let data = try await Self.loader.loadImageData(from: attachmentKey)
                 if let image = UIImage(data: data) {
                     loadedImage = image
