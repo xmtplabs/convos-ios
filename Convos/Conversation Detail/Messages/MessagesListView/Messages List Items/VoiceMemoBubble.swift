@@ -119,18 +119,18 @@ struct VoiceMemoBubbleContent: View {
                         .font(.system(size: 16))
                 }
             }
-            .foregroundStyle(isOutgoing ? .white : .colorTextPrimary)
+            .foregroundStyle(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
             .frame(width: 36, height: 36)
             .background(
-                isOutgoing ? Color.white.opacity(0.2) : .colorFillMinimal,
+                isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.2) : .colorFillMinimal,
                 in: Circle()
             )
 
             VoiceMemoWaveformView(
                 levels: displayLevels,
                 progress: displayProgress,
-                playedColor: isOutgoing ? .white : .colorTextPrimary,
-                unplayedColor: isOutgoing ? .white.opacity(0.3) : .colorTextSecondary.opacity(0.3)
+                playedColor: isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary,
+                unplayedColor: isOutgoing ? .colorTextPrimaryInverted.opacity(0.3) : .colorTextSecondary.opacity(0.3)
             )
             .frame(height: 24)
             .frame(maxWidth: .infinity)
@@ -138,7 +138,7 @@ struct VoiceMemoBubbleContent: View {
 
             Text(displayDuration)
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(isOutgoing ? .white.opacity(0.7) : .colorTextSecondary)
+                .foregroundStyle(isOutgoing ? .colorTextPrimaryInverted.opacity(0.7) : .colorTextSecondary)
                 .frame(minWidth: 32, alignment: .trailing)
         }
         .padding(DesignConstants.Spacing.step3x)
