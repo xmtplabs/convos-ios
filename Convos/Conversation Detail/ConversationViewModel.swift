@@ -407,6 +407,7 @@ class ConversationViewModel {
 
     deinit {
         voiceMemoPlaybackTask?.cancel()
+        pendingReadReceiptTask?.cancel()
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
         assistantJoinTask?.cancel()
@@ -1891,6 +1892,8 @@ extension ConversationViewModel {
 
     func onConversationDisappeared() {
         isViewingConversation = false
+        pendingReadReceiptTask?.cancel()
+        pendingReadReceiptTask = nil
     }
 
     private func sendReadReceiptIfNeeded() {
