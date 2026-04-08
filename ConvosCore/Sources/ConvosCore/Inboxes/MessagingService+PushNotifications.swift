@@ -361,6 +361,7 @@ extension MessagingService {
         }
 
         if decodedMessage.isReadReceipt {
+            await persistReadReceiptInNSE(decodedMessage, conversationId: conversationId)
             return .droppedMessage
         }
 
@@ -634,6 +635,38 @@ extension MessagingService {
             return "\(minutes) minute\(minutes == 1 ? "" : "s")"
         } else {
             return "less than a minute"
+        }
+    }
+
+    // MARK: - Read Receipt Processing
+
+    private func persistReadReceiptInNSE(
+        _ message: DecodedMessage,
+        conversationId: String
+    ) async {
+        let senderInboxId = message.senderInboxId
+        guard !senderInboxId.isEmpty else { return }
+        let sentAtNs = message.sentAtNs
+        do {
+            try await databaseWriter.write { db in
+                let existing = try DBConversationReadReceipt
+                    .filter(Column("conversationId") == conversationId && Column("inboxId") == senderInboxId)
+                    .fetchOne(db)
+                if let existing, existing.readAtNs >= sentAtNs {
+                    // Newer (or equal) read receipt already stored; skip so an
+                    // out-of-order delivery can't roll the timestamp backwards.
+                    return
+                }
+                let receipt = DBConversationReadReceipt(
+                    conversationId: conversationId,
+                    inboxId: senderInboxId,
+                    readAtNs: sentAtNs
+                )
+                try receipt.save(db, onConflict: .replace)
+            }
+            Log.debug("NSE: Stored read receipt from \(senderInboxId) in \(conversationId)")
+        } catch {
+            Log.warning("NSE: Failed to store read receipt: \(error.localizedDescription)")
         }
     }
 
