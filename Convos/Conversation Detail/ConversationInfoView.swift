@@ -277,10 +277,17 @@ struct ConversationInfoView: View {
                     set: { viewModel.setSendReadReceipts($0) }
                 ))
                 .labelsHidden()
-                .accessibilityLabel("Read receipts")
-                .accessibilityValue(viewModel.sendReadReceipts ? "on" : "off")
-                .accessibilityIdentifier("convo-read-receipts-toggle")
+                .allowsHitTesting(false)
             }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                viewModel.setSendReadReceipts(!viewModel.sendReadReceipts)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Read receipts")
+            .accessibilityValue(viewModel.sendReadReceipts ? "on" : "off")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("convo-read-receipts-toggle")
 
             FeatureRowItem(
                 imageName: nil,

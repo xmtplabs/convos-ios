@@ -294,7 +294,13 @@ struct MessagesGroupView: View {
             .foregroundStyle(.colorTextSecondary)
             .zIndex(-1)
             .id("sent-status-\(message.differenceIdentifier)")
-            .accessibilityLabel(group.onlyVisibleToSender ? "Only visible to you" : (group.readByProfiles.isEmpty ? "Message sent" : "Message read by \(group.readByProfiles.count) members"))
+            .accessibilityLabel(
+                group.onlyVisibleToSender
+                    ? "Only visible to you"
+                    : (group.readByProfiles.isEmpty
+                        ? "Message sent"
+                        : "Message read by \(group.readByProfiles.count) \(group.readByProfiles.count == 1 ? "member" : "members")")
+            )
         }
     }
 
