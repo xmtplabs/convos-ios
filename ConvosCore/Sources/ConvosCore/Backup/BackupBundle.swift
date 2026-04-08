@@ -160,14 +160,28 @@ public enum BackupBundle {
 
             let resolvedFileURL = URL(fileURLWithPath: resolvedDirPath)
                 .appendingPathComponent(relativePath)
-            let resolvedFilePath = resolvedFileURL.standardizedFileURL.path
-            guard resolvedFilePath.hasPrefix(resolvedDirPath + "/") else {
+
+            // First-pass containment check on the standardized path.
+            let standardizedPath = resolvedFileURL.standardizedFileURL.path
+            guard standardizedPath.hasPrefix(resolvedDirPath + "/") else {
                 throw BundleError.unpackingFailed("path traversal attempt: \(relativePath)")
             }
-            let fileURL = resolvedFileURL
-            let parentDir = fileURL.deletingLastPathComponent()
+
+            // Create the parent directory, then re-validate using the symlink-resolved
+            // path of the parent. fileData.write(to:) follows symlinks when writing,
+            // so a pre-existing symlink under the staging dir could escape the
+            // first-pass check. Re-resolving the parent and re-checking after creation
+            // catches that case.
+            let parentDir = resolvedFileURL.deletingLastPathComponent()
             try fileManager.createDirectory(at: parentDir, withIntermediateDirectories: true)
-            try fileData.write(to: fileURL)
+
+            let resolvedParentPath = parentDir.standardizedFileURL.resolvingSymlinksInPath().path
+            guard resolvedParentPath == resolvedDirPath
+                || resolvedParentPath.hasPrefix(resolvedDirPath + "/") else {
+                throw BundleError.unpackingFailed("path traversal via symlink: \(relativePath)")
+            }
+
+            try fileData.write(to: resolvedFileURL)
         }
     }
 }
