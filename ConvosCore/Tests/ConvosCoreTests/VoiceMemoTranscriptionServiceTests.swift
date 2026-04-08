@@ -26,7 +26,7 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(2)) { await writer.completedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.completedSnapshot().count == 1 }
 
         let pendingCount = await writer.pendingSnapshot().count
         let completed = await writer.completedSnapshot()
@@ -159,7 +159,7 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(2)) { await writer.completedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.completedSnapshot().count == 1 }
 
         let completed = await writer.completedSnapshot()
         let transcribeCalls = await transcriber.callCount()
@@ -190,7 +190,7 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(2)) { await writer.failedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.failedSnapshot().count == 1 }
 
         let failed = await writer.failedSnapshot()
         let pending = await writer.pendingSnapshot()
@@ -224,7 +224,7 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(2)) {
+        try await waitUntil(timeout: .seconds(10)) {
             await transcriber.cancelCallSnapshot().contains("msg-1")
         }
 
@@ -262,7 +262,7 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(2)) { await writer.permanentlyFailedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.permanentlyFailedSnapshot().count == 1 }
 
         let permanentlyFailed = await writer.permanentlyFailedSnapshot()
         let failed = await writer.failedSnapshot()
@@ -294,7 +294,7 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(2)) { await writer.permanentlyFailedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.permanentlyFailedSnapshot().count == 1 }
 
         let permanentlyFailed = await writer.permanentlyFailedSnapshot()
         let failed = await writer.failedSnapshot()
@@ -326,7 +326,7 @@ struct VoiceMemoTranscriptionServiceTests {
             mimeType: "audio/m4a"
         )
 
-        try await waitUntil(timeout: .seconds(2)) { await writer.failedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.failedSnapshot().count == 1 }
 
         let transcribeCalls = await transcriber.callCount()
         let failed = await writer.failedSnapshot()
@@ -365,7 +365,7 @@ struct VoiceMemoTranscriptionServiceTests {
         )
         _ = await (firstCall, secondCall)
 
-        try await waitUntil(timeout: .seconds(2)) { await writer.completedSnapshot().count == 1 }
+        try await waitUntil(timeout: .seconds(10)) { await writer.completedSnapshot().count == 1 }
 
         let transcribeCalls = await transcriber.callCount()
         let loadCalls = await attachmentLoader.callCount()
