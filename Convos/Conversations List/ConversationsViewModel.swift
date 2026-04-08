@@ -126,6 +126,13 @@ final class ConversationsViewModel {
     }
     @ObservationIgnored
     private var staleInboxIds: Set<String> = []
+    /// Source-of-truth list from `conversationsPublisher`, unfiltered.
+    /// We recompute `conversations` from this whenever staleInboxIds or
+    /// hiddenConversationIds change — filtering `self.conversations`
+    /// in-place would lose recovered conversations when an inbox goes
+    /// from stale back to healthy.
+    @ObservationIgnored
+    private var unfilteredConversations: [Conversation] = []
     private var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -374,6 +381,18 @@ final class ConversationsViewModel {
     /// can cancel — `cancelFullStaleAutoReset()` clears this back to false.
     var isPendingFullStaleAutoReset: Bool = false
 
+    /// Recompute the visible `conversations` list from the unfiltered source,
+    /// applying current `staleInboxIds` and `hiddenConversationIds` filters.
+    /// Must be called whenever any of those three inputs change so that a
+    /// previously-filtered conversation can reappear when its inbox recovers.
+    private func recomputeVisibleConversations() {
+        let filtered = unfilteredConversations
+            .filter { !staleInboxIds.contains($0.inboxId) }
+        conversations = hiddenConversationIds.isEmpty
+            ? filtered
+            : filtered.filter { !hiddenConversationIds.contains($0.id) }
+    }
+
     func cancelFullStaleAutoReset() {
         isPendingFullStaleAutoReset = false
         Log.info("[StaleDevice] auto-reset cancelled by user")
@@ -466,8 +485,12 @@ final class ConversationsViewModel {
             .sink { [weak self] ids in
                 guard let self else { return }
                 self.staleInboxIds = ids
-                // Re-filter the currently visible conversations so stale ones hide immediately.
-                self.conversations = self.conversations.filter { !ids.contains($0.inboxId) }
+                // Recompute from the unfiltered source list. Filtering
+                // `self.conversations` in-place would permanently drop
+                // conversations whose inbox later recovers from stale
+                // back to healthy — `conversationsPublisher` only emits
+                // on DB change, so it would not re-hydrate them.
+                self.recomputeVisibleConversations()
                 // Clear selection if the selected conversation belongs to a now-stale inbox.
                 // Dismissing an in-flight newConversationViewModel is handled by
                 // handleStaleStateTransition only on transition to fullStale — partial
@@ -484,11 +507,8 @@ final class ConversationsViewModel {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
                 guard let self else { return }
-                let filtered = conversations
-                    .filter { !self.staleInboxIds.contains($0.inboxId) }
-                self.conversations = hiddenConversationIds.isEmpty
-                    ? filtered
-                    : filtered.filter { !hiddenConversationIds.contains($0.id) }
+                self.unfilteredConversations = conversations
+                self.recomputeVisibleConversations()
 
                 // Clear selection if selected conversation no longer exists in the filtered list
                 if let selectedId = _selectedConversationId,
@@ -659,9 +679,11 @@ final class ConversationsViewModel {
                 )
                 conversation.postLeftConversationNotification()
                 self.hiddenConversationIds.remove(conversationId)
+                self.recomputeVisibleConversations()
                 Log.info("Exploded conversation from list: \(conversationId)")
             } catch {
                 self.hiddenConversationIds.remove(conversationId)
+                self.recomputeVisibleConversations()
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
             }
         }
