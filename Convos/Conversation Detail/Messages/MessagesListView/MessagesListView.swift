@@ -72,7 +72,7 @@ struct MessagesListView: View {
                                         }
                                     )
                                         .padding(.vertical, DesignConstants.Spacing.stepX)
-                                    if update.addedAgent {
+                                    if update.addedVerifiedAssistant {
                                         AssistantJoinedInfoView()
                                     }
                                 }

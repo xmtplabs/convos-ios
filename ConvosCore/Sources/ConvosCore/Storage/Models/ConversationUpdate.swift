@@ -60,6 +60,14 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
         addedMembers.contains(where: \.isAgent)
     }
 
+    /// `true` when this update added at least one member that is a verified
+    /// Convos assistant. Used to gate UI affordances like the "See its skills"
+    /// button, which should only appear for verified assistants — never for
+    /// regular members or unverified agents.
+    public var addedVerifiedAssistant: Bool {
+        addedMembers.contains { $0.isAgent && $0.agentVerification.isConvosAssistant }
+    }
+
     var showsInMessagesList: Bool {
         guard metadataChanges.allSatisfy({ $0.field.showsInMessagesList }) else {
             return false

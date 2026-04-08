@@ -824,14 +824,15 @@ struct MessagesListProcessorAssistantJoinTests {
         #expect(ajItems.count == 1)
     }
 
-    @Test("Assistant join request hidden if agent joined after")
+    @Test("Assistant join request hidden if verified Convos assistant joined after")
     func hiddenAfterAgentJoined() {
         let now = Date()
         let agentMember = ConversationMember(
-            profile: Profile(inboxId: "agent-1", name: "Agent", avatar: nil, isAgent: true),
+            profile: Profile(inboxId: "agent-1", name: "Convos Assistant", avatar: nil, isAgent: true),
             role: .member,
             isCurrentUser: false,
-            isAgent: true
+            isAgent: true,
+            agentVerification: .verified(.convos)
         )
         let messages = [
             makeAssistantJoinRequest(id: "aj-1", date: now),
@@ -856,6 +857,45 @@ struct MessagesListProcessorAssistantJoinTests {
             return false
         }
         #expect(ajItems.count == 0)
+    }
+
+    @Test("Assistant join request stays visible if only an unverified agent joined after")
+    func stayVisibleAfterUnverifiedAgentJoined() {
+        // Regression coverage: a CLI joiner advertises itself as memberKind=agent
+        // but is not a verified Convos assistant. It must NOT dismiss the
+        // pending assistant join status — the user is still waiting for the
+        // real assistant.
+        let now = Date()
+        let unverifiedAgent = ConversationMember(
+            profile: Profile(inboxId: "cli-bot-1", name: "CLI Bot", avatar: nil, isAgent: true),
+            role: .member,
+            isCurrentUser: false,
+            isAgent: true,
+            agentVerification: .unverified
+        )
+        let messages = [
+            makeAssistantJoinRequest(id: "aj-1", date: now),
+            AnyMessage.message(Message(
+                id: "cli-bot-joined",
+                sender: otherUser,
+                source: .incoming,
+                status: .published,
+                content: .update(ConversationUpdate(
+                    creator: otherUser,
+                    addedMembers: [unverifiedAgent],
+                    removedMembers: [],
+                    metadataChanges: []
+                )),
+                date: now.addingTimeInterval(5),
+                reactions: []
+            ), .existing),
+        ]
+        let result = MessagesListProcessor.process(messages)
+        let ajItems = result.filter {
+            if case .assistantJoinStatus = $0 { return true }
+            return false
+        }
+        #expect(ajItems.count == 1)
     }
 
     @Test("Expired assistant join request is not shown")

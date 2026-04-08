@@ -108,7 +108,9 @@ public extension ConversationMember {
     static func mock(
         isCurrentUser: Bool = false,
         name: String? = nil,
-        role: MemberRole = .member
+        role: MemberRole = .member,
+        isAgent: Bool = false,
+        agentVerification: AgentVerification = .unverified
     ) -> ConversationMember {
         let profile = Profile.mock(
             inboxId: isCurrentUser ? "current-user" : "other-user-\(UUID().uuidString)",
@@ -118,7 +120,9 @@ public extension ConversationMember {
         return ConversationMember(
             profile: profile,
             role: isCurrentUser ? .admin : role,
-            isCurrentUser: isCurrentUser
+            isCurrentUser: isCurrentUser,
+            isAgent: isAgent,
+            agentVerification: agentVerification
         )
     }
 
