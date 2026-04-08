@@ -44,12 +44,18 @@ public actor VaultKeyStore {
     /// Deletes only the local copy of the vault key, preserving the iCloud copy.
     /// Use this during "delete all data" flows so the iCloud key remains available
     /// for backup decryption on restore.
+    ///
+    /// Only effective when the underlying store is an `ICloudIdentityStore` (the
+    /// production configuration). For non-iCloud stores (mocks/tests with a single
+    /// keychain), this is a no-op — falling through to a full `delete` would
+    /// contradict the documented intent of preserving the iCloud copy. Tests that
+    /// need to verify deletion should call `delete(inboxId:)` directly.
     public func deleteLocal(inboxId: String) async throws {
-        if let dualStore = store as? ICloudIdentityStore {
-            try await dualStore.deleteLocalOnly(inboxId: inboxId)
-        } else {
-            try await store.delete(inboxId: inboxId)
+        guard let dualStore = store as? ICloudIdentityStore else {
+            Log.warning("VaultKeyStore.deleteLocal called on non-iCloud store; no-op to preserve documented contract")
+            return
         }
+        try await dualStore.deleteLocalOnly(inboxId: inboxId)
     }
 
     public func deleteAll() async throws {

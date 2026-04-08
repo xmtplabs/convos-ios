@@ -26,6 +26,10 @@ final class MockDatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
         try backupQueue.backup(to: tempQueue)
         try dbPool.erase()
         try tempQueue.backup(to: dbPool)
+        // Match DatabaseManager.replaceDatabase: run migrations after restore so
+        // tests catch schema-mismatch failures that would otherwise only surface
+        // in production.
+        try SharedDatabaseMigrator.shared.migrate(database: dbPool)
     }
 
     private init(migrate: Bool = true) {
