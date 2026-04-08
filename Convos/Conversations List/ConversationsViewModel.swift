@@ -468,10 +468,11 @@ final class ConversationsViewModel {
                 self.staleInboxIds = ids
                 // Re-filter the currently visible conversations so stale ones hide immediately.
                 self.conversations = self.conversations.filter { !ids.contains($0.inboxId) }
-                if self.isDeviceStale {
-                    self.newConversationViewModel = nil
-                }
                 // Clear selection if the selected conversation belongs to a now-stale inbox.
+                // Dismissing an in-flight newConversationViewModel is handled by
+                // handleStaleStateTransition only on transition to fullStale — partial
+                // stale keeps any active compose flow so the user can finish composing
+                // in a still-healthy inbox.
                 if let selectedId = self._selectedConversationId,
                    !self.conversations.contains(where: { $0.id == selectedId }) {
                     self.selectedConversationId = nil
