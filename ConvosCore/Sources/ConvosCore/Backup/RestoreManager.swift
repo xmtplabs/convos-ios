@@ -182,8 +182,12 @@ public actor RestoreManager {
     // MARK: - Wipe
 
     private func wipeLocalXMTPState() async {
-        try? await identityStore.deleteAll()
-        Log.info("[Restore] cleared conversation keychain identities")
+        do {
+            try await identityStore.deleteAll()
+            Log.info("[Restore] cleared conversation keychain identities")
+        } catch {
+            Log.warning("[Restore] failed to clear conversation keychain identities (non-fatal): \(error)")
+        }
 
         // Only wipe conversation XMTP databases (AppGroup container).
         // The vault XMTP database (Documents) is preserved — it was already
