@@ -153,18 +153,44 @@ public actor VaultManager {
             Log.info("[Vault.bootstrap] XMTP client connected: inboxId=\(inboxId) installationId=\(installationId)")
 
             if identity.inboxId == "vault-pending" || identity.clientId != installationId {
+                // Save the new/updated entry first, then delete the old one.
+                // Add-first-then-delete preserves the existing key if the save
+                // fails (e.g. keychain access denied), so the next bootstrap
+                // still has something to load. A plain delete-then-save would
+                // leave the vault permanently keyless on failure.
+                let oldKey: String
                 if identity.inboxId == "vault-pending" {
+                    oldKey = "vault-pending"
                     Log.info("[Vault.bootstrap] persisting vault identity to keychain (was vault-pending, now inboxId=\(inboxId) clientId=\(installationId))")
-                    try? await vaultKeyStore.delete(inboxId: "vault-pending")
                 } else {
+                    oldKey = identity.inboxId
                     Log.info("[Vault.bootstrap] updating vault keychain entry: inboxId=\(inboxId) oldClientId=\(identity.clientId) newClientId=\(installationId)")
-                    try? await vaultKeyStore.delete(inboxId: inboxId)
                 }
-                _ = try? await vaultKeyStore.save(
-                    inboxId: inboxId,
-                    clientId: installationId,
-                    keys: identity.keys
-                )
+
+                do {
+                    try await vaultKeyStore.save(
+                        inboxId: inboxId,
+                        clientId: installationId,
+                        keys: identity.keys
+                    )
+                } catch {
+                    Log.error("[Vault.bootstrap] failed to save updated vault keychain entry: \(error)")
+                    throw error
+                }
+
+                // Only delete the old entry after the new one is confirmed in
+                // the keychain. If the two entries share a key (same inboxId,
+                // only clientId changed), save() will overwrite in place and
+                // this delete is a no-op.
+                if oldKey != inboxId {
+                    do {
+                        try await vaultKeyStore.delete(inboxId: oldKey)
+                    } catch {
+                        // Non-fatal: the new entry is saved, so the vault is
+                        // recoverable on next bootstrap. Just leaves an orphan.
+                        Log.warning("[Vault.bootstrap] failed to delete old vault keychain entry (\(oldKey)) after save — leaving orphan: \(error)")
+                    }
+                }
             } else {
                 Log.info("[Vault.bootstrap] keychain identity already up-to-date (inboxId=\(inboxId))")
             }
