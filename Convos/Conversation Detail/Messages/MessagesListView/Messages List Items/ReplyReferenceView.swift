@@ -1,3 +1,4 @@
+import AVFoundation
 import ConvosCore
 import ConvosLogging
 import SwiftUI
@@ -334,8 +335,20 @@ private struct ReplyReferencePhotoPreview: View {
                 loadedImage = cachedImage
                 return
             }
-            guard !isVideo else { return }
             do {
+                if isVideo {
+                    let loaded = try await Self.loader.loadAttachmentData(from: attachmentKey)
+                    let tempURL = FileManager.default.temporaryDirectory.appendingPathComponent("reply-ref-thumb-\(UUID().uuidString).mp4")
+                    try loaded.data.write(to: tempURL)
+                    defer { try? FileManager.default.removeItem(at: tempURL) }
+                    let asset = AVURLAsset(url: tempURL)
+                    let thumbnail = try await VideoCompressionService().generateThumbnail(for: asset)
+                    if let image = UIImage(data: thumbnail) {
+                        ImageCache.shared.cacheImage(image, for: attachmentKey, storageTier: .persistent)
+                        loadedImage = image
+                    }
+                    return
+                }
                 let data = try await Self.loader.loadImageData(from: attachmentKey)
                 if let image = UIImage(data: data) {
                     loadedImage = image
