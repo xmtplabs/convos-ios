@@ -638,10 +638,20 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private func storeReadReceipt(_ message: DecodedMessage, conversationId: String) async {
         do {
             try await databaseWriter.write { db in
+                let senderInboxId = message.senderInboxId
+                let sentAtNs = message.sentAtNs
+                let existing = try DBConversationReadReceipt
+                    .filter(Column("conversationId") == conversationId && Column("inboxId") == senderInboxId)
+                    .fetchOne(db)
+                if let existing, existing.readAtNs >= sentAtNs {
+                    // Newer (or equal) read receipt already stored; skip so an
+                    // out-of-order catch-up can't roll the timestamp backwards.
+                    return
+                }
                 let receipt = DBConversationReadReceipt(
                     conversationId: conversationId,
-                    inboxId: message.senderInboxId,
-                    readAtNs: message.sentAtNs
+                    inboxId: senderInboxId,
+                    readAtNs: sentAtNs
                 )
                 try receipt.save(db, onConflict: .replace)
             }

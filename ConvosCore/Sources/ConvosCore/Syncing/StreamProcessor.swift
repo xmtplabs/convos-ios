@@ -287,6 +287,14 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         do {
             try await databaseWriter.write { db in
+                let existing = try DBConversationReadReceipt
+                    .filter(Column("conversationId") == conversationId && Column("inboxId") == senderInboxId)
+                    .fetchOne(db)
+                if let existing, existing.readAtNs >= sentAtNs {
+                    // Newer (or equal) read receipt already stored; ignore this one so an
+                    // out-of-order delivery can't roll the timestamp backwards.
+                    return
+                }
                 let receipt = DBConversationReadReceipt(
                     conversationId: conversationId,
                     inboxId: senderInboxId,
