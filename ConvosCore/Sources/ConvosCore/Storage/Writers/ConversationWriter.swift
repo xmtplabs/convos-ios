@@ -18,7 +18,8 @@ extension DecodedMessage {
 
     var isReadReceipt: Bool {
         guard let contentType = try? encodedContent.type else { return false }
-        return contentType == ContentTypeReadReceipt
+        return contentType.authorityID == ContentTypeReadReceipt.authorityID
+            && contentType.typeID == ContentTypeReadReceipt.typeID
     }
 }
 

@@ -272,8 +272,7 @@ actor StreamProcessor: StreamProcessorProtocol {
     // MARK: - Read Receipts
 
     private func processReadReceipt(_ message: DecodedMessage, conversationId: String, currentInboxId: String) async -> Bool {
-        guard let contentType = try? message.encodedContent.type,
-              contentType == ContentTypeReadReceipt else {
+        guard message.isReadReceipt else {
             return false
         }
 

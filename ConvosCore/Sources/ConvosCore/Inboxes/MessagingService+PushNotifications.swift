@@ -360,8 +360,7 @@ extension MessagingService {
             return .droppedMessage
         }
 
-        if let contentType = try? decodedMessage.encodedContent.type,
-           contentType == ContentTypeReadReceipt {
+        if decodedMessage.isReadReceipt {
             return .droppedMessage
         }
 
