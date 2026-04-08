@@ -15,6 +15,7 @@ struct MessagesGroupView: View {
     var onOpenFile: ((HydratedAttachment) -> Void)?
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
+    var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
@@ -151,17 +152,35 @@ struct MessagesGroupView: View {
 
         let isLastInGroup: Bool = message == group.messages.last
         let isLast: Bool = isLastInGroup && !group.showsTypingIndicator
-        let bubbleType: MessageBubbleType = isLast ? .tailed : .normal
+        // When the last message is a voice memo with a transcript row attached, the
+        // transcript becomes the visual bottom of the group, so the tail moves from
+        // the voice memo bubble down onto the transcript row.
+        let transcriptIsTailed: Bool = isLast && group.voiceMemoTranscripts[message.messageId] != nil
+        let bubbleType: MessageBubbleType = (isLast && !transcriptIsTailed) ? .tailed : .normal
         let showsSentStatus: Bool = isLastInGroup && (group.isLastGroupSentByCurrentUser || group.isLastGroupBeforeOtherMembers) && message.status == .published
         let isFailed: Bool = message.sender.isCurrentUser && message.status == .failed
 
-        messageRowContent(message: message, bubbleType: bubbleType, isFailed: isFailed, isLast: isLast, isFullWidthAttachment: isFullWidthAttachment)
+        messageRowContent(
+            message: message,
+            bubbleType: bubbleType,
+            isFailed: isFailed,
+            isLast: isLast,
+            isFullWidthAttachment: isFullWidthAttachment,
+            voiceMemoTranscriptIsTailed: transcriptIsTailed
+        )
         reactionRow(message: message, isFullWidthAttachment: isFullWidthAttachment)
         statusRow(message: message, isFailed: isFailed, showsSentStatus: showsSentStatus)
     }
 
     @ViewBuilder
-    private func messageRowContent(message: AnyMessage, bubbleType: MessageBubbleType, isFailed: Bool, isLast: Bool, isFullWidthAttachment: Bool) -> some View {
+    private func messageRowContent(
+        message: AnyMessage,
+        bubbleType: MessageBubbleType,
+        isFailed: Bool,
+        isLast: Bool,
+        isFullWidthAttachment: Bool,
+        voiceMemoTranscriptIsTailed: Bool
+    ) -> some View {
         HStack(alignment: .bottom, spacing: avatarSpacing) {
             if !group.sender.isCurrentUser && !isFullWidthAttachment {
                 Color.clear
@@ -179,6 +198,9 @@ struct MessagesGroupView: View {
                 onPhotoHidden: onPhotoHidden,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onOpenFile: onOpenFile,
+                voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
+                voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
+                onRetryTranscript: onRetryTranscript,
                 omitTrailingPadding: isFailed
             )
             .zIndex(100)

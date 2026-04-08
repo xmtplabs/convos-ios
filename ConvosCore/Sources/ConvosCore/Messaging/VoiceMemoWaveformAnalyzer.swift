@@ -2,42 +2,74 @@ import AVFoundation
 import Foundation
 
 public enum VoiceMemoWaveformAnalyzer {
+    public struct Analysis: Sendable {
+        public let levels: [Float]
+        public let duration: TimeInterval
+
+        public init(levels: [Float], duration: TimeInterval) {
+            self.levels = levels
+            self.duration = duration
+        }
+    }
+
     public static func analyzeLevels(from data: Data, sampleCount: Int = 40) async -> [Float] {
-        await Task.detached(priority: .userInitiated) {
-            computeLevels(from: data, sampleCount: sampleCount)
-        }.value
+        await analyze(from: data, sampleCount: sampleCount).levels
     }
 
     public static func analyzeLevels(from url: URL, sampleCount: Int = 40) async -> [Float] {
+        await analyze(from: url, sampleCount: sampleCount).levels
+    }
+
+    public static func analyze(from data: Data, sampleCount: Int = 40) async -> Analysis {
         await Task.detached(priority: .userInitiated) {
-            guard let data = try? Data(contentsOf: url) else {
-                return Array(repeating: Float(0.1), count: sampleCount)
-            }
-            return computeLevels(from: data, sampleCount: sampleCount)
+            compute(from: data, sampleCount: sampleCount)
         }.value
     }
 
-    private static func computeLevels(from data: Data, sampleCount: Int) -> [Float] {
+    public static func analyze(from url: URL, sampleCount: Int = 40) async -> Analysis {
+        await Task.detached(priority: .userInitiated) {
+            guard let data = try? Data(contentsOf: url) else {
+                return placeholderAnalysis(sampleCount: sampleCount)
+            }
+            return compute(from: data, sampleCount: sampleCount)
+        }.value
+    }
+
+    private static func compute(from data: Data, sampleCount: Int) -> Analysis {
         guard let audioFile = createAudioFile(from: data) else {
-            return Array(repeating: Float(0.1), count: sampleCount)
+            return placeholderAnalysis(sampleCount: sampleCount)
         }
 
         let frameCount = AVAudioFrameCount(audioFile.length)
+        let sampleRate = audioFile.processingFormat.sampleRate
+        let duration: TimeInterval = sampleRate > 0
+            ? Double(audioFile.length) / sampleRate
+            : 0
+
         guard frameCount > 0, let buffer = AVAudioPCMBuffer(
             pcmFormat: audioFile.processingFormat,
             frameCapacity: frameCount
         ) else {
-            return Array(repeating: Float(0.1), count: sampleCount)
+            return Analysis(
+                levels: Array(repeating: Float(0.1), count: sampleCount),
+                duration: duration
+            )
         }
 
         do {
             try audioFile.read(into: buffer)
         } catch {
-            return Array(repeating: Float(0.1), count: sampleCount)
+            return Analysis(
+                levels: Array(repeating: Float(0.1), count: sampleCount),
+                duration: duration
+            )
         }
 
         guard let channelData = buffer.floatChannelData?[0] else {
-            return Array(repeating: Float(0.1), count: sampleCount)
+            return Analysis(
+                levels: Array(repeating: Float(0.1), count: sampleCount),
+                duration: duration
+            )
         }
 
         let totalSamples = Int(buffer.frameLength)
@@ -61,7 +93,15 @@ public enum VoiceMemoWaveformAnalyzer {
         }
 
         let referenceAmplitude: Float = 0.15
-        return levels.map { min($0 / referenceAmplitude, 1.0) }
+        let normalized = levels.map { min($0 / referenceAmplitude, 1.0) }
+        return Analysis(levels: normalized, duration: duration)
+    }
+
+    private static func placeholderAnalysis(sampleCount: Int) -> Analysis {
+        Analysis(
+            levels: Array(repeating: Float(0.1), count: sampleCount),
+            duration: 0
+        )
     }
 
     private static func createAudioFile(from data: Data) -> AVAudioFile? {

@@ -76,4 +76,22 @@ public enum MessageContent: Hashable, Codable, Sendable {
             false
         }
     }
+
+    /// Returns the first audio attachment in this message if any.
+    ///
+    /// `MessagesRepository` hydrates stored attachments into `.attachments([...])`
+    /// even when there is only one, so callers that specifically want "the voice
+    /// memo" must look inside both the singular and plural cases. Use this helper
+    /// instead of matching the cases directly so we don't silently miss the plural
+    /// path again.
+    public var primaryVoiceMemoAttachment: HydratedAttachment? {
+        switch self {
+        case .attachment(let attachment):
+            return attachment.mediaType == .audio ? attachment : nil
+        case .attachments(let attachments):
+            return attachments.first(where: { $0.mediaType == .audio })
+        default:
+            return nil
+        }
+    }
 }

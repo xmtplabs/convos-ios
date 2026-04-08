@@ -15,6 +15,9 @@ struct MessagesGroupItemView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment) -> Void)?
+    var voiceMemoTranscript: VoiceMemoTranscriptListItem?
+    var voiceMemoTranscriptIsTailed: Bool = false
+    var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var omitTrailingPadding: Bool = false
 
     @State private var isAppearing: Bool = true
@@ -47,6 +50,14 @@ struct MessagesGroupItemView: View {
                 .padding(.trailing, trailingPadding)
             }
             messageContent
+            if let voiceMemoTranscript {
+                VoiceMemoTranscriptRow(
+                    item: voiceMemoTranscript,
+                    isTailed: voiceMemoTranscriptIsTailed,
+                    onRetryTranscript: onRetryTranscript
+                )
+                .padding(.top, DesignConstants.Spacing.stepX)
+            }
         }
         .id("messages-group-item-view-\(message.messageId)")
         .transition(

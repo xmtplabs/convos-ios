@@ -366,6 +366,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             onCopyInviteLink: {},
             onConvoCode: {},
             onInviteAssistant: {},
+            onRetryTranscript: { _ in },
             hasAssistant: false,
             isAssistantJoinPending: false,
             isAssistantEnabled: true,

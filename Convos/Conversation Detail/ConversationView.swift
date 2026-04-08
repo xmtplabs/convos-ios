@@ -103,6 +103,9 @@ struct ConversationView<MessagesBottomBar: View>: View {
                 }
             },
             onInviteAssistant: { viewModel.onRequestAssistantJoin() },
+            onRetryTranscript: { item in
+                viewModel.retryTranscript(for: item)
+            },
             hasAssistant: viewModel.conversation.hasAgent,
             isAssistantJoinPending: viewModel.isAssistantJoinPending,
             isAssistantEnabled: FeatureFlags.shared.isAssistantEnabled && GlobalConvoDefaults.shared.assistantsEnabled,

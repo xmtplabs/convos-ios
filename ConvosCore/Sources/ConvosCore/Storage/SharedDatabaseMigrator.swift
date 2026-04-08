@@ -411,6 +411,21 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("createVoiceMemoTranscript") { db in
+            try db.create(table: "voiceMemoTranscript") { t in
+                t.column("messageId", .text).notNull().primaryKey()
+                t.column("conversationId", .text).notNull().references("conversation", onDelete: .cascade)
+                t.column("attachmentKey", .text).notNull()
+                t.column("status", .text).notNull()
+                t.column("text", .text)
+                t.column("errorDescription", .text)
+                t.column("createdAt", .datetime).notNull()
+                t.column("updatedAt", .datetime).notNull()
+            }
+            try db.create(index: "voiceMemoTranscript_conversationId", on: "voiceMemoTranscript", columns: ["conversationId"])
+            try db.create(index: "voiceMemoTranscript_attachmentKey", on: "voiceMemoTranscript", columns: ["attachmentKey"])
+        }
+
         return migrator
     }
 }

@@ -8,6 +8,40 @@ public enum MessageBubbleType: Sendable {
     case normal, tailed, none
 }
 
+public struct VoiceMemoTranscriptListItem: Hashable, Equatable, Sendable {
+    public let parentMessageId: String
+    public let conversationId: String
+    public let attachmentKey: String
+    public let mimeType: String?
+    public let senderDisplayName: String?
+    public let isOutgoing: Bool
+    public let status: VoiceMemoTranscriptStatus
+    public let text: String?
+    public let errorDescription: String?
+
+    public init(
+        parentMessageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String? = nil,
+        senderDisplayName: String? = nil,
+        isOutgoing: Bool,
+        status: VoiceMemoTranscriptStatus,
+        text: String?,
+        errorDescription: String? = nil
+    ) {
+        self.parentMessageId = parentMessageId
+        self.conversationId = conversationId
+        self.attachmentKey = attachmentKey
+        self.mimeType = mimeType
+        self.senderDisplayName = senderDisplayName
+        self.isOutgoing = isOutgoing
+        self.status = status
+        self.text = text
+        self.errorDescription = errorDescription
+    }
+}
+
 public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
     case update(id: String, update: ConversationUpdate, origin: AnyMessage.Origin)
     case date(DateGroup)

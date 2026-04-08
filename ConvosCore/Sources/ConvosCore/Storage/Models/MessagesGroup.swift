@@ -10,6 +10,10 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     public let allTypingMembers: [ConversationMember]
     public var onlyVisibleToSender: Bool = false
     public var isLastGroupBeforeOtherMembers: Bool = false
+    /// Display-time transcript rows keyed by parent message id. Populated by
+    /// `MessagesListProcessor` when it builds the group, so changes to the
+    /// transcript state propagate through the existing diffing reload pipeline.
+    public var voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
 
     public var isMultiTyper: Bool {
         allTypingMembers.count > 1
@@ -32,7 +36,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         showsTypingIndicator: Bool = false,
         allTypingMembers: [ConversationMember] = [],
         onlyVisibleToSender: Bool = false,
-        isLastGroupBeforeOtherMembers: Bool = false
+        isLastGroupBeforeOtherMembers: Bool = false,
+        voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
     ) {
         self.id = id
         self.sender = sender
@@ -43,6 +48,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         self.allTypingMembers = allTypingMembers
         self.onlyVisibleToSender = onlyVisibleToSender
         self.isLastGroupBeforeOtherMembers = isLastGroupBeforeOtherMembers
+        self.voiceMemoTranscripts = voiceMemoTranscripts
     }
 
     public init(
@@ -54,7 +60,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         showsTypingIndicator: Bool = false,
         allTypingMembers: [ConversationMember] = [],
         onlyVisibleToSender: Bool = false,
-        isLastGroupBeforeOtherMembers: Bool = false
+        isLastGroupBeforeOtherMembers: Bool = false,
+        voiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
     ) {
         self.id = id
         self.sender = sender
@@ -65,6 +72,7 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         self.allTypingMembers = allTypingMembers
         self.onlyVisibleToSender = onlyVisibleToSender
         self.isLastGroupBeforeOtherMembers = isLastGroupBeforeOtherMembers
+        self.voiceMemoTranscripts = voiceMemoTranscripts
     }
 
     public static func == (lhs: MessagesGroup, rhs: MessagesGroup) -> Bool {
@@ -76,7 +84,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.showsTypingIndicator == rhs.showsTypingIndicator &&
         lhs.allTypingMembers == rhs.allTypingMembers &&
         lhs.onlyVisibleToSender == rhs.onlyVisibleToSender &&
-        lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers
+        lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers &&
+        lhs.voiceMemoTranscripts == rhs.voiceMemoTranscripts
     }
 }
 
@@ -90,6 +99,7 @@ extension MessagesGroup: Hashable {
         hasher.combine(showsTypingIndicator)
         hasher.combine(onlyVisibleToSender)
         hasher.combine(isLastGroupBeforeOtherMembers)
+        hasher.combine(voiceMemoTranscripts)
     }
 }
 

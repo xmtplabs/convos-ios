@@ -28,6 +28,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onCopyInviteLink: () -> Void
     let onConvoCode: () -> Void
     let onInviteAssistant: () -> Void
+    let onRetryTranscript: (VoiceMemoTranscriptListItem) -> Void
     let hasAssistant: Bool
     let isAssistantJoinPending: Bool
     let isAssistantEnabled: Bool
@@ -94,6 +95,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         messagesViewController.onCopyInviteLink = onCopyInviteLink
         messagesViewController.onConvoCode = onConvoCode
         messagesViewController.onInviteAssistant = onInviteAssistant
+        messagesViewController.onRetryTranscript = onRetryTranscript
         messagesViewController.hasAssistant = hasAssistant
         messagesViewController.isAssistantJoinPending = isAssistantJoinPending
         messagesViewController.isAssistantEnabled = isAssistantEnabled
@@ -147,6 +149,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onCopyInviteLink: {},
         onConvoCode: {},
         onInviteAssistant: {},
+        onRetryTranscript: { _ in },
         hasAssistant: false,
         isAssistantJoinPending: false,
         isAssistantEnabled: true,

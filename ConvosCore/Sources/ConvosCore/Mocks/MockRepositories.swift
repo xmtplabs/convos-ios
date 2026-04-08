@@ -208,6 +208,72 @@ public final class MockPhotoPreferencesWriter: PhotoPreferencesWriterProtocol, @
     }
 }
 
+// MARK: - Mock Voice Memo Transcript Storage
+
+public final class MockVoiceMemoTranscriptRepository: VoiceMemoTranscriptRepositoryProtocol, @unchecked Sendable {
+    public init() {}
+
+    public func transcript(for messageId: String) async throws -> VoiceMemoTranscript? {
+        nil
+    }
+
+    public func fetchAllTranscripts(in conversationId: String) throws -> [String: VoiceMemoTranscript] {
+        [:]
+    }
+
+    public func transcriptPublisher(for messageId: String) -> AnyPublisher<VoiceMemoTranscript?, Never> {
+        Just(nil).eraseToAnyPublisher()
+    }
+
+    public func transcriptsPublisher(in conversationId: String) -> AnyPublisher<[String: VoiceMemoTranscript], Never> {
+        Just([:]).eraseToAnyPublisher()
+    }
+}
+
+public final class MockVoiceMemoTranscriptWriter: VoiceMemoTranscriptWriterProtocol, @unchecked Sendable {
+    public init() {}
+
+    public func markPending(messageId: String, conversationId: String, attachmentKey: String) async throws {
+    }
+
+    public func saveCompleted(messageId: String, conversationId: String, attachmentKey: String, text: String) async throws {
+    }
+
+    public func saveFailed(messageId: String, conversationId: String, attachmentKey: String, errorDescription: String?) async throws {
+    }
+
+    public func markPermanentlyFailed(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        errorDescription: String?
+    ) async throws {
+    }
+
+    public func deleteTranscript(messageId: String) async throws {
+    }
+}
+
+public final class MockVoiceMemoTranscriptionService: VoiceMemoTranscriptionServicing, @unchecked Sendable {
+    public init() {}
+
+    public func enqueueIfNeeded(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String
+    ) async {}
+
+    public func retry(
+        messageId: String,
+        conversationId: String,
+        attachmentKey: String,
+        mimeType: String
+    ) async {}
+
+    public func hasSpeechPermission() -> Bool { true }
+}
+
 // MARK: - Mock Attachment Local State Writer
 
 public final class MockAttachmentLocalStateWriter: AttachmentLocalStateWriterProtocol, @unchecked Sendable {

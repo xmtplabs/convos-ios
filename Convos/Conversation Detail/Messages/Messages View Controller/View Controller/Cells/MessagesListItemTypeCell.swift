@@ -97,7 +97,8 @@ class MessagesListItemTypeCell: UICollectionViewCell {
                         onPhotoDimensionsLoaded: config.onPhotoDimensionsLoaded,
                         onOpenFile: config.onOpenFile,
                         onRetryMessage: config.onRetryMessage,
-                        onDeleteMessage: config.onDeleteMessage
+                        onDeleteMessage: config.onDeleteMessage,
+                        onRetryTranscript: config.onRetryTranscript
                     )
 
                 case .invite(let invite):

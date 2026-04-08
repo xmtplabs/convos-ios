@@ -65,6 +65,10 @@ struct VoiceMemoAttachmentView: View {
 }
 
 struct VoiceMemoBubbleContent: View {
+    /// Shared display width for the voice memo bubble. Used by the inline
+    /// transcript row so the two cells visually line up.
+    static let bubbleWidth: CGFloat = 220
+
     let message: AnyMessage
     let attachment: HydratedAttachment
     let isOutgoing: Bool
@@ -72,9 +76,17 @@ struct VoiceMemoBubbleContent: View {
     let isLoading: Bool
 
     @State private var analyzedLevels: [Float]?
+    @State private var analyzedDuration: TimeInterval?
 
     private var displayLevels: [Float] {
         attachment.waveformLevels ?? analyzedLevels ?? Self.placeholderLevels
+    }
+
+    /// Best-effort duration for the static (non-playing) state.
+    /// Prefers the value the sender encoded into the remote attachment metadata,
+    /// falls back to a value we measured locally from the decoded audio file.
+    private var staticDuration: TimeInterval {
+        attachment.duration ?? analyzedDuration ?? 0
     }
 
     private var isCurrentlyPlaying: Bool {
@@ -89,7 +101,7 @@ struct VoiceMemoBubbleContent: View {
         if isCurrentlyPlaying && player.duration > 0 {
             return formatDuration(player.currentTime)
         }
-        return formatDuration(attachment.duration ?? 0)
+        return formatDuration(staticDuration)
     }
 
     private var displayProgress: Double {
@@ -130,18 +142,27 @@ struct VoiceMemoBubbleContent: View {
                 .frame(minWidth: 32, alignment: .trailing)
         }
         .padding(DesignConstants.Spacing.step3x)
-        .frame(width: 220)
+        .frame(width: Self.bubbleWidth)
         .task(id: message.messageId) {
-            guard attachment.waveformLevels == nil, analyzedLevels == nil else { return }
-            await loadAndCacheWaveform()
+            let needsLevels = attachment.waveformLevels == nil && analyzedLevels == nil
+            let needsDuration = attachment.duration == nil && analyzedDuration == nil
+            guard needsLevels || needsDuration else { return }
+            await loadAndCacheAnalysis()
         }
     }
 
-    private func loadAndCacheWaveform() async {
+    private func loadAndCacheAnalysis() async {
         do {
             let loaded = try await sharedAttachmentLoader.loadAttachmentData(from: attachment.key)
-            let levels = await VoiceMemoWaveformAnalyzer.analyzeLevels(from: loaded.data)
-            await MainActor.run { analyzedLevels = levels }
+            let analysis = await VoiceMemoWaveformAnalyzer.analyze(from: loaded.data)
+            await MainActor.run {
+                if attachment.waveformLevels == nil {
+                    analyzedLevels = analysis.levels
+                }
+                if attachment.duration == nil, analysis.duration > 0 {
+                    analyzedDuration = analysis.duration
+                }
+            }
         } catch {
             Log.error("Failed to analyze voice memo waveform: \(error)")
         }
