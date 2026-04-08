@@ -280,6 +280,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 focusState: $focusState,
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
                 messagesTextFieldEnabled: messagesTextFieldEnabled,
+                isCollapsed: !isMessageInputFocused,
                 onProfilePhotoTap: onProfilePhotoTap,
                 onSendMessage: onSendMessage,
                 onClearInvite: onClearInvite,
