@@ -152,13 +152,15 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let perfStart = CFAbsoluteTimeGetCurrent()
         Log.info("Syncing conversation: \(conversation.id)")
-        try await conversationWriter.storeWithLatestMessages(
+        let dbConversation = try await conversationWriter.storeWithLatestMessages(
             conversation: conversation,
             inboxId: params.client.inboxId,
             clientConversationId: clientConversationId
         )
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)")
+
+        await reactivateIfNeeded(conversationId: dbConversation.id)
 
         if creatorInboxId == params.client.inboxId {
             await sendInitialProfileSnapshot(group: conversation)
@@ -211,10 +213,23 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
-                    let dbConversation = try await conversationWriter.store(
-                        conversation: conversation,
-                        inboxId: params.client.inboxId
-                    )
+                    let dbConversation: DBConversation
+                    do {
+                        dbConversation = try await conversationWriter.store(
+                            conversation: conversation,
+                            inboxId: params.client.inboxId
+                        )
+                    } catch is CancellationError {
+                        throw CancellationError()
+                    } catch {
+                        Log.warning("conversationWriter.store failed, falling back to existing DBConversation: \(error)")
+                        guard let existing = try await databaseReader.read({ db in
+                            try DBConversation.fetchOne(db, id: conversation.id)
+                        }) else {
+                            throw error
+                        }
+                        dbConversation = existing
+                    }
 
                     // Handle ExplodeSettings - skip storing message if this is an explode message
                     let explodeSettings = messageWriter.decodeExplodeSettings(from: message)
@@ -233,6 +248,11 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
+
+                    await markReconnectionIfNeeded(
+                        messageId: message.id,
+                        conversationId: conversation.id
+                    )
 
                     // Mark unread if needed
                     if result.contentType.marksConversationAsUnread,
@@ -267,6 +287,74 @@ actor StreamProcessor: StreamProcessorProtocol {
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
         Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
+    }
+
+    // MARK: - Reactivation
+
+    private func reactivateIfNeeded(conversationId: String) async {
+        do {
+            let isInactive = try await databaseReader.read { db in
+                try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                    .filter(ConversationLocalState.Columns.isActive == false)
+                    .fetchOne(db) != nil
+            }
+            guard isInactive else { return }
+
+            try await markRecentUpdatesAsReconnection(conversationId: conversationId)
+            try await localStateWriter.setActive(true, for: conversationId)
+            Log.info("Reactivated conversation \(conversationId) during sync")
+        } catch {
+            Log.warning("reactivateIfNeeded failed for \(conversationId): \(error)")
+        }
+    }
+
+    private func markRecentUpdatesAsReconnection(conversationId: String) async throws {
+        try await databaseWriter.write { db in
+            let sql = """
+                SELECT id FROM message
+                WHERE conversationId = ?
+                  AND contentType = 'update'
+                ORDER BY date DESC
+                LIMIT 5
+                """
+            let messageIds = try String.fetchAll(db, sql: sql, arguments: [conversationId])
+            for messageId in messageIds {
+                guard var dbMessage = try DBMessage.fetchOne(db, key: messageId),
+                      var update = dbMessage.update else { continue }
+                if !update.isReconnection {
+                    update.isReconnection = true
+                    dbMessage = dbMessage.with(update: update)
+                    try dbMessage.save(db)
+                }
+            }
+        }
+    }
+
+    private func markReconnectionIfNeeded(messageId: String, conversationId: String) async {
+        do {
+            let isInactive = try await databaseReader.read { db in
+                try ConversationLocalState
+                    .filter(ConversationLocalState.Columns.conversationId == conversationId)
+                    .filter(ConversationLocalState.Columns.isActive == false)
+                    .fetchOne(db) != nil
+            }
+            guard isInactive else { return }
+
+            try await databaseWriter.write { db in
+                if var dbMessage = try DBMessage.fetchOne(db, key: messageId),
+                   var update = dbMessage.update {
+                    update.isReconnection = true
+                    dbMessage = dbMessage.with(update: update)
+                    try dbMessage.save(db)
+                }
+            }
+
+            try await localStateWriter.setActive(true, for: conversationId)
+            Log.info("Reactivated conversation \(conversationId) after receiving message")
+        } catch {
+            Log.warning("markReconnectionIfNeeded failed for \(conversationId): \(error)")
+        }
     }
 
     // MARK: - Profile Messages

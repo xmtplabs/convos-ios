@@ -60,7 +60,7 @@ The list item subtitle shows the inactive indicator inline, following the same p
 A pill/banner is pinned above the composer when the conversation is inactive. The banner contains:
 - An SF Symbol icon in lava/red color (exact symbol pending — see Open Questions)
 - A bold primary-color title (e.g., "History restored" or "Restored from backup" — pending)
-- Secondary-color subtext describing what the user needs to do (e.g., "You can see and send new messages after another member comes online")
+- Secondary-color subtext describing what the user needs to do (e.g., "You can see and send new messages after another member sends a message")
 - The banner is tappable and links to a "learn site" URL (URL TBD — see Open Questions)
 
 The composer area is visually muted: the avatar renders at reduced opacity and the text field uses an inactive color (`#d9d9d9`). The composer is not hidden — the history is fully readable.
@@ -69,7 +69,7 @@ The composer area is visually muted: the avatar renders at reduced opacity and t
 
 When the user taps any element that would normally trigger an interaction (send, reaction, swipe-to-reply), an alert is shown instead:
 - Title: "Awaiting reconnection"
-- Body: "You can see and send new messages, reactions and more after another member comes online."
+- Body: "You can see and send new messages, reactions and more after another member sends a message."
 - Button: "Got it"
 
 ## Design Decisions
@@ -78,7 +78,7 @@ Resolved from Figma (second/refined frame) and Loom transcript:
 
 - **Banner title**: "History restored"
 - **Banner icon**: `􀢔` — likely `clock.badge.checkmark.fill`, verify in SF Symbols app before coding
-- **Banner subtext**: "You can see and send new messages after another member comes online"
+- **Banner subtext**: "You can see and send new messages after another member sends a message"
 - **Composer tap**: entire composer area is intercepted — transcript says "anything you try to do... we just catch stuff that should work but can't work yet"
 - **Learn site URL**: `https://learn.convos.org/`
 - **Conversations list label**: "Awaiting" — short single word, consistent with "Verifying" pattern
@@ -183,7 +183,7 @@ Four UI concerns in `ConversationView` / `ConversationViewModel`:
 | Flag is never cleared if no one sends a message (quiet conversation) | Medium | Banner persists — acceptable for v1. Reactivation requires another participant to send; the user cannot force it. Could add a manual "check" action later if needed |
 | `isActive()` check adds latency to sync path | Low | Local MLS state check, no network call. Only runs for conversations with `isActive == false`, which is empty after all conversations reactivate |
 | Design copy/icon not finalized before implementation | Medium | Phase 3 and 4 can use placeholder strings/symbols behind a constant; finalizing design answers unblocks the final pass |
-| User confusion if banner never disappears (no active members) | Medium | Copy addresses this ("after another member comes online"); can also explore a later enhancement to detect reactivation via periodic sync |
+| User confusion if banner never disappears (no active members) | Medium | Copy addresses this ("after another member sends a message"); can also explore a later enhancement to detect reactivation via periodic sync |
 
 ## References
 

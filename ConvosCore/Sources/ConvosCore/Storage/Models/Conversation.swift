@@ -32,6 +32,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let debugInfo: ConversationDebugInfo
     public let isLocked: Bool
     public let assistantJoinStatus: AssistantJoinStatus?
+    public let isActive: Bool
 }
 
 public extension Conversation {

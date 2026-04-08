@@ -170,7 +170,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 isUnread: false,
                 isUnreadUpdatedAt: Date(),
                 isMuted: false,
-                pinnedOrder: nil
+                pinnedOrder: nil,
+                isActive: true
             )
             try localState.save(db)
 
@@ -368,7 +369,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 isUnread: false,
                 isUnreadUpdatedAt: Date.distantPast,
                 isMuted: false,
-                pinnedOrder: nil
+                pinnedOrder: nil,
+                isActive: true
             )
             try localState.insert(db, onConflict: .ignore)
 
@@ -384,14 +386,21 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             // Save members (upserts conversation_members + stub memberProfile rows)
             try self.saveMembers(dbMembers, in: db)
 
-            // Fill gaps: only write appData profiles for members without message-sourced data
+            // Fill gaps: write appData profiles for members without message-sourced data.
+            // After restore (isActive == false), force-apply metadata profiles to re-adopt
+            // names and avatars from XMTP group metadata.
+            let isInactive = try ConversationLocalState
+                .filter(ConversationLocalState.Columns.conversationId == dbConversation.id)
+                .filter(ConversationLocalState.Columns.isActive == false)
+                .fetchOne(db) != nil
+
             try memberProfiles.forEach { profile in
                 let existing = try DBMemberProfile.fetchOne(
                     db,
                     conversationId: dbConversation.id,
                     inboxId: profile.inboxId
                 )
-                if existing?.name != nil || existing?.avatar != nil {
+                if !isInactive, existing?.name != nil || existing?.avatar != nil {
                     return
                 }
                 let member = DBMember(inboxId: profile.inboxId)

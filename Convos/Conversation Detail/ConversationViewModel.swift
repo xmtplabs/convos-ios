@@ -214,6 +214,10 @@ class ConversationViewModel {
         conversation.isLocked
     }
 
+    var isInactive: Bool {
+        !conversation.isActive
+    }
+
     var isFull: Bool {
         conversation.isFull
     }
@@ -445,7 +449,9 @@ class ConversationViewModel {
         if conversation.isPendingInvite {
             onboardingCoordinator.isWaitingForInviteAcceptance = true
         }
-        startOnboarding()
+        if !isInactive {
+            startOnboarding()
+        }
     }
 
     // Alternative initializer for draft conversations with pre-loaded dependencies

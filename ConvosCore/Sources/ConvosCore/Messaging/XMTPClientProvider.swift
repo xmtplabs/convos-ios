@@ -140,8 +140,7 @@ public protocol XMTPClientProvider: AnyObject {
         signingKey: SigningKey, installationIds: [String]
     ) async throws
     func revokeAllOtherInstallations(signingKey: SigningKey) async throws
-    func createArchive(path: String, encryptionKey: Data) async throws
-    func importArchive(path: String, encryptionKey: Data) async throws
+    func isInstallationActive() async throws -> Bool
     func requestDeviceSync() async throws
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
@@ -247,16 +246,13 @@ extension XMTPiOS.Client: XMTPClientProvider {
         try await foundConversation.updateConsentState(state: consent.consentState)
     }
 
-    public func createArchive(path: String, encryptionKey: Data) async throws {
-        try await createArchive(path: path, encryptionKey: encryptionKey, opts: ArchiveOptions())
-    }
-
-    public func importArchive(path: String, encryptionKey: Data) async throws {
-        try await (self as XMTPiOS.Client).importArchive(path: path, encryptionKey: encryptionKey)
-    }
-
     public func requestDeviceSync() async throws {
         try await sendSyncRequest()
+    }
+
+    public func isInstallationActive() async throws -> Bool {
+        let state = try await inboxState(refreshFromNetwork: true)
+        return state.installations.contains { $0.id == installationID }
     }
 }
 

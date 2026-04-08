@@ -9,6 +9,7 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
     let isFilteredResultEmpty: Bool
     let filterEmptyMessage: String
     let hasCreatedMoreThanOneConvo: Bool
+    let isDeviceStale: Bool
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 
     // Callbacks
@@ -36,7 +37,8 @@ struct ConversationsViewRepresentable: UIViewControllerRepresentable {
             isFilteredResultEmpty: isFilteredResultEmpty,
             filterEmptyMessage: filterEmptyMessage,
             hasCreatedMoreThanOneConvo: hasCreatedMoreThanOneConvo,
-            horizontalSizeClass: horizontalSizeClass
+            horizontalSizeClass: horizontalSizeClass,
+            isDeviceStale: isDeviceStale
         )
         viewController.updateState(state)
 

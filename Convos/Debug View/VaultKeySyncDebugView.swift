@@ -16,6 +16,8 @@ struct VaultKeySyncDebugView: View {
     var body: some View {
         List {
             statusSection
+            keysDetailSection
+            backupFilesSection
             actionsSection
         }
         .navigationTitle("Vault Key Sync")
@@ -75,6 +77,108 @@ struct VaultKeySyncDebugView: View {
                     title: "Last refreshed",
                     value: snapshot.lastRefreshed.formatted(date: .omitted, time: .standard)
                 )
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var keysDetailSection: some View {
+        if !isLoading {
+            Section("Vault Keys") {
+                if snapshot.vaultKeys.isEmpty {
+                    Text("No vault keys found")
+                        .foregroundStyle(.colorTextSecondary)
+                } else {
+                    ForEach(snapshot.vaultKeys) { key in
+                        VStack(alignment: .leading, spacing: 4) {
+                            HStack(spacing: 6) {
+                                if key.inboxId == snapshot.vaultInboxId {
+                                    Image(systemName: "checkmark.circle.fill")
+                                        .foregroundStyle(.green)
+                                        .font(.caption)
+                                }
+                                Text(key.inboxId)
+                                    .font(.system(.caption, design: .monospaced))
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            HStack(spacing: 8) {
+                                Text("client: \(key.clientId)")
+                                    .font(.system(.caption2, design: .monospaced))
+                                    .foregroundStyle(.colorTextSecondary)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            HStack(spacing: 8) {
+                                Label(
+                                    key.isLocal ? "Local" : "No local",
+                                    systemImage: key.isLocal ? "checkmark.circle" : "xmark.circle"
+                                )
+                                .foregroundStyle(key.isLocal ? .green : .red)
+                                Label(
+                                    key.isICloud ? "iCloud" : "No iCloud",
+                                    systemImage: key.isICloud ? "checkmark.circle" : "xmark.circle"
+                                )
+                                .foregroundStyle(key.isICloud ? .green : .red)
+                            }
+                            .font(.caption2)
+                            HStack(spacing: 12) {
+                                if key.isLocal {
+                                    let deleteLocalAction = { deleteLocalKey(inboxId: key.inboxId) }
+                                    Button("Delete local", role: .destructive, action: deleteLocalAction)
+                                        .font(.caption)
+                                }
+                                if key.isICloud {
+                                    let deleteICloudAction = { deleteICloudKey(inboxId: key.inboxId) }
+                                    Button("Delete iCloud", role: .destructive, action: deleteICloudAction)
+                                        .font(.caption)
+                                }
+                                if key.isICloud && !key.isLocal {
+                                    let adoptAction = { adoptICloudKey(inboxId: key.inboxId) }
+                                    Button("Adopt locally", action: adoptAction)
+                                        .font(.caption)
+                                }
+                            }
+                            .disabled(isPerformingAction)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var backupFilesSection: some View {
+        if !isLoading {
+            Section("iCloud Backup Files") {
+                if snapshot.backupFiles.isEmpty {
+                    Text("No backups found in iCloud container")
+                        .foregroundStyle(.colorTextSecondary)
+                } else {
+                    ForEach(snapshot.backupFiles) { file in
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(file.deviceName)
+                                .font(.subheadline)
+                                .fontWeight(.medium)
+                            HStack(spacing: 12) {
+                                Label(file.metadataCreatedAt, systemImage: "clock")
+                                Label(file.size, systemImage: "doc")
+                            }
+                            .font(.caption)
+                            .foregroundStyle(.colorTextSecondary)
+                            HStack(spacing: 12) {
+                                Label("\(file.inboxCount) inbox(es)", systemImage: "person.2")
+                                Text(file.path)
+                                    .lineLimit(1)
+                                    .truncationMode(.middle)
+                            }
+                            .font(.caption2)
+                            .foregroundStyle(.colorTextTertiary)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
             }
         }
     }
@@ -156,6 +260,33 @@ struct VaultKeySyncDebugView: View {
                 .font(monospaced ? .system(.footnote, design: .monospaced) : .footnote)
                 .foregroundStyle(.colorTextSecondary)
                 .multilineTextAlignment(.trailing)
+        }
+    }
+
+    private func deleteLocalKey(inboxId: String) {
+        let store = makeLocalVaultStore()
+        runAction(title: "Delete local key") {
+            try await store.delete(inboxId: inboxId)
+            await refreshStatus()
+            return "Deleted local key: \(inboxId)"
+        }
+    }
+
+    private func deleteICloudKey(inboxId: String) {
+        let store = makeICloudVaultStore()
+        runAction(title: "Delete iCloud key") {
+            try await store.delete(inboxId: inboxId)
+            await refreshStatus()
+            return "Deleted iCloud key: \(inboxId)"
+        }
+    }
+
+    private func adoptICloudKey(inboxId: String) {
+        let dualStore = ICloudIdentityStore(localStore: makeLocalVaultStore(), icloudStore: makeICloudVaultStore())
+        runAction(title: "Adopt iCloud key") {
+            _ = try await dualStore.identity(for: inboxId)
+            await refreshStatus()
+            return "Adopted iCloud key locally: \(inboxId)"
         }
     }
 
@@ -249,22 +380,72 @@ struct VaultKeySyncDebugView: View {
         let iCloudStore = makeICloudVaultStore()
         let dualStore = ICloudIdentityStore(localStore: localStore, icloudStore: iCloudStore)
 
-        let localVaultKeyCount = (try? await localStore.loadAll().count) ?? 0
-        let iCloudVaultKeyCount = (try? await iCloudStore.loadAll().count) ?? 0
+        let localIdentities = (try? await localStore.loadAll()) ?? []
+        let iCloudIdentities = (try? await iCloudStore.loadAll()) ?? []
         let hasICloudOnlyKeys = await dualStore.hasICloudOnlyKeys()
 
         let bootstrapInfo = await loadVaultBootstrapInfo()
+
+        let localInboxIds = Set(localIdentities.map(\.inboxId))
+        let iCloudInboxIds = Set(iCloudIdentities.map(\.inboxId))
+        let allInboxIds = localInboxIds.union(iCloudInboxIds)
+
+        let vaultKeys: [VaultKeyInfo] = allInboxIds.sorted().map { inboxId in
+            let identity = localIdentities.first(where: { $0.inboxId == inboxId })
+                ?? iCloudIdentities.first(where: { $0.inboxId == inboxId })
+            return VaultKeyInfo(
+                inboxId: inboxId,
+                clientId: identity?.clientId ?? "unknown",
+                isLocal: localInboxIds.contains(inboxId),
+                isICloud: iCloudInboxIds.contains(inboxId)
+            )
+        }
+
+        let backupFiles = loadBackupFiles()
 
         return Snapshot(
             isICloudAccountAvailable: ICloudIdentityStore.isICloudAccountAvailable,
             bootstrapState: bootstrapInfo.state,
             bootstrapErrorMessage: bootstrapInfo.errorMessage,
             vaultInboxId: bootstrapInfo.vaultInboxId,
-            localVaultKeyCount: localVaultKeyCount,
-            iCloudVaultKeyCount: iCloudVaultKeyCount,
+            localVaultKeyCount: localIdentities.count,
+            iCloudVaultKeyCount: iCloudIdentities.count,
             hasICloudOnlyKeys: hasICloudOnlyKeys,
-            lastRefreshed: Date()
+            lastRefreshed: Date(),
+            vaultKeys: vaultKeys,
+            backupFiles: backupFiles
         )
+    }
+
+    private func loadBackupFiles() -> [BackupFileInfo] {
+        let containerId = environment.iCloudContainerIdentifier
+        guard let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: containerId) else {
+            return []
+        }
+        let backupsDir = containerURL
+            .appendingPathComponent("Documents", isDirectory: true)
+            .appendingPathComponent("backups", isDirectory: true)
+
+        guard let deviceDirs = try? FileManager.default.contentsOfDirectory(
+            at: backupsDir,
+            includingPropertiesForKeys: nil
+        ) else {
+            return []
+        }
+
+        return deviceDirs.compactMap { deviceDir in
+            guard let metadata = try? BackupBundleMetadata.read(from: deviceDir) else { return nil }
+            let bundlePath = deviceDir.appendingPathComponent("backup-latest.encrypted")
+            let size = (try? FileManager.default.attributesOfItem(atPath: bundlePath.path)[.size] as? Int) ?? 0
+            let sizeStr = ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+            return BackupFileInfo(
+                deviceName: metadata.deviceName,
+                path: deviceDir.lastPathComponent,
+                size: sizeStr,
+                metadataCreatedAt: metadata.createdAt.formatted(date: .abbreviated, time: .shortened),
+                inboxCount: metadata.inboxCount
+            )
+        }
     }
 
     private func loadVaultBootstrapInfo() async -> VaultBootstrapInfo {
@@ -338,12 +519,30 @@ struct VaultKeySyncDebugView: View {
         KeychainIdentityStore(
             accessGroup: environment.keychainAccessGroup,
             service: Constant.vaultICloudIdentityService,
-            accessibility: kSecAttrAccessibleAfterFirstUnlock
+            accessibility: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
     }
 }
 
 private extension VaultKeySyncDebugView {
+    struct VaultKeyInfo: Identifiable {
+        let inboxId: String
+        let clientId: String
+        let isLocal: Bool
+        let isICloud: Bool
+        var id: String { inboxId }
+    }
+
+    struct BackupFileInfo: Identifiable {
+        let deviceName: String
+        let path: String
+        let size: String
+        let metadataCreatedAt: String
+        let inboxCount: Int
+        var id: String { path }
+    }
+
     struct Snapshot {
         let isICloudAccountAvailable: Bool
         let bootstrapState: String
@@ -353,6 +552,8 @@ private extension VaultKeySyncDebugView {
         let iCloudVaultKeyCount: Int
         let hasICloudOnlyKeys: Bool
         let lastRefreshed: Date
+        let vaultKeys: [VaultKeyInfo]
+        let backupFiles: [BackupFileInfo]
 
         static let empty: Snapshot = Snapshot(
             isICloudAccountAvailable: false,
@@ -362,7 +563,9 @@ private extension VaultKeySyncDebugView {
             localVaultKeyCount: 0,
             iCloudVaultKeyCount: 0,
             hasICloudOnlyKeys: false,
-            lastRefreshed: .distantPast
+            lastRefreshed: .distantPast,
+            vaultKeys: [],
+            backupFiles: []
         )
     }
 

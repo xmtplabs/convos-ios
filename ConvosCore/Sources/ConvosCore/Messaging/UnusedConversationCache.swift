@@ -1038,7 +1038,8 @@ extension UnusedConversationCache {
                 isUnread: false,
                 isUnreadUpdatedAt: Date.distantPast,
                 isMuted: false,
-                pinnedOrder: nil
+                pinnedOrder: nil,
+                isActive: true
             )
             try localState.save(db)
 
@@ -1142,7 +1143,8 @@ extension UnusedConversationCache {
                 isUnread: false,
                 isUnreadUpdatedAt: Date.distantPast,
                 isMuted: false,
-                pinnedOrder: nil
+                pinnedOrder: nil,
+                isActive: true
             )
             try localState.save(db)
 

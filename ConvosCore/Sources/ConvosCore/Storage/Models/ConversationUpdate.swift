@@ -28,6 +28,7 @@ public struct ConversationUpdate: Hashable, Codable, Sendable {
     public let addedMembers: [ConversationMember]
     public let removedMembers: [ConversationMember]
     public let metadataChanges: [MetadataChange]
+    public let isReconnection: Bool
 
     public var profileMember: ConversationMember? {
         if !addedMembers.isEmpty && !removedMembers.isEmpty {

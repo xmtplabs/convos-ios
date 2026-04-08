@@ -4,6 +4,7 @@ public enum QAEvent {
     public enum Category: String {
         case app
         case conversation
+        case inbox
         case invite
         case member
         case message

@@ -7,6 +7,7 @@ struct BackupDebugView: View {
     var databaseManager: (any DatabaseManagerProtocol)?
 
     @State private var isPerformingAction: Bool = false
+    @State private var activeAction: String?
     @State private var actionResultMessage: String?
     @State private var showingActionResult: Bool = false
     @State private var lastBackupMetadata: BackupBundleMetadata?
@@ -19,7 +20,9 @@ struct BackupDebugView: View {
     var body: some View {
         List {
             statusSection
-            actionsSection
+            if activeAction != "Restore from backup" {
+                actionsSection
+            }
             restoreSection
         }
         .navigationTitle("Backup")
@@ -42,7 +45,8 @@ struct BackupDebugView: View {
             Button("Cancel", role: .cancel) {}
         } message: {
             if let backup = availableBackup {
-                Text("This will replace all current conversations and data with the backup from \(backup.metadata.deviceName) (\(backup.metadata.createdAt.formatted(date: .abbreviated, time: .shortened))).")
+                let date = backup.metadata.createdAt.formatted(date: .abbreviated, time: .shortened)
+                Text("This will replace all current conversations and data with the backup from \(backup.metadata.deviceName) (\(date)).")
             }
         }
     }
@@ -147,7 +151,7 @@ struct BackupDebugView: View {
         HStack {
             Text(title)
             Spacer()
-            if isPerformingAction {
+            if activeAction == title {
                 ProgressView()
                     .scaleEffect(0.85)
             }
@@ -184,7 +188,7 @@ struct BackupDebugView: View {
             showingActionResult = true
             return
         }
-        runAction(title: "Restore") {
+        runAction(title: "Restore from backup") {
             try await restoreManager.restoreFromBackup(bundleURL: backup.url)
             let state = await restoreManager.state
             if case .completed(let inboxCount, let failedKeyCount) = state {
@@ -234,6 +238,7 @@ struct BackupDebugView: View {
     private func runAction(title: String, operation: @escaping @Sendable () async throws -> String) {
         guard !isPerformingAction else { return }
         isPerformingAction = true
+        activeAction = title
 
         Task {
             let message: String
@@ -247,6 +252,7 @@ struct BackupDebugView: View {
                 actionResultMessage = message
                 showingActionResult = true
                 isPerformingAction = false
+                activeAction = nil
             }
         }
     }
@@ -308,6 +314,7 @@ struct BackupDebugView: View {
             identityStore: identityStore,
             environment: environment
         )
+        let vaultManager = session.vaultService as? VaultManager
 
         return RestoreManager(
             vaultKeyStore: vaultKeyStore,
@@ -315,6 +322,7 @@ struct BackupDebugView: View {
             databaseManager: databaseManager,
             archiveImporter: archiveImporter,
             restoreLifecycleController: session as? any RestoreLifecycleControlling,
+            vaultManager: vaultManager,
             environment: environment
         )
     }
@@ -352,7 +360,8 @@ struct BackupDebugView: View {
         let iCloudStore = KeychainIdentityStore(
             accessGroup: accessGroup,
             service: "org.convos.vault-identity.icloud",
-            accessibility: kSecAttrAccessibleAfterFirstUnlock
+            accessibility: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
         let dualStore = ICloudIdentityStore(localStore: localStore, icloudStore: iCloudStore)
         return VaultKeyStore(store: dualStore)

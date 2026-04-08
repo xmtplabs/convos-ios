@@ -33,6 +33,7 @@ public actor RestoreManager {
     private let databaseManager: any DatabaseManagerProtocol
     private let archiveImporter: any RestoreArchiveImporter
     private let restoreLifecycleController: (any RestoreLifecycleControlling)?
+    private let vaultManager: VaultManager?
     private let environment: AppEnvironment
 
     public private(set) var state: RestoreState = .idle
@@ -44,6 +45,7 @@ public actor RestoreManager {
         databaseManager: any DatabaseManagerProtocol,
         archiveImporter: any RestoreArchiveImporter,
         restoreLifecycleController: (any RestoreLifecycleControlling)? = nil,
+        vaultManager: VaultManager? = nil,
         environment: AppEnvironment
     ) {
         self.vaultKeyStore = vaultKeyStore
@@ -55,13 +57,11 @@ public actor RestoreManager {
         self.databaseManager = databaseManager
         self.archiveImporter = archiveImporter
         self.restoreLifecycleController = restoreLifecycleController
+        self.vaultManager = vaultManager
         self.environment = environment
     }
 
     public func restoreFromBackup(bundleURL: URL) async throws {
-        let vaultIdentity = try await vaultKeyStore.loadAny()
-        let encryptionKey = vaultIdentity.keys.databaseKey
-
         state = .decrypting
         let stagingDir = try BackupBundle.createStagingDirectory()
         var preparedForRestore = false
@@ -69,8 +69,11 @@ public actor RestoreManager {
         do {
             Log.info("[Restore] reading bundle (\(bundleURL.lastPathComponent))")
             let bundleData = try Data(contentsOf: bundleURL)
-            Log.info("[Restore] unpacking bundle (\(bundleData.count) bytes)")
-            try BackupBundle.unpack(data: bundleData, encryptionKey: encryptionKey, to: stagingDir)
+
+            let (encryptionKey, _) = try await decryptBundle(
+                bundleData: bundleData,
+                to: stagingDir
+            )
 
             let metadata = try BackupBundleMetadata.read(from: stagingDir)
             Log.info("[Restore] backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
@@ -102,6 +105,17 @@ public actor RestoreManager {
             await importConversationArchives(in: stagingDir)
             Log.info("[Restore] conversation archives imported")
 
+            Log.info("[Restore] marking all conversations inactive")
+            let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseManager.dbWriter)
+            do {
+                try await localStateWriter.markAllConversationsInactive()
+                Log.info("[Restore] conversations marked inactive")
+            } catch {
+                Log.error("[Restore] failed to mark conversations inactive: \(error)")
+            }
+
+            await reCreateVault()
+
             if preparedForRestore {
                 Log.info("[Restore] resuming sessions")
                 await restoreLifecycleController?.finishRestore()
@@ -121,6 +135,48 @@ public actor RestoreManager {
             BackupBundle.cleanup(directory: stagingDir)
             throw error
         }
+    }
+
+    // MARK: - Vault re-creation
+
+    private func reCreateVault() async {
+        Log.info("[Restore.reCreateVault] === START ===")
+
+        guard let vaultManager else {
+            Log.warning("[Restore.reCreateVault] no VaultManager provided, skipping vault re-creation")
+            return
+        }
+
+        let vaultInboxBefore = await vaultManager.vaultInboxId ?? "nil"
+        Log.info("[Restore.reCreateVault] vault inboxId before re-create: \(vaultInboxBefore)")
+
+        Log.info("[Restore.reCreateVault] calling VaultManager.reCreate")
+        do {
+            try await vaultManager.reCreate(
+                databaseWriter: databaseManager.dbWriter,
+                environment: environment
+            )
+            let vaultInboxAfter = await vaultManager.vaultInboxId ?? "nil"
+            Log.info("[Restore.reCreateVault] vault re-created successfully, new inboxId=\(vaultInboxAfter)")
+
+            let keyCount = (try? await databaseManager.dbReader.read { db in
+                try Int.fetchOne(db, sql: """
+                    SELECT COUNT(*) FROM inbox WHERE isVault = 0
+                    """) ?? 0
+            }) ?? 0
+            Log.info("[Restore.reCreateVault] broadcasting restored conversation keys to new vault (\(keyCount) conversation inbox(es))")
+
+            do {
+                try await vaultManager.shareAllKeys()
+                Log.info("[Restore.reCreateVault] broadcast complete")
+            } catch {
+                Log.warning("[Restore.reCreateVault] broadcast failed (non-fatal): \(error)")
+            }
+        } catch {
+            Log.error("[Restore.reCreateVault] vault re-creation failed: \(error)")
+        }
+
+        Log.info("[Restore.reCreateVault] === DONE ===")
     }
 
     // MARK: - Wipe
@@ -152,6 +208,41 @@ public actor RestoreManager {
         if count > 0 {
             Log.info("[Restore] deleted \(count) XMTP file(s) from \(directory.lastPathComponent)")
         }
+    }
+
+    // MARK: - Bundle decryption
+
+    private func decryptBundle(
+        bundleData: Data,
+        to stagingDir: URL
+    ) async throws -> (encryptionKey: Data, identity: KeychainIdentity) {
+        let identities = try await vaultKeyStore.loadAll()
+        guard !identities.isEmpty else {
+            throw RestoreError.noVaultKey
+        }
+
+        for identity in identities {
+            let key = identity.keys.databaseKey
+            do {
+                Log.info("[Restore] trying vault key (inboxId=\(identity.inboxId))")
+                try BackupBundle.unpack(data: bundleData, encryptionKey: key, to: stagingDir)
+                Log.info("[Restore] decryption succeeded with vault key (inboxId=\(identity.inboxId))")
+                return (key, identity)
+            } catch {
+                Log.info("[Restore] vault key (inboxId=\(identity.inboxId)) failed: \(error)")
+                // Reset staging dir for the next attempt. If reset fails (e.g. disk full),
+                // log and continue — let the loop try the next key, then surface
+                // RestoreError.decryptionFailed at the end.
+                do {
+                    BackupBundle.cleanup(directory: stagingDir)
+                    try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
+                } catch {
+                    Log.warning("[Restore] failed to reset staging directory between key attempts: \(error)")
+                }
+            }
+        }
+
+        throw RestoreError.decryptionFailed
     }
 
     // MARK: - Vault archive import
@@ -300,7 +391,7 @@ public actor RestoreManager {
             let bundleURL = deviceDir.appendingPathComponent("backup-latest.encrypted")
             guard fileManager.fileExists(atPath: bundleURL.path) else { continue }
 
-            if newest == nil || metadata.createdAt > newest!.metadata.createdAt {
+            if newest == nil || metadata.createdAt > newest?.metadata.createdAt ?? .distantPast {
                 newest = (url: bundleURL, metadata: metadata)
             }
         }
@@ -308,11 +399,17 @@ public actor RestoreManager {
     }
 
     private enum RestoreError: LocalizedError {
+        case noVaultKey
+        case decryptionFailed
         case missingVaultArchive
         case missingDatabase
 
         var errorDescription: String? {
             switch self {
+            case .noVaultKey:
+                return "No vault key found in keychain"
+            case .decryptionFailed:
+                return "None of the available vault keys could decrypt this backup"
             case .missingVaultArchive:
                 return "Backup bundle does not contain a vault archive"
             case .missingDatabase:

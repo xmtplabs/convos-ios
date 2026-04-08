@@ -107,6 +107,25 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
+    var staleDeviceState: StaleDeviceState = .healthy
+
+    /// True when any inbox is stale (partial or full). Drives banner visibility.
+    var isDeviceStale: Bool {
+        staleDeviceState.hasAnyStaleInboxes
+    }
+
+    /// True when the device is fully stale (every used inbox revoked).
+    var isFullStale: Bool {
+        staleDeviceState == .fullStale
+    }
+
+    /// User can still start/join conversations when there's at least one
+    /// healthy inbox (i.e., not in fullStale).
+    var canStartOrJoinConversations: Bool {
+        staleDeviceState.hasUsableInboxes
+    }
+    @ObservationIgnored
+    private var staleInboxIds: Set<String> = []
     private var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -276,6 +295,7 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation
@@ -283,6 +303,7 @@ final class ConversationsViewModel {
     }
 
     func onJoinConvo() {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .scanner
@@ -290,6 +311,7 @@ final class ConversationsViewModel {
     }
 
     private func join(from inviteCode: String) {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: inviteCode)
@@ -299,6 +321,68 @@ final class ConversationsViewModel {
     func deleteAllData() {
         selectedConversation = nil
         appSettingsViewModel.deleteAllData {}
+    }
+
+    // MARK: - Stale state handling
+
+    /// Reacts to changes in the device's stale-installation state.
+    ///
+    /// Behavior per state:
+    /// - `healthy` → no action
+    /// - `partialStale` → cancel any in-flight new conversation flow that
+    ///   may have been started before the partial state was detected; the
+    ///   user can still create new conversations in remaining healthy inboxes
+    /// - `fullStale` → close any in-flight new conversation flow, dismiss
+    ///   the selection, and trigger an automatic local reset (countdown
+    ///   handled by the UI)
+    private func handleStaleStateTransition(
+        from previous: StaleDeviceState,
+        to current: StaleDeviceState
+    ) {
+        guard previous != current else { return }
+
+        let event: String
+        switch (previous, current) {
+        case (.healthy, .partialStale): event = "healthy_to_partial"
+        case (.healthy, .fullStale): event = "healthy_to_full"
+        case (.partialStale, .fullStale): event = "partial_to_full"
+        case (.partialStale, .healthy): event = "partial_to_healthy"
+        case (.fullStale, .partialStale): event = "full_to_partial"
+        case (.fullStale, .healthy): event = "full_to_healthy"
+        default: event = "unknown_transition"
+        }
+        Log.info("[StaleDevice] state transition: \(event)")
+
+        switch current {
+        case .healthy:
+            isPendingFullStaleAutoReset = false
+        case .partialStale:
+            // Continue allowing new convos in healthy inboxes — only close
+            // an in-flight flow if it can no longer complete.
+            isPendingFullStaleAutoReset = false
+        case .fullStale:
+            newConversationViewModel = nil
+            selectedConversation = nil
+            // Trigger the auto-reset countdown. The view binds to
+            // `isPendingFullStaleAutoReset` to render a cancellable countdown.
+            isPendingFullStaleAutoReset = true
+        }
+    }
+
+    /// True when the UI should be showing the auto-reset countdown for full stale.
+    /// The view layer renders a "Resetting in N seconds" countdown that the user
+    /// can cancel — `cancelFullStaleAutoReset()` clears this back to false.
+    var isPendingFullStaleAutoReset: Bool = false
+
+    func cancelFullStaleAutoReset() {
+        isPendingFullStaleAutoReset = false
+        Log.info("[StaleDevice] auto-reset cancelled by user")
+    }
+
+    func confirmFullStaleAutoReset() {
+        Log.info("[StaleDevice] auto-reset confirmed")
+        isPendingFullStaleAutoReset = false
+        deleteAllData()
     }
 
     func leave(conversation: Conversation) {
@@ -365,17 +449,50 @@ final class ConversationsViewModel {
                 self?.conversationsCount = conversationsCount
             }
             .store(in: &cancellables)
+
+        let inboxesRepository = InboxesRepository(databaseReader: session.databaseReader)
+        inboxesRepository.staleDeviceStatePublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                let previousState = self.staleDeviceState
+                self.staleDeviceState = state
+                self.handleStaleStateTransition(from: previousState, to: state)
+            }
+            .store(in: &cancellables)
+
+        inboxesRepository.staleInboxIdsPublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ids in
+                guard let self else { return }
+                self.staleInboxIds = ids
+                // Re-filter the currently visible conversations so stale ones hide immediately.
+                self.conversations = self.conversations.filter { !ids.contains($0.inboxId) }
+                // Clear selection if the selected conversation belongs to a now-stale inbox.
+                // Dismissing an in-flight newConversationViewModel is handled by
+                // handleStaleStateTransition only on transition to fullStale — partial
+                // stale keeps any active compose flow so the user can finish composing
+                // in a still-healthy inbox.
+                if let selectedId = self._selectedConversationId,
+                   !self.conversations.contains(where: { $0.id == selectedId }) {
+                    self.selectedConversationId = nil
+                }
+            }
+            .store(in: &cancellables)
+
         conversationsRepository.conversationsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
                 guard let self else { return }
+                let filtered = conversations
+                    .filter { !self.staleInboxIds.contains($0.inboxId) }
                 self.conversations = hiddenConversationIds.isEmpty
-                    ? conversations
-                    : conversations.filter { !hiddenConversationIds.contains($0.id) }
+                    ? filtered
+                    : filtered.filter { !hiddenConversationIds.contains($0.id) }
 
-                // Clear selection if selected conversation no longer exists
+                // Clear selection if selected conversation no longer exists in the filtered list
                 if let selectedId = _selectedConversationId,
-                   !conversations.contains(where: { $0.id == selectedId }) {
+                   !self.conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
                 }
 
