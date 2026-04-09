@@ -245,13 +245,19 @@ final class ConversationsViewModel {
             kinds: .groups
         )
         do {
-            self.conversations = try conversationsRepository.fetchAll()
+            let initial = try conversationsRepository.fetchAll()
+            // Seed both the visible list AND the unfiltered cache so the first
+            // staleInboxIdsPublisher emit in observe() doesn't recompute
+            // against an empty source and wipe the initial data.
+            self.unfilteredConversations = initial
+            self.conversations = initial
             self.conversationsCount = try conversationsCountRepository.fetchCount()
             if conversationsCount > 1 {
                 hasCreatedMoreThanOneConvo = true
             }
         } catch {
             Log.error("Error fetching conversations: \(error)")
+            self.unfilteredConversations = []
             self.conversations = []
             self.conversationsCount = 0
         }
@@ -651,11 +657,15 @@ final class ConversationsViewModel {
         let inboxId = conversation.inboxId
         let memberInboxIds = conversation.members.map { $0.profile.inboxId }
 
+        // Optimistic hide: the conversation stays in unfilteredConversations
+        // (the publisher hasn't emitted yet) but we filter it out of the
+        // visible list via hiddenConversationIds so the user sees it disappear
+        // immediately.
         hiddenConversationIds.insert(conversationId)
         if selectedConversation == conversation {
             selectedConversation = nil
         }
-        conversations.removeAll { $0.id == conversationId }
+        recomputeVisibleConversations()
 
         Task { [weak self] in
             guard let self else { return }
@@ -678,10 +688,20 @@ final class ConversationsViewModel {
                     userInfo: ["conversationId": conversationId]
                 )
                 conversation.postLeftConversationNotification()
+
+                // On success, drop from unfilteredConversations too so the
+                // visible list stays correct until the conversationsPublisher
+                // catches up with the DB delete. Then clear the hide marker.
+                // Must remove from unfilteredConversations BEFORE removing
+                // from hiddenConversationIds — otherwise recompute would
+                // briefly resurface the conversation.
+                self.unfilteredConversations.removeAll { $0.id == conversationId }
                 self.hiddenConversationIds.remove(conversationId)
                 self.recomputeVisibleConversations()
                 Log.info("Exploded conversation from list: \(conversationId)")
             } catch {
+                // On failure, bring the conversation back by clearing the
+                // hide marker. unfilteredConversations still contains it.
                 self.hiddenConversationIds.remove(conversationId)
                 self.recomputeVisibleConversations()
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
