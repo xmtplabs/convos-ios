@@ -238,7 +238,10 @@ public final class MessagesListProcessor: Sendable {
                 }
 
                 if !currentReaderInboxIds.isEmpty {
-                    var kept = previousReadByProfiles.filter { currentReaderInboxIds.contains($0.inboxId) }
+                    let keptInboxIds = previousReadByProfiles
+                        .map(\.inboxId)
+                        .filter { currentReaderInboxIds.contains($0) }
+                    let kept = keptInboxIds.compactMap(resolveProfile)
                     let keptIds = Set(kept.map(\.inboxId))
                     let newInboxIds = currentReaderInboxIds.subtracting(keptIds)
                         .sorted { lhs, rhs in

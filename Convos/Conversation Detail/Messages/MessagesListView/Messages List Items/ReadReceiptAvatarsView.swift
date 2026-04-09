@@ -15,7 +15,7 @@ struct ReadReceiptAvatarsView: View {
 
     private var avatarStack: some View {
         HStack(spacing: DesignConstants.Spacing.stepX) {
-            ForEach(profiles) { profile in
+            ForEach(profiles, id: \.self) { profile in
                 ProfileAvatarView(
                     profile: profile,
                     profileImage: nil,
