@@ -227,8 +227,10 @@ These are complementary:
 3. Incremental backup strategy for v2?
 4. When to expose per-conversation backup controls vs app-level default?
 5. Should v2 bundle include photos only, or photos + videos?
-6. QuickName/UserDefaults → GRDB migration: scope and timeline?
-7. Can we reliably detect if iCloud Keychain specifically is disabled (vs just iCloud account)?
+6. Can we reliably detect if iCloud Keychain specifically is disabled (vs just iCloud account)?
+
+### Deferred
+- **Quickname backup/restore**: Quickname settings (display name, randomizer tags, profile image) are stored in UserDefaults + Documents/default-profile-image.jpg — outside the backup bundle and vault. These are not included in v1 backup/restore. A future iteration should either add quickname data to the backup bundle or sync it to the vault as a vault message.
 
 ---
 

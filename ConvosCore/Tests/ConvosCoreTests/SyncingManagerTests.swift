@@ -85,10 +85,8 @@ class TestableMockClient: XMTPClientProvider, @unchecked Sendable {
     func revokeAllOtherInstallations(signingKey: any SigningKey) async throws {
     }
 
-    func createArchive(path: String, encryptionKey: Data) async throws {
-    }
-
-    func importArchive(path: String, encryptionKey: Data) async throws {
+    func isInstallationActive() async throws -> Bool {
+        true
     }
 
     func requestDeviceSync() async throws {

@@ -140,4 +140,160 @@ struct InboxWriterTests {
 
         try? await fixtures.cleanup()
     }
+
+    @Test("markStale flips an inbox's isStale flag")
+    func testMarkStaleFlipsFlag() async throws {
+        let fixtures = TestFixtures()
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+
+        let inboxId = "stale-inbox"
+        _ = try await inboxWriter.save(inboxId: inboxId, clientId: ClientId.generate().value)
+
+        let initial = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: inboxId)?.isStale
+        }
+        #expect(initial == false)
+
+        try await inboxWriter.markStale(inboxId: inboxId)
+        let afterMark = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: inboxId)?.isStale
+        }
+        #expect(afterMark == true)
+
+        try await inboxWriter.markStale(inboxId: inboxId, false)
+        let afterClear = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: inboxId)?.isStale
+        }
+        #expect(afterClear == false)
+
+        try? await fixtures.cleanup()
+    }
+
+    @Test("markStale only affects the targeted inbox")
+    func testMarkStaleIsScopedToOneInbox() async throws {
+        let fixtures = TestFixtures()
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+
+        _ = try await inboxWriter.save(inboxId: "inbox-a", clientId: ClientId.generate().value)
+        _ = try await inboxWriter.save(inboxId: "inbox-b", clientId: ClientId.generate().value)
+
+        try await inboxWriter.markStale(inboxId: "inbox-a")
+
+        let stale = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: "inbox-a")?.isStale
+        }
+        let other = try await fixtures.databaseManager.dbReader.read { db in
+            try DBInbox.fetchOne(db, id: "inbox-b")?.isStale
+        }
+        #expect(stale == true)
+        #expect(other == false)
+
+        try? await fixtures.cleanup()
+    }
+
+    @Test("deleteAll removes data from all tables")
+    func testDeleteAllRemovesAllData() async throws {
+        let fixtures = TestFixtures()
+        let db = fixtures.databaseManager.dbWriter
+
+        let inboxWriter = InboxWriter(dbWriter: db)
+        _ = try await inboxWriter.save(inboxId: "inbox-1", clientId: "client-1")
+
+        try await db.write { db in
+            let conversation = DBConversation(
+                id: "conv-1",
+                inboxId: "inbox-1",
+                clientId: "client-1",
+                clientConversationId: "conv-1",
+                inviteTag: "",
+                creatorId: "inbox-1",
+                kind: .group,
+                consent: .allowed,
+                createdAt: Date(),
+                name: nil,
+                description: nil,
+                imageURLString: nil,
+                publicImageURLString: nil,
+                includeInfoInPublicPreview: false,
+                expiresAt: nil,
+                debugInfo: .empty,
+                isLocked: false,
+                imageSalt: nil,
+                imageNonce: nil,
+                imageEncryptionKey: nil,
+                imageLastRenewed: nil,
+                isUnused: false
+            )
+            try conversation.save(db)
+
+            let member = DBMember(inboxId: "inbox-1")
+            try member.save(db)
+
+            let memberProfile = DBMemberProfile(
+                conversationId: "conv-1",
+                inboxId: "inbox-1",
+                name: "Test",
+                avatar: nil
+            )
+            try memberProfile.save(db)
+
+            let localState = ConversationLocalState(
+                conversationId: "conv-1",
+                isPinned: false,
+                isUnread: false,
+                isUnreadUpdatedAt: Date(),
+                isMuted: false,
+                pinnedOrder: nil,
+                isActive: true
+            )
+            try localState.save(db)
+
+            let conversationMember = DBConversationMember(
+                conversationId: "conv-1",
+                inboxId: "inbox-1",
+                role: .superAdmin,
+                consent: .allowed,
+                createdAt: Date(),
+                invitedByInboxId: nil
+            )
+            try conversationMember.save(db)
+
+            // invite references conversation_members via composite FK
+            // (creatorInboxId + conversationId). This exercises the FK ordering
+            // in deleteAll: invite must be deleted before conversation_members
+            // (or cascade must fire) to avoid constraint violations.
+            let invite = DBInvite(
+                creatorInboxId: "inbox-1",
+                conversationId: "conv-1",
+                urlSlug: "test-slug",
+                expiresAt: nil,
+                expiresAfterUse: false
+            )
+            try invite.save(db)
+        }
+
+        try await inboxWriter.deleteAll()
+
+        let counts = try await fixtures.databaseManager.dbReader.read { db in
+            (
+                inbox: try DBInbox.fetchCount(db),
+                conversation: try DBConversation.fetchCount(db),
+                member: try DBMember.fetchCount(db),
+                memberProfile: try Int.fetchOne(db, sql: "SELECT COUNT(*) FROM memberProfile") ?? 0,
+                localState: try ConversationLocalState.fetchCount(db),
+                conversationMembers: try DBConversationMember.fetchCount(db),
+                invite: try DBInvite.fetchCount(db)
+            )
+        }
+
+        #expect(counts.inbox == 0)
+        #expect(counts.conversation == 0)
+        #expect(counts.member == 0)
+        #expect(counts.memberProfile == 0)
+        #expect(counts.localState == 0)
+        #expect(counts.conversationMembers == 0)
+        #expect(counts.invite == 0)
+
+        try? await fixtures.cleanup()
+    }
 }

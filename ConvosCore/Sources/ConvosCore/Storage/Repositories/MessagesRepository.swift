@@ -393,7 +393,8 @@ extension Array where Element == DBMessage {
                             creator: initiatedByMember,
                             addedMembers: addedMembers,
                             removedMembers: removedMembers,
-                            metadataChanges: metadataChanges
+                            metadataChanges: metadataChanges,
+                            isReconnection: update.isReconnection
                         )
                     )
                 case .assistantJoinRequest:
@@ -696,7 +697,8 @@ private extension LightweightConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            isActive: conversationLocalState.isActive
         )
     }
 }

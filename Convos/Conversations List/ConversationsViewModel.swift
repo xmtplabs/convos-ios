@@ -110,6 +110,32 @@ final class ConversationsViewModel {
     var presentingPinLimitInfo: Bool = false
 
     var conversations: [Conversation] = []
+    var staleDeviceState: StaleDeviceState = .healthy
+
+    /// True when any inbox is stale (partial or full). Drives banner visibility.
+    var isDeviceStale: Bool {
+        staleDeviceState.hasAnyStaleInboxes
+    }
+
+    /// True when the device is fully stale (every used inbox revoked).
+    var isFullStale: Bool {
+        staleDeviceState == .fullStale
+    }
+
+    /// User can still start/join conversations when there's at least one
+    /// healthy inbox (i.e., not in fullStale).
+    var canStartOrJoinConversations: Bool {
+        staleDeviceState.hasUsableInboxes
+    }
+    @ObservationIgnored
+    private var staleInboxIds: Set<String> = []
+    /// Source-of-truth list from `conversationsPublisher`, unfiltered.
+    /// We recompute `conversations` from this whenever staleInboxIds or
+    /// hiddenConversationIds change — filtering `self.conversations`
+    /// in-place would lose recovered conversations when an inbox goes
+    /// from stale back to healthy.
+    @ObservationIgnored
+    private var unfilteredConversations: [Conversation] = []
     private var hiddenConversationIds: Set<String> = []
     private var conversationsCount: Int = 0 {
         didSet {
@@ -191,6 +217,7 @@ final class ConversationsViewModel {
     // MARK: - Private
 
     let session: any SessionManagerProtocol
+    let databaseManager: (any DatabaseManagerProtocol)?
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     @ObservationIgnored
@@ -204,9 +231,11 @@ final class ConversationsViewModel {
 
     init(
         session: any SessionManagerProtocol,
+        databaseManager: (any DatabaseManagerProtocol)? = nil,
         horizontalSizeClass: UserInterfaceSizeClass? = nil
     ) {
         self.session = session
+        self.databaseManager = databaseManager
         self.horizontalSizeClass = horizontalSizeClass
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
@@ -219,13 +248,19 @@ final class ConversationsViewModel {
             kinds: .groups
         )
         do {
-            self.conversations = try conversationsRepository.fetchAll()
+            let initial = try conversationsRepository.fetchAll()
+            // Seed both the visible list AND the unfiltered cache so the first
+            // staleInboxIdsPublisher emit in observe() doesn't recompute
+            // against an empty source and wipe the initial data.
+            self.unfilteredConversations = initial
+            self.conversations = initial
             self.conversationsCount = try conversationsCountRepository.fetchCount()
             if conversationsCount > 1 {
                 hasCreatedMoreThanOneConvo = true
             }
         } catch {
             Log.error("Error fetching conversations: \(error)")
+            self.unfilteredConversations = []
             self.conversations = []
             self.conversationsCount = 0
         }
@@ -276,6 +311,7 @@ final class ConversationsViewModel {
     }
 
     func onStartConvo() {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .newConversation
@@ -283,6 +319,7 @@ final class ConversationsViewModel {
     }
 
     func onJoinConvo() {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .scanner
@@ -290,6 +327,7 @@ final class ConversationsViewModel {
     }
 
     private func join(from inviteCode: String) {
+        guard canStartOrJoinConversations else { return }
         newConversationViewModel = NewConversationViewModel(
             session: session,
             mode: .joinInvite(code: inviteCode)
@@ -299,6 +337,80 @@ final class ConversationsViewModel {
     func deleteAllData() {
         selectedConversation = nil
         appSettingsViewModel.deleteAllData {}
+    }
+
+    // MARK: - Stale state handling
+
+    /// Reacts to changes in the device's stale-installation state.
+    ///
+    /// Behavior per state:
+    /// - `healthy` → no action
+    /// - `partialStale` → cancel any in-flight new conversation flow that
+    ///   may have been started before the partial state was detected; the
+    ///   user can still create new conversations in remaining healthy inboxes
+    /// - `fullStale` → close any in-flight new conversation flow, dismiss
+    ///   the selection, and trigger an automatic local reset (countdown
+    ///   handled by the UI)
+    private func handleStaleStateTransition(
+        from previous: StaleDeviceState,
+        to current: StaleDeviceState
+    ) {
+        guard previous != current else { return }
+
+        let event: String
+        switch (previous, current) {
+        case (.healthy, .partialStale): event = "healthy_to_partial"
+        case (.healthy, .fullStale): event = "healthy_to_full"
+        case (.partialStale, .fullStale): event = "partial_to_full"
+        case (.partialStale, .healthy): event = "partial_to_healthy"
+        case (.fullStale, .partialStale): event = "full_to_partial"
+        case (.fullStale, .healthy): event = "full_to_healthy"
+        default: event = "unknown_transition"
+        }
+        Log.info("[StaleDevice] state transition: \(event)")
+
+        switch current {
+        case .healthy:
+            isPendingFullStaleAutoReset = false
+        case .partialStale:
+            // Continue allowing new convos in healthy inboxes — only close
+            // an in-flight flow if it can no longer complete.
+            isPendingFullStaleAutoReset = false
+        case .fullStale:
+            newConversationViewModel = nil
+            selectedConversation = nil
+            // Trigger the auto-reset countdown. The view binds to
+            // `isPendingFullStaleAutoReset` to render a cancellable countdown.
+            isPendingFullStaleAutoReset = true
+        }
+    }
+
+    /// True when the UI should be showing the auto-reset countdown for full stale.
+    /// The view layer renders a "Resetting in N seconds" countdown that the user
+    /// can cancel — `cancelFullStaleAutoReset()` clears this back to false.
+    var isPendingFullStaleAutoReset: Bool = false
+
+    /// Recompute the visible `conversations` list from the unfiltered source,
+    /// applying current `staleInboxIds` and `hiddenConversationIds` filters.
+    /// Must be called whenever any of those three inputs change so that a
+    /// previously-filtered conversation can reappear when its inbox recovers.
+    private func recomputeVisibleConversations() {
+        let filtered = unfilteredConversations
+            .filter { !staleInboxIds.contains($0.inboxId) }
+        conversations = hiddenConversationIds.isEmpty
+            ? filtered
+            : filtered.filter { !hiddenConversationIds.contains($0.id) }
+    }
+
+    func cancelFullStaleAutoReset() {
+        isPendingFullStaleAutoReset = false
+        Log.info("[StaleDevice] auto-reset cancelled by user")
+    }
+
+    func confirmFullStaleAutoReset() {
+        Log.info("[StaleDevice] auto-reset confirmed")
+        isPendingFullStaleAutoReset = false
+        deleteAllData()
     }
 
     func leave(conversation: Conversation) {
@@ -365,17 +477,51 @@ final class ConversationsViewModel {
                 self?.conversationsCount = conversationsCount
             }
             .store(in: &cancellables)
+
+        let inboxesRepository = InboxesRepository(databaseReader: session.databaseReader)
+        inboxesRepository.staleDeviceStatePublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] state in
+                guard let self else { return }
+                let previousState = self.staleDeviceState
+                self.staleDeviceState = state
+                self.handleStaleStateTransition(from: previousState, to: state)
+            }
+            .store(in: &cancellables)
+
+        inboxesRepository.staleInboxIdsPublisher()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] ids in
+                guard let self else { return }
+                self.staleInboxIds = ids
+                // Recompute from the unfiltered source list. Filtering
+                // `self.conversations` in-place would permanently drop
+                // conversations whose inbox later recovers from stale
+                // back to healthy — `conversationsPublisher` only emits
+                // on DB change, so it would not re-hydrate them.
+                self.recomputeVisibleConversations()
+                // Clear selection if the selected conversation belongs to a now-stale inbox.
+                // Dismissing an in-flight newConversationViewModel is handled by
+                // handleStaleStateTransition only on transition to fullStale — partial
+                // stale keeps any active compose flow so the user can finish composing
+                // in a still-healthy inbox.
+                if let selectedId = self._selectedConversationId,
+                   !self.conversations.contains(where: { $0.id == selectedId }) {
+                    self.selectedConversationId = nil
+                }
+            }
+            .store(in: &cancellables)
+
         conversationsRepository.conversationsPublisher
             .receive(on: DispatchQueue.main)
             .sink { [weak self] conversations in
                 guard let self else { return }
-                self.conversations = hiddenConversationIds.isEmpty
-                    ? conversations
-                    : conversations.filter { !hiddenConversationIds.contains($0.id) }
+                self.unfilteredConversations = conversations
+                self.recomputeVisibleConversations()
 
-                // Clear selection if selected conversation no longer exists
+                // Clear selection if selected conversation no longer exists in the filtered list
                 if let selectedId = _selectedConversationId,
-                   !conversations.contains(where: { $0.id == selectedId }) {
+                   !self.conversations.contains(where: { $0.id == selectedId }) {
                     selectedConversationId = nil
                 }
 
@@ -514,11 +660,15 @@ final class ConversationsViewModel {
         let inboxId = conversation.inboxId
         let memberInboxIds = conversation.members.map { $0.profile.inboxId }
 
+        // Optimistic hide: the conversation stays in unfilteredConversations
+        // (the publisher hasn't emitted yet) but we filter it out of the
+        // visible list via hiddenConversationIds so the user sees it disappear
+        // immediately.
         hiddenConversationIds.insert(conversationId)
         if selectedConversation == conversation {
             selectedConversation = nil
         }
-        conversations.removeAll { $0.id == conversationId }
+        recomputeVisibleConversations()
 
         Task { [weak self] in
             guard let self else { return }
@@ -541,10 +691,22 @@ final class ConversationsViewModel {
                     userInfo: ["conversationId": conversationId]
                 )
                 conversation.postLeftConversationNotification()
+
+                // On success, drop from unfilteredConversations too so the
+                // visible list stays correct until the conversationsPublisher
+                // catches up with the DB delete. Then clear the hide marker.
+                // Must remove from unfilteredConversations BEFORE removing
+                // from hiddenConversationIds — otherwise recompute would
+                // briefly resurface the conversation.
+                self.unfilteredConversations.removeAll { $0.id == conversationId }
                 self.hiddenConversationIds.remove(conversationId)
+                self.recomputeVisibleConversations()
                 Log.info("Exploded conversation from list: \(conversationId)")
             } catch {
+                // On failure, bring the conversation back by clearing the
+                // hide marker. unfilteredConversations still contains it.
                 self.hiddenConversationIds.remove(conversationId)
+                self.recomputeVisibleConversations()
                 Log.error("Error exploding conversation from list: \(error.localizedDescription)")
             }
         }

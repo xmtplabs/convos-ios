@@ -704,6 +704,68 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             }
         }
 
+        let storedInstallationId: String?
+        do {
+            storedInstallationId = try await databaseWriter.read { db in
+                try DBInbox.fetchOne(db, id: result.client.inboxId)?.installationId
+            }
+        } catch {
+            Log.warning("Failed to read stored installationId for inbox \(result.client.inboxId), skipping revocation check (non-fatal): \(error)")
+            storedInstallationId = nil
+        }
+
+        Log.info("[Revoke] inbox \(result.client.inboxId): storedInstallationId=\(storedInstallationId ?? "nil") newInstallationId=\(result.client.installationId)")
+
+        if let storedInstallationId {
+            if storedInstallationId != result.client.installationId {
+                Log.info("[Revoke] inbox \(result.client.inboxId): installationId changed, revoking all other installations")
+                do {
+                    let identity = try await identityStore.identity(for: result.client.inboxId)
+                    try await revokeInstallationsHandler(result.client, identity.keys.signingKey)
+                    Log.info("[Revoke] inbox \(result.client.inboxId): revoked all other installations ✓")
+                } catch {
+                    Log.warning("[Revoke] inbox \(result.client.inboxId): revocation failed (non-fatal): \(error)")
+                }
+            } else {
+                Log.info("[Revoke] inbox \(result.client.inboxId): installationId unchanged, skipping")
+            }
+        } else {
+            Log.info("[Revoke] inbox \(result.client.inboxId): no stored installationId, skipping (first-time auth)")
+        }
+
+        do {
+            let inboxWriter = InboxWriter(dbWriter: databaseWriter)
+            _ = try await inboxWriter.save(
+                inboxId: result.client.inboxId,
+                clientId: clientId,
+                installationId: result.client.installationId
+            )
+        } catch {
+            Log.error("Failed to persist installationId for inbox \(result.client.inboxId) (non-fatal): \(error)")
+        }
+
+        // Check whether this installation is still active (detects revocation by another device)
+        let staleInboxId = result.client.inboxId
+        let staleIsActive: Bool?
+        do {
+            staleIsActive = try await result.client.isInstallationActive()
+        } catch {
+            Log.warning("[Stale] inbox \(staleInboxId): check failed (non-fatal): \(error)")
+            staleIsActive = nil
+        }
+        if let staleIsActive {
+            if staleIsActive {
+                Log.info("[Stale] inbox \(staleInboxId): installation is active ✓")
+                let writer = InboxWriter(dbWriter: databaseWriter)
+                try? await writer.markStale(inboxId: staleInboxId, false)
+            } else {
+                Log.warning("[Stale] inbox \(staleInboxId): installation NOT in active list — marking stale")
+                let writer = InboxWriter(dbWriter: databaseWriter)
+                try? await writer.markStale(inboxId: staleInboxId, true)
+                QAEvent.emit(.inbox, "stale_detected", ["inboxId": staleInboxId])
+            }
+        }
+
         await syncingManager?.start(with: result.client, apiClient: result.apiClient)
         foregroundRetryCount = 0
 
@@ -895,6 +957,27 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         // Resume the syncing manager
         await syncingManager?.resume()
+
+        // Re-check stale state in case the user restored on another device while this one was backgrounded
+        let foregroundInboxId = result.client.inboxId
+        let foregroundIsActive: Bool?
+        do {
+            foregroundIsActive = try await result.client.isInstallationActive()
+        } catch {
+            Log.warning("[Stale] inbox \(foregroundInboxId): foreground check failed (non-fatal): \(error)")
+            foregroundIsActive = nil
+        }
+        if let foregroundIsActive {
+            let writer = InboxWriter(dbWriter: databaseWriter)
+            if foregroundIsActive {
+                Log.info("[Stale] inbox \(foregroundInboxId): foreground check — installation is active ✓")
+                try? await writer.markStale(inboxId: foregroundInboxId, false)
+            } else {
+                Log.warning("[Stale] inbox \(foregroundInboxId): foreground check — installation NOT in active list, marking stale")
+                try? await writer.markStale(inboxId: foregroundInboxId, true)
+                QAEvent.emit(.inbox, "stale_detected", ["inboxId": foregroundInboxId, "trigger": "foreground"])
+            }
+        }
 
         emitStateChange(.ready(clientId: clientId, result: result))
         Log.info("Inbox returned to ready state")

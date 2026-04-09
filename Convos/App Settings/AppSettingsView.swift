@@ -33,6 +33,7 @@ struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     let session: any SessionManagerProtocol
+    var databaseManager: (any DatabaseManagerProtocol)?
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
@@ -183,7 +184,7 @@ struct AppSettingsView: View {
 
                     if !ConfigManager.shared.currentEnvironment.isProduction {
                         NavigationLink {
-                            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
+                            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session, databaseManager: databaseManager)
                         } label: {
                             Text("Debug")
                         }

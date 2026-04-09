@@ -92,7 +92,9 @@ actor VaultKeyCoordinator {
     }
 
     func shareAllKeys(pendingPeerDeviceNames: [String: String]) async throws {
+        Log.info("[VaultKeyCoordinator.shareAllKeys] === START ===")
         guard let installationId = await vaultClient.installationId else {
+            Log.error("[VaultKeyCoordinator.shareAllKeys] vault client not connected, aborting")
             throw VaultClientError.notConnected
         }
 
@@ -113,10 +115,16 @@ actor VaultKeyCoordinator {
                 )
             }
         }
+        Log.info("[VaultKeyCoordinator.shareAllKeys] found \(inboxRows.count) (inbox, conversation) row(s) to share")
 
         var keys: [DeviceKeyEntry] = []
+        var missingIdentityCount = 0
         for item in inboxRows {
-            guard let identity = try? await identityStore.identity(for: item.inboxId) else { continue }
+            guard let identity = try? await identityStore.identity(for: item.inboxId) else {
+                missingIdentityCount += 1
+                Log.warning("[VaultKeyCoordinator.shareAllKeys] missing keychain identity for inboxId=\(item.inboxId), skipping")
+                continue
+            }
             keys.append(DeviceKeyEntry(
                 conversationId: item.conversationId,
                 inboxId: item.inboxId,
@@ -125,6 +133,7 @@ actor VaultKeyCoordinator {
                 databaseKey: identity.keys.databaseKey
             ))
         }
+        Log.info("[VaultKeyCoordinator.shareAllKeys] packaged \(keys.count) key(s) into bundle (skipped \(missingIdentityCount) due to missing identity)")
 
         let peerNames = pendingPeerDeviceNames.isEmpty ? nil : pendingPeerDeviceNames
         let bundle = DeviceKeyBundleContent(
@@ -134,18 +143,25 @@ actor VaultKeyCoordinator {
             peerDeviceNames: peerNames
         )
 
+        Log.info("[VaultKeyCoordinator.shareAllKeys] sending DeviceKeyBundle to vault group (installationId=\(installationId) deviceName=\(deviceName))")
         try await vaultClient.send(bundle, codec: DeviceKeyBundleCodec())
-        if let databaseWriter, !inboxRows.isEmpty {
-            let inboxIds = inboxRows.map { $0.inboxId }
+        Log.info("[VaultKeyCoordinator.shareAllKeys] DeviceKeyBundle sent successfully")
+        // Only mark inboxes whose keys were actually packaged into the bundle.
+        // Inboxes skipped due to missing keychain identity must NOT be marked
+        // shared, otherwise they will never be re-attempted on future syncs.
+        let sharedInboxIds = keys.map { $0.inboxId }
+        if let databaseWriter, !sharedInboxIds.isEmpty {
             try? await databaseWriter.write { db in
-                for id in inboxIds {
+                for id in sharedInboxIds {
                     try db.execute(
                         sql: "UPDATE inbox SET sharedToVault = 1 WHERE inboxId = ?",
                         arguments: [id]
                     )
                 }
             }
+            Log.info("[VaultKeyCoordinator.shareAllKeys] marked \(sharedInboxIds.count) inbox(es) as sharedToVault=1")
         }
+        Log.info("[VaultKeyCoordinator.shareAllKeys] === DONE ===")
     }
 
     func checkUnsharedInboxes() async {
