@@ -49,29 +49,40 @@ struct InboxWriter {
             }
 
             if let existingInbox = try DBInbox.fetchOne(db, id: inboxId) {
+                var currentInbox = existingInbox
+
                 if existingInbox.clientId != clientId {
-                    Log.error("""
-                        ClientId mismatch detected!
-                        InboxId: \(inboxId)
-                        Existing clientId: \(existingInbox.clientId)
-                        Attempted clientId: \(clientId)
-                        """)
-                    throw InboxWriterError.clientIdMismatch(
-                        inboxId: inboxId,
-                        existingClientId: existingInbox.clientId,
-                        newClientId: clientId
-                    )
+                    if isVault {
+                        Log.info("Vault clientId changed (new installation): \(existingInbox.clientId) → \(clientId)")
+                        try db.execute(
+                            sql: "UPDATE inbox SET clientId = ? WHERE inboxId = ?",
+                            arguments: [clientId, inboxId]
+                        )
+                        currentInbox = try DBInbox.fetchOne(db, id: inboxId) ?? existingInbox
+                    } else {
+                        Log.error("""
+                            ClientId mismatch detected!
+                            InboxId: \(inboxId)
+                            Existing clientId: \(existingInbox.clientId)
+                            Attempted clientId: \(clientId)
+                            """)
+                        throw InboxWriterError.clientIdMismatch(
+                            inboxId: inboxId,
+                            existingClientId: existingInbox.clientId,
+                            newClientId: clientId
+                        )
+                    }
                 }
 
                 guard let installationId else {
-                    return existingInbox
+                    return currentInbox
                 }
 
-                guard existingInbox.installationId != installationId else {
-                    return existingInbox
+                guard currentInbox.installationId != installationId else {
+                    return currentInbox
                 }
 
-                var updatedInbox = existingInbox
+                var updatedInbox = currentInbox
                 updatedInbox.installationId = installationId
                 try updatedInbox.update(db)
                 return updatedInbox
@@ -103,9 +114,54 @@ struct InboxWriter {
         }
     }
 
+    func markStale(inboxId: String, _ isStale: Bool = true) async throws {
+        try await dbWriter.write { db in
+            try db.execute(
+                sql: "UPDATE inbox SET isStale = ? WHERE inboxId = ?",
+                arguments: [isStale, inboxId]
+            )
+        }
+    }
+
     func deleteAll() async throws {
-        _ = try await dbWriter.write { db in
-            try DBInbox.deleteAll(db)
+        try await dbWriter.write { db in
+            // Delete children before parents to respect foreign keys.
+            //
+            // Dependency graph (child → parent):
+            //   message → conversation
+            //   attachmentLocalState → conversation
+            //   conversationLocalState → conversation
+            //   invite → conversation_members  (FK: creatorInboxId + conversationId)
+            //   conversation_members → conversation, member
+            //   memberProfile → conversation, member
+            //   conversation → (no app-level parents)
+            //   member → (no app-level parents)
+            //   inbox, vaultDevice, photoPreferences, pendingPhotoUpload → independent
+            //
+            // Cascades are set on FKs, but we still delete children first for
+            // defensive safety if cascades are ever removed.
+            let tables = [
+                "message",
+                "attachmentLocalState",
+                "conversationLocalState",
+                "invite",
+                "conversation_members",
+                "memberProfile",
+                "photoPreferences",
+                "pendingPhotoUpload",
+                "conversation",
+                "member",
+                "vaultDevice",
+                "inbox",
+            ]
+            for table in tables {
+                do {
+                    try db.execute(sql: "DELETE FROM \(table)")
+                } catch {
+                    Log.error("deleteAll: failed to delete from \(table): \(error)")
+                    throw error
+                }
+            }
         }
     }
 }

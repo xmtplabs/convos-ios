@@ -14,6 +14,8 @@ actor MockBackupArchiveProvider: BackupArchiveProvider {
         failingInboxIds = ids
     }
 
+    func broadcastKeysToVault() async throws {}
+
     func createVaultArchive(at path: URL, encryptionKey: Data) async throws {
         vaultArchiveCalls.append((path, encryptionKey))
         try Data("vault-archive-data".utf8).write(to: path)
@@ -259,6 +261,18 @@ struct BackupManagerTests {
         let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
         _ = try await inboxWriter.save(inboxId: "inbox-1", clientId: "client-1")
         _ = try await inboxWriter.save(inboxId: "inbox-2", clientId: "client-2")
+        try await seedConversation(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            inboxId: "inbox-1",
+            clientId: "client-1",
+            isUnused: false
+        )
+        try await seedConversation(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            inboxId: "inbox-2",
+            clientId: "client-2",
+            isUnused: false
+        )
 
         let manager = BackupManager(
             vaultKeyStore: vaultKeyStore,
@@ -299,6 +313,18 @@ struct BackupManagerTests {
         let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
         _ = try await inboxWriter.save(inboxId: "inbox-ok", clientId: "client-ok")
         _ = try await inboxWriter.save(inboxId: "inbox-fail", clientId: "client-fail")
+        try await seedConversation(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            inboxId: "inbox-ok",
+            clientId: "client-ok",
+            isUnused: false
+        )
+        try await seedConversation(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            inboxId: "inbox-fail",
+            clientId: "client-fail",
+            isUnused: false
+        )
 
         await archiveProvider.setFailingInboxIds(["inbox-fail"])
 
@@ -407,6 +433,54 @@ struct BackupManagerTests {
         try? await fixtures.cleanup()
     }
 
+    @Test("Backup excludes unused conversation inboxes from metadata and archives")
+    func testBackupExcludesUnusedConversationInboxes() async throws {
+        let fixtures = TestFixtures()
+        let archiveProvider = MockBackupArchiveProvider()
+        let identityStore = MockKeychainIdentityStore()
+        let vaultKeyStore = try await seedVaultKey(store: identityStore)
+
+        try await seedConversationIdentity(store: identityStore, inboxId: "inbox-active", clientId: "client-active")
+        try await seedConversationIdentity(store: identityStore, inboxId: "inbox-unused", clientId: "client-unused")
+
+        let inboxWriter = InboxWriter(dbWriter: fixtures.databaseManager.dbWriter)
+        _ = try await inboxWriter.save(inboxId: "inbox-active", clientId: "client-active")
+        _ = try await inboxWriter.save(inboxId: "inbox-unused", clientId: "client-unused")
+
+        try await seedConversation(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            inboxId: "inbox-active",
+            clientId: "client-active",
+            isUnused: false
+        )
+        try await seedConversation(
+            databaseWriter: fixtures.databaseManager.dbWriter,
+            inboxId: "inbox-unused",
+            clientId: "client-unused",
+            isUnused: true
+        )
+
+        let manager = BackupManager(
+            vaultKeyStore: vaultKeyStore,
+            archiveProvider: archiveProvider,
+            identityStore: identityStore,
+            databaseReader: fixtures.databaseManager.dbReader,
+            environment: .tests
+        )
+
+        let outputURL = try await manager.createBackup()
+        defer {
+            try? FileManager.default.removeItem(at: outputURL.deletingLastPathComponent())
+        }
+
+        let sidecarMetadata = try BackupBundleMetadata.read(from: outputURL.deletingLastPathComponent())
+        #expect(sidecarMetadata.inboxCount == 1)
+        #expect(await archiveProvider.conversationArchiveCalls.count == 1)
+        #expect(await archiveProvider.conversationArchiveCalls.first?.0 == "inbox-active")
+
+        try? await fixtures.cleanup()
+    }
+
     @Test("Backup with no conversation inboxes succeeds")
     func testBackupWithNoConversations() async throws {
         let fixtures = TestFixtures()
@@ -447,5 +521,41 @@ struct BackupManagerTests {
     ) async throws {
         let keys = try await store.generateKeys()
         _ = try await store.save(inboxId: inboxId, clientId: clientId, keys: keys)
+    }
+
+    private func seedConversation(
+        databaseWriter: any DatabaseWriter,
+        inboxId: String,
+        clientId: String,
+        isUnused: Bool
+    ) async throws {
+        let conversation = DBConversation(
+            id: "conversation-\(inboxId)",
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: "client-conversation-\(inboxId)",
+            inviteTag: "invite-\(inboxId)",
+            creatorId: inboxId,
+            kind: .group,
+            consent: .allowed,
+            createdAt: Date(),
+            name: nil,
+            description: nil,
+            imageURLString: nil,
+            publicImageURLString: nil,
+            includeInfoInPublicPreview: false,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            imageLastRenewed: nil,
+            isUnused: isUnused
+        )
+
+        try await databaseWriter.write { db in
+            try conversation.save(db)
+        }
     }
 }

@@ -8,6 +8,7 @@ public struct ConversationArchiveResult: Sendable {
 }
 
 public protocol BackupArchiveProvider: Sendable {
+    func broadcastKeysToVault() async throws
     func createVaultArchive(at path: URL, encryptionKey: Data) async throws
     func createConversationArchive(inboxId: String, at path: String, encryptionKey: Data) async throws
 }
@@ -58,6 +59,14 @@ public actor BackupManager {
         encryptionKey: Data,
         stagingDir: URL
     ) async throws -> (Data, BackupBundleMetadata) {
+        Log.info("[Backup] broadcasting all conversation keys to vault")
+        do {
+            try await archiveProvider.broadcastKeysToVault()
+            Log.info("[Backup] keys broadcast to vault")
+        } catch {
+            Log.warning("[Backup] failed to broadcast keys to vault (non-fatal): \(error)")
+        }
+        Log.info("[Backup] creating vault archive")
         try await createVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
 
         let conversationResults = await createConversationArchives(in: stagingDir)
@@ -84,16 +93,20 @@ public actor BackupManager {
         return (bundleData, metadata)
     }
 
-    private func createVaultArchive(encryptionKey: Data, in directory: URL) async throws {
+    private func createVaultArchive(encryptionKey: Data, in directory: URL) async {
         let archivePath = BackupBundle.vaultArchivePath(in: directory)
-        try await archiveProvider.createVaultArchive(at: archivePath, encryptionKey: encryptionKey)
+        do {
+            try await archiveProvider.createVaultArchive(at: archivePath, encryptionKey: encryptionKey)
+        } catch {
+            Log.warning("[Backup] vault archive creation failed (non-fatal): \(error)")
+        }
     }
 
     private func createConversationArchives(in directory: URL) async -> [ConversationArchiveResult] {
         let inboxes: [Inbox]
         do {
             let repo = InboxesRepository(databaseReader: databaseReader)
-            inboxes = try repo.nonVaultInboxes()
+            inboxes = try repo.nonVaultUsedInboxes()
         } catch {
             Log.warning("Failed to load inboxes for backup: \(error)")
             return []
@@ -134,8 +147,18 @@ public actor BackupManager {
 
     private func writeToICloudOrLocal(bundleData: Data, metadata: BackupBundleMetadata) throws -> URL {
         let backupDir = try resolveBackupDirectory()
+        let fileManager = FileManager.default
         let bundlePath = backupDir.appendingPathComponent("backup-latest.encrypted")
-        try bundleData.write(to: bundlePath)
+        let tempBundlePath = backupDir.appendingPathComponent("backup-latest.encrypted.tmp")
+
+        try bundleData.write(to: tempBundlePath)
+
+        if fileManager.fileExists(atPath: bundlePath.path) {
+            _ = try fileManager.replaceItemAt(bundlePath, withItemAt: tempBundlePath)
+        } else {
+            try fileManager.moveItem(at: tempBundlePath, to: bundlePath)
+        }
+
         try BackupBundleMetadata.write(metadata, to: backupDir)
         return bundlePath
     }

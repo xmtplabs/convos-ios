@@ -680,3 +680,37 @@ extension SessionManager: VaultEventHandler {
         }
     }
 }
+
+// MARK: - RestoreLifecycleControlling
+
+extension SessionManager: RestoreLifecycleControlling {
+    public func prepareForRestore() async {
+        Log.info("[Restore] prepareForRestore: pausing import drainer")
+        await importSyncDrainer.pause()
+        Log.info("[Restore] prepareForRestore: stopping sleeping inbox checker")
+        await sleepingInboxChecker.stopPeriodicChecks()
+        Log.info("[Restore] prepareForRestore: stopping all inboxes")
+        await lifecycleManager.stopAll()
+        Log.info("[Restore] prepareForRestore: pausing vault")
+        await vaultService?.pauseVault()
+        unusedInboxPrepTask?.cancel()
+        unusedInboxPrepTask = nil
+        Log.info("[Restore] prepareForRestore: done")
+    }
+
+    public func finishRestore() async {
+        Log.info("[Restore] finishRestore: resuming vault")
+        await vaultService?.resumeVault()
+        Log.info("[Restore] finishRestore: resuming import drainer")
+        await importSyncDrainer.resume()
+        Log.info("[Restore] finishRestore: starting sleeping inbox checker")
+        await sleepingInboxChecker.startPeriodicChecks()
+        Log.info("[Restore] finishRestore: scheduling unused inbox prep")
+        unusedInboxPrepTask = Task(priority: .background) { [weak self] in
+            guard let self, !Task.isCancelled else { return }
+            await self.lifecycleManager.prepareUnusedConversationIfNeeded()
+        }
+        notificationChangeReporter.notifyChangesInDatabase()
+        Log.info("[Restore] finishRestore: done")
+    }
+}

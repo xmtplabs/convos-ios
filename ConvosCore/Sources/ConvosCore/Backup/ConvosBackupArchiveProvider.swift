@@ -16,6 +16,11 @@ public struct ConvosBackupArchiveProvider: BackupArchiveProvider {
         self.environment = environment
     }
 
+    public func broadcastKeysToVault() async throws {
+        guard let vaultManager = vaultService as? VaultManager else { return }
+        try await vaultManager.shareAllKeys()
+    }
+
     public func createVaultArchive(at path: URL, encryptionKey: Data) async throws {
         try await vaultService.createArchive(at: path, encryptionKey: encryptionKey)
     }
@@ -27,7 +32,7 @@ public struct ConvosBackupArchiveProvider: BackupArchiveProvider {
         try await client.createArchive(path: path, encryptionKey: encryptionKey)
     }
 
-    private func buildClient(identity: KeychainIdentity, inboxId: String) async throws -> any XMTPClientProvider {
+    private func buildClient(identity: KeychainIdentity, inboxId: String) async throws -> Client {
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
         let options = ClientOptions(
             api: api,

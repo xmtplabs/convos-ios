@@ -7,7 +7,8 @@ extension DBInbox {
             clientId: clientId,
             createdAt: createdAt,
             isVault: isVault,
-            installationId: installationId
+            installationId: installationId,
+            isStale: isStale
         )
     }
 }

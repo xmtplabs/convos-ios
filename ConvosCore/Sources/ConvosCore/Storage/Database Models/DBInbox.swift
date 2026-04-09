@@ -20,6 +20,7 @@ struct DBInbox: Codable, FetchableRecord, PersistableRecord, Identifiable, Hasha
         static let vaultSyncState: Column = Column(CodingKeys.vaultSyncState)
         static let vaultSyncAttempts: Column = Column(CodingKeys.vaultSyncAttempts)
         static let installationId: Column = Column(CodingKeys.installationId)
+        static let isStale: Column = Column(CodingKeys.isStale)
     }
 
     var id: String { inboxId }
@@ -31,6 +32,7 @@ struct DBInbox: Codable, FetchableRecord, PersistableRecord, Identifiable, Hasha
     var vaultSyncState: VaultSyncState
     var vaultSyncAttempts: Int
     var installationId: String?
+    var isStale: Bool
 
     init(
         inboxId: String,
@@ -40,7 +42,8 @@ struct DBInbox: Codable, FetchableRecord, PersistableRecord, Identifiable, Hasha
         sharedToVault: Bool = false,
         vaultSyncState: VaultSyncState = .none,
         vaultSyncAttempts: Int = 0,
-        installationId: String? = nil
+        installationId: String? = nil,
+        isStale: Bool = false
     ) {
         self.inboxId = inboxId
         self.clientId = clientId
@@ -50,6 +53,7 @@ struct DBInbox: Codable, FetchableRecord, PersistableRecord, Identifiable, Hasha
         self.vaultSyncState = vaultSyncState
         self.vaultSyncAttempts = vaultSyncAttempts
         self.installationId = installationId
+        self.isStale = isStale
     }
 
     static let conversations: HasManyAssociation<DBInbox, DBConversation> = hasMany(

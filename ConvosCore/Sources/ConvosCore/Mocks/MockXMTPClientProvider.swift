@@ -73,12 +73,8 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         // No-op for mock
     }
 
-    public func createArchive(path: String, encryptionKey: Data) async throws {
-        // No-op for mock
-    }
-
-    public func importArchive(path: String, encryptionKey: Data) async throws {
-        // No-op for mock
+    public func isInstallationActive() async throws -> Bool {
+        true
     }
 
     public func requestDeviceSync() async throws {

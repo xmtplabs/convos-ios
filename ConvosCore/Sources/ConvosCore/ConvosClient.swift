@@ -11,7 +11,7 @@ import GRDB
 /// persistent storage).
 public final class ConvosClient {
     private let sessionManager: any SessionManagerProtocol
-    private let databaseManager: any DatabaseManagerProtocol
+    public let databaseManager: any DatabaseManagerProtocol
     private let environment: AppEnvironment
     public let expiredConversationsWorker: ExpiredConversationsWorkerProtocol?
     public let scheduledExplosionManager: ScheduledExplosionManagerProtocol?

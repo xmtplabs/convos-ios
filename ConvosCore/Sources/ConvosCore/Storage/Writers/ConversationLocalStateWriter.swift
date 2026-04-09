@@ -5,6 +5,8 @@ public protocol ConversationLocalStateWriterProtocol: Sendable {
     func setUnread(_ isUnread: Bool, for conversationId: String) async throws
     func setPinned(_ isPinned: Bool, for conversationId: String) async throws
     func setMuted(_ isMuted: Bool, for conversationId: String) async throws
+    func setActive(_ isActive: Bool, for conversationId: String) async throws
+    func markAllConversationsInactive() async throws
 }
 
 /// @unchecked Sendable: GRDB's DatabaseWriter provides thread-safe access via write{}
@@ -50,7 +52,8 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     isUnread: false,
                     isUnreadUpdatedAt: Date(),
                     isMuted: false,
-                    pinnedOrder: nil
+                    pinnedOrder: nil,
+                    isActive: true
                 )
 
             let pinnedOrder: Int? = if isPinned {
@@ -79,6 +82,20 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
         QAEvent.emit(.conversation, isMuted ? "muted" : "unmuted", ["id": conversationId])
     }
 
+    func setActive(_ isActive: Bool, for conversationId: String) async throws {
+        try await updateLocalState(for: conversationId) { state in
+            state.with(isActive: isActive)
+        }
+    }
+
+    func markAllConversationsInactive() async throws {
+        try await databaseWriter.write { db in
+            try db.execute(
+                sql: "UPDATE conversationLocalState SET isActive = 0"
+            )
+        }
+    }
+
     private func updateLocalState(
         for conversationId: String,
         _ update: @escaping @Sendable (ConversationLocalState) -> ConversationLocalState
@@ -97,7 +114,8 @@ final class ConversationLocalStateWriter: ConversationLocalStateWriterProtocol, 
                     isUnread: false,
                     isUnreadUpdatedAt: Date(),
                     isMuted: false,
-                    pinnedOrder: nil
+                    pinnedOrder: nil,
+                    isActive: true
                 )
             let updated = update(current)
             try updated.save(db)

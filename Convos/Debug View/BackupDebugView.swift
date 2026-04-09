@@ -4,19 +4,26 @@ import SwiftUI
 struct BackupDebugView: View {
     let environment: AppEnvironment
     let session: any SessionManagerProtocol
+    var databaseManager: (any DatabaseManagerProtocol)?
 
     @State private var isPerformingAction: Bool = false
+    @State private var activeAction: String?
     @State private var actionResultMessage: String?
     @State private var showingActionResult: Bool = false
     @State private var lastBackupMetadata: BackupBundleMetadata?
+    @State private var availableBackup: (url: URL, metadata: BackupBundleMetadata)?
     @State private var isLoading: Bool = true
     @State private var backupDirectoryPath: String?
     @State private var iCloudAvailable: Bool = false
+    @State private var showingRestoreConfirmation: Bool = false
 
     var body: some View {
         List {
             statusSection
-            actionsSection
+            if activeAction != "Restore from backup" {
+                actionsSection
+            }
+            restoreSection
         }
         .navigationTitle("Backup")
         .toolbarTitleDisplayMode(.inline)
@@ -27,6 +34,20 @@ struct BackupDebugView: View {
             Button("OK", role: .cancel) {}
         } message: { message in
             Text(message)
+        }
+        .confirmationDialog(
+            "Restore from backup?",
+            isPresented: $showingRestoreConfirmation,
+            titleVisibility: .visible
+        ) {
+            let confirmAction = { restoreFromBackupAction() }
+            Button("Restore", role: .destructive, action: confirmAction)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            if let backup = availableBackup {
+                let date = backup.metadata.createdAt.formatted(date: .abbreviated, time: .shortened)
+                Text("This will replace all current conversations and data with the backup from \(backup.metadata.deviceName) (\(date)).")
+            }
         }
     }
 
@@ -82,10 +103,46 @@ struct BackupDebugView: View {
             }
             .accessibilityIdentifier("backup-debug-create-button")
             .disabled(isPerformingAction)
+
+            let revokeAction = { revokeVaultInstallationsAction() }
+            Button(role: .destructive, action: revokeAction) {
+                actionLabel("Revoke all other vault installations")
+            }
+            .accessibilityIdentifier("backup-debug-revoke-vault-button")
+            .disabled(isPerformingAction)
         } header: {
             Text("Actions")
         } footer: {
-            Text("Creates an encrypted backup bundle containing the vault archive, conversation archives, and database.")
+            Text("Use 'Revoke' to clear extra vault installations accumulated during testing (max 10 per inboxId).")
+        }
+    }
+
+    @ViewBuilder
+    private var restoreSection: some View {
+        if !isLoading, databaseManager != nil {
+            Section {
+                if let backup = availableBackup {
+                    statusRow(
+                        title: "Available backup",
+                        value: backup.metadata.createdAt.formatted(date: .abbreviated, time: .shortened)
+                    )
+                    statusRow(title: "From device", value: backup.metadata.deviceName)
+                    statusRow(title: "Conversations", value: "\(backup.metadata.inboxCount)")
+
+                    let promptAction = { showingRestoreConfirmation = true }
+                    Button(role: .destructive, action: promptAction) {
+                        actionLabel("Restore from backup")
+                    }
+                    .accessibilityIdentifier("backup-debug-restore-button")
+                    .disabled(isPerformingAction)
+                } else {
+                    statusRow(title: "Available backup", value: "None found")
+                }
+            } header: {
+                Text("Restore")
+            } footer: {
+                Text("Restoring will stop all sessions, replace the database, and import conversation archives. This is destructive and cannot be undone.")
+            }
         }
     }
 
@@ -94,7 +151,7 @@ struct BackupDebugView: View {
         HStack {
             Text(title)
             Spacer()
-            if isPerformingAction {
+            if activeAction == title {
                 ProgressView()
                     .scaleEffect(0.85)
             }
@@ -121,6 +178,46 @@ struct BackupDebugView: View {
         }
     }
 
+    private func restoreFromBackupAction() {
+        guard let backup = availableBackup else { return }
+        let restoreManager: RestoreManager
+        do {
+            restoreManager = try makeRestoreManager()
+        } catch {
+            actionResultMessage = "Restore failed: \(error.localizedDescription)"
+            showingActionResult = true
+            return
+        }
+        runAction(title: "Restore from backup") {
+            try await restoreManager.restoreFromBackup(bundleURL: backup.url)
+            let state = await restoreManager.state
+            if case .completed(let inboxCount, let failedKeyCount) = state {
+                var message = "Restore completed: \(inboxCount) conversation(s) restored."
+                if failedKeyCount > 0 {
+                    message += "\n\(failedKeyCount) key(s) failed to restore."
+                }
+                return message
+            }
+            return "Restore completed."
+        }
+    }
+
+    private func revokeVaultInstallationsAction() {
+        let vaultKeyStore = makeVaultKeyStore()
+        let vaultManager = session.vaultService as? VaultManager
+        runAction(title: "Revoke vault installations") { [environment] in
+            let vaultIdentity = try await vaultKeyStore.loadAny()
+            let keepId: String? = await vaultManager?.vaultInstallationId
+            let count = try await XMTPInstallationRevoker.revokeOtherInstallations(
+                inboxId: vaultIdentity.inboxId,
+                signingKey: vaultIdentity.keys.signingKey,
+                keepInstallationId: keepId,
+                environment: environment
+            )
+            return "Revoked \(count) vault installation(s)."
+        }
+    }
+
     private func createBackupAction() {
         let backupManager: BackupManager
         do {
@@ -133,13 +230,15 @@ struct BackupDebugView: View {
         runAction(title: "Create backup") {
             let outputURL = try await backupManager.createBackup()
             await refreshStatus()
-            return "Backup created at:\n\(outputURL.lastPathComponent)"
+            let timestamp = Date().formatted(date: .abbreviated, time: .shortened)
+            return "Backup created successfully.\n\(timestamp)"
         }
     }
 
     private func runAction(title: String, operation: @escaping @Sendable () async throws -> String) {
         guard !isPerformingAction else { return }
         isPerformingAction = true
+        activeAction = title
 
         Task {
             let message: String
@@ -153,6 +252,7 @@ struct BackupDebugView: View {
                 actionResultMessage = message
                 showingActionResult = true
                 isPerformingAction = false
+                activeAction = nil
             }
         }
     }
@@ -167,11 +267,13 @@ struct BackupDebugView: View {
         } else {
             nil
         }
+        let backup = RestoreManager.findAvailableBackup(environment: environment)
 
         await MainActor.run {
             iCloudAvailable = cloudAvailable
             backupDirectoryPath = backupDir?.path
             lastBackupMetadata = metadata
+            availableBackup = backup
             isLoading = false
         }
     }
@@ -198,6 +300,31 @@ struct BackupDebugView: View {
         if BackupBundleMetadata.exists(in: localDir) { return localDir }
 
         return nil
+    }
+
+    private func makeRestoreManager() throws -> RestoreManager {
+        guard let databaseManager else {
+            throw BackupDebugError.databaseManagerUnavailable
+        }
+
+        let accessGroup = environment.keychainAccessGroup
+        let identityStore = KeychainIdentityStore(accessGroup: accessGroup)
+        let vaultKeyStore = makeVaultKeyStore()
+        let archiveImporter = ConvosRestoreArchiveImporter(
+            identityStore: identityStore,
+            environment: environment
+        )
+        let vaultManager = session.vaultService as? VaultManager
+
+        return RestoreManager(
+            vaultKeyStore: vaultKeyStore,
+            identityStore: identityStore,
+            databaseManager: databaseManager,
+            archiveImporter: archiveImporter,
+            restoreLifecycleController: session as? any RestoreLifecycleControlling,
+            vaultManager: vaultManager,
+            environment: environment
+        )
     }
 
     private func makeBackupManager() throws -> BackupManager {
@@ -233,7 +360,8 @@ struct BackupDebugView: View {
         let iCloudStore = KeychainIdentityStore(
             accessGroup: accessGroup,
             service: "org.convos.vault-identity.icloud",
-            accessibility: kSecAttrAccessibleAfterFirstUnlock
+            accessibility: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
         let dualStore = ICloudIdentityStore(localStore: localStore, icloudStore: iCloudStore)
         return VaultKeyStore(store: dualStore)
@@ -241,11 +369,14 @@ struct BackupDebugView: View {
 
     private enum BackupDebugError: LocalizedError {
         case vaultUnavailable
+        case databaseManagerUnavailable
 
         var errorDescription: String? {
             switch self {
             case .vaultUnavailable:
                 return "Vault service is not available"
+            case .databaseManagerUnavailable:
+                return "Database manager is not available"
             }
         }
     }

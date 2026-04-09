@@ -211,7 +211,6 @@
 				"Conversation Detail/Messages/Messages Collection Layout/Models/SectionModel.swift",
 				"Conversation Detail/Messages/Messages View Controller/Constants.swift",
 				"Conversation Detail/Messages/Messages View Controller/Helpers/ManualAnimator.swift",
-				"Conversation Detail/Messages/Messages View Controller/Helpers/MessagesDateFormatter.swift",
 				"Conversation Detail/Messages/Messages View Controller/Helpers/SetActor.swift",
 				"Conversation Detail/Messages/Messages View Controller/Helpers/UICollectionView+DifferenceKit.swift",
 				"Conversation Detail/Messages/Messages View Controller/Helpers/UIView+Extension.swift",

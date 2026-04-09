@@ -80,12 +80,18 @@ public enum BackupBundle {
 
     // MARK: - Archive format: [4-byte path length][path UTF8][8-byte file length][file data]...
 
+    private static func resolvedPath(_ url: URL) -> String {
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        return path.hasSuffix("/") ? String(path.dropLast()) : path
+    }
+
     static func tarDirectory(_ directory: URL) throws -> Data {
         var archive = Data()
         let fileManager = FileManager.default
-        let resolvedDirectory = directory.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedDirPath = resolvedPath(directory)
+        let resolvedDirURL = URL(fileURLWithPath: resolvedDirPath, isDirectory: true)
         guard let enumerator = fileManager.enumerator(
-            at: resolvedDirectory,
+            at: resolvedDirURL,
             includingPropertiesForKeys: [.isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
@@ -96,11 +102,11 @@ public enum BackupBundle {
             let resourceValues = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
             guard resourceValues.isRegularFile == true else { continue }
 
-            let resolvedFile = fileURL.standardizedFileURL.resolvingSymlinksInPath()
-            guard resolvedFile.path.hasPrefix(resolvedDirectory.path + "/") else {
+            let resolvedFilePath = resolvedPath(fileURL)
+            guard resolvedFilePath.hasPrefix(resolvedDirPath + "/") else {
                 throw BundleError.packagingFailed("file outside backup directory: \(fileURL.path)")
             }
-            let relativePath = String(resolvedFile.path.dropFirst(resolvedDirectory.path.count + 1))
+            let relativePath = String(resolvedFilePath.dropFirst(resolvedDirPath.count + 1))
             let pathData = Data(relativePath.utf8)
             let fileData = try Data(contentsOf: fileURL)
 
@@ -117,7 +123,7 @@ public enum BackupBundle {
 
     static func untarData(_ data: Data, to directory: URL) throws {
         let fileManager = FileManager.default
-        let resolvedDirectory = directory.standardizedFileURL.resolvingSymlinksInPath()
+        let resolvedDirPath = resolvedPath(directory)
         var offset = 0
 
         while offset < data.count {
@@ -152,14 +158,30 @@ public enum BackupBundle {
             let fileData = data.subdata(in: offset ..< offset + fileLength)
             offset += fileLength
 
-            let fileURL = directory.appendingPathComponent(relativePath)
-                .standardizedFileURL.resolvingSymlinksInPath()
-            guard fileURL.path.hasPrefix(resolvedDirectory.path + "/") else {
+            let resolvedFileURL = URL(fileURLWithPath: resolvedDirPath)
+                .appendingPathComponent(relativePath)
+
+            // First-pass containment check on the standardized path.
+            let standardizedPath = resolvedFileURL.standardizedFileURL.path
+            guard standardizedPath.hasPrefix(resolvedDirPath + "/") else {
                 throw BundleError.unpackingFailed("path traversal attempt: \(relativePath)")
             }
-            let parentDir = fileURL.deletingLastPathComponent()
+
+            // Create the parent directory, then re-validate using the symlink-resolved
+            // path of the parent. fileData.write(to:) follows symlinks when writing,
+            // so a pre-existing symlink under the staging dir could escape the
+            // first-pass check. Re-resolving the parent and re-checking after creation
+            // catches that case.
+            let parentDir = resolvedFileURL.deletingLastPathComponent()
             try fileManager.createDirectory(at: parentDir, withIntermediateDirectories: true)
-            try fileData.write(to: fileURL)
+
+            let resolvedParentPath = parentDir.standardizedFileURL.resolvingSymlinksInPath().path
+            guard resolvedParentPath == resolvedDirPath
+                || resolvedParentPath.hasPrefix(resolvedDirPath + "/") else {
+                throw BundleError.unpackingFailed("path traversal via symlink: \(relativePath)")
+            }
+
+            try fileData.write(to: resolvedFileURL)
         }
     }
 }

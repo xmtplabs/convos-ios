@@ -32,6 +32,7 @@ import UIKit
 struct DebugViewSection: View {
     let environment: AppEnvironment
     let session: any SessionManagerProtocol
+    var databaseManager: (any DatabaseManagerProtocol)?
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var notificationAuthGranted: Bool = false
     @State private var lastDeviceToken: String = ""
@@ -155,13 +156,15 @@ struct DebugViewSection: View {
                 }
                 .accessibilityIdentifier("vault-key-sync-debug-row")
 
-                NavigationLink {
-                    BackupDebugView(environment: environment, session: session)
-                } label: {
-                    Text("Backup")
-                        .foregroundStyle(.colorTextPrimary)
+                if let databaseManager {
+                    NavigationLink {
+                        BackupDebugView(environment: environment, session: session, databaseManager: databaseManager)
+                    } label: {
+                        Text("Backup")
+                            .foregroundStyle(.colorTextPrimary)
+                    }
+                    .accessibilityIdentifier("backup-debug-row")
                 }
-                .accessibilityIdentifier("backup-debug-row")
             }
 
             Section("Sentry Testing") {
