@@ -646,11 +646,16 @@ class ConversationViewModel {
             .sink { [weak self] conversation in
                 guard let self else { return }
                 let previousId = self.conversation.id
+                let wasViewingConversation = self.isViewingConversation
                 self.conversation = conversation
                 self.loadConversationImage(for: conversation)
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
+                    if wasViewingConversation {
+                        self.isViewingConversation = true
+                        self.sendReadReceiptIfNeeded()
+                    }
                 }
             }
             .store(in: &cancellables)
