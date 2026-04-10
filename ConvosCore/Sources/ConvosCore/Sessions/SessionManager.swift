@@ -106,7 +106,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             await self.sleepingInboxChecker.startPeriodicChecks()
 
             guard !Task.isCancelled else { return }
-            self.unusedInboxPrepTask = Task(priority: .background) { [weak self] in
+            self.unusedInboxPrepTask = Task(priority: .utility) { [weak self] in
                 guard let self, !Task.isCancelled else { return }
                 await self.lifecycleManager.prepareUnusedConversationIfNeeded()
             }
