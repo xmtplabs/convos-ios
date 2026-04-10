@@ -470,7 +470,7 @@ private struct ComposerSideConvoCard: View {
             }
         }
         .frame(width: cardWidth, height: cardWidth)
-        .background(.colorBackgroundPic)
+        .background(.colorFillMinimal)
     }
 
     @ViewBuilder
