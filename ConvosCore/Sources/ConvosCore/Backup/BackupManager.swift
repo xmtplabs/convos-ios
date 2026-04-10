@@ -84,7 +84,9 @@ public actor BackupManager {
         }
         Log.info("[Backup] creating vault archive")
         try await createVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
+        Log.info("[Backup] vault archive created")
 
+        Log.info("[Backup] creating conversation archives")
         let conversationResults = await createConversationArchives(in: stagingDir)
         let failedResults = conversationResults.filter { !$0.success }
         if !failedResults.isEmpty {
