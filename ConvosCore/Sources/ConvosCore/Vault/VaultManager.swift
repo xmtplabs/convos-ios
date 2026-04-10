@@ -301,12 +301,24 @@ public actor VaultManager {
             Log.warning("[Vault.reCreate] failed to count vault inbox rows: \(error)")
         }
 
-        Log.info("[Vault.reCreate] step 1/5: revoking other installations on old vault")
+        Log.info("[Vault.reCreate] step 1/5: revoking all installations on old vault")
         if let oldInboxId, let vaultKeyStore {
             do {
                 let identity = try await vaultKeyStore.load(inboxId: oldInboxId)
-                try await revokeAllOtherInstallations(signingKey: identity.keys.signingKey)
-                Log.info("[Vault.reCreate] step 1/5: revoked other installations on old vault inboxId=\(oldInboxId)")
+                // Use the stateless network-only revoker. The local vault client
+                // has been paused by `prepareForRestore` so its connection pool
+                // is disconnected; using `revokeAllOtherInstallations(signingKey:)`
+                // here would hit `Client error: Pool needs to reconnect before use`.
+                // We want to revoke every installation on the old inbox (including
+                // the current one, since reCreate is about abandoning the whole
+                // vault identity), so `keepInstallationId` is nil.
+                let count = try await XMTPInstallationRevoker.revokeOtherInstallations(
+                    inboxId: oldInboxId,
+                    signingKey: identity.keys.signingKey,
+                    keepInstallationId: nil,
+                    environment: environment
+                )
+                Log.info("[Vault.reCreate] step 1/5: revoked \(count) installation(s) on old vault inboxId=\(oldInboxId)")
             } catch {
                 Log.warning("[Vault.reCreate] step 1/5: revocation failed (non-fatal): \(error)")
             }
