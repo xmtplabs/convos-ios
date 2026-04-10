@@ -436,7 +436,7 @@ private struct ComposerSideConvoCard: View {
     }
 
     private var explodeDurationLabel: String {
-        guard let explodeDuration else { return "Explodes in..." }
+        guard let explodeDuration else { return "Not exploding" }
         return "Explodes in \(explodeDuration.label)"
     }
 
@@ -498,6 +498,11 @@ private struct ComposerSideConvoCard: View {
                     } label: {
                         Text(duration.label)
                     }
+                }
+                Button {
+                    onSetExplodeDuration?(nil)
+                } label: {
+                    Text("Never")
                 }
             }
         } label: {
