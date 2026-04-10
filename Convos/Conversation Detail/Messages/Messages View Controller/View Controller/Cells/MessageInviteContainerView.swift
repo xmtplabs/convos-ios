@@ -88,7 +88,7 @@ struct MessageInviteView: View {
                             .aspectRatio(contentMode: .fill)
                     } else if let emoji = invite.emoji, !emoji.isEmpty {
                         Text(emoji)
-                            .font(.system(size: 72))
+                            .font(.system(size: 160))
                     } else {
                         Image("convosOrangeIcon")
                             .resizable()
@@ -106,8 +106,7 @@ struct MessageInviteView: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .foregroundStyle(.black)
-                        .font(.callout.weight(.bold))
-                        .fontWeight(.bold)
+                        .font(.callout.weight(.medium))
                         .truncationMode(.tail)
                     Text(description)
                         .font(.subheadline)

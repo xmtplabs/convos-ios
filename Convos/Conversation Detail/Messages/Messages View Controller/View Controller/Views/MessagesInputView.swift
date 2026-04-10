@@ -460,7 +460,7 @@ private struct ComposerSideConvoCard: View {
         ZStack {
             if let emoji = resolvedEmoji {
                 Text(emoji)
-                    .font(.system(size: 80))
+                    .font(.system(size: 120))
             } else {
                 Image("convosOrangeIcon")
                     .resizable()
@@ -481,7 +481,7 @@ private struct ComposerSideConvoCard: View {
             .padding(.horizontal, DesignConstants.Spacing.step3x)
             .padding(.vertical, DesignConstants.Spacing.step2x)
             .background(.colorFillMinimal)
-            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.Spacing.step2x))
+            .clipShape(Capsule())
             .accessibilityIdentifier("side-convo-name-field")
             .onSubmit {
                 onNameEditingEnded?(convoName)
