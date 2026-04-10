@@ -1,47 +1,6 @@
 import ConvosCore
 import QuickLook
-import SwiftUI
-
-struct QuickLookPreviewSheet: UIViewControllerRepresentable {
-    let fileURL: URL
-    let onDismiss: () -> Void
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(fileURL: fileURL, onDismiss: onDismiss)
-    }
-
-    func makeUIViewController(context: Context) -> QLPreviewController {
-        let controller = QLPreviewController()
-        controller.dataSource = context.coordinator
-        controller.delegate = context.coordinator
-        return controller
-    }
-
-    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {
-        context.coordinator.fileURL = fileURL
-        uiViewController.reloadData()
-    }
-
-    final class Coordinator: NSObject, QLPreviewControllerDataSource, @preconcurrency QLPreviewControllerDelegate {
-        var fileURL: URL
-        let onDismiss: () -> Void
-
-        init(fileURL: URL, onDismiss: @escaping () -> Void) {
-            self.fileURL = fileURL
-            self.onDismiss = onDismiss
-        }
-
-        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
-
-        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
-            fileURL as NSURL
-        }
-
-        func previewControllerDidDismiss(_ controller: QLPreviewController) {
-            onDismiss()
-        }
-    }
-}
+import UIKit
 
 enum FileAttachmentPreviewLoader {
     static func loadPreviewURL(key: String, filename: String?) async throws -> URL {
@@ -93,5 +52,35 @@ enum FileAttachmentPreviewLoader {
         )
         try loaded.data.write(to: tempURL)
         return tempURL
+    }
+}
+
+final class FileAttachmentQuickLookPresenter: NSObject, QLPreviewControllerDataSource, @preconcurrency QLPreviewControllerDelegate {
+    static let shared: FileAttachmentQuickLookPresenter = .init()
+
+    private var fileURL: URL?
+
+    func present(fileURL: URL) {
+        guard let presenter = UIApplication.shared.topMostViewController() else { return }
+        self.fileURL = fileURL
+        let previewController = QLPreviewController()
+        previewController.dataSource = self
+        previewController.delegate = self
+        presenter.present(previewController, animated: true)
+    }
+
+    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
+        fileURL != nil ? 1 : 0
+    }
+
+    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
+        (fileURL ?? URL(fileURLWithPath: "")) as NSURL
+    }
+
+    func previewControllerDidDismiss(_ controller: QLPreviewController) {
+        if let url = fileURL {
+            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
+        }
+        fileURL = nil
     }
 }

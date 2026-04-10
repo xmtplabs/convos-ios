@@ -15,7 +15,6 @@ class AssistantFilesLinksViewModel {
     var files: [AssistantFile] = []
     var links: [AssistantLink] = []
     var isLoading: Bool = true
-    var previewURL: URL?
     var fileOpenError: String?
 
     private let repository: AssistantFilesLinksRepository
@@ -105,15 +104,6 @@ struct AssistantFilesLinksView: View {
         .task {
             await viewModel.load()
         }
-        .sheet(item: Binding(
-            get: { viewModel.previewURL.map(PreviewURL.init) },
-            set: { _ in }
-        )) { item in
-            QuickLookPreviewSheet(fileURL: item.url) {
-                try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent())
-                viewModel.previewURL = nil
-            }
-        }
         .alert("File Unavailable", isPresented: Binding(
             get: { viewModel.fileOpenError != nil },
             set: { if !$0 { viewModel.fileOpenError = nil } }
@@ -166,10 +156,13 @@ struct AssistantFilesLinksView: View {
         Button {
             Task {
                 do {
-                    viewModel.previewURL = try await FileAttachmentPreviewLoader.loadPreviewURL(
+                    let url = try await FileAttachmentPreviewLoader.loadPreviewURL(
                         key: file.attachmentKey,
                         filename: file.filename
                     )
+                    await MainActor.run {
+                        FileAttachmentQuickLookPresenter.shared.present(fileURL: url)
+                    }
                 } catch {
                     Log.error("Failed to open assistant file: \(error)")
                     viewModel.fileOpenError = "This file is no longer available on this device."
@@ -303,9 +296,4 @@ struct AssistantFilesLinksView: View {
             Spacer()
         }
     }
-}
-
-private struct PreviewURL: Identifiable {
-    let url: URL
-    var id: String { url.path }
 }
