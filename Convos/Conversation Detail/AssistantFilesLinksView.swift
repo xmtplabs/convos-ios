@@ -1,5 +1,6 @@
 import ConvosCore
 import SwiftUI
+import UniformTypeIdentifiers
 
 enum AssistantFilesLinksTab: String, CaseIterable {
     case files = "Files"
@@ -14,6 +15,8 @@ class AssistantFilesLinksViewModel {
     var files: [AssistantFile] = []
     var links: [AssistantLink] = []
     var isLoading: Bool = true
+    var previewURL: URL?
+    var fileOpenError: String?
 
     private let repository: AssistantFilesLinksRepository
 
@@ -102,6 +105,25 @@ struct AssistantFilesLinksView: View {
         .task {
             await viewModel.load()
         }
+        .sheet(item: Binding(
+            get: { viewModel.previewURL.map(PreviewURL.init) },
+            set: { _ in }
+        )) { item in
+            QuickLookPreviewSheet(fileURL: item.url) {
+                try? FileManager.default.removeItem(at: item.url.deletingLastPathComponent())
+                viewModel.previewURL = nil
+            }
+        }
+        .alert("File Unavailable", isPresented: Binding(
+            get: { viewModel.fileOpenError != nil },
+            set: { if !$0 { viewModel.fileOpenError = nil } }
+        )) {
+            Button("OK", role: .cancel) {
+                viewModel.fileOpenError = nil
+            }
+        } message: {
+            Text(viewModel.fileOpenError ?? "This file is no longer available on this device.")
+        }
     }
 
     @ViewBuilder
@@ -141,30 +163,60 @@ struct AssistantFilesLinksView: View {
     }
 
     private func fileRow(_ file: AssistantFile) -> some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            fileThumbnail(file)
-                .frame(width: 56.0, height: 56.0)
-                .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
+        Button {
+            Task {
+                do {
+                    viewModel.previewURL = try await FileAttachmentPreviewLoader.loadPreviewURL(
+                        key: file.attachmentKey,
+                        filename: file.filename
+                    )
+                } catch {
+                    Log.error("Failed to open assistant file: \(error)")
+                    viewModel.fileOpenError = "This file is no longer available on this device."
+                }
+            }
+        } label: {
+            HStack(spacing: DesignConstants.Spacing.step3x) {
+                fileThumbnail(file)
+                    .frame(width: 56.0, height: 56.0)
+                    .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.small))
 
-            VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
-                Text(file.displayName)
-                    .font(.body)
-                    .foregroundStyle(.colorTextPrimary)
-                    .lineLimit(1)
+                VStack(alignment: .leading, spacing: DesignConstants.Spacing.stepHalf) {
+                    Text(file.displayName)
+                        .font(.body)
+                        .foregroundStyle(.colorTextPrimary)
+                        .lineLimit(1)
 
-                Text(file.formattedDate)
-                    .font(.caption)
+                    Text(fileSubtitle(file))
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                        .lineLimit(1)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
                     .foregroundStyle(.colorTextSecondary)
             }
-
-            Spacer()
-
-            Image(systemName: "icloud.and.arrow.down")
-                .foregroundStyle(.colorTextSecondary)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .contentShape(Rectangle())
         }
-        .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
-        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+    }
+
+    private func fileSubtitle(_ file: AssistantFile) -> String {
+        var parts: [String] = []
+        if let mimeType = file.mimeType,
+           let utType = UTType(mimeType: mimeType),
+           let ext = utType.preferredFilenameExtension {
+            parts.append(ext.uppercased())
+        } else if let ext = (file.filename as NSString?)?.pathExtension, !ext.isEmpty {
+            parts.append(ext.uppercased())
+        }
+        parts.append(file.formattedDate)
+        return parts.joined(separator: " · ")
     }
 
     @ViewBuilder
@@ -251,4 +303,9 @@ struct AssistantFilesLinksView: View {
             Spacer()
         }
     }
+}
+
+private struct PreviewURL: Identifiable {
+    let url: URL
+    var id: String { url.path }
 }
