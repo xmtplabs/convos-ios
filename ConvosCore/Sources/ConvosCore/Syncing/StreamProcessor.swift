@@ -135,11 +135,8 @@ actor StreamProcessor: StreamProcessorProtocol {
 
         let creatorInboxId = try await conversation.creatorInboxId()
         if creatorInboxId == params.client.inboxId {
-            // we created the conversation, update permissions, set inviteTag, generate encryption key, and seed emoji
+            // we created the conversation, update permissions, set inviteTag, and generate encryption key
             try await conversation.ensureInviteTag()
-            if let clientConversationId {
-                _ = try await conversation.ensureConversationEmoji(seed: clientConversationId)
-            }
             do {
                 try await conversation.ensureImageEncryptionKey()
             } catch {

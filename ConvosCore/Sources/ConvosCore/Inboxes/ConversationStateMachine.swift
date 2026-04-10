@@ -384,7 +384,7 @@ public actor ConversationStateMachine {
                 if case .error = _state {
                     await handleStop()
                 }
-                handleUseExisting(conversationId: conversationId)
+                await handleUseExisting(conversationId: conversationId)
 
             case (.uninitialized, let .validate(inviteCode)), (.error, let .validate(inviteCode)):
                 if case .error = _state {
@@ -448,6 +448,10 @@ public actor ConversationStateMachine {
         // Publish the conversation
         try await optimisticConversation.publish()
 
+        if let group = optimisticConversation as? XMTPiOS.Group {
+            _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+        }
+
         // Process the conversation in case the syncing manager
         // has not finished starting the streams, or the streams closed
         // Pass clientConversationId to store a stable ID for image caching
@@ -467,8 +471,20 @@ public actor ConversationStateMachine {
         )))
     }
 
-    private func handleUseExisting(conversationId: String) {
+    private func handleUseExisting(conversationId: String) async {
         Log.info("Using existing conversation: \(conversationId)")
+
+        do {
+            let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+            if let conversation = try await inboxReady.client.conversationsProvider.findConversation(
+                conversationId: conversationId
+            ), let group = conversation as? XMTPiOS.Group {
+                _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+            }
+        } catch {
+            Log.warning("Failed to seed conversation emoji for existing conversation: \(error)")
+        }
+
         emitStateChange(.ready(ConversationReadyResult(
             conversationId: conversationId,
             origin: .existing
