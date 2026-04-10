@@ -5,6 +5,7 @@ struct AvatarView: View {
     let fallbackName: String
     let cacheableObject: any ImageCacheable
     let placeholderImage: UIImage?
+    let placeholderEmoji: String?
     let placeholderImageName: String?
     let agentVerification: AgentVerification
     @State private var cachedImage: UIImage?
@@ -13,12 +14,14 @@ struct AvatarView: View {
         fallbackName: String,
         cacheableObject: any ImageCacheable,
         placeholderImage: UIImage?,
+        placeholderEmoji: String? = nil,
         placeholderImageName: String?,
         agentVerification: AgentVerification = .unverified
     ) {
         self.fallbackName = fallbackName
         self.cacheableObject = cacheableObject
         self.placeholderImage = placeholderImage
+        self.placeholderEmoji = placeholderEmoji
         self.placeholderImageName = placeholderImageName
         self.agentVerification = agentVerification
         _cachedImage = State(initialValue: ImageCache.shared.image(for: cacheableObject))
@@ -31,6 +34,8 @@ struct AvatarView: View {
                     .resizable()
                     .scaledToFit()
                     .aspectRatio(contentMode: .fill)
+            } else if let placeholderEmoji, !placeholderEmoji.isEmpty {
+                EmojiAvatarView(emoji: placeholderEmoji)
             } else if let placeholderImageName {
                 Image(systemName: placeholderImageName)
                     .resizable()
@@ -62,6 +67,7 @@ struct ProfileAvatarView: View {
             fallbackName: profile.displayName,
             cacheableObject: profile,
             placeholderImage: profileImage,
+            placeholderEmoji: profile.profileEmoji,
             placeholderImageName: useSystemPlaceholder ? "person.crop.circle.fill" : nil,
             agentVerification: profile.isAgent ? agentVerification : .unverified
         )
@@ -101,7 +107,11 @@ struct ConversationAvatarView: View {
         case .customImage:
             MonogramView(name: conversation.computedDisplayName)
         case let .profile(profile, verification):
-            MonogramView(name: profile.displayName, agentVerification: verification)
+            if let emoji = profile.profileEmoji, !emoji.isEmpty {
+                EmojiAvatarView(emoji: emoji)
+            } else {
+                MonogramView(name: profile.displayName, agentVerification: verification)
+            }
         case .clustered(let profiles):
             ClusteredAvatarView(profiles: profiles)
         case .emoji(let emoji):
@@ -127,6 +137,8 @@ struct MessageAvatarView: View {
                 Image(uiImage: image)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
+            } else if let emoji = profile.profileEmoji, !emoji.isEmpty {
+                EmojiAvatarView(emoji: emoji)
             } else {
                 MonogramView(name: profile.displayName, agentVerification: profile.isAgent ? agentVerification : .unverified)
             }
