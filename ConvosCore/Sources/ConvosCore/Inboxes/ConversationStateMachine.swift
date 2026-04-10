@@ -478,7 +478,7 @@ public actor ConversationStateMachine {
             let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
             if let conversation = try await inboxReady.client.conversationsProvider.findConversation(
                 conversationId: conversationId
-            ), let group = conversation as? XMTPiOS.Group {
+            ), case let .group(group) = conversation {
                 _ = try await group.ensureConversationEmoji(seed: clientConversationId)
             }
         } catch {
