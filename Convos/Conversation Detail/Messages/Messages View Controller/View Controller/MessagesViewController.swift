@@ -1115,10 +1115,11 @@ private struct MarkdownAttachmentPreviewSheet: View {
             </style>
             <script>\(markedJS)</script>
             </head>
-            <body>
+            <body data-markdown="\(encodedMarkdown)">
             <div id="content"></div>
             <script>
-                var decoded = atob('\(encodedMarkdown)');
+                var encoded = document.body.getAttribute('data-markdown');
+                var decoded = atob(encoded);
                 var text = new TextDecoder().decode(Uint8Array.from(decoded, function(c) { return c.charCodeAt(0); }));
                 document.getElementById('content').innerHTML = marked.parse(text);
             </script>
