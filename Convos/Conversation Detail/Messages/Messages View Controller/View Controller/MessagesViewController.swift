@@ -1016,8 +1016,14 @@ private struct MarkdownAttachmentPreviewSheet: View {
                         Image(systemName: "square.and.arrow.up")
                     }
                 }
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Close", action: onClose)
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: onClose) {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.secondary)
+                            .padding(7)
+                            .background(.ultraThinMaterial, in: Circle())
+                    }
                 }
             }
         }
@@ -1039,7 +1045,7 @@ private struct MarkdownAttachmentPreviewSheet: View {
             <html>
             <head>
             <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
-            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https: data:;" />
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;" />
             <style>
                 :root { color-scheme: light dark; }
                 body {
@@ -1099,7 +1105,18 @@ private struct MarkdownAttachmentPreviewSheet: View {
                 var encoded = document.body.getAttribute('data-markdown');
                 var decoded = atob(encoded);
                 var text = new TextDecoder().decode(Uint8Array.from(decoded, function(c) { return c.charCodeAt(0); }));
-                document.getElementById('content').innerHTML = marked.parse(text);
+                var renderer = { html: function(token) { return ''; } };
+                marked.use({ renderer: renderer });
+                var html = marked.parse(text);
+                var div = document.createElement('div');
+                div.innerHTML = html;
+                div.querySelectorAll('script, iframe, object, embed, form, input, textarea, button, select').forEach(function(el) { el.remove(); });
+                div.querySelectorAll('[onload],[onerror],[onclick],[onmouseover],[onfocus],[onblur]').forEach(function(el) {
+                    el.removeAttribute('onload'); el.removeAttribute('onerror'); el.removeAttribute('onclick');
+                    el.removeAttribute('onmouseover'); el.removeAttribute('onfocus'); el.removeAttribute('onblur');
+                });
+                div.querySelectorAll('a[href^="javascript:"]').forEach(function(el) { el.removeAttribute('href'); });
+                document.getElementById('content').innerHTML = div.innerHTML;
             </script>
             </body>
             </html>
@@ -1127,11 +1144,29 @@ private struct MarkdownWebView: UIViewRepresentable {
         webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
+        webView.navigationDelegate = context.coordinator
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         webView.loadHTMLString(html, baseURL: nil)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction
+        ) async -> WKNavigationActionPolicy {
+            if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
+                await UIApplication.shared.open(url)
+                return .cancel
+            }
+            return .allow
+        }
     }
 }
 
