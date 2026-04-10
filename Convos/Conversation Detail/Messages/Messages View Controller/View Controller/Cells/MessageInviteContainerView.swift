@@ -122,9 +122,10 @@ struct MessageInviteView: View {
             .padding(.vertical, DesignConstants.Spacing.step3x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.colorFillSubtle)
         }
         .frame(maxWidth: 280.0, alignment: .leading)
-        .background(.colorLinkBackground)
         .cachedImage(for: invite) { image in
             cachedImage = image
         }
