@@ -13,6 +13,7 @@ struct MessagesInputView: View {
     var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteEmoji: String?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     let sendButtonEnabled: Bool
@@ -214,6 +215,7 @@ struct MessagesInputView: View {
         ZStack(alignment: .topTrailing) {
             ComposerInvitePreviewCard(
                 inviteURL: url,
+                conversationEmoji: pendingInviteEmoji,
                 explodeDuration: pendingInviteExplodeDuration,
                 onSetExplodeDuration: onSetInviteExplodeDuration
             )
@@ -411,6 +413,7 @@ private struct ComposerImageAreaModifier: ViewModifier {
 
 private struct ComposerInvitePreviewCard: View {
     let inviteURL: String
+    var conversationEmoji: String?
     var explodeDuration: ExplodeDuration?
     var onSetExplodeDuration: ((ExplodeDuration?) -> Void)?
 
@@ -421,6 +424,12 @@ private struct ComposerInvitePreviewCard: View {
 
     private var invite: MessageInvite? {
         MessageInvite.from(text: inviteURL)
+    }
+
+    private var resolvedEmoji: String? {
+        if let emoji = invite?.emoji, !emoji.isEmpty { return emoji }
+        if let emoji = conversationEmoji, !emoji.isEmpty { return emoji }
+        return nil
     }
 
     private var clampedAspectRatio: CGFloat {
@@ -442,7 +451,7 @@ private struct ComposerInvitePreviewCard: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
-                } else if let emoji = invite?.emoji, !emoji.isEmpty {
+                } else if let emoji = resolvedEmoji {
                     Text(emoji)
                         .font(.system(size: 56))
                         .frame(maxWidth: .infinity)

@@ -23,6 +23,7 @@ struct MessagesView<BottomBarContent: View>: View {
     var isVideoAttachment: Bool = false
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
+    var pendingInviteEmoji: String?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     let sendButtonEnabled: Bool
@@ -126,6 +127,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 isVideoAttachment: isVideoAttachment,
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
+                pendingInviteEmoji: pendingInviteEmoji,
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 sendButtonEnabled: sendButtonEnabled,
