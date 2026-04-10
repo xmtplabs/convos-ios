@@ -5,6 +5,7 @@ struct MessagesMediaButtonsView: View {
     @Binding var isCameraPresented: Bool
     let onVoiceMemoTap: () -> Void
     let onConvosAction: () -> Void
+    var isSideConvoDisabled: Bool = false
 
     var body: some View {
         HStack(spacing: DesignConstants.Spacing.step2x) {
@@ -55,11 +56,12 @@ struct MessagesMediaButtonsView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(height: 18)
-                    .foregroundStyle(Color.colorTextPrimary)
+                    .foregroundStyle(isSideConvoDisabled ? Color.colorTextSecondary.opacity(0.3) : Color.colorTextSecondary)
                     .frame(width: Constant.buttonSize, height: Constant.buttonSize)
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
+            .disabled(isSideConvoDisabled)
             .accessibilityLabel("Side convo")
             .accessibilityIdentifier("side-convo-button")
         }

@@ -253,11 +253,13 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     isCameraPresented: $isCameraPresented,
                     onVoiceMemoTap: startVoiceMemoRecording,
                     onConvosAction: {
+                        guard pendingInviteURL == nil else { return }
                         withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
                             isMessageInputFocused = true
                         }
                         onConvosAction()
-                    }
+                    },
+                    isSideConvoDisabled: pendingInviteURL != nil
                 )
                 .opacity(messagesTextFieldEnabled ? 1.0 : 0.4)
                 .frame(height: DesignConstants.Spacing.step12x)
