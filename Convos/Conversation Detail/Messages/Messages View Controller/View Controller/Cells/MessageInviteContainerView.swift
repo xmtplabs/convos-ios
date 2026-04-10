@@ -12,11 +12,16 @@ struct MessageInviteContainerView: View {
     @Environment(\.messagePressed) private var isPressed: Bool
 
     var body: some View {
-        MessageContainer(style: style, isOutgoing: isOutgoing) {
+        MessageContainer(style: .none, isOutgoing: isOutgoing) {
             MessageInviteView(invite: invite)
+                .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
                 .opacity(isPressed ? 0.7 : 1.0)
                 .animation(.easeOut(duration: 0.15), value: isPressed)
         }
+    }
+
+    private enum Constant {
+        static let bubbleCornerRadius: CGFloat = 20.0
     }
 }
 
