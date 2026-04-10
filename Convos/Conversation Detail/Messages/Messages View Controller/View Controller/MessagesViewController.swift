@@ -919,7 +919,7 @@ extension MessagesViewController: QLPreviewControllerDataSource {
         controller.presentationController?.delegate = self
         if let sheet = controller.sheetPresentationController {
             sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = true
+            sheet.prefersGrabberVisible = false
         }
         present(controller, animated: true)
     }
@@ -1016,8 +1016,8 @@ private struct MarkdownAttachmentPreviewSheet: View {
                         Image(systemName: "square.and.arrow.up")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done", action: onClose)
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Close", action: onClose)
                 }
             }
         }
