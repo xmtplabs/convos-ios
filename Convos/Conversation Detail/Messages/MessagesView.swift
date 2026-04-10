@@ -25,6 +25,7 @@ struct MessagesView<BottomBarContent: View>: View {
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
     @Binding var pendingInviteConvoName: String
+    @Binding var pendingInviteImage: UIImage?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
@@ -131,6 +132,7 @@ struct MessagesView<BottomBarContent: View>: View {
                 pendingInviteURL: pendingInviteURL,
                 pendingInviteEmoji: pendingInviteEmoji,
                 pendingInviteConvoName: $pendingInviteConvoName,
+                pendingInviteImage: $pendingInviteImage,
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,

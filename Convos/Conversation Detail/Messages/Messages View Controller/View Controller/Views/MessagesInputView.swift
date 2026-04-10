@@ -15,6 +15,7 @@ struct MessagesInputView: View {
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
     @Binding var pendingInviteConvoName: String
+    @Binding var pendingInviteImage: UIImage?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
@@ -219,6 +220,7 @@ struct MessagesInputView: View {
                 inviteURL: url,
                 conversationEmoji: pendingInviteEmoji,
                 convoName: $pendingInviteConvoName,
+                convoImage: $pendingInviteImage,
                 explodeDuration: pendingInviteExplodeDuration,
                 onSetExplodeDuration: onSetInviteExplodeDuration,
                 onNameEditingEnded: onInviteConvoNameEditingEnded
@@ -419,9 +421,13 @@ private struct ComposerSideConvoCard: View {
     let inviteURL: String
     var conversationEmoji: String?
     @Binding var convoName: String
+    @Binding var convoImage: UIImage?
     var explodeDuration: ExplodeDuration?
     var onSetExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onNameEditingEnded: ((String) -> Void)?
+
+    @State private var isPhotoPickerPresented: Bool = false
+    @State private var selectedPhotoItem: PhotosPickerItem?
 
     private let cardWidth: CGFloat = 200.0
 
@@ -457,8 +463,29 @@ private struct ComposerSideConvoCard: View {
 
     @ViewBuilder
     private var emojiArea: some View {
+        emojiAreaContent
+            .onTapGesture {
+                isPhotoPickerPresented = true
+            }
+            .photosPicker(isPresented: $isPhotoPickerPresented, selection: $selectedPhotoItem, matching: .images)
+            .onChange(of: selectedPhotoItem) {
+                guard let selectedPhotoItem else { return }
+                Task { @MainActor in
+                    guard let data = try? await selectedPhotoItem.loadTransferable(type: Data.self),
+                          let image = UIImage(data: data) else { return }
+                    convoImage = image
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var emojiAreaContent: some View {
         ZStack {
-            if let emoji = resolvedEmoji {
+            if let convoImage {
+                Image(uiImage: convoImage)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } else if let emoji = resolvedEmoji {
                 Text(emoji)
                     .font(.system(size: 120))
             } else {
@@ -470,6 +497,7 @@ private struct ComposerSideConvoCard: View {
             }
         }
         .frame(width: cardWidth, height: cardWidth)
+        .clipped()
         .background(.colorFillMinimal)
     }
 
@@ -551,6 +579,7 @@ private struct ComposerSideConvoCard: View {
             selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
             pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
             animateAvatarForQuickname: animateAvatarForQuickname,

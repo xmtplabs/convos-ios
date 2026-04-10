@@ -18,6 +18,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
     @Binding var pendingInviteConvoName: String
+    @Binding var pendingInviteImage: UIImage?
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
     var onInviteConvoNameEditingEnded: ((String) -> Void)?
@@ -281,6 +282,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 pendingInviteURL: pendingInviteURL,
                 pendingInviteEmoji: pendingInviteEmoji,
                 pendingInviteConvoName: $pendingInviteConvoName,
+                pendingInviteImage: $pendingInviteImage,
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
                 onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
@@ -395,6 +397,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
             pendingInviteConvoName: .constant(""),
+            pendingInviteImage: .constant(nil),
             sendButtonEnabled: sendButtonEnabled,
             profileImage: $profileImage,
             isPhotoPickerPresented: $isPhotoPickerPresented,

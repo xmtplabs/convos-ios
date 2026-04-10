@@ -318,6 +318,7 @@ class ConversationViewModel {
     }
     var pendingInvite: PendingInvite?
     var pendingInviteConvoName: String = ""
+    var pendingInviteImage: UIImage?
 
     var sendButtonEnabled: Bool {
         !messageText.isEmpty || selectedAttachmentImage != nil || pendingInvite != nil || pastedLinkPreview != nil
@@ -1003,6 +1004,7 @@ extension ConversationViewModel {
         let sideConvoClientId = pendingInvite?.linkedConversationClientId
         let sideConvoInboxId = pendingInvite?.linkedConversationInboxId
         let sideConvoExplodeDuration = pendingInvite?.explodeDuration
+        let sideConvoImage = pendingInviteImage
         let prevLinkURL = pastedLinkPreview?.url
         let prevVideoURL = selectedVideoURL
 
@@ -1015,6 +1017,7 @@ extension ConversationViewModel {
         currentEagerUploadKey = nil
         pendingInvite = nil
         pendingInviteConvoName = ""
+        pendingInviteImage = nil
         pastedLinkPreview = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
@@ -1030,6 +1033,12 @@ extension ConversationViewModel {
                     let metadataWriter = messagingService.conversationMetadataWriter()
                     if !sideConvoName.isEmpty {
                         try await metadataWriter.updateName(sideConvoName, for: sideConvoLinkedId)
+                    }
+                    if let sideConvoImage {
+                        let stateManager = messagingService.conversationStateManager(for: sideConvoLinkedId)
+                        if let convo = try stateManager.draftConversationRepository.fetchConversation() {
+                            try await metadataWriter.updateImage(sideConvoImage, for: convo)
+                        }
                     }
                     if let sideConvoExplodeDuration {
                         let explosionWriter = messagingService.conversationExplosionWriter()
@@ -1889,6 +1898,7 @@ extension ConversationViewModel {
         guard let invite = pendingInvite else { return }
         pendingInvite = nil
         pendingInviteConvoName = ""
+        pendingInviteImage = nil
         if let clientId = invite.linkedConversationClientId {
             let inboxId = invite.linkedConversationInboxId ?? ""
             Task { [session] in

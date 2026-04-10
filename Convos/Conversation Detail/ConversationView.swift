@@ -49,6 +49,7 @@ struct ConversationView<MessagesBottomBar: View>: View {
             pendingInviteURL: viewModel.pendingInvite?.fullURL,
             pendingInviteEmoji: viewModel.conversation.conversationEmoji,
             pendingInviteConvoName: $viewModel.pendingInviteConvoName,
+            pendingInviteImage: $viewModel.pendingInviteImage,
             pendingInviteExplodeDuration: viewModel.pendingInvite?.explodeDuration,
             onSetInviteExplodeDuration: { duration in viewModel.setInviteExplodeDuration(duration) },
             onInviteConvoNameEditingEnded: { name in viewModel.updateLinkedConversationName(name) },
