@@ -373,6 +373,34 @@ struct DefaultConversationDisplayTests {
         }
     }
 
+    @Test("avatarType clusters when another member has only an emoji avatar")
+    func avatarTypeClustersWhenOtherMemberHasEmojiAvatar() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember(
+                profile: Profile(
+                    inboxId: "other1",
+                    name: "Alice",
+                    avatar: nil,
+                    metadata: ["emoji": .string("🦊")]
+                ),
+                role: .member,
+                isCurrentUser: false
+            ),
+            ConversationMember(
+                profile: Profile(inboxId: "other2", name: "Bob", avatar: nil),
+                role: .member,
+                isCurrentUser: false
+            )
+        ]
+        let conversation = Conversation.mock(name: nil, members: members)
+        if case .clustered(let profiles) = conversation.avatarType {
+            #expect(profiles.contains { $0.profileEmoji == "🦊" })
+        } else {
+            #expect(Bool(false), "Expected clustered avatar type when a member has an emoji avatar")
+        }
+    }
+
     // MARK: - Member Name Limiting Tests
 
     @Test("Four named profiles shows three and 1 other")

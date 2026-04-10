@@ -68,6 +68,13 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
         return "Somebody"
     }
 
+    public var profileEmoji: String? {
+        metadata?[Constant.emojiMetadataKey]?.stringValue.flatMap { value in
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+    }
+
     public func verifyAgentAttestation(keyset: any AgentKeysetProviding) async -> AgentVerification {
         guard isAgent else {
             return .unverified
@@ -171,6 +178,10 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             avatar: "https://example.com/avatar.jpg"
         )
     }
+
+    private enum Constant {
+        static let emojiMetadataKey: String = "emoji"
+    }
 }
 
 // MARK: - Array Extensions
@@ -225,13 +236,13 @@ public extension Array where Element == Profile {
     }
 
     var hasAnyAvatar: Bool {
-        contains { $0.avatarURL != nil }
+        contains { $0.avatarURL != nil || $0.profileEmoji != nil }
     }
 
     func sortedForCluster() -> [Profile] {
         sorted { p1, p2 in
-            let p1HasAvatar = p1.avatarURL != nil
-            let p2HasAvatar = p2.avatarURL != nil
+            let p1HasAvatar = p1.avatarURL != nil || p1.profileEmoji != nil
+            let p2HasAvatar = p2.avatarURL != nil || p2.profileEmoji != nil
             if p1HasAvatar != p2HasAvatar { return p1HasAvatar }
 
             let p1HasName = p1.name != nil && !(p1.name ?? "").isEmpty
