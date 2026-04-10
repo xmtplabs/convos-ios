@@ -701,12 +701,6 @@ extension UnusedConversationCache {
         databaseReader: any DatabaseReader,
         environment: AppEnvironment
     ) async -> MessagingService {
-        scheduleBackgroundCreation(
-            databaseWriter: databaseWriter,
-            databaseReader: databaseReader,
-            environment: environment
-        )
-
         let authorizationOperation = AuthorizeInboxOperation.register(
             identityStore: identityStore,
             databaseReader: databaseReader,
@@ -717,7 +711,7 @@ extension UnusedConversationCache {
             apiClient: apiClient
         )
 
-        return MessagingService(
+        let service = MessagingService(
             authorizationOperation: authorizationOperation,
             databaseWriter: databaseWriter,
             databaseReader: databaseReader,
@@ -725,6 +719,40 @@ extension UnusedConversationCache {
             environment: environment,
             backgroundUploadManager: UnavailableBackgroundUploadManager()
         )
+
+        scheduleDeferredBackgroundCreation(
+            after: service,
+            databaseWriter: databaseWriter,
+            databaseReader: databaseReader,
+            environment: environment
+        )
+
+        return service
+    }
+
+    func scheduleDeferredBackgroundCreation(
+        after service: MessagingService,
+        databaseWriter: any DatabaseWriter,
+        databaseReader: any DatabaseReader,
+        environment: AppEnvironment
+    ) {
+        backgroundCreationTask?.cancel()
+        backgroundCreationTask = Task(priority: .background) { [weak self, weak databaseWriter, weak databaseReader, weak service] in
+            guard let service else { return }
+            do {
+                _ = try await service.inboxStateManager.waitForInboxReadyResult()
+            } catch {
+                return
+            }
+            guard let self,
+                  let databaseWriter,
+                  let databaseReader else { return }
+            await createNewUnusedConversation(
+                databaseWriter: databaseWriter,
+                databaseReader: databaseReader,
+                environment: environment
+            )
+        }
     }
 
     func scheduleBackgroundCreation(
