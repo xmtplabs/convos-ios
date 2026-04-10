@@ -1,6 +1,17 @@
 import Foundation
 import GRDB
 
+public enum BackupError: LocalizedError {
+    case broadcastKeysFailed(any Error)
+
+    public var errorDescription: String? {
+        switch self {
+        case .broadcastKeysFailed(let error):
+            return "Failed to broadcast conversation keys to vault: \(error.localizedDescription)"
+        }
+    }
+}
+
 public struct ConversationArchiveResult: Sendable {
     public let inboxId: String
     public let success: Bool
@@ -64,7 +75,12 @@ public actor BackupManager {
             try await archiveProvider.broadcastKeysToVault()
             Log.info("[Backup] keys broadcast to vault")
         } catch {
-            Log.warning("[Backup] failed to broadcast keys to vault (non-fatal): \(error)")
+            // Fail loud: if we can't broadcast keys to the vault, the archive may not
+            // contain every inbox's key. That would produce a backup that silently
+            // cannot be fully restored. Better to surface the failure now than create
+            // an incomplete bundle the user trusts.
+            Log.error("[Backup] failed to broadcast keys to vault: \(error)")
+            throw BackupError.broadcastKeysFailed(error)
         }
         Log.info("[Backup] creating vault archive")
         try await createVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
