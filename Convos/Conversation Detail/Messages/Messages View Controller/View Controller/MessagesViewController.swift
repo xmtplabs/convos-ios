@@ -6,6 +6,7 @@ import Observation
 import QuickLook
 import SwiftUI
 import UIKit
+import WebKit
 
 /// A gesture recognizer that fires immediately on touch without interfering with other gestures
 private class ImmediateTouchGestureRecognizer: UIGestureRecognizer {
@@ -195,6 +196,7 @@ final class MessagesViewController: UIViewController {
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     private var filePreviewURL: URL?
+    private var markdownPreviewController: UIHostingController<MarkdownAttachmentPreviewSheet>?
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
     }
@@ -882,6 +884,10 @@ extension MessagesViewController: QLPreviewControllerDataSource {
         Task {
             do {
                 let fileURL = try await loadFileForPreview(attachment)
+                if attachment.isMarkdownFile {
+                    presentMarkdownPreview(fileURL: fileURL, filename: attachment.filename ?? "Markdown")
+                    return
+                }
                 let previewController = QLPreviewController()
                 filePreviewURL = fileURL
                 previewController.dataSource = self
@@ -899,6 +905,25 @@ extension MessagesViewController: QLPreviewControllerDataSource {
                 present(alert, animated: true)
             }
         }
+    }
+
+    private func presentMarkdownPreview(fileURL: URL, filename: String) {
+        let preview = MarkdownAttachmentPreviewSheet(
+            fileURL: fileURL,
+            filename: filename,
+            onClose: { [weak self] in
+                self?.dismiss(animated: true)
+            }
+        )
+        let controller = UIHostingController(rootView: preview)
+        controller.modalPresentationStyle = .pageSheet
+        controller.presentationController?.delegate = self
+        if let sheet = controller.sheetPresentationController {
+            sheet.detents = [.medium(), .large()]
+            sheet.prefersGrabberVisible = true
+        }
+        markdownPreviewController = controller
+        present(controller, animated: true)
     }
 
     private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
@@ -969,10 +994,166 @@ extension MessagesViewController: QLPreviewControllerDataSource {
 
 extension MessagesViewController: @preconcurrency QLPreviewControllerDelegate {
     func previewControllerDidDismiss(_ controller: QLPreviewController) {
+        cleanupPresentedFilePreview()
+    }
+}
+
+extension MessagesViewController: UIAdaptivePresentationControllerDelegate {
+    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
+        cleanupPresentedFilePreview()
+    }
+
+    private func cleanupPresentedFilePreview() {
         if let url = filePreviewURL {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
         filePreviewURL = nil
+        markdownPreviewController = nil
+    }
+}
+
+private struct MarkdownAttachmentPreviewSheet: View {
+    let fileURL: URL
+    let filename: String
+    let onClose: () -> Void
+
+    @State private var htmlString: String?
+    @State private var errorMessage: String?
+    @State private var showingShareSheet: Bool = false
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let htmlString {
+                    MarkdownWebView(html: htmlString)
+                        .ignoresSafeArea(edges: .bottom)
+                } else if let errorMessage {
+                    ContentUnavailableView("Preview Unavailable", systemImage: "doc.text", description: Text(errorMessage))
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationTitle(filename)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    ShareLink(item: fileURL) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button("Done", action: onClose)
+                }
+            }
+        }
+        .task {
+            loadMarkdown()
+        }
+    }
+
+    private func loadMarkdown() {
+        do {
+            let markdown = try String(contentsOf: fileURL, encoding: .utf8)
+            let escaped = markdown
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "`", with: "\\`")
+                .replacingOccurrences(of: "$", with: "\\$")
+            let markedJS = loadMarkedJS()
+            htmlString = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+            <style>
+                :root { color-scheme: light dark; }
+                body {
+                    font: -apple-system-body;
+                    font-family: -apple-system, system-ui, sans-serif;
+                    padding: 16px;
+                    line-height: 1.6;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+                h1 { font-size: 1.6em; margin-top: 0; }
+                h2 { font-size: 1.4em; }
+                h3 { font-size: 1.2em; }
+                code {
+                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                    font-size: 0.9em;
+                    background: rgba(128, 128, 128, 0.15);
+                    padding: 2px 5px;
+                    border-radius: 4px;
+                }
+                pre {
+                    background: rgba(128, 128, 128, 0.1);
+                    padding: 12px;
+                    border-radius: 8px;
+                    overflow-x: auto;
+                }
+                pre code {
+                    background: none;
+                    padding: 0;
+                }
+                blockquote {
+                    border-left: 3px solid rgba(128, 128, 128, 0.4);
+                    margin-left: 0;
+                    padding-left: 16px;
+                    color: rgba(128, 128, 128, 0.8);
+                }
+                img { max-width: 100%; height: auto; }
+                table {
+                    border-collapse: collapse;
+                    width: 100%;
+                }
+                th, td {
+                    border: 1px solid rgba(128, 128, 128, 0.3);
+                    padding: 8px;
+                    text-align: left;
+                }
+                a { color: #007AFF; }
+                @media (prefers-color-scheme: dark) {
+                    a { color: #0A84FF; }
+                }
+            </style>
+            <script>\(markedJS)</script>
+            </head>
+            <body>
+            <div id="content"></div>
+            <script>
+                document.getElementById('content').innerHTML = marked.parse(`\(escaped)`);
+            </script>
+            </body>
+            </html>
+            """
+        } catch {
+            errorMessage = "This markdown file could not be loaded."
+        }
+    }
+
+    private func loadMarkedJS() -> String {
+        guard let url = Bundle.main.url(forResource: "marked.min", withExtension: "js"),
+              let js = try? String(contentsOf: url, encoding: .utf8) else {
+            return ""
+        }
+        return js
+    }
+}
+
+private struct MarkdownWebView: UIViewRepresentable {
+    let html: String
+
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        return webView
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        webView.loadHTMLString(html, baseURL: nil)
     }
 }
 
