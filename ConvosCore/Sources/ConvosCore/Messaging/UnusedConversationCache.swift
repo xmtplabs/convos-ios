@@ -930,7 +930,6 @@ extension UnusedConversationCache {
             }
 
             try await group.ensureInviteTag()
-            _ = try await group.ensureConversationEmoji(seed: group.id)
             do {
                 try await group.ensureImageEncryptionKey()
             } catch {
