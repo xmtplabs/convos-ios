@@ -492,17 +492,17 @@ private struct ComposerSideConvoCard: View {
     private var explodeButton: some View {
         Menu {
             Section("Explode in") {
+                Button {
+                    onSetExplodeDuration?(nil)
+                } label: {
+                    Text("Never")
+                }
                 ForEach(ExplodeDuration.allCases, id: \.self) { duration in
                     Button {
                         onSetExplodeDuration?(duration)
                     } label: {
                         Text(duration.label)
                     }
-                }
-                Button {
-                    onSetExplodeDuration?(nil)
-                } label: {
-                    Text("Never")
                 }
             }
         } label: {
