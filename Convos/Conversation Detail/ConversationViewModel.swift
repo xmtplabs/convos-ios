@@ -18,23 +18,46 @@ struct PendingInvite {
 }
 
 enum ExplodeDuration: CaseIterable {
+    case sixtySeconds
     case oneHour
-    case oneDay
-    case oneWeek
+    case twentyFourHours
+    case sundayAtMidnight
 
     var label: String {
         switch self {
+        case .sixtySeconds: return "60 seconds"
+        case .oneHour: return "1 hour"
+        case .twentyFourHours: return "24 hours"
+        case .sundayAtMidnight: return "Sunday at midnight"
+        }
+    }
+
+    var shortLabel: String {
+        switch self {
+        case .sixtySeconds: return "60s"
         case .oneHour: return "1h"
-        case .oneDay: return "24h"
-        case .oneWeek: return "1 week"
+        case .twentyFourHours: return "24h"
+        case .sundayAtMidnight: return "Sun"
         }
     }
 
     var timeInterval: TimeInterval {
         switch self {
+        case .sixtySeconds: return 60
         case .oneHour: return 3600
-        case .oneDay: return 86400
-        case .oneWeek: return 604800
+        case .twentyFourHours: return 86400
+        case .sundayAtMidnight:
+            let calendar = Calendar.current
+            let now = Date()
+            var components = calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: now)
+            components.weekday = 1
+            components.hour = 0
+            components.minute = 0
+            components.second = 0
+            if let nextSunday = calendar.nextDate(after: now, matching: DateComponents(hour: 0, minute: 0, second: 0, weekday: 1), matchingPolicy: .nextTime) {
+                return nextSunday.timeIntervalSince(now)
+            }
+            return 604800
         }
     }
 }
@@ -1926,7 +1949,7 @@ extension ConversationViewModel {
                         linkedConversationId: convo.id
                     )
                     self.convosButtonCancellable = nil
-                    self.setInviteExplodeDuration(.oneDay)
+                    self.setInviteExplodeDuration(.twentyFourHours)
                 }
         }
     }

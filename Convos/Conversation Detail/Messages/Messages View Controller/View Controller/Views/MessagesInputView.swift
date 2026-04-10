@@ -437,7 +437,7 @@ private struct ComposerSideConvoCard: View {
 
     private var explodeDurationLabel: String {
         guard let explodeDuration else { return "Not exploding" }
-        return "Explodes in \(explodeDuration.label)"
+        return "Explodes in \(explodeDuration.shortLabel)"
     }
 
     var body: some View {
@@ -491,7 +491,7 @@ private struct ComposerSideConvoCard: View {
     @ViewBuilder
     private var explodeButton: some View {
         Menu {
-            Section("Explode in") {
+            Section("Explode messages and members") {
                 Button {
                     onSetExplodeDuration?(nil)
                 } label: {
