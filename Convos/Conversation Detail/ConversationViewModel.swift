@@ -986,6 +986,7 @@ extension ConversationViewModel {
         selectedVideoThumbnail = nil
         currentEagerUploadKey = nil
         pendingInvite = nil
+        pendingInviteConvoName = ""
         pastedLinkPreview = nil
         focusCoordinator.endEditing(for: .message, context: .conversation)
 
@@ -1853,6 +1854,7 @@ extension ConversationViewModel {
     func clearPendingInvite() {
         guard let invite = pendingInvite else { return }
         pendingInvite = nil
+        pendingInviteConvoName = ""
         if let clientId = invite.linkedConversationClientId {
             let inboxId = invite.linkedConversationInboxId ?? ""
             Task { [session] in
