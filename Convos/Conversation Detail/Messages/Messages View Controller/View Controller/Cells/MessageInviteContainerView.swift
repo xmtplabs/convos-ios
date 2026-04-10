@@ -79,27 +79,26 @@ struct MessageInviteView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
-            ZStack {
-                if let image = cachedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else if let emoji = invite.emoji, !emoji.isEmpty {
-                    Text(emoji)
-                        .font(.system(size: 72))
-                } else {
-                    Image("convosOrangeIcon")
-                        .resizable()
-                        .tint(.colorTextPrimaryInverted)
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .aspectRatio(contentMode: .fit)
-                        .frame(height: 76.0)
+            Color.colorBackgroundInverted
+                .aspectRatio(1, contentMode: .fit)
+                .overlay {
+                    if let image = cachedImage {
+                        Image(uiImage: image)
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                    } else if let emoji = invite.emoji, !emoji.isEmpty {
+                        Text(emoji)
+                            .font(.system(size: 72))
+                    } else {
+                        Image("convosOrangeIcon")
+                            .resizable()
+                            .tint(.colorTextPrimaryInverted)
+                            .foregroundStyle(.colorTextPrimaryInverted)
+                            .aspectRatio(contentMode: .fit)
+                            .frame(height: 76.0)
+                    }
                 }
-            }
-            .frame(maxWidth: .infinity)
-            .aspectRatio(1, contentMode: .fit)
-            .clipped()
-            .background(.colorBackgroundInverted)
+                .clipped()
 
             HStack {
                 VStack(alignment: .leading, spacing: 2.0) {
