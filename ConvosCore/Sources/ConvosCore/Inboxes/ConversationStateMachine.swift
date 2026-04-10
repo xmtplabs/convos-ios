@@ -309,6 +309,16 @@ public actor ConversationStateMachine {
         try await writer.deleteFailedMessage(id: id)
     }
 
+    func insertPendingInvite(text: String) async throws -> String {
+        let writer = try await getOrCreateMessageWriter()
+        return try await writer.insertPendingInvite(text: text)
+    }
+
+    func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        let writer = try await getOrCreateMessageWriter()
+        try await writer.finalizeInvite(clientMessageId: clientMessageId, finalText: finalText)
+    }
+
     func delete() {
         // Cancel current task immediately to unblock the action queue
         currentTask?.cancel()

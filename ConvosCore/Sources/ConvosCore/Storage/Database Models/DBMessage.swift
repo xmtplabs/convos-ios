@@ -291,6 +291,28 @@ extension DBMessage {
         )
     }
 
+    func with(text: String, invite: MessageInvite?) -> DBMessage {
+        .init(
+            id: id,
+            clientMessageId: clientMessageId,
+            conversationId: conversationId,
+            senderId: senderId,
+            dateNs: dateNs,
+            date: date,
+            sortId: sortId,
+            status: status,
+            messageType: messageType,
+            contentType: contentType,
+            text: text,
+            emoji: emoji,
+            invite: invite,
+            linkPreview: linkPreview,
+            sourceMessageId: sourceMessageId,
+            attachmentUrls: attachmentUrls,
+            update: update
+        )
+    }
+
     var hasLocalAttachments: Bool {
         attachmentUrls.contains { $0.hasPrefix("file://") }
     }

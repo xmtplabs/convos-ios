@@ -64,4 +64,13 @@ public final class MockOutgoingMessageWriter: OutgoingMessageWriterProtocol, @un
 
     public func retryFailedMessage(id: String) async throws {}
     public func deleteFailedMessage(id: String) async throws {}
+
+    public func insertPendingInvite(text: String) async throws -> String {
+        sentMessages.append(text)
+        return UUID().uuidString
+    }
+
+    public func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        sentMessages.append(finalText)
+    }
 }

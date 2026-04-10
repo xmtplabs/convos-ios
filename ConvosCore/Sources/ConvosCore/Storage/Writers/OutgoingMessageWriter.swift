@@ -10,6 +10,8 @@ public protocol OutgoingMessageWriterProtocol: Sendable {
     func send(text: String) async throws
     func send(text: String, afterPhoto trackingKey: String?) async throws
     func send(image: ImageType) async throws
+    func insertPendingInvite(text: String) async throws -> String
+    func finalizeInvite(clientMessageId: String, finalText: String) async throws
 
     /// Start uploading a photo eagerly (before user taps Send).
     /// Returns a tracking key that can be used with `sendEagerPhoto` or `cancelEagerUpload`.
@@ -159,6 +161,29 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     func send(text: String, afterPhoto trackingKey: String?) async throws {
         try await sendText(text, afterPhoto: trackingKey, replyContext: nil)
+    }
+
+    func insertPendingInvite(text: String) async throws -> String {
+        let clientMessageId = UUID().uuidString
+        try await saveTextToDatabase(clientMessageId: clientMessageId, text: text, replyContext: nil)
+        return clientMessageId
+    }
+
+    func finalizeInvite(clientMessageId: String, finalText: String) async throws {
+        try await databaseWriter.write { db in
+            guard var message = try DBMessage.fetchOne(db, key: clientMessageId) else { return }
+            let invite = MessageInvite.from(text: finalText)
+            message = message.with(text: finalText, invite: invite)
+            try message.update(db)
+        }
+        let queued = QueuedTextMessage(
+            clientMessageId: clientMessageId,
+            text: finalText,
+            dependsOnPhotoKey: nil,
+            replyContext: nil
+        )
+        messageQueue.append(.text(queued))
+        startProcessingIfNeeded()
     }
 
     private func sendText(_ text: String, afterPhoto trackingKey: String?, replyContext: ReplyContext?) async throws {

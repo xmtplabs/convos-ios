@@ -1023,48 +1023,21 @@ extension ConversationViewModel {
 
         let messageWriter = cachedMessageWriter
 
-        Task { [weak self, session] in
+        Task { [weak self] in
             guard let self else { return }
 
-            var inviteURL = prevInviteURL
-            if let sideConvoLinkedId, let sideConvoClientId, let sideConvoInboxId {
-                do {
-                    let messagingService = try await session.messagingService(for: sideConvoClientId, inboxId: sideConvoInboxId)
-                    let metadataWriter = messagingService.conversationMetadataWriter()
-                    if !sideConvoName.isEmpty {
-                        try await metadataWriter.updateName(sideConvoName, for: sideConvoLinkedId)
-                    }
-                    if let sideConvoExplodeDuration {
-                        let explosionWriter = messagingService.conversationExplosionWriter()
-                        let expiresAt = Date().addingTimeInterval(sideConvoExplodeDuration.timeInterval)
-                        try await explosionWriter.scheduleExplosion(conversationId: sideConvoLinkedId, expiresAt: expiresAt)
-                    }
-                    if let updatedInvite = try await metadataWriter.refreshInvite(for: sideConvoLinkedId) {
-                        inviteURL = updatedInvite.inviteURLString
-                    }
-                } catch {
-                    Log.error("Failed to finalize side convo before send: \(error)")
-                }
-
-                if let sideConvoImage {
-                    do {
-                        let messagingService = try await session.messagingService(for: sideConvoClientId, inboxId: sideConvoInboxId)
-                        let metadataWriter = messagingService.conversationMetadataWriter()
-                        let stateManager = messagingService.conversationStateManager(for: sideConvoLinkedId)
-                        if let convo = try stateManager.draftConversationRepository.fetchConversation() {
-                            try await metadataWriter.updateImage(sideConvoImage, for: convo)
-                            if let updatedInvite = try await metadataWriter.refreshInvite(for: sideConvoLinkedId) {
-                                inviteURL = updatedInvite.inviteURLString
-                            }
-                        }
-                    } catch {
-                        Log.error("Failed to upload side convo image: \(error)")
-                    }
-                    if let inviteURL, let invite = MessageInvite.from(text: inviteURL) {
-                        ImageCache.shared.cacheAfterUpload(sideConvoImage, for: invite, url: invite.inviteSlug)
-                    }
-                }
-            }
+            let sideConvoResult = await finalizeSideConvo(
+                inviteURL: prevInviteURL,
+                name: sideConvoName,
+                image: sideConvoImage,
+                explodeDuration: sideConvoExplodeDuration,
+                linkedId: sideConvoLinkedId,
+                clientId: sideConvoClientId,
+                inboxId: sideConvoInboxId,
+                messageWriter: messageWriter
+            )
+            let inviteURL = sideConvoResult.inviteURL
+            let pendingInviteMessageId = sideConvoResult.pendingMessageId
 
             do {
                 let photoTrackingKey = try await sendAttachmentIfNeeded(
@@ -1075,9 +1048,10 @@ extension ConversationViewModel {
                     messageWriter: messageWriter
                 )
 
+                let finalInviteURL = pendingInviteMessageId != nil ? nil : inviteURL
                 try await sendTextAndLinksIfNeeded(
                     text: hasText ? prevMessageText : nil,
-                    inviteURL: inviteURL,
+                    inviteURL: finalInviteURL,
                     linkURL: prevLinkURL,
                     photoTrackingKey: photoTrackingKey,
                     replyTarget: replyTarget,
@@ -1089,6 +1063,71 @@ extension ConversationViewModel {
 
             isSendingPhoto = false
         }
+    }
+
+    private func finalizeSideConvo(
+        inviteURL: String?,
+        name: String,
+        image: UIImage?,
+        explodeDuration: ExplodeDuration?,
+        linkedId: String?,
+        clientId: String?,
+        inboxId: String?,
+        messageWriter: any OutgoingMessageWriterProtocol
+    ) async -> (inviteURL: String?, pendingMessageId: String?) {
+        var inviteURL = inviteURL
+        var pendingMessageId: String?
+
+        guard let linkedId, let clientId, let inboxId else {
+            return (inviteURL, nil)
+        }
+
+        do {
+            let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+            let metadataWriter = messagingService.conversationMetadataWriter()
+            if !name.isEmpty {
+                try await metadataWriter.updateName(name, for: linkedId)
+            }
+            if let explodeDuration {
+                let explosionWriter = messagingService.conversationExplosionWriter()
+                let expiresAt = Date().addingTimeInterval(explodeDuration.timeInterval)
+                try await explosionWriter.scheduleExplosion(conversationId: linkedId, expiresAt: expiresAt)
+            }
+            if let updatedInvite = try await metadataWriter.refreshInvite(for: linkedId) {
+                inviteURL = updatedInvite.inviteURLString
+            }
+        } catch {
+            Log.error("Failed to finalize side convo metadata: \(error)")
+        }
+
+        guard let image, let inviteURL else {
+            return (inviteURL, nil)
+        }
+
+        if let invite = MessageInvite.from(text: inviteURL) {
+            ImageCache.shared.cacheAfterUpload(image, for: invite, url: invite.inviteSlug)
+        }
+        pendingMessageId = try? await messageWriter.insertPendingInvite(text: inviteURL)
+
+        do {
+            let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+            let metadataWriter = messagingService.conversationMetadataWriter()
+            let stateManager = messagingService.conversationStateManager(for: linkedId)
+            if let convo = try stateManager.draftConversationRepository.fetchConversation() {
+                try await metadataWriter.updateImage(image, for: convo)
+                if let updatedInvite = try await metadataWriter.refreshInvite(for: linkedId),
+                   let pendingMessageId {
+                    try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: updatedInvite.inviteURLString)
+                }
+            }
+        } catch {
+            Log.error("Failed to upload side convo image: \(error)")
+            if let pendingMessageId {
+                try? await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: inviteURL)
+            }
+        }
+
+        return (inviteURL, pendingMessageId)
     }
 
     private func sendAttachmentIfNeeded(
