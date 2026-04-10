@@ -17,8 +17,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
+    @Binding var pendingInviteConvoName: String
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
+    var onInviteConvoNameEditingEnded: ((String) -> Void)?
     let sendButtonEnabled: Bool
     @Binding var profileImage: UIImage?
     @Binding var isPhotoPickerPresented: Bool
@@ -276,8 +278,10 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 composerLinkPreview: composerLinkPreview,
                 pendingInviteURL: pendingInviteURL,
                 pendingInviteEmoji: pendingInviteEmoji,
+                pendingInviteConvoName: $pendingInviteConvoName,
                 pendingInviteExplodeDuration: pendingInviteExplodeDuration,
                 onSetInviteExplodeDuration: onSetInviteExplodeDuration,
+                onInviteConvoNameEditingEnded: onInviteConvoNameEditingEnded,
                 sendButtonEnabled: sendButtonEnabled,
                 focusState: $focusState,
                 animateAvatarForQuickname: onboardingCoordinator.shouldAnimateAvatarForQuicknameSetup,
@@ -388,6 +392,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
+            pendingInviteConvoName: .constant(""),
             sendButtonEnabled: sendButtonEnabled,
             profileImage: $profileImage,
             isPhotoPickerPresented: $isPhotoPickerPresented,

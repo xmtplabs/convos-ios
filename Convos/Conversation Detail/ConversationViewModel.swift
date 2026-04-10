@@ -294,6 +294,7 @@ class ConversationViewModel {
         isCurrentUserSuperAdmin
     }
     var pendingInvite: PendingInvite?
+    var pendingInviteConvoName: String = ""
 
     var sendButtonEnabled: Bool {
         !messageText.isEmpty || selectedAttachmentImage != nil || pendingInvite != nil || pastedLinkPreview != nil
@@ -1811,6 +1812,26 @@ extension ConversationViewModel {
         } catch {
             Log.error("Failed to schedule explosion for linked conversation: \(error)")
             return nil
+        }
+    }
+    func updateLinkedConversationName(_ name: String) {
+        guard let clientId = pendingInvite?.linkedConversationClientId,
+              let inboxId = pendingInvite?.linkedConversationInboxId,
+              let conversationId = pendingInvite?.linkedConversationId else { return }
+        Task { [weak self, session] in
+            guard let self else { return }
+            do {
+                let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
+                let metadataWriter = messagingService.conversationMetadataWriter()
+                try await metadataWriter.updateName(name, for: conversationId)
+                let updatedInvite = try await metadataWriter.refreshInvite(for: conversationId)
+                guard let updatedInvite else { return }
+                await MainActor.run {
+                    self.pendingInvite?.fullURL = updatedInvite.inviteURLString
+                }
+            } catch {
+                Log.error("Failed to update linked conversation name: \(error)")
+            }
         }
     }
 }

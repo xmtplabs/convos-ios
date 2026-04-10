@@ -14,8 +14,10 @@ struct MessagesInputView: View {
     var composerLinkPreview: LinkPreview?
     var pendingInviteURL: String?
     var pendingInviteEmoji: String?
+    @Binding var pendingInviteConvoName: String
     var pendingInviteExplodeDuration: ExplodeDuration?
     var onSetInviteExplodeDuration: ((ExplodeDuration?) -> Void)?
+    var onInviteConvoNameEditingEnded: ((String) -> Void)?
     let sendButtonEnabled: Bool
     @FocusState.Binding var focusState: MessagesViewInputFocus?
     let animateAvatarForQuickname: Bool
@@ -213,11 +215,13 @@ struct MessagesInputView: View {
     @ViewBuilder
     private func inviteAttachmentPreview(url: String) -> some View {
         ZStack(alignment: .topTrailing) {
-            ComposerInvitePreviewCard(
+            ComposerSideConvoCard(
                 inviteURL: url,
                 conversationEmoji: pendingInviteEmoji,
+                convoName: $pendingInviteConvoName,
                 explodeDuration: pendingInviteExplodeDuration,
-                onSetExplodeDuration: onSetInviteExplodeDuration
+                onSetExplodeDuration: onSetInviteExplodeDuration,
+                onNameEditingEnded: onInviteConvoNameEditingEnded
             )
             .clipShape(.rect(cornerRadius: DesignConstants.Spacing.step4x))
             .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
@@ -411,16 +415,15 @@ private struct ComposerImageAreaModifier: ViewModifier {
     }
 }
 
-private struct ComposerInvitePreviewCard: View {
+private struct ComposerSideConvoCard: View {
     let inviteURL: String
     var conversationEmoji: String?
+    @Binding var convoName: String
     var explodeDuration: ExplodeDuration?
     var onSetExplodeDuration: ((ExplodeDuration?) -> Void)?
+    var onNameEditingEnded: ((String) -> Void)?
 
-    @State private var cachedImage: UIImage?
-    @State private var imageAspectRatio: CGFloat?
-
-    private let previewWidth: CGFloat = 200.0
+    private let cardWidth: CGFloat = 200.0
 
     private var invite: MessageInvite? {
         MessageInvite.from(text: inviteURL)
@@ -432,80 +435,61 @@ private struct ComposerInvitePreviewCard: View {
         return nil
     }
 
-    private var clampedAspectRatio: CGFloat {
-        let ratio = imageAspectRatio ?? 1.91
-        return min(max(ratio, 0.75), 2.0)
-    }
-
-    private var displayTitle: String {
-        if let name = invite?.conversationName, !name.isEmpty {
-            return "Pop into \"\(name)\""
-        }
-        return "Pop into this convo"
+    private var explodeDurationLabel: String {
+        guard let explodeDuration else { return "Explodes in..." }
+        return "Explodes in \(explodeDuration.label)"
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack {
-                if let image = cachedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                } else if let emoji = resolvedEmoji {
-                    Text(emoji)
-                        .font(.system(size: 56))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 80.0)
-                } else {
-                    Image("convosOrangeIcon")
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .foregroundStyle(.colorTextPrimaryInverted)
-                        .frame(width: 40, height: 40)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 80.0)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .modifier(ComposerImageAreaModifier(hasKnownRatio: cachedImage != nil, aspectRatio: clampedAspectRatio))
-            .clipped()
-            .background(.colorBackgroundMedia)
-
-            HStack {
-                VStack(alignment: .leading, spacing: 2.0) {
-                    Text(displayTitle)
-                        .font(.callout.weight(.medium))
-                        .foregroundStyle(.colorTextPrimary)
-                        .lineLimit(2)
-                        .truncationMode(.tail)
-                    Text("You're invited")
-                        .font(.caption)
-                        .foregroundStyle(.colorTextSecondary)
-                        .lineLimit(1)
-                }
-
-                Spacer()
-
-                if let explodeDuration {
-                    ExplodeCountdownBadge(duration: explodeDuration)
-                        .onTapGesture {}
-                } else if onSetExplodeDuration != nil {
-                    explodeMenu
-                }
+            emojiArea
+            VStack(spacing: DesignConstants.Spacing.step2x) {
+                nameField
+                explodeButton
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.vertical, DesignConstants.Spacing.step3x)
-            .frame(width: previewWidth, alignment: .leading)
-            .background(.colorFillSubtle)
         }
-        .frame(width: previewWidth)
-        .task {
-            await loadInviteImage()
-        }
+        .frame(width: cardWidth)
+        .background(.colorFillSubtle)
+        .accessibilityIdentifier("side-convo-card")
     }
 
     @ViewBuilder
-    private var explodeMenu: some View {
+    private var emojiArea: some View {
+        ZStack {
+            if let emoji = resolvedEmoji {
+                Text(emoji)
+                    .font(.system(size: 80))
+            } else {
+                Image("convosOrangeIcon")
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .foregroundStyle(.colorTextPrimaryInverted)
+                    .frame(width: 48, height: 48)
+            }
+        }
+        .frame(width: cardWidth, height: cardWidth)
+        .background(.colorBackgroundMedia)
+    }
+
+    @ViewBuilder
+    private var nameField: some View {
+        TextField("Convo name", text: $convoName)
+            .font(.callout)
+            .foregroundStyle(.colorTextPrimary)
+            .padding(.horizontal, DesignConstants.Spacing.step3x)
+            .padding(.vertical, DesignConstants.Spacing.step2x)
+            .background(.colorFillMinimal)
+            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.Spacing.step2x))
+            .accessibilityIdentifier("side-convo-name-field")
+            .onSubmit {
+                onNameEditingEnded?(convoName)
+            }
+    }
+
+    @ViewBuilder
+    private var explodeButton: some View {
         Menu {
             Section("Explode in") {
                 ForEach(ExplodeDuration.allCases, id: \.self) { duration in
@@ -517,33 +501,16 @@ private struct ComposerInvitePreviewCard: View {
                 }
             }
         } label: {
-            Image(systemName: "ellipsis")
-                .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(.colorTextSecondary)
-                .frame(width: 28, height: 28)
-                .contentShape(Rectangle())
-        }
-        .accessibilityIdentifier("invite-explode-menu")
-    }
-
-    private func loadInviteImage() async {
-        guard let imageURL = invite?.imageURL else { return }
-        let cacheKey = imageURL.absoluteString
-        if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
-            cachedImage = cached
-            imageAspectRatio = cached.size.width / cached.size.height
-            return
-        }
-        do {
-            let (data, _) = try await URLSession.shared.data(from: imageURL)
-            if let image = UIImage(data: data) {
-                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-                cachedImage = image
-                imageAspectRatio = image.size.width / image.size.height
+            HStack(spacing: DesignConstants.Spacing.stepX) {
+                Text(explodeDurationLabel)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.colorTextSecondary)
             }
-        } catch {
-            Log.error("Error loading invite preview image")
         }
+        .accessibilityIdentifier("side-convo-explode-menu")
     }
 }
 
@@ -578,6 +545,7 @@ private struct ComposerInvitePreviewCard: View {
             messageText: $messageText,
             selectedAttachmentImage: $selectedAttachmentImage,
             pendingInviteURL: pendingInviteURLPreview,
+            pendingInviteConvoName: .constant(""),
             sendButtonEnabled: sendButtonEnabled,
             focusState: $focusState,
             animateAvatarForQuickname: animateAvatarForQuickname,
