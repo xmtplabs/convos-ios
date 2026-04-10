@@ -74,6 +74,7 @@ let package = Package(
             name: "ConvosCoreTests",
             dependencies: [
                 "ConvosCore",
+                "ConvosAppData",
                 .target(name: "ConvosCoreiOS", condition: .when(platforms: [.iOS])),
                 "ConvosProfiles",
             ]

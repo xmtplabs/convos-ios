@@ -1,9 +1,9 @@
-@testable import ConvosAppData
+import ConvosAppData
 @testable import ConvosCore
 import Foundation
 import GRDB
 import Testing
-import XMTPiOS
+@preconcurrency import XMTPiOS
 
 @Suite("Invite Tag Self-Healing Tests")
 struct InviteTagSelfHealingTests {
@@ -44,10 +44,9 @@ struct InviteTagSelfHealingTests {
 
         _ = try await conversationWriter.store(conversation: group, inboxId: inboxIdA)
 
-        var emptyMetadata = ConversationCustomMetadata()
-        emptyMetadata.name = "Test Group"
-        let encodedEmptyMetadata = try emptyMetadata.toCompactString()
-        try await group.updateAppData(appData: encodedEmptyMetadata)
+        let metadataWithoutTag = ConversationCustomMetadata()
+        let encodedCleared = try metadataWithoutTag.toCompactString()
+        try await group.updateAppData(appData: encodedCleared)
 
         _ = try await conversationWriter.store(conversation: group, inboxId: inboxIdA)
 

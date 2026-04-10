@@ -250,7 +250,7 @@ extension XMTPiOS.Group {
             guard metadata.tag.isEmpty else { return }
             metadata.tag = expectedTag
         } verify: { metadata in
-            metadata.tag == expectedTag
+            !metadata.tag.isEmpty
         }
     }
 
