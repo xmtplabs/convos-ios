@@ -45,6 +45,7 @@ public protocol SessionManagerProtocol: AnyObject, Sendable {
     func voiceMemoTranscriptionService() -> any VoiceMemoTranscriptionServicing
 
     func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol
+    func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository
 
     func conversationsRepository(for consent: [Consent]) -> any ConversationsRepositoryProtocol
     func conversationsCountRepo(

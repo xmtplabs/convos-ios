@@ -94,6 +94,47 @@ struct ConversationInfoView: View {
     }
 
     @ViewBuilder
+    private var assistantSection: some View {
+        if viewModel.conversation.hasVerifiedAssistant {
+            Section {
+                filesAndLinksRow
+            }
+        }
+    }
+
+    private var convoCodeSection: some View {
+        Section {
+            convoCodeRow
+
+            lockRow
+        }
+    }
+
+    @ViewBuilder
+    private var filesAndLinksRow: some View {
+        NavigationLink {
+            AssistantFilesLinksView(
+                repository: viewModel.makeAssistantFilesLinksRepository()
+            )
+        } label: {
+            FeatureRowItem(
+                imageName: nil,
+                symbolName: "folder",
+                title: "Files & Links",
+                subtitle: "Managed by Assistants",
+                iconBackgroundColor: .colorFillMinimal,
+                iconForegroundColor: .colorTextPrimary
+            ) {
+                Image(systemName: "chevron.right")
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(.colorTextSecondary)
+            }
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("files-links-row")
+    }
+
+    @ViewBuilder
     private var convoCodeRow: some View {
         if viewModel.isLocked && !viewModel.isCurrentUserSuperAdmin {
             EmptyView()
@@ -397,11 +438,9 @@ struct ConversationInfoView: View {
 
                 membersSection
 
-                Section {
-                    convoCodeRow
+                assistantSection
 
-                    lockRow
-                }
+                convoCodeSection
 
                 if viewModel.canRemoveMembers {
                     Section {

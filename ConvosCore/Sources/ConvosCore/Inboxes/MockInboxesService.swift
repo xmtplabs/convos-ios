@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import GRDB
 
 public final class MockInboxesService: SessionManagerProtocol {
     private let mockMessagingService: MockMessagingService = MockMessagingService()
@@ -131,6 +132,13 @@ public final class MockInboxesService: SessionManagerProtocol {
 
     public func attachmentLocalStateWriter() -> any AttachmentLocalStateWriterProtocol {
         MockAttachmentLocalStateWriter()
+    }
+
+    // swiftlint:disable:next force_try
+    private static let mockDatabase: DatabaseQueue = try! DatabaseQueue()
+
+    public func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
+        AssistantFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)
     }
 
     // MARK: - Lifecycle Management
