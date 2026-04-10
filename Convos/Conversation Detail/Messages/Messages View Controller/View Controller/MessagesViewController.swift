@@ -196,7 +196,6 @@ final class MessagesViewController: UIViewController {
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     private var filePreviewURL: URL?
-    private var markdownPreviewController: UIHostingController<MarkdownAttachmentPreviewSheet>?
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
     }
@@ -922,7 +921,6 @@ extension MessagesViewController: QLPreviewControllerDataSource {
             sheet.detents = [.medium(), .large()]
             sheet.prefersGrabberVisible = true
         }
-        markdownPreviewController = controller
         present(controller, animated: true)
     }
 
@@ -1008,7 +1006,6 @@ extension MessagesViewController: UIAdaptivePresentationControllerDelegate {
             try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
         }
         filePreviewURL = nil
-        markdownPreviewController = nil
     }
 }
 
@@ -1019,7 +1016,6 @@ private struct MarkdownAttachmentPreviewSheet: View {
 
     @State private var htmlString: String?
     @State private var errorMessage: String?
-    @State private var showingShareSheet: Bool = false
 
     var body: some View {
         NavigationStack {
@@ -1053,18 +1049,19 @@ private struct MarkdownAttachmentPreviewSheet: View {
     }
 
     private func loadMarkdown() {
+        guard let markedJS = Self.loadMarkedJS() else {
+            errorMessage = "Markdown renderer is unavailable."
+            return
+        }
         do {
             let markdown = try String(contentsOf: fileURL, encoding: .utf8)
-            let escaped = markdown
-                .replacingOccurrences(of: "\\", with: "\\\\")
-                .replacingOccurrences(of: "`", with: "\\`")
-                .replacingOccurrences(of: "$", with: "\\$")
-            let markedJS = loadMarkedJS()
+            let encodedMarkdown = Data(markdown.utf8).base64EncodedString()
             htmlString = """
             <!DOCTYPE html>
             <html>
             <head>
             <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src https: data:;" />
             <style>
                 :root { color-scheme: light dark; }
                 body {
@@ -1121,7 +1118,9 @@ private struct MarkdownAttachmentPreviewSheet: View {
             <body>
             <div id="content"></div>
             <script>
-                document.getElementById('content').innerHTML = marked.parse(`\(escaped)`);
+                var decoded = atob('\(encodedMarkdown)');
+                var text = new TextDecoder().decode(Uint8Array.from(decoded, function(c) { return c.charCodeAt(0); }));
+                document.getElementById('content').innerHTML = marked.parse(text);
             </script>
             </body>
             </html>
@@ -1131,10 +1130,10 @@ private struct MarkdownAttachmentPreviewSheet: View {
         }
     }
 
-    private func loadMarkedJS() -> String {
+    private static func loadMarkedJS() -> String? {
         guard let url = Bundle.main.url(forResource: "marked.min", withExtension: "js"),
               let js = try? String(contentsOf: url, encoding: .utf8) else {
-            return ""
+            return nil
         }
         return js
     }
