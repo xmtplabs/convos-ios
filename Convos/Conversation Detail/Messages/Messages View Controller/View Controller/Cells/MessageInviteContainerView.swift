@@ -87,6 +87,10 @@ struct MessageInviteView: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                } else if let emoji = invite.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 72))
+                        .frame(maxWidth: .infinity)
                 } else {
                     Image("convosOrangeIcon")
                         .resizable()

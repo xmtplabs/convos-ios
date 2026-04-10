@@ -8,6 +8,7 @@ public struct MessageInvite: Sendable, Hashable, Codable {
     public let conversationName: String?
     public let conversationDescription: String?
     public let imageURL: URL?
+    public let emoji: String?
     public let expiresAt: Date?
     public let conversationExpiresAt: Date?
 }
@@ -30,6 +31,7 @@ public extension MessageInvite {
             conversationName: signedInvite.name,
             conversationDescription: signedInvite.description_p,
             imageURL: imageURL,
+            emoji: signedInvite.emoji,
             expiresAt: signedInvite.expiresAt,
             conversationExpiresAt: signedInvite.conversationExpiresAt
         )
@@ -41,6 +43,7 @@ public extension MessageInvite {
             conversationName: nil,
             conversationDescription: nil,
             imageURL: nil,
+            emoji: nil,
             expiresAt: nil,
             conversationExpiresAt: nil
         )
@@ -51,6 +54,7 @@ public extension MessageInvite {
             conversationName: "Untitled",
             conversationDescription: "A place to chat",
             imageURL: nil,
+            emoji: "🦊",
             expiresAt: nil,
             conversationExpiresAt: nil
         )
