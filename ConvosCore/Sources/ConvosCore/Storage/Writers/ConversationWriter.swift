@@ -213,7 +213,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     ) async throws -> DBConversation {
         // Sync group to get latest state including member permission levels
         try await conversation.sync()
-        _ = try await conversation.ensureConversationEmoji(seed: clientConversationId ?? conversation.id)
+        if let clientConversationId {
+            _ = try await conversation.ensureConversationEmoji(seed: clientConversationId)
+        }
 
         // Extract conversation metadata
         let metadata = try await extractConversationMetadata(from: conversation)
