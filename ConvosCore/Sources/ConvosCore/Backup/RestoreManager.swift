@@ -21,7 +21,7 @@ public protocol RestoreArchiveImporter: Sendable {
 }
 
 public protocol VaultArchiveImporter: Sendable {
-    func importVaultArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry]
+    func importVaultArchive(from path: URL, encryptionKey: Data, vaultIdentity: KeychainIdentity) async throws -> [VaultKeyEntry]
 }
 
 public protocol RestoreLifecycleControlling: Sendable {
@@ -92,10 +92,11 @@ public actor RestoreManager {
             Log.info("[Restore] reading bundle (\(bundleURL.lastPathComponent))")
             let bundleData = try Data(contentsOf: bundleURL)
 
-            let (encryptionKey, _) = try await decryptBundle(
+            let (encryptionKey, vaultIdentity) = try await decryptBundle(
                 bundleData: bundleData,
                 to: stagingDir
             )
+            Log.info("[Restore] decrypted with vault identity inboxId=\(vaultIdentity.inboxId)")
 
             let metadata = try BackupBundleMetadata.read(from: stagingDir)
             Log.info("[Restore] backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
@@ -108,7 +109,11 @@ public actor RestoreManager {
             }
 
             Log.info("[Restore] importing vault archive and extracting keys")
-            let keyEntries = try await importVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
+            let keyEntries = try await importVaultArchive(
+                encryptionKey: encryptionKey,
+                vaultIdentity: vaultIdentity,
+                in: stagingDir
+            )
             Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault archive")
 
             if keyEntries.isEmpty, metadata.inboxCount > 0 {
@@ -358,7 +363,11 @@ public actor RestoreManager {
 
     // MARK: - Vault archive import
 
-    private func importVaultArchive(encryptionKey: Data, in directory: URL) async throws -> [VaultKeyEntry] {
+    private func importVaultArchive(
+        encryptionKey: Data,
+        vaultIdentity: KeychainIdentity,
+        in directory: URL
+    ) async throws -> [VaultKeyEntry] {
         state = .importingVault
         let vaultArchivePath = BackupBundle.vaultArchivePath(in: directory)
 
@@ -370,7 +379,11 @@ public actor RestoreManager {
             throw RestoreError.missingVaultArchive
         }
 
-        return try await vaultArchiveImporter.importVaultArchive(from: vaultArchivePath, encryptionKey: encryptionKey)
+        return try await vaultArchiveImporter.importVaultArchive(
+            from: vaultArchivePath,
+            encryptionKey: encryptionKey,
+            vaultIdentity: vaultIdentity
+        )
     }
 
     // MARK: - Key restoration
