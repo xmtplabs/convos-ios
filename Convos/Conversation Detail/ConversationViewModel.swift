@@ -1046,7 +1046,10 @@ extension ConversationViewModel {
                     Log.error("Failed to finalize side convo before send: \(error)")
                 }
 
-                if let sideConvoImage {
+                if let sideConvoImage, let inviteURL {
+                    if let invite = MessageInvite.from(text: inviteURL) {
+                        ImageCache.shared.cacheAfterUpload(sideConvoImage, for: invite, url: invite.inviteSlug)
+                    }
                     Task {
                         do {
                             let messagingService = try await session.messagingService(for: sideConvoClientId, inboxId: sideConvoInboxId)
