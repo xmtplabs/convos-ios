@@ -414,12 +414,14 @@ private struct ComposerInvitePreviewCard: View {
     var explodeDuration: ExplodeDuration?
     var onSetExplodeDuration: ((ExplodeDuration?) -> Void)?
 
-    @State private var ogTitle: String?
     @State private var cachedImage: UIImage?
     @State private var imageAspectRatio: CGFloat?
-    @State private var hasFetchedMetadata: Bool = false
 
     private let previewWidth: CGFloat = 200.0
+
+    private var invite: MessageInvite? {
+        MessageInvite.from(text: inviteURL)
+    }
 
     private var clampedAspectRatio: CGFloat {
         let ratio = imageAspectRatio ?? 1.91
@@ -427,7 +429,10 @@ private struct ComposerInvitePreviewCard: View {
     }
 
     private var displayTitle: String {
-        ogTitle ?? "Join this convo"
+        if let name = invite?.conversationName, !name.isEmpty {
+            return "Pop into \"\(name)\""
+        }
+        return "Pop into this convo"
     }
 
     var body: some View {
@@ -437,6 +442,11 @@ private struct ComposerInvitePreviewCard: View {
                     Image(uiImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fill)
+                } else if let emoji = invite?.emoji, !emoji.isEmpty {
+                    Text(emoji)
+                        .font(.system(size: 56))
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 80.0)
                 } else {
                     Image("convosOrangeIcon")
                         .resizable()
@@ -481,7 +491,7 @@ private struct ComposerInvitePreviewCard: View {
         }
         .frame(width: previewWidth)
         .task {
-            await fetchMetadata()
+            await loadInviteImage()
         }
     }
 
@@ -507,33 +517,23 @@ private struct ComposerInvitePreviewCard: View {
         .accessibilityIdentifier("invite-explode-menu")
     }
 
-    private func fetchMetadata() async {
-        guard !hasFetchedMetadata else { return }
-        let metadata = await OpenGraphService.shared.fetchMetadata(for: inviteURL)
-        if let metadata {
-            ogTitle = metadata.title
-            if let w = metadata.imageWidth, let h = metadata.imageHeight, w > 0, h > 0 {
-                imageAspectRatio = CGFloat(w) / CGFloat(h)
-            }
-            if let imageURLString = metadata.imageURL,
-               let imageURL = URL(string: imageURLString) {
-                await loadImage(from: imageURL)
-            }
-        }
-        hasFetchedMetadata = true
-    }
-
-    private func loadImage(from url: URL) async {
-        let cacheKey = url.absoluteString
+    private func loadInviteImage() async {
+        guard let imageURL = invite?.imageURL else { return }
+        let cacheKey = imageURL.absoluteString
         if let cached = await ImageCache.shared.imageAsync(for: cacheKey) {
             cachedImage = cached
             imageAspectRatio = cached.size.width / cached.size.height
             return
         }
-        if let image = await OpenGraphService.shared.loadImage(from: url) {
-            ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
-            cachedImage = image
-            imageAspectRatio = image.size.width / image.size.height
+        do {
+            let (data, _) = try await URLSession.shared.data(from: imageURL)
+            if let image = UIImage(data: data) {
+                ImageCache.shared.cacheImage(image, for: cacheKey, storageTier: .cache)
+                cachedImage = image
+                imageAspectRatio = image.size.width / image.size.height
+            }
+        } catch {
+            Log.error("Error loading invite preview image")
         }
     }
 }

@@ -60,8 +60,8 @@ struct MessagesMediaButtonsView: View {
                     .contentShape(.circle)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Convos")
-            .accessibilityIdentifier("convos-action-button")
+            .accessibilityLabel("Side convo")
+            .accessibilityIdentifier("side-convo-button")
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Media buttons")
