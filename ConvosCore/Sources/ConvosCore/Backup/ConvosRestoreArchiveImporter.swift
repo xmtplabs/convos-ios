@@ -34,6 +34,20 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporter {
         defer { try? client.dropLocalDatabaseConnection() }
 
         try await client.importArchive(path: path, encryptionKey: encryptionKey)
+
+        // After archive import, the XMTP SDK's consent state for restored
+        // groups may be 'unknown'. shouldProcessConversation in StreamProcessor
+        // drops messages from groups that aren't 'allowed', so the first
+        // incoming message after restore would be silently lost. Set consent
+        // to 'allowed' for all groups in this inbox's archive.
+        let groups = try client.conversations.listGroups()
+        for group in groups {
+            try await group.updateConsentState(state: .allowed)
+        }
+        if !groups.isEmpty {
+            Log.info("[Restore] set consent=allowed for \(groups.count) group(s) in \(inboxId)")
+        }
+
         let newInstallationId = client.installationID
         Log.info("[Restore] conversation archive imported for \(inboxId) (new installationId=\(newInstallationId))")
         return newInstallationId
