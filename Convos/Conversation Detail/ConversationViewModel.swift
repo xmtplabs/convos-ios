@@ -1034,12 +1034,6 @@ extension ConversationViewModel {
                     if !sideConvoName.isEmpty {
                         try await metadataWriter.updateName(sideConvoName, for: sideConvoLinkedId)
                     }
-                    if let sideConvoImage {
-                        let stateManager = messagingService.conversationStateManager(for: sideConvoLinkedId)
-                        if let convo = try stateManager.draftConversationRepository.fetchConversation() {
-                            try await metadataWriter.updateImage(sideConvoImage, for: convo)
-                        }
-                    }
                     if let sideConvoExplodeDuration {
                         let explosionWriter = messagingService.conversationExplosionWriter()
                         let expiresAt = Date().addingTimeInterval(sideConvoExplodeDuration.timeInterval)
@@ -1050,6 +1044,21 @@ extension ConversationViewModel {
                     }
                 } catch {
                     Log.error("Failed to finalize side convo before send: \(error)")
+                }
+
+                if let sideConvoImage {
+                    Task {
+                        do {
+                            let messagingService = try await session.messagingService(for: sideConvoClientId, inboxId: sideConvoInboxId)
+                            let metadataWriter = messagingService.conversationMetadataWriter()
+                            let stateManager = messagingService.conversationStateManager(for: sideConvoLinkedId)
+                            if let convo = try stateManager.draftConversationRepository.fetchConversation() {
+                                try await metadataWriter.updateImage(sideConvoImage, for: convo)
+                            }
+                        } catch {
+                            Log.error("Failed to upload side convo image: \(error)")
+                        }
+                    }
                 }
             }
 
