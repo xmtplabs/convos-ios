@@ -1046,21 +1046,22 @@ extension ConversationViewModel {
                     Log.error("Failed to finalize side convo before send: \(error)")
                 }
 
-                if let sideConvoImage, let inviteURL {
-                    if let invite = MessageInvite.from(text: inviteURL) {
-                        ImageCache.shared.cacheAfterUpload(sideConvoImage, for: invite, url: invite.inviteSlug)
-                    }
-                    Task {
-                        do {
-                            let messagingService = try await session.messagingService(for: sideConvoClientId, inboxId: sideConvoInboxId)
-                            let metadataWriter = messagingService.conversationMetadataWriter()
-                            let stateManager = messagingService.conversationStateManager(for: sideConvoLinkedId)
-                            if let convo = try stateManager.draftConversationRepository.fetchConversation() {
-                                try await metadataWriter.updateImage(sideConvoImage, for: convo)
+                if let sideConvoImage {
+                    do {
+                        let messagingService = try await session.messagingService(for: sideConvoClientId, inboxId: sideConvoInboxId)
+                        let metadataWriter = messagingService.conversationMetadataWriter()
+                        let stateManager = messagingService.conversationStateManager(for: sideConvoLinkedId)
+                        if let convo = try stateManager.draftConversationRepository.fetchConversation() {
+                            try await metadataWriter.updateImage(sideConvoImage, for: convo)
+                            if let updatedInvite = try await metadataWriter.refreshInvite(for: sideConvoLinkedId) {
+                                inviteURL = updatedInvite.inviteURLString
                             }
-                        } catch {
-                            Log.error("Failed to upload side convo image: \(error)")
                         }
+                    } catch {
+                        Log.error("Failed to upload side convo image: \(error)")
+                    }
+                    if let inviteURL, let invite = MessageInvite.from(text: inviteURL) {
+                        ImageCache.shared.cacheAfterUpload(sideConvoImage, for: invite, url: invite.inviteSlug)
                     }
                 }
             }
