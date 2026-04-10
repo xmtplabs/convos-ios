@@ -69,7 +69,7 @@ extension XMTPiOS.Group {
                 metadata.emoji = generatedEmoji
             }
         } verify: { metadata in
-            metadata.hasEmoji && metadata.emoji == generatedEmoji
+            metadata.hasEmoji && !metadata.emoji.isEmpty
         }
 
         return try conversationEmoji ?? generatedEmoji

@@ -448,8 +448,12 @@ public actor ConversationStateMachine {
         // Publish the conversation
         try await optimisticConversation.publish()
 
-        if let group = optimisticConversation as? XMTPiOS.Group {
-            _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+        do {
+            if let group = optimisticConversation as? XMTPiOS.Group {
+                _ = try await group.ensureConversationEmoji(seed: clientConversationId)
+            }
+        } catch {
+            Log.warning("Failed to seed conversation emoji for new conversation: \(error)")
         }
 
         // Process the conversation in case the syncing manager

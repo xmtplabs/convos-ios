@@ -76,7 +76,10 @@ public extension Conversation {
     }
 
     var defaultEmoji: String {
-        conversationEmoji ?? EmojiSelector.emoji(for: clientConversationId)
+        if let conversationEmoji, !conversationEmoji.isEmpty {
+            return conversationEmoji
+        }
+        return EmojiSelector.emoji(for: clientConversationId)
     }
 
     var avatarType: ConversationAvatarType {

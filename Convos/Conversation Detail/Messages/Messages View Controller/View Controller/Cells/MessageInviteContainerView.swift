@@ -148,7 +148,6 @@ struct MessageInviteView: View {
                 }
             } catch {
                 Log.error("Error loading image for invite")
-                cachedImage = nil
             }
         }
     }
