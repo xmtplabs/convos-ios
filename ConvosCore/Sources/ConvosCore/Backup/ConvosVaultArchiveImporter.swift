@@ -47,6 +47,9 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         let importDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("xmtp-vault-import-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: importDir, withIntermediateDirectories: true)
+        defer {
+            try? FileManager.default.removeItem(at: importDir)
+        }
         Log.info("[Restore] no existing vault XMTP DB, importing archive into isolated directory")
 
         let importOptions = ClientOptions(
@@ -61,15 +64,13 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
             account: vaultIdentity.keys.signingKey,
             options: importOptions
         )
+        defer { try? client.dropLocalDatabaseConnection() }
 
         Log.info("[Restore] importing vault archive (inboxId: \(client.inboxID))")
         try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
         Log.info("[Restore] vault archive import succeeded")
 
-        let entries = try await extractKeys(from: client)
-        try? client.dropLocalDatabaseConnection()
-        try? FileManager.default.removeItem(at: importDir)
-        return entries
+        return try await extractKeys(from: client)
     }
 
     private func extractKeys(from client: Client) async throws -> [VaultKeyEntry] {
