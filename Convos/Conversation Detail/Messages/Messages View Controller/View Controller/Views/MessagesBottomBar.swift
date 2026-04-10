@@ -193,9 +193,9 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                         voiceMemoRecorder.cancelRecording()
                     }
                 } label: {
-                    Image(systemName: "xmark")
+                    Image(systemName: "trash")
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.colorTextSecondary)
+                        .foregroundStyle(.colorCaution)
                         .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
                 }
                 .clipShape(.circle)
