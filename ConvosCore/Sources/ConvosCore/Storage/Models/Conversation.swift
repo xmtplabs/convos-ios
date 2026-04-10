@@ -25,6 +25,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let imageSalt: Data?
     public let imageNonce: Data?
     public let imageEncryptionKey: Data?
+    public let conversationEmoji: String?
     public let includeInfoInPublicPreview: Bool
     public let isDraft: Bool
     public let invite: Invite?
@@ -75,12 +76,15 @@ public extension Conversation {
     }
 
     var defaultEmoji: String {
-        EmojiSelector.emoji(for: clientConversationId)
+        conversationEmoji ?? EmojiSelector.emoji(for: clientConversationId)
     }
 
     var avatarType: ConversationAvatarType {
         if imageURL != nil {
             return .customImage
+        }
+        if let conversationEmoji, !conversationEmoji.isEmpty {
+            return .emoji(conversationEmoji)
         }
         let otherMembers = membersWithoutCurrent
         if otherMembers.count == 1, let member = otherMembers.first {

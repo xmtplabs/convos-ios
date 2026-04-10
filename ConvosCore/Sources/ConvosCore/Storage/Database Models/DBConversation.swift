@@ -48,6 +48,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageSalt: Column = Column(CodingKeys.imageSalt)
         static let imageNonce: Column = Column(CodingKeys.imageNonce)
         static let imageEncryptionKey: Column = Column(CodingKeys.imageEncryptionKey)
+        static let conversationEmoji: Column = Column(CodingKeys.conversationEmoji)
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
         static let hasHadVerifiedAssistant: Column = Column(CodingKeys.hasHadVerifiedAssistant)
@@ -73,6 +74,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageSalt: Data?
     let imageNonce: Data?
     let imageEncryptionKey: Data?
+    let conversationEmoji: String?
     let imageLastRenewed: Date?
     let isUnused: Bool
     let hasHadVerifiedAssistant: Bool
@@ -258,6 +260,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -286,6 +289,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -314,6 +318,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -342,6 +347,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -370,6 +376,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -400,6 +407,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -428,6 +436,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -456,6 +465,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -484,6 +494,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -512,6 +523,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -540,6 +552,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -568,6 +581,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -596,6 +610,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -624,6 +639,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -652,6 +668,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -680,6 +697,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant
@@ -708,6 +726,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant

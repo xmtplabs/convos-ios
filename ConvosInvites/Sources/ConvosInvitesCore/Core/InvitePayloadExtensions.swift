@@ -8,6 +8,7 @@ public struct InviteSlugOptions: Sendable {
     public var name: String?
     public var description: String?
     public var imageURL: String?
+    public var emoji: String?
     public var expiresAt: Date?
     public var expiresAfterUse: Bool
     public var conversationExpiresAt: Date?
@@ -17,6 +18,7 @@ public struct InviteSlugOptions: Sendable {
         name: String? = nil,
         description: String? = nil,
         imageURL: String? = nil,
+        emoji: String? = nil,
         expiresAt: Date? = nil,
         expiresAfterUse: Bool = false,
         conversationExpiresAt: Date? = nil,
@@ -25,6 +27,7 @@ public struct InviteSlugOptions: Sendable {
         self.name = name
         self.description = description
         self.imageURL = imageURL
+        self.emoji = emoji
         self.expiresAt = expiresAt
         self.expiresAfterUse = expiresAfterUse
         self.conversationExpiresAt = conversationExpiresAt
@@ -82,6 +85,9 @@ extension SignedInvite {
             if let imageURL = options.imageURL {
                 payload.imageURL = imageURL
             }
+            if let emoji = options.emoji {
+                payload.emoji = emoji
+            }
         }
 
         if let expiresAt = options.expiresAt {
@@ -134,6 +140,11 @@ extension InvitePayload {
         guard hasImageURL else { return nil }
         return imageURL
     }
+
+    public var emojiIfPresent: String? {
+        guard hasEmoji else { return nil }
+        return emoji
+    }
 }
 
 // MARK: - SignedInvite Accessors
@@ -178,6 +189,10 @@ extension SignedInvite {
 
     public var imageURL: String? {
         invitePayload.imageURLIfPresent
+    }
+
+    public var emoji: String? {
+        invitePayload.emojiIfPresent
     }
 
     public var conversationExpiresAt: Date? {

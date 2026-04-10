@@ -17,6 +17,7 @@ extension SignedInvite {
                 name: conversation.name,
                 description: conversation.description,
                 imageURL: conversation.publicImageURLString,
+                emoji: conversation.conversationEmoji,
                 expiresAt: expiresAt,
                 expiresAfterUse: expiresAfterUse,
                 conversationExpiresAt: conversation.expiresAt,

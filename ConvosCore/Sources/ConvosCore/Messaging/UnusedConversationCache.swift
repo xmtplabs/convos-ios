@@ -1014,6 +1014,7 @@ extension UnusedConversationCache {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: nil,
                 imageLastRenewed: nil,
                 isUnused: true,
                 hasHadVerifiedAssistant: false
@@ -1074,6 +1075,7 @@ extension UnusedConversationCache {
                     imageSalt: nil,
                     imageNonce: nil,
                     imageEncryptionKey: nil,
+                    conversationEmoji: nil,
                     imageLastRenewed: nil,
                     isUnused: true,
                     hasHadVerifiedAssistant: false

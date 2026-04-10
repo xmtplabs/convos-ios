@@ -162,6 +162,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 imageSalt: nil,
                 imageNonce: nil,
                 imageEncryptionKey: nil,
+                conversationEmoji: signedInvite.emoji,
                 imageLastRenewed: nil,
                 isUnused: false,
                 hasHadVerifiedAssistant: false
@@ -212,6 +213,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     ) async throws -> DBConversation {
         // Sync group to get latest state including member permission levels
         try await conversation.sync()
+        _ = try await conversation.ensureConversationEmoji(seed: clientConversationId ?? conversation.id)
 
         // Extract conversation metadata
         let metadata = try await extractConversationMetadata(from: conversation)
@@ -301,6 +303,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let imageSalt: Data?
         let imageNonce: Data?
         let imageEncryptionKey: Data?
+        let conversationEmoji: String?
         let expiresAt: Date?
         let debugInfo: ConversationDebugInfo
         let isLocked: Bool
@@ -314,6 +317,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         let encryptedRef = try? conversation.encryptedGroupImage
         let imageEncryptionKey = try? conversation.imageEncryptionKey
+        let conversationEmoji = try? conversation.conversationEmoji
 
         return ConversationMetadata(
             kind: .group,
@@ -323,6 +327,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageSalt: encryptedRef?.salt,
             imageNonce: encryptedRef?.nonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             expiresAt: try conversation.expiresAt,
             debugInfo: debugInfo,
             isLocked: isLocked,
@@ -366,6 +371,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageSalt: metadata.imageSalt,
             imageNonce: metadata.imageNonce,
             imageEncryptionKey: metadata.imageEncryptionKey,
+            conversationEmoji: metadata.conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: false,
             hasHadVerifiedAssistant: metadata.hasHadVerifiedAssistant
