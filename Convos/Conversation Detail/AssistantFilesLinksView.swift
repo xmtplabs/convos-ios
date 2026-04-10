@@ -210,7 +210,7 @@ struct AssistantFilesLinksView: View {
 
                 Spacer()
 
-                Image(systemName: "arrow.up.right")
+                Image(systemName: "safari")
                     .foregroundStyle(.colorTextSecondary)
             }
             .padding(.horizontal, DesignConstants.Spacing.step4x)
