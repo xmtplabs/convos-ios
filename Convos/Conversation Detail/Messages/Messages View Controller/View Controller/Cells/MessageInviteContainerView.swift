@@ -79,7 +79,7 @@ struct MessageInviteView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
-            Color.colorBackgroundInverted
+            Color.colorBackgroundPic
                 .aspectRatio(1, contentMode: .fit)
                 .overlay {
                     if let image = cachedImage {
