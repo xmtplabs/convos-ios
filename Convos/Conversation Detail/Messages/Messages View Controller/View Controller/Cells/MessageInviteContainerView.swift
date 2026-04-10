@@ -68,16 +68,13 @@ struct MessageInviteView: View {
 
     var title: String {
         if let name = invite.conversationName, !name.isEmpty {
-            return "Pop into my convo \"\(name)\""
+            return name
         }
-        return "Pop into my convo"
+        return "New Convo"
     }
 
     var description: String {
-        if let description = invite.conversationDescription, !description.isEmpty {
-            return description
-        }
-        return "convos.org"
+        "Tap to join"
     }
 
     var body: some View {
