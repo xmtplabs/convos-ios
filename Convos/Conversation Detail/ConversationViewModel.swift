@@ -1085,6 +1085,7 @@ extension ConversationViewModel {
         do {
             let messagingService = try await session.messagingService(for: clientId, inboxId: inboxId)
             let metadataWriter = messagingService.conversationMetadataWriter()
+            try await metadataWriter.updateIncludeInfoInPublicPreview(true, for: linkedId)
             if !name.isEmpty {
                 try await metadataWriter.updateName(name, for: linkedId)
             }
