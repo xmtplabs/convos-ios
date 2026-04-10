@@ -1336,6 +1336,43 @@ extension ConversationViewModel {
     }
 
     @MainActor
+    func conversationMetadataDebugText() async -> String {
+        do {
+            let messagingService = try await session.messagingService(
+                for: conversation.clientId,
+                inboxId: conversation.inboxId
+            )
+            let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+            let client = inboxResult.client
+            return try await client.conversationMetadataDebugInfo(
+                conversationId: conversation.id,
+                clientConversationId: conversation.clientConversationId
+            ).debugText
+        } catch {
+            return metadataDebugFallbackText(reason: error.localizedDescription)
+        }
+    }
+
+    @MainActor
+    func restoreInviteTagIfMissing(_ expectedTag: String) async throws {
+        let trimmedTag = expectedTag.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedTag.isEmpty else { return }
+
+        let messagingService = try await session.messagingService(
+            for: conversation.clientId,
+            inboxId: conversation.inboxId
+        )
+        let inboxResult = try await messagingService.inboxStateManager.waitForInboxReadyResult()
+        let client = inboxResult.client
+        guard let xmtpConversation = try await client.conversation(with: conversation.id),
+              case .group(let group) = xmtpConversation else {
+            throw NSError(domain: "ConversationViewModel", code: 1, userInfo: [NSLocalizedDescriptionKey: "XMTP group not found"])
+        }
+
+        try await group.restoreInviteTagIfMissing(trimmedTag)
+    }
+
+    @MainActor
     func exportDebugLogs() async throws -> URL {
         let environment = ConfigManager.shared.currentEnvironment
 
@@ -1364,6 +1401,14 @@ extension ConversationViewModel {
                 conversationDebugInfo: debugInfoURL
             )
         }.value
+    }
+
+    private func metadataDebugFallbackText(reason: String) -> String {
+        [
+            "conversationId: \(conversation.id)",
+            "clientConversationId: \(conversation.clientConversationId)",
+            "error: \(reason)"
+        ].joined(separator: "\n")
     }
 
     private func withThrowingTimeout<T: Sendable>(

@@ -52,7 +52,7 @@ extension XMTPiOS.Group {
 
     public func updateExpiresAt(date: Date) async throws {
         let expiresAtUnix = Int64(date.timeIntervalSince1970)
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "updateExpiresAt") { metadata in
             metadata.expiresAtUnix = expiresAtUnix
         } verify: { metadata in
             metadata.hasExpiresAtUnix && metadata.expiresAtUnix == expiresAtUnix
@@ -76,7 +76,7 @@ extension XMTPiOS.Group {
         }
 
         let newKey = try ImageEncryption.generateGroupKey()
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "ensureImageEncryptionKey") { metadata in
             if !metadata.hasImageEncryptionKey {
                 metadata.imageEncryptionKey = newKey
             }
@@ -102,7 +102,7 @@ extension XMTPiOS.Group {
     }
 
     public func updateEncryptedGroupImage(_ encryptedRef: EncryptedImageRef) async throws {
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "updateEncryptedGroupImage") { metadata in
             metadata.encryptedGroupImage = encryptedRef
         } verify: { metadata in
             metadata.hasEncryptedGroupImage &&
@@ -121,7 +121,7 @@ extension XMTPiOS.Group {
         guard existingTag.isEmpty else { return }
 
         let newTag = try generateSecureRandomString(length: 10)
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "ensureInviteTag") { metadata in
             if metadata.tag.isEmpty {
                 metadata.tag = newTag
             }
@@ -135,7 +135,7 @@ extension XMTPiOS.Group {
     public func rotateInviteTag() async throws {
         let oldTag = try inviteTag
         let newTag = try generateSecureRandomString(length: 10)
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "rotateInviteTag") { metadata in
             metadata.tag = newTag
         } verify: { metadata in
             metadata.tag != oldTag && !metadata.tag.isEmpty
@@ -213,7 +213,7 @@ extension XMTPiOS.Group {
         guard let conversationProfile = profile.conversationProfile else {
             throw ConversationCustomMetadataError.invalidInboxIdHex(profile.inboxId)
         }
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "updateProfile") { metadata in
             metadata.upsertProfile(conversationProfile)
         } verify: { metadata in
             metadata.findProfile(inboxId: profile.inboxId) == conversationProfile
@@ -241,17 +241,50 @@ extension XMTPiOS.Group {
     ///   - modify: Closure to modify the metadata
     ///   - verify: Closure to verify the modification persisted
     /// - Throws: `ConversationCustomMetadataError.metadataUpdateFailed` if all retries exhausted
+    public func restoreInviteTagIfMissing(_ expectedTag: String) async throws {
+        guard !expectedTag.isEmpty else { return }
+        guard Self.isValidInviteTag(expectedTag) else {
+            throw ConversationCustomMetadataError.invalidInviteTag(expectedTag)
+        }
+        try await atomicUpdateMetadata(operation: "restoreInviteTagIfMissing") { metadata in
+            guard metadata.tag.isEmpty else { return }
+            metadata.tag = expectedTag
+        } verify: { metadata in
+            !metadata.tag.isEmpty
+        }
+    }
+
+    private static func isValidInviteTag(_ tag: String) -> Bool {
+        tag.range(of: "^[A-Za-z0-9]{10}$", options: .regularExpression) != nil
+    }
+
     private func atomicUpdateMetadata(
+        operation: String,
         maxRetries: Int = 3,
         modify: (inout ConversationCustomMetadata) -> Void,
         verify: (ConversationCustomMetadata) -> Bool
     ) async throws {
         for attempt in 0..<maxRetries {
-            var metadata = try currentCustomMetadata
+            let beforeAppData = try appData()
+            let beforeMetadata = ConversationCustomMetadata.parseAppData(beforeAppData)
+            var metadata = beforeMetadata
             modify(&metadata)
+
+            Log.info(
+                "[MetadataDebug] operation=\(operation) groupId=\(id) attempt=\(attempt + 1) beforeTag=\(beforeMetadata.tag) afterTag=\(metadata.tag) beforeBytes=\(beforeAppData.utf8.count)"
+            )
+            if !beforeMetadata.tag.isEmpty && metadata.tag.isEmpty {
+                Log.error("[MetadataDebug] operation=\(operation) cleared invite tag for groupId=\(id)")
+                throw ConversationCustomMetadataError.metadataUpdateFailed
+            }
+
             try await updateMetadata(metadata)
 
-            let finalMetadata = try currentCustomMetadata
+            let finalAppData = try appData()
+            let finalMetadata = ConversationCustomMetadata.parseAppData(finalAppData)
+            Log.info(
+                "[MetadataDebug] operation=\(operation) groupId=\(id) finalTag=\(finalMetadata.tag) finalBytes=\(finalAppData.utf8.count)"
+            )
             if verify(finalMetadata) {
                 return
             }
@@ -259,13 +292,20 @@ extension XMTPiOS.Group {
             if attempt < maxRetries - 1 {
                 let delayMs = UInt64(50_000_000 * (attempt + 1))
                 try await Task.sleep(nanoseconds: delayMs)
-                Log.warning("Metadata update verification failed, retrying (attempt \(attempt + 1)/\(maxRetries))")
+                Log.warning("Metadata update verification failed, retrying (operation=\(operation), attempt \(attempt + 1)/\(maxRetries))")
             }
         }
         throw ConversationCustomMetadataError.metadataUpdateFailed
     }
 
     func updateMetadata(_ metadata: ConversationCustomMetadata) async throws {
+        if let currentTag = try? inviteTag,
+           !currentTag.isEmpty,
+           metadata.tag.isEmpty {
+            Log.error("[MetadataDebug] updateMetadata refusing to clear invite tag for groupId=\(id)")
+            throw ConversationCustomMetadataError.metadataUpdateFailed
+        }
+
         let encodedMetadata = try metadata.toCompactString()
         let byteCount = encodedMetadata.lengthOfBytes(using: .utf8)
         guard byteCount <= Self.appDataByteLimit else {

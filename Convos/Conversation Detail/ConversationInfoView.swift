@@ -80,6 +80,9 @@ struct ConversationInfoView: View {
     @State private var showingFullInfo: Bool = false
     @State private var presentingShareView: Bool = false
     @State private var exportedLogsURL: URL?
+    @State private var metadataDebugText: String = "Loading…"
+    @State private var showingRestoreInviteTagAlert: Bool = false
+    @State private var restoreInviteTagText: String = ""
 
     private let maxMembersToShow: Int = 6
     private var displayedMembers: [ConversationMember] {
@@ -412,6 +415,19 @@ struct ConversationInfoView: View {
                         } label: {
                             Text("Remote commit log")
                         }
+                        NavigationLink {
+                            DebugLogsTextView(logs: metadataDebugText)
+                                .task {
+                                    metadataDebugText = await viewModel.conversationMetadataDebugText()
+                                }
+                        } label: {
+                            Text("Metadata")
+                        }
+                        Button {
+                            showingRestoreInviteTagAlert = true
+                        } label: {
+                            Text("Restore invite tag")
+                        }
                         if let url = exportedLogsURL {
                             ShareLink(item: url) {
                                 HStack {
@@ -441,6 +457,27 @@ struct ConversationInfoView: View {
                         }
                     }
                 }
+            }
+            .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {
+                TextField("Invite tag", text: $restoreInviteTagText)
+                Button("Cancel", role: .cancel) {
+                    restoreInviteTagText = ""
+                }
+                Button("Restore") {
+                    let expectedTag = restoreInviteTagText
+                    restoreInviteTagText = ""
+                    Task {
+                        do {
+                            try await viewModel.restoreInviteTagIfMissing(expectedTag)
+                            metadataDebugText = await viewModel.conversationMetadataDebugText()
+                        } catch {
+                            let refreshedDebugText = await viewModel.conversationMetadataDebugText()
+                            metadataDebugText = "Restore failed: \(error.localizedDescription)\n\n\(refreshedDebugText)"
+                        }
+                    }
+                }
+            } message: {
+                Text("Only use this if you know the expected invite tag for this convo.")
             }
             .scrollContentBackground(.hidden)
             .background(.colorBackgroundRaisedSecondary)
@@ -539,7 +576,7 @@ struct ConversationInfoView: View {
 }
 
 struct DebugLogsTextView: View {
-    @State var logs: String
+    let logs: String
     var body: some View {
         VStack {
             ScrollView {
