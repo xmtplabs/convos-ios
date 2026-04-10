@@ -979,6 +979,7 @@ extension ConversationViewModel {
         let sideConvoLinkedId = pendingInvite?.linkedConversationId
         let sideConvoClientId = pendingInvite?.linkedConversationClientId
         let sideConvoInboxId = pendingInvite?.linkedConversationInboxId
+        let sideConvoExplodeDuration = pendingInvite?.explodeDuration
         let prevLinkURL = pastedLinkPreview?.url
         let prevVideoURL = selectedVideoURL
 
@@ -1000,16 +1001,23 @@ extension ConversationViewModel {
             guard let self else { return }
 
             var inviteURL = prevInviteURL
-            if let sideConvoLinkedId, let sideConvoClientId, let sideConvoInboxId, !sideConvoName.isEmpty {
+            if let sideConvoLinkedId, let sideConvoClientId, let sideConvoInboxId {
                 do {
                     let messagingService = try await session.messagingService(for: sideConvoClientId, inboxId: sideConvoInboxId)
                     let metadataWriter = messagingService.conversationMetadataWriter()
-                    try await metadataWriter.updateName(sideConvoName, for: sideConvoLinkedId)
+                    if !sideConvoName.isEmpty {
+                        try await metadataWriter.updateName(sideConvoName, for: sideConvoLinkedId)
+                    }
+                    if let sideConvoExplodeDuration {
+                        let explosionWriter = messagingService.conversationExplosionWriter()
+                        let expiresAt = Date().addingTimeInterval(sideConvoExplodeDuration.timeInterval)
+                        try await explosionWriter.scheduleExplosion(conversationId: sideConvoLinkedId, expiresAt: expiresAt)
+                    }
                     if let updatedInvite = try await metadataWriter.refreshInvite(for: sideConvoLinkedId) {
                         inviteURL = updatedInvite.inviteURLString
                     }
                 } catch {
-                    Log.error("Failed to update side convo name before send: \(error)")
+                    Log.error("Failed to finalize side convo before send: \(error)")
                 }
             }
 
@@ -1798,22 +1806,7 @@ extension UNUserNotificationCenter {
 
 extension ConversationViewModel {
     func setInviteExplodeDuration(_ duration: ExplodeDuration?) {
-        explodeDurationTask?.cancel()
         pendingInvite?.explodeDuration = duration
-        guard let duration,
-              let clientId = pendingInvite?.linkedConversationClientId,
-              let inboxId = pendingInvite?.linkedConversationInboxId,
-              let conversationId = pendingInvite?.linkedConversationId else { return }
-        explodeDurationTask = Task { [weak self] in
-            guard let self else { return }
-            let newURL = await scheduleLinkedConversationExplosion(
-                duration: duration, clientId: clientId, inboxId: inboxId, conversationId: conversationId
-            )
-            guard !Task.isCancelled, let newURL else { return }
-            await MainActor.run {
-                self.pendingInvite?.fullURL = newURL
-            }
-        }
     }
 
     func scheduleLinkedConversationExplosion(
