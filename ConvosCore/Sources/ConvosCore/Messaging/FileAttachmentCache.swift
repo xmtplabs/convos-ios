@@ -14,7 +14,7 @@ public actor FileAttachmentCache {
     }
 
     public func cachedFileURL(for attachmentKey: String, filename: String) -> URL? {
-        let fileURL = cacheFileURL(for: attachmentKey, filename: filename)
+        let fileURL = resolvedFileURL(for: attachmentKey, filename: filename)
         guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
         var mutableURL: URL = fileURL
         var resourceValues: URLResourceValues = URLResourceValues()
@@ -24,26 +24,34 @@ public actor FileAttachmentCache {
     }
 
     public func cacheFile(data: Data, for attachmentKey: String, filename: String) throws -> URL {
-        let dirURL = cacheSubdirectory(for: attachmentKey)
-        try fileManager.createDirectory(at: dirURL, withIntermediateDirectories: true)
-        let fileURL = dirURL.appendingPathComponent(filename)
+        let fileURL = resolvedFileURL(for: attachmentKey, filename: filename)
+        try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
         try data.write(to: fileURL, options: .atomic)
         return fileURL
     }
 
     public func cacheFile(from sourceURL: URL, for attachmentKey: String, filename: String) throws -> URL {
-        let dirURL = cacheSubdirectory(for: attachmentKey)
-        try fileManager.createDirectory(at: dirURL, withIntermediateDirectories: true)
-        let destURL = dirURL.appendingPathComponent(filename)
-        if fileManager.fileExists(atPath: destURL.path) {
-            return destURL
+        let fileURL = resolvedFileURL(for: attachmentKey, filename: filename)
+        try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        if fileManager.fileExists(atPath: fileURL.path) {
+            return fileURL
         }
-        try fileManager.copyItem(at: sourceURL, to: destURL)
-        return destURL
+        try fileManager.copyItem(at: sourceURL, to: fileURL)
+        return fileURL
     }
 
-    private func cacheFileURL(for attachmentKey: String, filename: String) -> URL {
-        cacheSubdirectory(for: attachmentKey).appendingPathComponent(filename)
+    private func resolvedFileURL(for attachmentKey: String, filename: String) -> URL {
+        let safeFilename = sanitizeFilename(filename)
+        return cacheSubdirectory(for: attachmentKey).appendingPathComponent(safeFilename)
+    }
+
+    private func sanitizeFilename(_ filename: String) -> String {
+        let name = (filename as NSString).lastPathComponent
+        let sanitized = name
+            .replacingOccurrences(of: "..", with: "_")
+            .replacingOccurrences(of: "/", with: "_")
+        guard !sanitized.isEmpty else { return "file" }
+        return sanitized
     }
 
     private func cacheSubdirectory(for attachmentKey: String) -> URL {

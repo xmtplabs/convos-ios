@@ -70,4 +70,21 @@ struct FileAttachmentCacheTests {
         let url2 = await cache.cachedFileURL(for: key, filename: filename)
         #expect(url1 == url2)
     }
+
+    @Test("sanitizes path traversal in filename")
+    func sanitizesPathTraversal() async throws {
+        let key = "test-traversal-\(UUID())"
+        let data = Data("content".utf8)
+
+        let url1 = try await cache.cacheFile(data: data, for: key, filename: "../../../etc/passwd")
+        #expect(url1.lastPathComponent == "passwd")
+        #expect(url1.path.contains("FileAttachments"))
+        #expect(!url1.path.contains("../"))
+
+        let url2 = try await cache.cacheFile(data: data, for: key, filename: "..secret")
+        #expect(url2.lastPathComponent == "_secret")
+
+        let url3 = try await cache.cacheFile(data: data, for: key, filename: "")
+        #expect(url3.lastPathComponent == "file")
+    }
 }
