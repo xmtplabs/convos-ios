@@ -24,7 +24,7 @@ final class MockRestoreArchiveImporter: RestoreArchiveImporter, @unchecked Senda
 final class MockVaultArchiveImporter: VaultArchiveImporter, @unchecked Sendable {
     var keyEntriesToReturn: [VaultKeyEntry] = []
 
-    func importVaultArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry] {
+    func importVaultArchive(from path: URL, encryptionKey: Data, vaultIdentity: KeychainIdentity) async throws -> [VaultKeyEntry] {
         keyEntriesToReturn
     }
 }
