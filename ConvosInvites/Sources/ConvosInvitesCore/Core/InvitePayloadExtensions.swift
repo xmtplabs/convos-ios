@@ -75,21 +75,20 @@ extension SignedInvite {
         }
         payload.creatorInboxID = inboxIdBytes
 
-        if let name = options.name {
-            payload.name = name
-        }
-
-        if let emoji = options.emoji {
-            payload.emoji = emoji
-        }
-
         if options.includePublicPreview {
+            if let name = options.name {
+                payload.name = name
+            }
             if let description = options.description {
                 payload.description_p = description
             }
             if let imageURL = options.imageURL {
                 payload.imageURL = imageURL
             }
+        }
+
+        if let emoji = options.emoji {
+            payload.emoji = emoji
         }
 
         if let expiresAt = options.expiresAt {
