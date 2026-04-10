@@ -909,10 +909,7 @@ extension MessagesViewController: QLPreviewControllerDataSource {
     private func presentMarkdownPreview(fileURL: URL, filename: String) {
         let preview = MarkdownAttachmentPreviewSheet(
             fileURL: fileURL,
-            filename: filename,
-            onClose: { [weak self] in
-                self?.dismiss(animated: true)
-            }
+            filename: filename
         )
         let controller = UIHostingController(rootView: preview)
         controller.modalPresentationStyle = .pageSheet
@@ -990,7 +987,7 @@ extension MessagesViewController: UIAdaptivePresentationControllerDelegate {
 private struct MarkdownAttachmentPreviewSheet: View {
     let fileURL: URL
     let filename: String
-    let onClose: () -> Void
+    @Environment(\.dismiss) private var dismiss: DismissAction
 
     @State private var htmlString: String?
     @State private var errorMessage: String?
@@ -1017,13 +1014,7 @@ private struct MarkdownAttachmentPreviewSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: onClose) {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(.secondary)
-                            .padding(7)
-                            .background(.ultraThinMaterial, in: Circle())
-                    }
+                    Button("Done") { dismiss() }
                 }
             }
         }
