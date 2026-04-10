@@ -235,12 +235,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         if let preservedInviteTag = saveResult.preservedInviteTag,
            (try conversation.inviteTag).isEmpty {
             Log.warning("[MetadataDebug] preserving local invite tag and attempting self-heal for groupId=\(conversation.id) tag=\(preservedInviteTag)")
-            Task {
-                do {
-                    try await conversation.restoreInviteTagIfMissing(preservedInviteTag)
-                } catch {
-                    Log.error("[MetadataDebug] failed self-heal for groupId=\(conversation.id): \(error.localizedDescription)")
-                }
+            do {
+                try await conversation.restoreInviteTagIfMissing(preservedInviteTag)
+            } catch {
+                Log.error("[MetadataDebug] failed self-heal for groupId=\(conversation.id): \(error.localizedDescription)")
             }
         }
 

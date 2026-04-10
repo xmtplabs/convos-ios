@@ -243,12 +243,19 @@ extension XMTPiOS.Group {
     /// - Throws: `ConversationCustomMetadataError.metadataUpdateFailed` if all retries exhausted
     public func restoreInviteTagIfMissing(_ expectedTag: String) async throws {
         guard !expectedTag.isEmpty else { return }
+        guard Self.isValidInviteTag(expectedTag) else {
+            throw ConversationCustomMetadataError.invalidInviteTag(expectedTag)
+        }
         try await atomicUpdateMetadata(operation: "restoreInviteTagIfMissing") { metadata in
             guard metadata.tag.isEmpty else { return }
             metadata.tag = expectedTag
         } verify: { metadata in
             metadata.tag == expectedTag
         }
+    }
+
+    private static func isValidInviteTag(_ tag: String) -> Bool {
+        tag.range(of: "^[A-Za-z0-9]{10}$", options: .regularExpression) != nil
     }
 
     private func atomicUpdateMetadata(
@@ -292,6 +299,13 @@ extension XMTPiOS.Group {
     }
 
     func updateMetadata(_ metadata: ConversationCustomMetadata) async throws {
+        if let currentTag = try? inviteTag,
+           !currentTag.isEmpty,
+           metadata.tag.isEmpty {
+            Log.error("[MetadataDebug] updateMetadata refusing to clear invite tag for groupId=\(id)")
+            throw ConversationCustomMetadataError.metadataUpdateFailed
+        }
+
         let encodedMetadata = try metadata.toCompactString()
         let byteCount = encodedMetadata.lengthOfBytes(using: .utf8)
         guard byteCount <= Self.appDataByteLimit else {
