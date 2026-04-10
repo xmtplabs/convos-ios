@@ -79,7 +79,7 @@ struct MessageInviteView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
-            Group {
+            ZStack {
                 if let image = cachedImage {
                     Image(uiImage: image)
                         .resizable()
@@ -87,17 +87,16 @@ struct MessageInviteView: View {
                 } else if let emoji = invite.emoji, !emoji.isEmpty {
                     Text(emoji)
                         .font(.system(size: 72))
-                        .frame(maxWidth: .infinity)
                 } else {
                     Image("convosOrangeIcon")
                         .resizable()
                         .tint(.colorTextPrimaryInverted)
                         .foregroundStyle(.colorTextPrimaryInverted)
                         .aspectRatio(contentMode: .fit)
-                        .frame(height: 76.0, alignment: .center)
-                        .frame(maxWidth: .infinity)
+                        .frame(height: 76.0)
                 }
             }
+            .frame(maxWidth: .infinity)
             .aspectRatio(1, contentMode: .fit)
             .clipped()
             .background(.colorBackgroundInverted)
