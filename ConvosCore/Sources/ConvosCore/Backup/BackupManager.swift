@@ -93,13 +93,9 @@ public actor BackupManager {
         return (bundleData, metadata)
     }
 
-    private func createVaultArchive(encryptionKey: Data, in directory: URL) async {
+    private func createVaultArchive(encryptionKey: Data, in directory: URL) async throws {
         let archivePath = BackupBundle.vaultArchivePath(in: directory)
-        do {
-            try await archiveProvider.createVaultArchive(at: archivePath, encryptionKey: encryptionKey)
-        } catch {
-            Log.warning("[Backup] vault archive creation failed (non-fatal): \(error)")
-        }
+        try await archiveProvider.createVaultArchive(at: archivePath, encryptionKey: encryptionKey)
     }
 
     private func createConversationArchives(in directory: URL) async -> [ConversationArchiveResult] {
