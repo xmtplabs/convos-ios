@@ -98,7 +98,7 @@ struct MessageInviteView: View {
                         .frame(maxWidth: .infinity)
                 }
             }
-            .frame(height: 172.0)
+            .aspectRatio(1, contentMode: .fit)
             .clipped()
             .background(.colorBackgroundInverted)
 
