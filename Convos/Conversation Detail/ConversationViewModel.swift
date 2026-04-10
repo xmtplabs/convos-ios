@@ -975,6 +975,10 @@ extension ConversationViewModel {
         let prevAttachmentImage = selectedAttachmentImage
         let eagerUploadKey = currentEagerUploadKey
         let prevInviteURL = pendingInvite?.fullURL
+        let sideConvoName = pendingInviteConvoName
+        let sideConvoLinkedId = pendingInvite?.linkedConversationId
+        let sideConvoClientId = pendingInvite?.linkedConversationClientId
+        let sideConvoInboxId = pendingInvite?.linkedConversationInboxId
         let prevLinkURL = pastedLinkPreview?.url
         let prevVideoURL = selectedVideoURL
 
@@ -992,8 +996,22 @@ extension ConversationViewModel {
 
         let messageWriter = cachedMessageWriter
 
-        Task { [weak self] in
+        Task { [weak self, session] in
             guard let self else { return }
+
+            var inviteURL = prevInviteURL
+            if let sideConvoLinkedId, let sideConvoClientId, let sideConvoInboxId, !sideConvoName.isEmpty {
+                do {
+                    let messagingService = try await session.messagingService(for: sideConvoClientId, inboxId: sideConvoInboxId)
+                    let metadataWriter = messagingService.conversationMetadataWriter()
+                    try await metadataWriter.updateName(sideConvoName, for: sideConvoLinkedId)
+                    if let updatedInvite = try await metadataWriter.refreshInvite(for: sideConvoLinkedId) {
+                        inviteURL = updatedInvite.inviteURLString
+                    }
+                } catch {
+                    Log.error("Failed to update side convo name before send: \(error)")
+                }
+            }
 
             do {
                 let photoTrackingKey = try await sendAttachmentIfNeeded(
@@ -1006,7 +1024,7 @@ extension ConversationViewModel {
 
                 try await sendTextAndLinksIfNeeded(
                     text: hasText ? prevMessageText : nil,
-                    inviteURL: prevInviteURL,
+                    inviteURL: inviteURL,
                     linkURL: prevLinkURL,
                     photoTrackingKey: photoTrackingKey,
                     replyTarget: replyTarget,
