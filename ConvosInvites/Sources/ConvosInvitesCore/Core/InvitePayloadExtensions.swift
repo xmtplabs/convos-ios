@@ -85,9 +85,10 @@ extension SignedInvite {
             if let imageURL = options.imageURL {
                 payload.imageURL = imageURL
             }
-            if let emoji = options.emoji {
-                payload.emoji = emoji
-            }
+        }
+
+        if let emoji = options.emoji {
+            payload.emoji = emoji
         }
 
         if let expiresAt = options.expiresAt {
