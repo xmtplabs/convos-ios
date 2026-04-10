@@ -1,5 +1,6 @@
 import Foundation
 import GRDB
+import UniformTypeIdentifiers
 
 public struct AssistantFile: Sendable, Hashable, Identifiable {
     public let id: String
@@ -83,14 +84,14 @@ public final class AssistantFilesLinksRepository: Sendable {
                       let firstKey = keys.first
                 else { return nil }
 
-                let stored = try? StoredRemoteAttachment.fromJSON(firstKey)
+                let parsed = Self.parseAttachmentKey(firstKey)
                 return AssistantFile(
                     id: id,
-                    filename: stored?.filename,
-                    mimeType: stored?.mimeType,
+                    filename: parsed.filename,
+                    mimeType: parsed.mimeType,
                     date: date,
                     attachmentKey: firstKey,
-                    thumbnailDataBase64: stored?.thumbnailDataBase64
+                    thumbnailDataBase64: parsed.thumbnailDataBase64
                 )
             }
         }
@@ -128,6 +129,41 @@ public final class AssistantFilesLinksRepository: Sendable {
                 )
             }
         }
+    }
+
+    private struct ParsedAttachment {
+        let filename: String?
+        let mimeType: String?
+        let thumbnailDataBase64: String?
+    }
+
+    private static func parseAttachmentKey(_ key: String) -> ParsedAttachment {
+        if let stored = try? StoredRemoteAttachment.fromJSON(key) {
+            return ParsedAttachment(
+                filename: stored.filename,
+                mimeType: stored.mimeType,
+                thumbnailDataBase64: stored.thumbnailDataBase64
+            )
+        }
+
+        if key.hasPrefix("file://") {
+            let url = URL(string: key) ?? URL(fileURLWithPath: String(key.dropFirst(7)))
+            let name = url.lastPathComponent
+            var filename: String
+            if let underscoreIndex = name.firstIndex(of: "_") {
+                filename = String(name[name.index(after: underscoreIndex)...])
+            } else {
+                filename = name
+            }
+            var mimeType: String?
+            let ext = (filename as NSString).pathExtension.lowercased()
+            if !ext.isEmpty, let utType = UTType(filenameExtension: ext) {
+                mimeType = utType.preferredMIMEType
+            }
+            return ParsedAttachment(filename: filename, mimeType: mimeType, thumbnailDataBase64: nil)
+        }
+
+        return ParsedAttachment(filename: nil, mimeType: nil, thumbnailDataBase64: nil)
     }
 
     public func hasContent() async -> Bool {
