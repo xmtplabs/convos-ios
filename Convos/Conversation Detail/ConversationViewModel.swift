@@ -24,8 +24,8 @@ enum ExplodeDuration: CaseIterable {
 
     var label: String {
         switch self {
-        case .oneHour: return "1 hour"
-        case .oneDay: return "1 day"
+        case .oneHour: return "1h"
+        case .oneDay: return "24h"
         case .oneWeek: return "1 week"
         }
     }
