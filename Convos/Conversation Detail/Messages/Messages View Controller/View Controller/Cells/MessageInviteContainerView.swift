@@ -110,7 +110,7 @@ struct MessageInviteView: View {
                     Text(title)
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
-                        .foregroundStyle(.black)
+                        .foregroundStyle(.colorTextPrimary)
                         .font(.callout.weight(.medium))
                         .truncationMode(.tail)
                     Text(description)
