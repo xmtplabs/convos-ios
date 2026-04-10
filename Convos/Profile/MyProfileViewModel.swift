@@ -1,5 +1,6 @@
 import Combine
 import ConvosCore
+import ConvosProfiles
 import SwiftUI
 
 @MainActor
@@ -11,6 +12,7 @@ class MyProfileViewModel {
     private var cancellables: Set<AnyCancellable> = []
     private var updateDisplayNameTask: Task<Void, Never>?
     private var updateImageTask: Task<Void, Never>?
+    private var updateMetadataTask: Task<Void, Never>?
     private var pendingUpdateCount: Int = 0
 
     var isEditingDisplayName: Bool = false
@@ -18,6 +20,7 @@ class MyProfileViewModel {
     var saveDisplayNameAsQuickname: Bool = false
 
     var profileImage: UIImage?
+    var editingEmoji: String = ""
 
     // Computed properties for display
     var displayName: String {
@@ -42,6 +45,7 @@ class MyProfileViewModel {
         setupMyProfileRepository()
 
         self.editingDisplayName = profile.name ?? ""
+        self.editingEmoji = profile.profileEmoji ?? ""
     }
 
     func cancelEditingDisplayName() {
@@ -57,6 +61,7 @@ class MyProfileViewModel {
             .sink { [weak self] profile in
                 self?.profileImage = ImageCache.shared.image(for: profile)
                 self?.profile = profile
+                self?.editingEmoji = profile.profileEmoji ?? ""
             }
             .store(in: &cancellables)
     }
@@ -91,6 +96,23 @@ class MyProfileViewModel {
         }
     }
 
+    private func update(profileMetadata: ProfileMetadata?, conversationId: String) {
+        updateMetadataTask?.cancel()
+        beginUpdate()
+        let displayNameTask = updateDisplayNameTask
+        nonisolated(unsafe) let unsafeWriter = myProfileWriter
+        updateMetadataTask = Task { [weak self] in
+            guard self != nil else { return }
+            defer { Task { @MainActor [weak self] in self?.endUpdate() } }
+            await displayNameTask?.value
+            do {
+                try await unsafeWriter.update(metadata: profileMetadata, conversationId: conversationId)
+            } catch {
+                Log.error("Error updating profile metadata: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private func update(profileImage: UIImage, conversationId: String) {
         self.profileImage = profileImage
         ImageCache.shared.cacheImage(profileImage, for: profile.imageCacheIdentifier, imageFormat: .jpg)
@@ -117,6 +139,7 @@ class MyProfileViewModel {
 
     func update(using profile: Profile, profileImage: UIImage?, conversationId: String) {
         self.editingDisplayName = profile.name ?? ""
+        self.editingEmoji = profile.profileEmoji ?? ""
         self.profileImage = profileImage
         self.profile = profile.with(inboxId: self.profile.inboxId)
         // update image first so we don't see the 'monogram' flash in avatar
@@ -132,13 +155,27 @@ class MyProfileViewModel {
         var didChange = false
 
         let trimmedDisplayName = editingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedEmoji = editingEmoji.trimmingCharacters(in: .whitespacesAndNewlines)
         let latestProfile = try? myProfileRepository.fetch()
         if latestProfile == nil || latestProfile?.name != trimmedDisplayName {
             update(displayName: trimmedDisplayName, conversationId: conversationId)
             didChange = true
         }
 
-        // @jarodl check if the image was actually changed
+        let updatedMetadata: ProfileMetadata? = {
+            var metadata = latestProfile?.metadata ?? [:]
+            if trimmedEmoji.isEmpty {
+                metadata.removeValue(forKey: Constant.emojiMetadataKey)
+            } else {
+                metadata[Constant.emojiMetadataKey] = .string(trimmedEmoji)
+            }
+            return metadata.isEmpty ? nil : metadata
+        }()
+        if latestProfile?.profileEmoji != (trimmedEmoji.isEmpty ? nil : trimmedEmoji) {
+            update(profileMetadata: updatedMetadata, conversationId: conversationId)
+            didChange = true
+        }
+
         if let profileImage {
             update(profileImage: profileImage, conversationId: conversationId)
             didChange = true
@@ -158,6 +195,10 @@ class MyProfileViewModel {
         }
 
         return didChange
+    }
+
+    private enum Constant {
+        static let emojiMetadataKey: String = "emoji"
     }
 }
 

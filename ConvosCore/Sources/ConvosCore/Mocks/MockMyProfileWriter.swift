@@ -1,9 +1,11 @@
+import ConvosProfiles
 import Foundation
 
 /// Mock implementation of MyProfileWriterProtocol for testing
 public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Sendable {
     public var updatedDisplayNames: [(name: String, conversationId: String)] = []
     public var updatedAvatars: [(image: ImageType?, conversationId: String)] = []
+    public var updatedMetadata: [(metadata: ProfileMetadata?, conversationId: String)] = []
 
     public init() {}
 
@@ -13,5 +15,9 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
 
     public func update(avatar: ImageType?, conversationId: String) async throws {
         updatedAvatars.append((image: avatar, conversationId: conversationId))
+    }
+
+    public func update(metadata: ProfileMetadata?, conversationId: String) async throws {
+        updatedMetadata.append((metadata: metadata, conversationId: conversationId))
     }
 }
