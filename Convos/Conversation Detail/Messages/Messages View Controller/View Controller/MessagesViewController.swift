@@ -926,35 +926,24 @@ extension MessagesViewController: QLPreviewControllerDataSource {
 
     private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
         let filename = attachment.filename ?? "attachment"
+        let cache = FileAttachmentCache.shared
+
+        if let cached = await cache.cachedFileURL(for: attachment.key, filename: filename) {
+            return cached
+        }
 
         if attachment.key.hasPrefix("file://") {
             let path = String(attachment.key.dropFirst("file://".count))
             let sourceURL = URL(fileURLWithPath: path)
 
             if FileManager.default.fileExists(atPath: path) {
-                let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("preview_\(UUID().uuidString)")
-                    .appendingPathComponent(filename)
-                try FileManager.default.createDirectory(
-                    at: tempURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try FileManager.default.copyItem(at: sourceURL, to: tempURL)
-                return tempURL
+                return try await cache.cacheFile(from: sourceURL, for: attachment.key, filename: filename)
             }
 
             let messageId = extractMessageId(from: sourceURL)
             if let messageId {
                 let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
-                let tempURL = FileManager.default.temporaryDirectory
-                    .appendingPathComponent("preview_\(UUID().uuidString)")
-                    .appendingPathComponent(filename)
-                try FileManager.default.createDirectory(
-                    at: tempURL.deletingLastPathComponent(),
-                    withIntermediateDirectories: true
-                )
-                try data.write(to: tempURL)
-                return tempURL
+                return try await cache.cacheFile(data: data, for: attachment.key, filename: filename)
             }
 
             throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
@@ -962,15 +951,7 @@ extension MessagesViewController: QLPreviewControllerDataSource {
 
         let loader = RemoteAttachmentLoader()
         let loaded = try await loader.loadAttachmentData(from: attachment.key)
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("preview_\(UUID().uuidString)")
-            .appendingPathComponent(filename)
-        try FileManager.default.createDirectory(
-            at: tempURL.deletingLastPathComponent(),
-            withIntermediateDirectories: true
-        )
-        try loaded.data.write(to: tempURL)
-        return tempURL
+        return try await cache.cacheFile(data: loaded.data, for: attachment.key, filename: filename)
     }
 
     private func extractMessageId(from fileURL: URL) -> String? {
@@ -1002,9 +983,6 @@ extension MessagesViewController: UIAdaptivePresentationControllerDelegate {
     }
 
     private func cleanupPresentedFilePreview() {
-        if let url = filePreviewURL {
-            try? FileManager.default.removeItem(at: url.deletingLastPathComponent())
-        }
         filePreviewURL = nil
     }
 }
