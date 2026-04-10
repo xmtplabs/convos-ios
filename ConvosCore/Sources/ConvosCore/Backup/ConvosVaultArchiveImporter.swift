@@ -62,13 +62,15 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
     }
 
     private func extractKeys(from client: Client) async throws -> [VaultKeyEntry] {
-        try await client.conversations.sync()
+        // Read groups and messages from the local DB only — no network sync.
+        // The archive import already populated the local DB with everything
+        // we need, and syncing would fail if the vault group was deactivated
+        // on the network by a previous restore's revocation step.
         let groups = try client.conversations.listGroups()
 
         Log.info("[Restore] reading messages from \(groups.count) vault group(s)")
         var allMessages: [DecodedMessage] = []
         for group in groups {
-            try await group.sync()
             let messages = try await group.messages()
             allMessages.append(contentsOf: messages)
         }
