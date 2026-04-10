@@ -1915,6 +1915,7 @@ extension ConversationViewModel {
                         linkedConversationId: convo.id
                     )
                     self.convosButtonCancellable = nil
+                    self.setInviteExplodeDuration(.oneDay)
                 }
         }
     }
