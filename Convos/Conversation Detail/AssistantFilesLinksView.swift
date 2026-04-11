@@ -161,7 +161,7 @@ struct AssistantFilesLinksView: View {
                         filename: file.filename
                     )
                     await MainActor.run {
-                        FileAttachmentQuickLookPresenter.shared.present(fileURL: url)
+                        QuickLookSheetPresenter.present(fileURL: url)
                     }
                 } catch {
                     Log.error("Failed to open assistant file: \(error)")

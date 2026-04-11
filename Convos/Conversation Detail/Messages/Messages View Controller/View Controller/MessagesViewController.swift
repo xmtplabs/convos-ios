@@ -195,7 +195,7 @@ final class MessagesViewController: UIViewController {
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
-    private var filePreviewURL: URL?
+
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
     }
@@ -878,20 +878,17 @@ extension MessagesViewController: KeyboardListenerDelegate {
 
 // MARK: - File Attachment QuickLook
 
-extension MessagesViewController: QLPreviewControllerDataSource {
+extension MessagesViewController {
     private func openFileAttachment(_ attachment: HydratedAttachment) {
         Task {
             do {
-                let fileURL = try await loadFileForPreview(attachment)
-                if attachment.isMarkdownFile {
-                    presentMarkdownPreview(fileURL: fileURL, filename: attachment.filename ?? "Markdown")
-                    return
+                let fileURL = try await FileAttachmentPreviewLoader.loadPreviewURL(
+                    key: attachment.key,
+                    filename: attachment.filename
+                )
+                await MainActor.run {
+                    QuickLookSheetPresenter.present(fileURL: fileURL, from: self)
                 }
-                let previewController = QLPreviewController()
-                filePreviewURL = fileURL
-                previewController.dataSource = self
-                previewController.delegate = self
-                present(previewController, animated: true)
             } catch {
                 Log.error("Failed to open file attachment: \(error)")
                 let alert = UIAlertController(
@@ -904,83 +901,6 @@ extension MessagesViewController: QLPreviewControllerDataSource {
                 present(alert, animated: true)
             }
         }
-    }
-
-    private func presentMarkdownPreview(fileURL: URL, filename: String) {
-        let preview = MarkdownAttachmentPreviewSheet(
-            fileURL: fileURL,
-            filename: filename
-        )
-        let controller = UIHostingController(rootView: preview)
-        controller.modalPresentationStyle = .pageSheet
-        controller.presentationController?.delegate = self
-        if let sheet = controller.sheetPresentationController {
-            sheet.detents = [.medium(), .large()]
-            sheet.prefersGrabberVisible = false
-        }
-        present(controller, animated: true)
-    }
-
-    private func loadFileForPreview(_ attachment: HydratedAttachment) async throws -> URL {
-        let filename = attachment.filename ?? "attachment"
-        let cache = FileAttachmentCache.shared
-
-        if let cached = await cache.cachedFileURL(for: attachment.key, filename: filename) {
-            return cached
-        }
-
-        if attachment.key.hasPrefix("file://") {
-            let path = String(attachment.key.dropFirst("file://".count))
-            let sourceURL = URL(fileURLWithPath: path)
-
-            if FileManager.default.fileExists(atPath: path) {
-                return try await cache.cacheFile(from: sourceURL, for: attachment.key, filename: filename)
-            }
-
-            let messageId = extractMessageId(from: sourceURL)
-            if let messageId {
-                let data = try await InlineAttachmentRecovery.shared.recoverData(messageId: messageId)
-                return try await cache.cacheFile(data: data, for: attachment.key, filename: filename)
-            }
-
-            throw CocoaError(.fileReadNoSuchFile, userInfo: [NSFilePathErrorKey: path])
-        }
-
-        let loader = RemoteAttachmentLoader()
-        let loaded = try await loader.loadAttachmentData(from: attachment.key)
-        return try await cache.cacheFile(data: loaded.data, for: attachment.key, filename: filename)
-    }
-
-    private func extractMessageId(from fileURL: URL) -> String? {
-        let filename = fileURL.lastPathComponent
-        guard let underscoreIndex = filename.firstIndex(of: "_") else { return nil }
-        let messageId = String(filename[filename.startIndex..<underscoreIndex])
-        guard !messageId.isEmpty else { return nil }
-        return messageId
-    }
-
-    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-        filePreviewURL != nil ? 1 : 0
-    }
-
-    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
-        (filePreviewURL ?? URL(fileURLWithPath: "")) as NSURL
-    }
-}
-
-extension MessagesViewController: @preconcurrency QLPreviewControllerDelegate {
-    func previewControllerDidDismiss(_ controller: QLPreviewController) {
-        cleanupPresentedFilePreview()
-    }
-}
-
-extension MessagesViewController: UIAdaptivePresentationControllerDelegate {
-    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        cleanupPresentedFilePreview()
-    }
-
-    private func cleanupPresentedFilePreview() {
-        filePreviewURL = nil
     }
 }
 
