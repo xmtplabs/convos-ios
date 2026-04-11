@@ -15,6 +15,7 @@ struct MessagesGroupItemView: View {
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     var onOpenFile: ((HydratedAttachment) -> Void)?
+    var onTapReactions: ((AnyMessage) -> Void)?
     var voiceMemoTranscript: VoiceMemoTranscriptListItem?
     var voiceMemoTranscriptIsTailed: Bool = false
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
@@ -276,9 +277,11 @@ struct MessagesGroupItemView: View {
                 profile: message.sender.profile,
                 shouldBlurPhotos: shouldBlurPhotos,
                 isBlurred: isBlurred,
+                reactions: message.reactions,
                 onPhotoRevealed: onPhotoRevealed,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
-                onReply: onReply
+                onReply: onReply,
+                onTapReactions: { onTapReactions?(message) }
             )
             .id(message.messageId)
         }
@@ -294,9 +297,11 @@ private struct VideoTapAttachmentView: View {
     let profile: Profile
     let shouldBlurPhotos: Bool
     let isBlurred: Bool
+    var reactions: [MessageReaction] = []
     let onPhotoRevealed: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onReply: (AnyMessage) -> Void
+    var onTapReactions: () -> Void = {}
 
     @State private var videoPlayTrigger: Bool = false
 
@@ -307,10 +312,12 @@ private struct VideoTapAttachmentView: View {
             profile: profile,
             shouldBlurPhotos: shouldBlurPhotos,
             cornerRadius: 0,
+            reactions: reactions,
             videoPlayTrigger: $videoPlayTrigger,
             onDimensionsLoaded: { width, height in
                 onPhotoDimensionsLoaded(attachment.key, width, height)
-            }
+            },
+            onTapReactions: onTapReactions
         )
         .messageGesture(
             message: message,
@@ -352,8 +359,10 @@ private struct AttachmentPlaceholder: View {
     let profile: Profile
     let shouldBlurPhotos: Bool
     var cornerRadius: CGFloat = 0
+    var reactions: [MessageReaction] = []
     @Binding var videoPlayTrigger: Bool
     let onDimensionsLoaded: (Int, Int) -> Void
+    var onTapReactions: () -> Void = {}
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -399,32 +408,44 @@ private struct AttachmentPlaceholder: View {
     var body: some View {
         Group {
             if let player = inlinePlayer {
-                ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
-                    InlineVideoPlayerView(player: player)
-                        .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
-                        .blur(radius: showBlurOverlay ? blurRadius : 0)
-
-                    if showBlurOverlay, !isOutgoing {
-                        PhotoBlurOverlayContent()
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                            .transition(.opacity)
+                InlineVideoPlayerView(player: player)
+                    .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
+                    .blur(radius: showBlurOverlay ? blurRadius : 0)
+                    .overlay(alignment: .top) {
+                        if !isPlaying {
+                            MediaTopGradient()
+                        }
                     }
-
-                    if !isPlaying, !shouldBlur, !videoLoadFailed {
-                        videoOverlay
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .overlay(alignment: .topLeading) {
+                        if !isPlaying {
+                            MediaContainerID(profile: profile)
+                        }
                     }
-
-                    if !isPlaying {
-                        PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                    .overlay(alignment: .topTrailing) {
+                        if !isPlaying {
+                            MediaContainerInfo(
+                                isBlurred: showBlurOverlay,
+                                isVideo: true,
+                                duration: attachment.duration
+                            )
+                        }
                     }
-                }
-                .aspectRatio(placeholderAspectRatio, contentMode: .fit)
-                .clipped()
-                .overlay(alignment: isOutgoing ? .bottom : .top) {
-                    PhotoEdgeGradient(isOutgoing: isOutgoing)
-                }
-                .compositingGroup()
+                    .overlay {
+                        if !isPlaying, !shouldBlur, !videoLoadFailed {
+                            videoOverlay
+                        }
+                    }
+                    .overlay(alignment: .bottomLeading) {
+                        if !isPlaying {
+                            MediaContainerReax(
+                                reactions: reactions,
+                                onTap: onTapReactions
+                            )
+                        }
+                    }
+                    .aspectRatio(placeholderAspectRatio, contentMode: .fit)
+                    .clipped()
+                    .compositingGroup()
                 .clipShape(RoundedRectangle(cornerRadius: isRegularWidth ? DesignConstants.CornerRadius.medium : 0))
                 .frame(maxWidth: isRegularWidth ? Self.maxPhotoWidth : .infinity)
                 .frame(maxWidth: .infinity, alignment: isRegularWidth ? (isOutgoing ? .trailing : .leading) : .leading)
@@ -483,45 +504,16 @@ private struct AttachmentPlaceholder: View {
         }
     }
 
-    @ViewBuilder
     private var videoOverlay: some View {
-        ZStack {
-            Image(systemName: "play.fill")
-                .font(.system(size: 36))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                .accessibilityIdentifier("video-play-button")
-        }
-
-        if let duration = attachment.duration {
-            VStack {
-                Spacer()
-                HStack {
-                    if !isOutgoing { Spacer() }
-                    Text(formatDuration(duration))
-                        .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(.black.opacity(0.6))
-                        .clipShape(RoundedRectangle(cornerRadius: 4))
-                        .accessibilityIdentifier("video-duration-badge")
-                    if isOutgoing { Spacer() }
-                }
-                .padding(DesignConstants.Spacing.step4x)
-            }
-        }
-    }
-
-    private func formatDuration(_ seconds: Double) -> String {
-        let totalSeconds = Int(seconds)
-        let hours = totalSeconds / 3600
-        let mins = (totalSeconds % 3600) / 60
-        let secs = totalSeconds % 60
-        if hours > 0 {
-            return String(format: "%d:%02d:%02d", hours, mins, secs)
-        }
-        return String(format: "%d:%02d", mins, secs)
+        Image(systemName: "play.fill")
+            .font(.system(size: 15))
+            .foregroundStyle(.primary)
+            .frame(width: 44, height: 44)
+            .background(.ultraThinMaterial)
+            .background(Color.white.opacity(0.85))
+            .clipShape(Circle())
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityIdentifier("video-play-button")
     }
 
     private func handleVideoPlayTap() {
@@ -564,28 +556,35 @@ private struct AttachmentPlaceholder: View {
 
     @ViewBuilder
     private func photoContent(image: UIImage) -> some View {
-        ZStack(alignment: isOutgoing ? .bottomTrailing : .topLeading) {
-            Image(uiImage: image)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
-                .blur(radius: showBlurOverlay ? blurRadius : 0)
-
-            if showBlurOverlay, !isOutgoing {
-                PhotoBlurOverlayContent()
-                    .transition(.opacity)
+        Image(uiImage: image)
+            .resizable()
+            .aspectRatio(contentMode: .fit)
+            .scaleEffect(showBlurOverlay ? 1.65 : 1.0)
+            .blur(radius: showBlurOverlay ? blurRadius : 0)
+            .overlay(alignment: .top) {
+                MediaTopGradient()
             }
-
-            PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
-        }
-        .clipped()
-        .overlay(alignment: isOutgoing ? .bottom : .top) {
-            PhotoEdgeGradient(isOutgoing: isOutgoing)
-        }
-        .compositingGroup()
-        .contentShape(Rectangle())
-        .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
-        .animation(.easeOut(duration: 0.15), value: isPressed)
+            .overlay(alignment: .topLeading) {
+                MediaContainerID(profile: profile)
+            }
+            .overlay(alignment: .topTrailing) {
+                MediaContainerInfo(
+                    isBlurred: showBlurOverlay,
+                    isVideo: isVideo,
+                    duration: attachment.duration
+                )
+            }
+            .overlay(alignment: .bottomLeading) {
+                MediaContainerReax(
+                    reactions: reactions,
+                    onTap: onTapReactions
+                )
+            }
+            .clipped()
+            .compositingGroup()
+            .contentShape(Rectangle())
+            .animation(.easeOut(duration: 0.25), value: showBlurOverlay)
+            .animation(.easeOut(duration: 0.15), value: isPressed)
     }
 
     private func loadAttachment() async {
@@ -749,28 +748,142 @@ private struct AttachmentPlaceholder: View {
     }
 }
 
-// MARK: - Sender Label Overlay
+// MARK: - Media Overlay Containers
 
-struct PhotoSenderLabel: View {
+struct MediaContainerID: View {
     let profile: Profile
-    let isOutgoing: Bool
+    var onTap: (() -> Void)?
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            ProfileAvatarView(
-                profile: profile,
-                profileImage: nil,
-                useSystemPlaceholder: false
-            )
-            .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
+        let tapAction = { onTap?() ?? () }
+        Button(action: tapAction) {
+            HStack(spacing: 6) {
+                ProfileAvatarView(
+                    profile: profile,
+                    profileImage: nil,
+                    useSystemPlaceholder: false
+                )
+                .frame(width: DesignConstants.ImageSizes.smallAvatar, height: DesignConstants.ImageSizes.smallAvatar)
 
-            if !isOutgoing {
                 Text(profile.displayName)
                     .font(.caption)
                     .foregroundStyle(.white)
             }
+            .padding(DesignConstants.Spacing.step4x)
+            .background(Color.red.opacity(0.3))
+            .contentShape(Rectangle())
         }
-        .padding(DesignConstants.Spacing.step4x)
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MediaContainerInfo: View {
+    let isBlurred: Bool
+    let isVideo: Bool
+    let duration: Double?
+
+    private var text: String? {
+        var parts: [String] = []
+        if isBlurred {
+            parts.append("Tap to reveal")
+        }
+        if isVideo, let duration {
+            parts.append(formatDuration(duration))
+        }
+        guard !parts.isEmpty else { return nil }
+        return parts.joined(separator: " \u{00B7} ")
+    }
+
+    var body: some View {
+        if let text {
+            HStack {
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.white)
+            }
+            .frame(height: 56)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .background(Color.red.opacity(0.3))
+            .contentShape(Rectangle())
+        }
+    }
+
+    private func formatDuration(_ seconds: Double) -> String {
+        let totalSeconds = Int(seconds)
+        let hours = totalSeconds / 3600
+        let mins = (totalSeconds % 3600) / 60
+        let secs = totalSeconds % 60
+        if hours > 0 {
+            return String(format: "%d:%02d:%02d", hours, mins, secs)
+        }
+        return String(format: "%d:%02d", mins, secs)
+    }
+}
+
+private struct MediaContainerReax: View {
+    let reactions: [MessageReaction]
+    let onTap: () -> Void
+
+    private var uniqueEmojis: [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for reaction in reactions.sorted(by: { $0.date > $1.date }) where !seen.contains(reaction.emoji) {
+            seen.insert(reaction.emoji)
+            result.append(reaction.emoji)
+        }
+        return result
+    }
+
+    private var totalCount: Int {
+        reactions.count
+    }
+
+    var body: some View {
+        if !reactions.isEmpty {
+            let tapAction = { onTap() }
+            Button(action: tapAction) {
+                reaxContent
+                    .padding(DesignConstants.Spacing.step4x)
+                    .background(Color.red.opacity(0.3))
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private var reaxContent: some View {
+        HStack(spacing: DesignConstants.Spacing.stepHalf) {
+            ForEach(uniqueEmojis, id: \.self) { emoji in
+                Text(emoji)
+                    .font(.callout)
+            }
+            if totalCount > 1 {
+                Text("\(totalCount)")
+                    .font(.footnote)
+                    .foregroundStyle(.black.opacity(0.6))
+            }
+        }
+        .padding(.horizontal, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .background(.ultraThinMaterial)
+        .background(Color.white.opacity(0.6))
+        .clipShape(Capsule())
+    }
+}
+
+private struct MediaTopGradient: View {
+    var body: some View {
+        VStack(spacing: 0) {
+            Color(.colorBorderEdge).frame(height: 1)
+            LinearGradient(
+                colors: [.black, .clear],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 56)
+            .opacity(0.15)
+            .blendMode(.multiply)
+        }
     }
 }
 

@@ -198,6 +198,7 @@ struct MessagesGroupView: View {
                 onPhotoHidden: onPhotoHidden,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onOpenFile: onOpenFile,
+                onTapReactions: onTapReactions,
                 voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
                 voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
                 onRetryTranscript: onRetryTranscript,
@@ -232,7 +233,7 @@ struct MessagesGroupView: View {
 
     @ViewBuilder
     private func reactionRow(message: AnyMessage, isFullWidthAttachment: Bool) -> some View {
-        if !message.reactions.isEmpty {
+        if !message.reactions.isEmpty, !isFullWidthAttachment {
             ReactionIndicatorView(
                 reactions: message.reactions,
                 isOutgoing: message.sender.isCurrentUser,

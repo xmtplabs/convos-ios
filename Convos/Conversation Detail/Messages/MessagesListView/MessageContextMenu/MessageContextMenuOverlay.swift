@@ -739,7 +739,7 @@ private struct ContextMenuPhotoPreview: View {
                         .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
 
                     if showSenderLabel {
-                        PhotoSenderLabel(profile: profile, isOutgoing: isOutgoing)
+                        MediaContainerID(profile: profile)
                     }
                 }
                 .clipped()
