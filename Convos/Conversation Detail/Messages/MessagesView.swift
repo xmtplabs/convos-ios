@@ -43,6 +43,7 @@ struct MessagesView<BottomBarContent: View>: View {
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
     let replyingToMessage: AnyMessage?
+    var replyingToAudioTranscriptText: String?
     let onCancelReply: () -> Void
     let onDisplayNameEndedEditing: () -> Void
     let onProfileSettings: () -> Void
@@ -158,6 +159,7 @@ struct MessagesView<BottomBarContent: View>: View {
                         ReplyComposerBar(
                             message: replyingToMessage,
                             shouldBlurPhotos: shouldBlurPhotos,
+                            audioTranscriptText: replyingToAudioTranscriptText,
                             onDismiss: onCancelReply
                         )
                     }
