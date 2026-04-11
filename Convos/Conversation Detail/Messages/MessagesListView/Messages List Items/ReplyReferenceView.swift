@@ -596,10 +596,10 @@ private struct ReplyReferenceAudioPreview: View {
             }
         }
         .padding(.horizontal, DesignConstants.Spacing.step4x)
-        .padding(.vertical, DesignConstants.Spacing.step3x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
         .frame(maxWidth: 160)
         .background(
-            RoundedRectangle(cornerRadius: 24)
+            RoundedRectangle(cornerRadius: 20)
                 .stroke(Color.colorBorderSubtle, lineWidth: 1)
         )
         .task {
