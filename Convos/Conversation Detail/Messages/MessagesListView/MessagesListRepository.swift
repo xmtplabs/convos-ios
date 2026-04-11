@@ -160,22 +160,15 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             // unavailable) are kept in the database so the scheduler does not
             // re-enqueue them, but the UI hides them so the user doesn't see a
             // misleading retry affordance. Nothing to render here.
-            // TODO: Remove mock bypass before merging
-            // if stored?.status == .permanentlyFailed {
-            //     continue
-            // }
+            if stored?.status == .permanentlyFailed {
+                continue
+            }
             if stored == nil, permissionGranted {
                 // Auto-transcribe path: don't fabricate a row. The scheduler will
                 // call markPending shortly and the writer-driven publisher will
                 // surface the real `.pending` row when it lands.
                 continue
             }
-            // TODO: Remove mock transcript before merging
-            let mockTexts = [
-                "Blame it all on my roots, I showed up in boots, And ruined your black tie affair. The last one to know, the last one to show, I was the last one you thought you'd see there",
-                "Callin Baton Rouge",
-            ]
-            let mockText = mockTexts[abs(message.messageId.hashValue) % mockTexts.count]
             let item = VoiceMemoTranscriptListItem(
                 parentMessageId: message.messageId,
                 conversationId: effectiveConversationId,
@@ -183,8 +176,8 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
                 mimeType: attachment.mimeType,
                 senderDisplayName: message.sender.profile.displayName,
                 isOutgoing: false,
-                status: .completed,
-                text: mockText,
+                status: stored?.status ?? .notRequested,
+                text: stored?.text,
                 errorDescription: stored?.errorDescription
             )
             result[message.messageId] = item
