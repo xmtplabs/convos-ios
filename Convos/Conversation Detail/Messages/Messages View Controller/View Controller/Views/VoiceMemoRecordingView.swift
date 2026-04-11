@@ -9,40 +9,42 @@ struct VoiceMemoRecordingView: View {
     private let barSpacing: CGFloat = 1.5
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
-            Canvas { context, size in
-                let totalBarWidth = barWidth + barSpacing
-                let visibleBarCount = max(Int(size.width / totalBarWidth), 1)
-                let levels = recorder.audioLevels
-                let placeholderHeight: CGFloat = 2
-                let recordedCount = min(levels.count, visibleBarCount)
-                let startIndex = max(levels.count - visibleBarCount, 0)
+        HStack(spacing: 0) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                Canvas { context, size in
+                    let totalBarWidth = barWidth + barSpacing
+                    let visibleBarCount = max(Int(size.width / totalBarWidth), 1)
+                    let levels = recorder.audioLevels
+                    let placeholderHeight: CGFloat = 2
+                    let recordedCount = min(levels.count, visibleBarCount)
+                    let startIndex = max(levels.count - visibleBarCount, 0)
 
-                for i in 0 ..< visibleBarCount {
-                    let x = CGFloat(i) * totalBarWidth
+                    for i in 0 ..< visibleBarCount {
+                        let x = CGFloat(i) * totalBarWidth
 
-                    let barIndex = i - (visibleBarCount - recordedCount)
-                    if barIndex >= 0, barIndex + startIndex < levels.count {
-                        let level = CGFloat(levels[startIndex + barIndex])
-                        let height = max(size.height * level, placeholderHeight)
-                        let y = (size.height - height) / 2
-                        let rect = CGRect(x: x, y: y, width: barWidth, height: height)
-                        let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
-                        context.fill(path, with: .color(.colorCaution))
-                    } else {
-                        let y = (size.height - placeholderHeight) / 2
-                        let rect = CGRect(x: x, y: y, width: barWidth, height: placeholderHeight)
-                        let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
-                        context.fill(path, with: .color(Color.colorCaution.opacity(0.3)))
+                        let barIndex = i - (visibleBarCount - recordedCount)
+                        if barIndex >= 0, barIndex + startIndex < levels.count {
+                            let level = CGFloat(levels[startIndex + barIndex])
+                            let height = max(size.height * level, placeholderHeight)
+                            let y = (size.height - height) / 2
+                            let rect = CGRect(x: x, y: y, width: barWidth, height: height)
+                            let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
+                            context.fill(path, with: .color(.colorCaution))
+                        } else {
+                            let y = (size.height - placeholderHeight) / 2
+                            let rect = CGRect(x: x, y: y, width: barWidth, height: placeholderHeight)
+                            let path = Path(roundedRect: rect, cornerRadius: barWidth / 2)
+                            context.fill(path, with: .color(Color.colorCaution.opacity(0.3)))
+                        }
                     }
                 }
-            }
-            .frame(height: 24)
+                .frame(height: 24)
 
-            Text(formattedDuration(recorder.duration))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.colorTextSecondary)
-                .frame(minWidth: 36, alignment: .trailing)
+                Text(formattedDuration(recorder.duration))
+                    .font(.caption)
+                    .foregroundStyle(.colorCaution)
+                    .frame(minWidth: 32, alignment: .trailing)
+            }
 
             Button {
                 withAnimation(.bouncy(duration: 0.4, extraBounce: 0.01)) {
@@ -51,15 +53,17 @@ struct VoiceMemoRecordingView: View {
             } label: {
                 Image(systemName: "stop.fill")
                     .font(.system(size: 14))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(.colorCaution)
                     .frame(width: 32, height: 32)
-                    .background(.colorCaution, in: Circle())
+                    .background(Color.colorCaution.opacity(0.15), in: Circle())
             }
+            .frame(width: 48, height: 48)
             .accessibilityLabel("Stop recording")
             .accessibilityIdentifier("voice-memo-stop-button")
         }
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .padding(.vertical, DesignConstants.Spacing.step4x)
+        .padding(.leading, DesignConstants.Spacing.step5x)
+        .padding(.trailing, DesignConstants.Spacing.step2x)
+        .padding(.vertical, DesignConstants.Spacing.step2x)
     }
 
     private func formattedDuration(_ duration: TimeInterval) -> String {
