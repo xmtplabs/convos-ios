@@ -281,7 +281,8 @@ struct MessagesGroupItemView: View {
                 onPhotoRevealed: onPhotoRevealed,
                 onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
                 onReply: onReply,
-                onTapReactions: { onTapReactions?(message) }
+                onTapReactions: { onTapReactions?(message) },
+                onTapAvatar: { onTapAvatar(message) }
             )
             .id(message.messageId)
         }
@@ -302,8 +303,14 @@ private struct VideoTapAttachmentView: View {
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
     let onReply: (AnyMessage) -> Void
     var onTapReactions: () -> Void = {}
+    var onTapAvatar: () -> Void = {}
 
     @State private var videoPlayTrigger: Bool = false
+    @State private var isPlaying: Bool = false
+
+    private var isVideo: Bool {
+        attachment.mediaType == .video
+    }
 
     var body: some View {
         AttachmentPlaceholder(
@@ -312,12 +319,11 @@ private struct VideoTapAttachmentView: View {
             profile: profile,
             shouldBlurPhotos: shouldBlurPhotos,
             cornerRadius: 0,
-            reactions: reactions,
             videoPlayTrigger: $videoPlayTrigger,
+            isPlaying: $isPlaying,
             onDimensionsLoaded: { width, height in
                 onPhotoDimensionsLoaded(attachment.key, width, height)
-            },
-            onTapReactions: onTapReactions
+            }
         )
         .messageGesture(
             message: message,
@@ -325,6 +331,28 @@ private struct VideoTapAttachmentView: View {
             onSingleTap: singleTapAction,
             onReply: onReply
         )
+        .overlay(alignment: .topLeading) {
+            if !isPlaying {
+                MediaContainerID(profile: profile, onTap: onTapAvatar)
+            }
+        }
+        .overlay(alignment: .topTrailing) {
+            if !isPlaying {
+                MediaContainerInfo(
+                    isBlurred: isBlurred,
+                    isVideo: isVideo,
+                    duration: attachment.duration
+                )
+            }
+        }
+        .overlay(alignment: .bottomLeading) {
+            if !isPlaying {
+                MediaContainerReax(
+                    reactions: reactions,
+                    onTap: onTapReactions
+                )
+            }
+        }
     }
 
     private var singleTapAction: (() -> Void)? {
@@ -359,10 +387,9 @@ private struct AttachmentPlaceholder: View {
     let profile: Profile
     let shouldBlurPhotos: Bool
     var cornerRadius: CGFloat = 0
-    var reactions: [MessageReaction] = []
     @Binding var videoPlayTrigger: Bool
+    @Binding var isPlaying: Bool
     let onDimensionsLoaded: (Int, Int) -> Void
-    var onTapReactions: () -> Void = {}
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
 
@@ -370,7 +397,6 @@ private struct AttachmentPlaceholder: View {
     @State private var isLoading: Bool = true
     @State private var loadError: Error?
     @State private var inlinePlayer: AVPlayer?
-    @State private var isPlaying: Bool = false
     @State private var isLoadingVideo: Bool = false
     @State private var videoLoadFailed: Bool = false
     @State private var instanceID: UUID = UUID()
@@ -416,31 +442,9 @@ private struct AttachmentPlaceholder: View {
                             MediaTopGradient()
                         }
                     }
-                    .overlay(alignment: .topLeading) {
-                        if !isPlaying {
-                            MediaContainerID(profile: profile)
-                        }
-                    }
-                    .overlay(alignment: .topTrailing) {
-                        if !isPlaying {
-                            MediaContainerInfo(
-                                isBlurred: showBlurOverlay,
-                                isVideo: true,
-                                duration: attachment.duration
-                            )
-                        }
-                    }
                     .overlay {
                         if !isPlaying, !shouldBlur, !videoLoadFailed {
                             videoOverlay
-                        }
-                    }
-                    .overlay(alignment: .bottomLeading) {
-                        if !isPlaying {
-                            MediaContainerReax(
-                                reactions: reactions,
-                                onTap: onTapReactions
-                            )
                         }
                     }
                     .aspectRatio(placeholderAspectRatio, contentMode: .fit)
@@ -563,22 +567,6 @@ private struct AttachmentPlaceholder: View {
             .blur(radius: showBlurOverlay ? blurRadius : 0)
             .overlay(alignment: .top) {
                 MediaTopGradient()
-            }
-            .overlay(alignment: .topLeading) {
-                MediaContainerID(profile: profile)
-            }
-            .overlay(alignment: .topTrailing) {
-                MediaContainerInfo(
-                    isBlurred: showBlurOverlay,
-                    isVideo: isVideo,
-                    duration: attachment.duration
-                )
-            }
-            .overlay(alignment: .bottomLeading) {
-                MediaContainerReax(
-                    reactions: reactions,
-                    onTap: onTapReactions
-                )
             }
             .clipped()
             .compositingGroup()
@@ -770,7 +758,6 @@ struct MediaContainerID: View {
                     .foregroundStyle(.white)
             }
             .padding(DesignConstants.Spacing.step4x)
-            .background(Color.red.opacity(0.3))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -803,7 +790,6 @@ private struct MediaContainerInfo: View {
             }
             .frame(height: 56)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
-            .background(Color.red.opacity(0.3))
             .contentShape(Rectangle())
         }
     }
