@@ -213,7 +213,7 @@ struct VoiceMemoTranscriptRow: View {
     }
 }
 
-private struct VoiceMemoTranscriptSheet: View {
+struct VoiceMemoTranscriptSheet: View {
     let item: VoiceMemoTranscriptListItem
 
     @Environment(\.dismiss) private var dismiss: DismissAction

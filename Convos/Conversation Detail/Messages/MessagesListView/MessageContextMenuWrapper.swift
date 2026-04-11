@@ -235,6 +235,9 @@ private struct GestureOverlayView: UIViewRepresentable {
             if let linkView = findLinkViewInCell(at: point) {
                 return linkView
             }
+            if hasPassthroughMarker(at: point) {
+                return nil
+            }
             return self
         }
 
@@ -243,6 +246,13 @@ private struct GestureOverlayView: UIViewRepresentable {
             guard let root else { return nil }
             let rootPoint = convert(point, to: root)
             return findLinkView(in: root, at: rootPoint, excluding: self)
+        }
+
+        private func hasPassthroughMarker(at point: CGPoint) -> Bool {
+            let root = findAncestorCell()?.contentView ?? superview
+            guard let root else { return false }
+            let rootPoint = convert(point, to: root)
+            return findPassthroughMarker(in: root, at: rootPoint, excluding: self)
         }
 
         private func findLinkView(in view: UIView, at point: CGPoint, excluding: UIView) -> UIView? {
@@ -259,6 +269,21 @@ private struct GestureOverlayView: UIViewRepresentable {
                 }
             }
             return nil
+        }
+
+        private func findPassthroughMarker(in view: UIView, at point: CGPoint, excluding: UIView) -> Bool {
+            for subview in view.subviews.reversed() {
+                if subview === excluding { continue }
+                let subviewPoint = view.convert(point, to: subview)
+                guard subview.bounds.contains(subviewPoint) else { continue }
+                if subview is GesturePassthroughMarkerView {
+                    return true
+                }
+                if findPassthroughMarker(in: subview, at: subviewPoint, excluding: excluding) {
+                    return true
+                }
+            }
+            return false
         }
 
         private func findAncestorCell() -> UICollectionViewCell? {
@@ -430,4 +455,27 @@ private struct GestureOverlayView: UIViewRepresentable {
             return true
         }
     }
+}
+
+// MARK: - Gesture Passthrough Marker
+
+final class GesturePassthroughMarkerView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isUserInteractionEnabled = false
+        backgroundColor = .clear
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+
+struct GesturePassthroughBackground: UIViewRepresentable {
+    func makeUIView(context: Context) -> GesturePassthroughMarkerView {
+        GesturePassthroughMarkerView()
+    }
+
+    func updateUIView(_ uiView: GesturePassthroughMarkerView, context: Context) {}
 }

@@ -31,6 +31,17 @@ struct MessagesGroupItemView: View {
         omitTrailingPadding ? 0 : DesignConstants.Spacing.step4x
     }
 
+    private var isAudioAttachment: Bool {
+        switch message.content {
+        case .attachment(let attachment):
+            return attachment.mediaType == .audio
+        case .attachments(let attachments):
+            return attachments.first?.mediaType == .audio
+        default:
+            return false
+        }
+    }
+
     var body: some View {
         VStack(alignment: message.sender.isCurrentUser ? .trailing : .leading, spacing: 0.0) {
             if case .reply(let reply, _) = message {
@@ -50,7 +61,7 @@ struct MessagesGroupItemView: View {
                 .padding(.trailing, trailingPadding)
             }
             messageContent
-            if let voiceMemoTranscript {
+            if let voiceMemoTranscript, !isAudioAttachment {
                 VoiceMemoTranscriptRow(
                     item: voiceMemoTranscript,
                     isTailed: voiceMemoTranscriptIsTailed,
@@ -242,7 +253,9 @@ struct MessagesGroupItemView: View {
                     attachment: attachment,
                     isOutgoing: message.sender.isCurrentUser,
                     player: .shared,
-                    isLoading: false
+                    isLoading: false,
+                    transcript: voiceMemoTranscript,
+                    onRetryTranscript: onRetryTranscript
                 )
             }
             .padding(.trailing, message.sender.isCurrentUser ? DesignConstants.Spacing.step4x : 0)
