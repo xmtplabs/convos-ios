@@ -8,6 +8,7 @@ struct SocialPostCardView: View {
     let bodyText: String
     let image: UIImage?
     let imageAspectRatio: CGFloat?
+    var authorAvatarURL: String?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0.0) {
@@ -19,6 +20,25 @@ struct SocialPostCardView: View {
         }
         .frame(width: 280.0, alignment: .leading)
         .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
+    }
+
+    @ViewBuilder
+    private var avatarImage: some View {
+        if let urlString = authorAvatarURL, let url = URL(string: urlString) {
+            AsyncImage(url: url) { image in
+                image
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+            } placeholder: {
+                Image(systemName: "person.crop.circle.fill")
+                    .resizable()
+                    .foregroundStyle(.colorTextSecondary)
+            }
+        } else {
+            Image(systemName: "person.crop.circle.fill")
+                .resizable()
+                .foregroundStyle(.colorTextSecondary)
+        }
     }
 
     private func imageSection(_ image: UIImage) -> some View {
@@ -57,10 +77,9 @@ struct SocialPostCardView: View {
                         .lineLimit(1)
                 }
                 HStack(spacing: DesignConstants.Spacing.stepX) {
-                    Image(systemName: "person.crop.circle.fill")
-                        .resizable()
+                    avatarImage
                         .frame(width: 16.0, height: 16.0)
-                        .foregroundStyle(.colorTextSecondary)
+                        .clipShape(Circle())
                     if let username {
                         Text("@\(username)")
                             .font(.caption)

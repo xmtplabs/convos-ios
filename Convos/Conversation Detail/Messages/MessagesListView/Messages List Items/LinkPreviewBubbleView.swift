@@ -28,6 +28,7 @@ struct LinkPreviewCardView: View {
     @State private var ogSiteName: String?
     @State private var cachedImage: UIImage?
     @State private var imageAspectRatio: CGFloat?
+    @State private var authorAvatarURL: String?
     @State private var hasFetchedMetadata: Bool = false
 
     private var clampedAspectRatio: CGFloat {
@@ -81,7 +82,8 @@ struct LinkPreviewCardView: View {
                     authorName: socialAuthorName,
                     bodyText: socialBodyText,
                     image: cachedImage,
-                    imageAspectRatio: imageAspectRatio
+                    imageAspectRatio: imageAspectRatio,
+                    authorAvatarURL: authorAvatarURL
                 )
             } else {
                 genericCardBody
@@ -168,6 +170,7 @@ struct LinkPreviewCardView: View {
             ogTitle = metadata.title
             ogDescription = metadata.description
             ogSiteName = metadata.siteName
+            authorAvatarURL = metadata.authorAvatarURL
 
             if let w = metadata.imageWidth, let h = metadata.imageHeight, w > 0, h > 0 {
                 imageAspectRatio = CGFloat(w) / CGFloat(h)

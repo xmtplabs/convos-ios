@@ -16,6 +16,7 @@ public actor OpenGraphService {
         public let siteName: String?
         public let imageWidth: Int?
         public let imageHeight: Int?
+        public let authorAvatarURL: String?
 
         public init(
             title: String?,
@@ -23,7 +24,8 @@ public actor OpenGraphService {
             imageURL: String?,
             siteName: String?,
             imageWidth: Int?,
-            imageHeight: Int?
+            imageHeight: Int?,
+            authorAvatarURL: String? = nil
         ) {
             self.title = title
             self.description = description
@@ -31,6 +33,7 @@ public actor OpenGraphService {
             self.siteName = siteName
             self.imageWidth = imageWidth
             self.imageHeight = imageHeight
+            self.authorAvatarURL = authorAvatarURL
         }
     }
 
@@ -184,9 +187,11 @@ public actor OpenGraphService {
     private func fetchTwitterMetadata(for url: URL) async -> OpenGraphMetadata? {
         async let oembedResult = fetchTwitterOEmbed(for: url)
         async let lpResult: OpenGraphMetadata? = RichLinkMetadata.provider?.fetchMetadata(for: url)
+        async let avatarResult = fetchTwitterAvatarURL(for: url)
 
         let oembed = await oembedResult
         let lp = await lpResult
+        let avatarURL = await avatarResult
 
         guard oembed != nil || lp != nil else { return nil }
 
@@ -196,13 +201,15 @@ public actor OpenGraphService {
             imageURL: lp?.imageURL,
             siteName: oembed?.authorName ?? lp?.siteName,
             imageWidth: lp?.imageWidth,
-            imageHeight: lp?.imageHeight
+            imageHeight: lp?.imageHeight,
+            authorAvatarURL: avatarURL
         )
     }
 
     struct OEmbedResult {
         let tweetText: String
         let authorName: String?
+        let authorAvatarURL: String?
     }
 
     func fetchTwitterOEmbed(for url: URL) async -> OEmbedResult? {
@@ -224,7 +231,37 @@ public actor OpenGraphService {
             guard let tweetText = parseTweetText(from: html), !tweetText.isEmpty else { return nil }
 
             let authorName = json["author_name"] as? String
-            return OEmbedResult(tweetText: tweetText, authorName: authorName)
+            return OEmbedResult(tweetText: tweetText, authorName: authorName, authorAvatarURL: nil)
+        } catch {
+            return nil
+        }
+    }
+
+    private func fetchTwitterAvatarURL(for tweetURL: URL) async -> String? {
+        var components = URLComponents(url: tweetURL, resolvingAgainstBaseURL: false)
+        components?.host = "fxtwitter.com"
+        guard let fxURL = components?.url else { return nil }
+
+        do {
+            var request = URLRequest(url: fxURL)
+            request.timeoutInterval = 8
+            request.setValue("facebookexternalhit/1.1", forHTTPHeaderField: "User-Agent")
+            request.setValue("text/html", forHTTPHeaderField: "Accept")
+
+            let (data, response) = try await Self.safeSession.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200 ... 299).contains(httpResponse.statusCode) else { return nil }
+
+            let htmlData = data.prefix(Self.maxHTMLBytes)
+            guard let html = String(data: htmlData, encoding: .utf8) else { return nil }
+
+            let pattern = "apple-touch-icon\"\\s+href=\"([^\"]+)\""
+            guard let regex = try? NSRegularExpression(pattern: pattern, options: .caseInsensitive),
+                  let match = regex.firstMatch(in: html, range: NSRange(html.startIndex..., in: html)),
+                  let range = Range(match.range(at: 1), in: html) else { return nil }
+
+            let avatarURL = String(html[range])
+            return avatarURL.isEmpty ? nil : avatarURL
         } catch {
             return nil
         }
