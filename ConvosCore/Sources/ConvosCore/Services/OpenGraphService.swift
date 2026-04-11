@@ -11,6 +11,7 @@ public actor OpenGraphService {
 
     public struct OpenGraphMetadata: Sendable {
         public let title: String?
+        public let description: String?
         public let imageURL: String?
         public let siteName: String?
         public let imageWidth: Int?
@@ -18,12 +19,14 @@ public actor OpenGraphService {
 
         public init(
             title: String?,
+            description: String? = nil,
             imageURL: String?,
             siteName: String?,
             imageWidth: Int?,
             imageHeight: Int?
         ) {
             self.title = title
+            self.description = description
             self.imageURL = imageURL
             self.siteName = siteName
             self.imageWidth = imageWidth
@@ -187,6 +190,7 @@ public actor OpenGraphService {
         let head = extractHead(from: html)
         let title = extractMetaContent(property: "og:title", from: head)
             ?? extractHTMLTitle(from: head)
+        let description = extractMetaContent(property: "og:description", from: head)
         let imageURL = extractMetaContent(property: "og:image", from: head)
         let siteName = extractMetaContent(property: "og:site_name", from: head)
         let imageWidth = extractMetaContent(property: "og:image:width", from: head).flatMap { Int($0) }
@@ -196,6 +200,7 @@ public actor OpenGraphService {
 
         return OpenGraphMetadata(
             title: title,
+            description: description,
             imageURL: imageURL,
             siteName: siteName,
             imageWidth: imageWidth,

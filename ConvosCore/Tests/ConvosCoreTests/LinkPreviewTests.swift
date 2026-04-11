@@ -419,3 +419,166 @@ private struct MockRichLinkProvider: RichLinkMetadataProviding {
         result
     }
 }
+
+@Suite("Social Platform Detection")
+struct SocialPlatformDetectionTests {
+    @Test("Detects x.com as twitter")
+    func detectsXCom() {
+        let preview = LinkPreview(url: "https://x.com/elonmusk/status/123456")
+        #expect(preview.socialPlatform == .twitter)
+    }
+
+    @Test("Detects twitter.com as twitter")
+    func detectsTwitterCom() {
+        let preview = LinkPreview(url: "https://twitter.com/jack/status/789")
+        #expect(preview.socialPlatform == .twitter)
+    }
+
+    @Test("Detects www.x.com as twitter")
+    func detectsWwwXCom() {
+        let preview = LinkPreview(url: "https://www.x.com/user/status/123")
+        #expect(preview.socialPlatform == .twitter)
+    }
+
+    @Test("Detects threads.net as threads")
+    func detectsThreads() {
+        let preview = LinkPreview(url: "https://www.threads.net/@zuck/post/abc123")
+        #expect(preview.socialPlatform == .threads)
+    }
+
+    @Test("Detects bsky.app as bluesky")
+    func detectsBluesky() {
+        let preview = LinkPreview(url: "https://bsky.app/profile/jay.bsky.social/post/xyz")
+        #expect(preview.socialPlatform == .bluesky)
+    }
+
+    @Test("Returns nil for non-social domains")
+    func returnsNilForNonSocial() {
+        let preview = LinkPreview(url: "https://example.com/article")
+        #expect(preview.socialPlatform == nil)
+    }
+
+    @Test("Returns nil for invalid URL")
+    func returnsNilForInvalidURL() {
+        let preview = LinkPreview(url: "not a url")
+        #expect(preview.socialPlatform == nil)
+    }
+}
+
+@Suite("Social Username Extraction")
+struct SocialUsernameExtractionTests {
+    @Test("Extracts twitter username from status URL")
+    func extractsTwitterUsername() {
+        let preview = LinkPreview(url: "https://x.com/elonmusk/status/123456")
+        #expect(preview.socialUsername == "elonmusk")
+    }
+
+    @Test("Returns nil for twitter homepage")
+    func returnsNilForTwitterHomepage() {
+        let preview = LinkPreview(url: "https://x.com")
+        #expect(preview.socialUsername == nil)
+    }
+
+    @Test("Returns nil for twitter profile without status")
+    func returnsNilForTwitterProfile() {
+        let preview = LinkPreview(url: "https://x.com/elonmusk")
+        #expect(preview.socialUsername == nil)
+    }
+
+    @Test("Extracts threads username and strips @")
+    func extractsThreadsUsername() {
+        let preview = LinkPreview(url: "https://www.threads.net/@zuck/post/abc123")
+        #expect(preview.socialUsername == "zuck")
+    }
+
+    @Test("Extracts threads username without @")
+    func extractsThreadsUsernameNoAt() {
+        let preview = LinkPreview(url: "https://threads.net/zuck/post/abc123")
+        #expect(preview.socialUsername == "zuck")
+    }
+
+    @Test("Extracts bluesky handle")
+    func extractsBlueskyHandle() {
+        let preview = LinkPreview(url: "https://bsky.app/profile/jay.bsky.social/post/xyz")
+        #expect(preview.socialUsername == "jay.bsky.social")
+    }
+
+    @Test("Returns nil for bluesky homepage")
+    func returnsNilForBlueskyHomepage() {
+        let preview = LinkPreview(url: "https://bsky.app")
+        #expect(preview.socialUsername == nil)
+    }
+
+    @Test("Returns nil for bluesky non-profile path")
+    func returnsNilForBlueskyNonProfile() {
+        let preview = LinkPreview(url: "https://bsky.app/about")
+        #expect(preview.socialUsername == nil)
+    }
+}
+
+@Suite("OpenGraph Description Parsing")
+struct OpenGraphDescriptionParsingTests {
+    let service: OpenGraphService = .init()
+
+    @Test("Parses og:description")
+    func parsesDescription() async {
+        let html = """
+        <html><head>
+        <meta property="og:title" content="Test Title">
+        <meta property="og:description" content="A test description">
+        </head></html>
+        """
+        let result = await service.parseOpenGraphTags(from: html)
+        #expect(result?.description == "A test description")
+    }
+
+    @Test("Returns nil description when not present")
+    func returnsNilDescriptionWhenMissing() async {
+        let html = """
+        <html><head>
+        <meta property="og:title" content="Test Title">
+        </head></html>
+        """
+        let result = await service.parseOpenGraphTags(from: html)
+        #expect(result?.description == nil)
+    }
+
+    @Test("Decodes HTML entities in description")
+    func decodesEntitiesInDescription() async {
+        let html = """
+        <html><head>
+        <meta property="og:title" content="Test">
+        <meta property="og:description" content="It&apos;s a &quot;test&quot; &amp; more">
+        </head></html>
+        """
+        let result = await service.parseOpenGraphTags(from: html)
+        #expect(result?.description == "It's a \"test\" & more")
+    }
+}
+
+@Suite("LinkPreview Description Codable")
+struct LinkPreviewDescriptionCodableTests {
+    @Test("Decodes JSON without description field")
+    func decodesWithoutDescription() throws {
+        let json = """
+        {"url":"https://example.com","title":"Test"}
+        """
+        let data = Data(json.utf8)
+        let preview = try JSONDecoder().decode(LinkPreview.self, from: data)
+        #expect(preview.url == "https://example.com")
+        #expect(preview.title == "Test")
+        #expect(preview.description == nil)
+    }
+
+    @Test("Round-trips description through JSON")
+    func roundTripsDescription() throws {
+        let preview = LinkPreview(
+            url: "https://example.com",
+            title: "Test",
+            description: "A description"
+        )
+        let data = try JSONEncoder().encode(preview)
+        let decoded = try JSONDecoder().decode(LinkPreview.self, from: data)
+        #expect(decoded.description == "A description")
+    }
+}

@@ -23,6 +23,7 @@ struct LinkPreviewCardView: View {
     let preview: LinkPreview
     var messageId: String?
     @State private var ogTitle: String?
+    @State private var ogDescription: String?
     @State private var ogImageURL: String?
     @State private var ogSiteName: String?
     @State private var cachedImage: UIImage?
@@ -46,7 +47,75 @@ struct LinkPreviewCardView: View {
         return preview.displayHost
     }
 
+    private var socialBodyText: String {
+        if let description = ogDescription ?? preview.description, !description.isEmpty {
+            return description
+        }
+        if let postContent = extractPostContent() {
+            return postContent
+        }
+        return ogTitle ?? preview.title ?? preview.displayHost
+    }
+
+    private func extractPostContent() -> String? {
+        guard let title = ogTitle ?? preview.title else { return nil }
+        let patterns = [" on X: ", " on Twitter: ", " on Threads: ", " on Bluesky: "]
+        for pattern in patterns {
+            if let range = title.range(of: pattern) {
+                let content = String(title[range.upperBound...]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if content.hasPrefix("\""), content.hasSuffix("\""), content.count > 2 {
+                    return String(content.dropFirst().dropLast())
+                }
+                return content.isEmpty ? nil : content
+            }
+        }
+        return nil
+    }
+
     var body: some View {
+        Group {
+            if let platform = preview.socialPlatform {
+                SocialPostCardView(
+                    platform: platform,
+                    username: preview.socialUsername,
+                    authorName: socialAuthorName,
+                    bodyText: socialBodyText,
+                    image: cachedImage,
+                    imageAspectRatio: imageAspectRatio
+                )
+            } else {
+                genericCardBody
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Link preview: \(displayTitle)")
+        .accessibilityHint("Opens \(preview.displayHost)")
+        .task {
+            await fetchOpenGraphMetadata()
+        }
+    }
+
+    private var socialAuthorName: String? {
+        guard let title = ogTitle ?? preview.title else { return nil }
+        let suffixes = [" on X:", " on X", " on Twitter:", " on Twitter", " on Threads:", " on Threads", " on Bluesky:", " on Bluesky"]
+        for suffix in suffixes {
+            if let range = title.range(of: suffix) {
+                var name = String(title[title.startIndex ..< range.lowerBound])
+                if let parenRange = name.range(of: " (@") {
+                    name = String(name[name.startIndex ..< parenRange.lowerBound])
+                }
+                return name.isEmpty ? nil : name
+            }
+        }
+        if let parenRange = title.range(of: " (@"),
+           parenRange.lowerBound > title.startIndex {
+            let name = String(title[title.startIndex ..< parenRange.lowerBound])
+            return name.isEmpty ? nil : name
+        }
+        return nil
+    }
+
+    private var genericCardBody: some View {
         VStack(alignment: .leading, spacing: 0.0) {
             ZStack {
                 if let image = cachedImage {
@@ -88,12 +157,6 @@ struct LinkPreviewCardView: View {
         }
         .frame(width: 280.0, alignment: .leading)
         .background(.colorFillSubtle)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Link preview: \(displayTitle)")
-        .accessibilityHint("Opens \(preview.displayHost)")
-        .task {
-            await fetchOpenGraphMetadata()
-        }
     }
 
     private func fetchOpenGraphMetadata() async {
@@ -103,6 +166,7 @@ struct LinkPreviewCardView: View {
 
         if let metadata {
             ogTitle = metadata.title
+            ogDescription = metadata.description
             ogSiteName = metadata.siteName
 
             if let w = metadata.imageWidth, let h = metadata.imageHeight, w > 0, h > 0 {
@@ -125,6 +189,7 @@ struct LinkPreviewCardView: View {
            preview.imageWidth == nil || preview.title == nil {
             let enriched = preview.enriched(
                 title: metadata.title,
+                description: metadata.description,
                 imageURL: metadata.imageURL,
                 siteName: metadata.siteName,
                 imageWidth: metadata.imageWidth,
