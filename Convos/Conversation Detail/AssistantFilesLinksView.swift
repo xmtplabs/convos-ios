@@ -160,8 +160,9 @@ struct AssistantFilesLinksView: View {
                         key: file.attachmentKey,
                         filename: file.filename
                     )
-                    guard let presenter = UIApplication.shared.topMostViewController() else { return }
-                    FileAttachmentQuickLookCoordinator.shared.present(fileURL: url, from: presenter)
+                    await MainActor.run {
+                        QuickLookSheetPresenter.present(fileURL: url)
+                    }
                 } catch {
                     Log.error("Failed to open assistant file: \(error)")
                     viewModel.fileOpenError = "This file is no longer available on this device."

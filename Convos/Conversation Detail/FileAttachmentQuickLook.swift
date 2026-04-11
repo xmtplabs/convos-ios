@@ -1,6 +1,77 @@
 import ConvosCore
 import QuickLook
+import SwiftUI
 import UIKit
+
+struct QuickLookPreviewSheet: UIViewControllerRepresentable {
+    let fileURL: URL
+    let onDismiss: () -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(fileURL: fileURL, onDismiss: onDismiss)
+    }
+
+    func makeUIViewController(context: Context) -> QLPreviewController {
+        let controller = QLPreviewController()
+        controller.dataSource = context.coordinator
+        controller.delegate = context.coordinator
+        return controller
+    }
+
+    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {
+        context.coordinator.fileURL = fileURL
+        uiViewController.reloadData()
+    }
+
+    final class Coordinator: NSObject, QLPreviewControllerDataSource, @preconcurrency QLPreviewControllerDelegate {
+        var fileURL: URL
+        let onDismiss: () -> Void
+
+        init(fileURL: URL, onDismiss: @escaping () -> Void) {
+            self.fileURL = fileURL
+            self.onDismiss = onDismiss
+        }
+
+        func numberOfPreviewItems(in controller: QLPreviewController) -> Int { 1 }
+
+        func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
+            fileURL as NSURL
+        }
+
+        func previewControllerDidDismiss(_ controller: QLPreviewController) {
+            onDismiss()
+        }
+    }
+}
+
+private struct QuickLookSheetContainer: View {
+    let fileURL: URL
+    let onDismiss: () -> Void
+
+    @Environment(\.dismiss) private var dismiss: DismissAction
+
+    var body: some View {
+        QuickLookPreviewSheet(fileURL: fileURL) {
+            onDismiss()
+            dismiss()
+        }
+        .ignoresSafeArea()
+    }
+}
+
+enum QuickLookSheetPresenter {
+    @MainActor
+    static func present(fileURL: URL, from presenter: UIViewController? = UIApplication.shared.topMostViewController()) {
+        guard let presenter else { return }
+        let host = UIHostingController(
+            rootView: QuickLookSheetContainer(fileURL: fileURL) {
+                try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
+            }
+        )
+        host.modalPresentationStyle = .pageSheet
+        presenter.present(host, animated: true)
+    }
+}
 
 enum FileAttachmentPreviewLoader {
     static func loadPreviewURL(key: String, filename: String?) async throws -> URL {
@@ -52,54 +123,5 @@ enum FileAttachmentPreviewLoader {
         )
         try loaded.data.write(to: tempURL)
         return tempURL
-    }
-}
-
-final class FileAttachmentQuickLookPresenter: NSObject, QLPreviewControllerDataSource, @preconcurrency QLPreviewControllerDelegate {
-    private let fileURL: URL
-    private weak var presenter: UIViewController?
-
-    init(fileURL: URL, presenter: UIViewController) {
-        self.fileURL = fileURL
-        self.presenter = presenter
-    }
-
-    @MainActor
-    func present() {
-        let previewController = QLPreviewController()
-        previewController.dataSource = self
-        previewController.delegate = self
-        presenter?.present(previewController, animated: true)
-    }
-
-    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-        1
-    }
-
-    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
-        fileURL as NSURL
-    }
-
-    func previewControllerDidDismiss(_ controller: QLPreviewController) {
-        try? FileManager.default.removeItem(at: fileURL.deletingLastPathComponent())
-        FileAttachmentQuickLookCoordinator.shared.release(self)
-    }
-}
-
-@MainActor
-final class FileAttachmentQuickLookCoordinator {
-    static let shared: FileAttachmentQuickLookCoordinator = .init()
-
-    private var presenters: [ObjectIdentifier: FileAttachmentQuickLookPresenter] = [:]
-
-    func present(fileURL: URL, from presenter: UIViewController) {
-        let quickLookPresenter = FileAttachmentQuickLookPresenter(fileURL: fileURL, presenter: presenter)
-        let id = ObjectIdentifier(quickLookPresenter)
-        presenters[id] = quickLookPresenter
-        quickLookPresenter.present()
-    }
-
-    func release(_ presenter: FileAttachmentQuickLookPresenter) {
-        presenters.removeValue(forKey: ObjectIdentifier(presenter))
     }
 }
