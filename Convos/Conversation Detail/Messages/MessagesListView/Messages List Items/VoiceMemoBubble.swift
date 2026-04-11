@@ -54,6 +54,7 @@ struct VoiceMemoBubbleContent: View {
     @State private var analyzedDuration: TimeInterval?
     @State private var isSheetPresented: Bool = false
     @State private var optimisticPending: Bool = false
+    @State private var isTruncated: Bool = false
 
     private var displayLevels: [Float] {
         attachment.waveformLevels ?? analyzedLevels ?? Self.placeholderLevels
@@ -161,19 +162,41 @@ struct VoiceMemoBubbleContent: View {
         switch transcriptStatus {
         case .completed:
             if let text = transcript?.text, !text.isEmpty {
-                let tapAction = { isSheetPresented = true }
+                let tapAction = { if isTruncated { isSheetPresented = true } }
                 Button(action: tapAction) {
                     HStack(spacing: DesignConstants.Spacing.step2x) {
                         Text(text)
                             .font(.caption)
                             .foregroundStyle(isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.6) : .colorTextSecondary)
-                            .lineLimit(2)
+                            .lineLimit(3)
                             .multilineTextAlignment(.leading)
                             .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(
+                                Text(text)
+                                    .font(.caption)
+                                    .lineLimit(nil)
+                                    .fixedSize(horizontal: false, vertical: true)
+                                    .hidden()
+                                    .overlay(GeometryReader { fullProxy in
+                                        GeometryReader { _ in
+                                            Color.clear.preference(
+                                                key: FullTextHeightKey.self,
+                                                value: fullProxy.size.height
+                                            )
+                                        }
+                                    })
+                            )
+                            .onPreferenceChange(FullTextHeightKey.self) { fullHeight in
+                                guard let fullHeight else { return }
+                                let lineHeight = UIFont.preferredFont(forTextStyle: .caption1).lineHeight
+                                isTruncated = fullHeight > lineHeight * 3.5
+                            }
 
-                        Image(systemName: "chevron.right")
-                            .font(.subheadline)
-                            .foregroundStyle(isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.3) : .colorTextTertiary)
+                        if isTruncated {
+                            Image(systemName: "chevron.right")
+                                .font(.subheadline)
+                                .foregroundStyle(isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.3) : .colorTextTertiary)
+                        }
                     }
                     .padding(.horizontal, DesignConstants.Spacing.step4x)
                     .padding(.bottom, DesignConstants.Spacing.step3x)
@@ -249,6 +272,13 @@ struct VoiceMemoBubbleContent: View {
     }
 
     private static let placeholderLevels: [Float] = Array(repeating: Float(0), count: 40)
+
+    private enum FullTextHeightKey: PreferenceKey {
+        static let defaultValue: CGFloat? = nil
+        static func reduce(value: inout CGFloat?, nextValue: () -> CGFloat?) {
+            value = value ?? nextValue()
+        }
+    }
 }
 
 #Preview {
