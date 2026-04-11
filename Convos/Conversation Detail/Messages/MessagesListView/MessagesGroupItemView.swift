@@ -845,7 +845,6 @@ private struct MediaContainerReax: View {
             Button(action: tapAction) {
                 reaxContent
                     .padding(DesignConstants.Spacing.step4x)
-                    .background(Color.red.opacity(0.3))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
