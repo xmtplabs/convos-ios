@@ -230,6 +230,8 @@ class ConversationViewModel {
     @ObservationIgnored
     var typingResetTask: Task<Void, Never>?
     @ObservationIgnored
+    var pendingTypingIndicatorTask: Task<Void, Never>?
+    @ObservationIgnored
     var typingThrottleDate: Date?
 
     var selectedAttachmentImage: UIImage? {
@@ -409,6 +411,7 @@ class ConversationViewModel {
     deinit {
         voiceMemoPlaybackTask?.cancel()
         pendingReadReceiptTask?.cancel()
+        pendingTypingIndicatorTask?.cancel()
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
         assistantJoinTask?.cancel()

@@ -83,8 +83,9 @@ extension ConversationViewModel {
         typingThrottleDate = nil
         typingResetTask?.cancel()
         typingResetTask = nil
+        pendingTypingIndicatorTask?.cancel()
         let conversationId = conversation.id
-        Task { [weak self] in
+        pendingTypingIndicatorTask = Task { [weak self] in
             guard let self else { return }
             try? await self.messagingService.sendTypingIndicator(isTyping: false, for: conversationId)
         }
@@ -110,7 +111,6 @@ extension ConversationViewModel {
         }
 
         typingThrottleDate = now
-        isTypingSent = true
 
         typingResetTask?.cancel()
         typingResetTask = Task { [weak self] in
@@ -121,10 +121,15 @@ extension ConversationViewModel {
             }
         }
 
+        pendingTypingIndicatorTask?.cancel()
         let conversationId = conversation.id
-        Task { [weak self] in
+        pendingTypingIndicatorTask = Task { [weak self] in
             guard let self else { return }
             try? await self.messagingService.sendTypingIndicator(isTyping: true, for: conversationId)
+            guard !Task.isCancelled else { return }
+            await MainActor.run { [weak self] in
+                self?.isTypingSent = true
+            }
         }
     }
 
