@@ -887,7 +887,7 @@ extension MessagesViewController {
                     filename: attachment.filename
                 )
                 await MainActor.run {
-                    QuickLookSheetPresenter.present(fileURL: fileURL, from: self)
+                    FileAttachmentQuickLookCoordinator.shared.present(fileURL: fileURL, from: self)
                 }
             } catch {
                 Log.error("Failed to open file attachment: \(error)")
