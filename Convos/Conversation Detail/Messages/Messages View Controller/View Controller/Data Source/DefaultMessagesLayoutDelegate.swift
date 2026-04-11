@@ -121,9 +121,7 @@ final class DefaultMessagesLayoutDelegate: MessagesLayoutDelegate {
             // Capsule-only row ("Tap to transcribe").
             return 46
         case .failed:
-            // Capsule + optional error description line.
-            let hasDetail = transcript.errorDescription?.isEmpty == false
-            return hasDetail ? 72 : 46
+            return 0
         case .pending:
             // Spinner + "Transcribing…" text.
             return 40

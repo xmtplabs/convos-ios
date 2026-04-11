@@ -105,7 +105,7 @@ struct VoiceMemoBubbleContent: View {
             await loadAndCacheAnalysis()
         }
         .onChange(of: transcript?.status) { _, newStatus in
-            if newStatus == .completed || newStatus == .failed {
+            if newStatus == .completed || newStatus == .permanentlyFailed {
                 optimisticPending = false
             }
         }
@@ -243,7 +243,10 @@ struct VoiceMemoBubbleContent: View {
             .padding(.horizontal, DesignConstants.Spacing.step4x)
             .padding(.bottom, DesignConstants.Spacing.step3x)
 
-        case .failed, .permanentlyFailed:
+        case .permanentlyFailed:
+            EmptyView()
+
+        case .failed:
             EmptyView()
         }
     }

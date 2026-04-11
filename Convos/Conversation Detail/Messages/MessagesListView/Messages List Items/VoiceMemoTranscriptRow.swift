@@ -34,7 +34,7 @@ struct VoiceMemoTranscriptRow: View {
     }
 
     private var canRequestTranscription: Bool {
-        displayStatus == .notRequested || displayStatus == .failed
+        displayStatus == .notRequested
     }
 
     private var isInteractive: Bool {
@@ -71,9 +71,7 @@ struct VoiceMemoTranscriptRow: View {
         .disabled(!isInteractive)
         .animation(.easeInOut(duration: 0.2), value: displayStatus)
         .onChange(of: item.status) { _, newStatus in
-            // Once the publisher catches up and reports a real terminal state,
-            // drop the optimistic flag so the row reflects truth again.
-            if newStatus == .completed || newStatus == .failed {
+            if newStatus == .completed || newStatus == .permanentlyFailed {
                 optimisticPending = false
             }
         }
@@ -107,10 +105,6 @@ struct VoiceMemoTranscriptRow: View {
                         .lineLimit(2)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
-                }
-
-                if displayStatus == .failed {
-                    failureBody
                 }
 
                 if displayStatus == .notRequested {
@@ -167,18 +161,6 @@ struct VoiceMemoTranscriptRow: View {
     }
 
     @ViewBuilder
-    private var failureBody: some View {
-        if let detail = item.errorDescription, !detail.isEmpty {
-            Text(detail)
-                .font(.caption2)
-                .foregroundStyle(.colorTextSecondary)
-                .multilineTextAlignment(.leading)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        capsuleAffordance(title: "Tap to try again", systemImage: "arrow.clockwise")
-    }
-
-    @ViewBuilder
     private func capsuleAffordance(title: String, systemImage: String) -> some View {
         Label(title: { Text(title) }, icon: {
             Image(systemName: systemImage)
@@ -197,8 +179,8 @@ struct VoiceMemoTranscriptRow: View {
         case .notRequested: return "text.bubble"
         case .pending: return "waveform"
         case .completed: return "text.bubble"
-        case .failed: return "exclamationmark.bubble"
-        case .permanentlyFailed: return "text.bubble" // row is hidden; value unused
+        case .failed: return "text.bubble"
+        case .permanentlyFailed: return "text.bubble"
         }
     }
 
@@ -207,8 +189,8 @@ struct VoiceMemoTranscriptRow: View {
         case .notRequested: return "Tap to transcribe"
         case .pending: return "Transcribing…"
         case .completed: return "Transcript"
-        case .failed: return "Transcript unavailable"
-        case .permanentlyFailed: return "" // row is hidden; value unused
+        case .failed: return ""
+        case .permanentlyFailed: return ""
         }
     }
 }

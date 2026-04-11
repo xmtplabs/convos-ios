@@ -224,24 +224,6 @@ public final class VoiceMemoTranscriptionService: VoiceMemoTranscriptionServicin
         await state.clear(messageId: messageId)
     }
 
-    private func persistFailure(
-        messageId: String,
-        conversationId: String,
-        attachmentKey: String,
-        error: Error
-    ) async {
-        do {
-            try await transcriptWriter.markPermanentlyFailed(
-                messageId: messageId,
-                conversationId: conversationId,
-                attachmentKey: attachmentKey,
-                errorDescription: error.localizedDescription
-            )
-        } catch {
-            Log.error("[VoiceMemoTranscription] Failed to persist transcript failure for \(messageId): \(error)")
-        }
-    }
-
     private static func writeTemporaryAudioFile(data: Data, mimeType: String) throws -> URL {
         let ext = fileExtension(forMimeType: mimeType)
         let url = FileManager.default.temporaryDirectory
