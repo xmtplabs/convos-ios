@@ -231,7 +231,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                 } label: {
                     Image(systemName: "chevron.right")
                         .font(.system(size: 18.0, weight: .medium))
-                        .foregroundStyle(Color.colorTextSecondary)
+                        .foregroundStyle(Color.colorTextTertiary)
                         .frame(width: 32, height: 32)
                         .contentShape(.circle)
                 }
