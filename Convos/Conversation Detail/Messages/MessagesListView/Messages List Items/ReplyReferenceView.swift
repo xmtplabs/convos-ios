@@ -545,6 +545,7 @@ private struct ReplyReferenceFileBubble: View {
 
 private struct ReplyReferenceAudioPreview: View {
     let attachment: HydratedAttachment
+    var transcriptText: String?
 
     @State private var waveformLevels: [Float]?
 
@@ -552,34 +553,46 @@ private struct ReplyReferenceAudioPreview: View {
         guard let duration = attachment.duration else { return "Audio" }
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step2x) {
-            Image(systemName: "waveform")
-                .font(.system(size: 10))
-                .foregroundStyle(.colorTextSecondary)
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: DesignConstants.Spacing.step2x) {
+                if let levels = waveformLevels {
+                    VoiceMemoWaveformView(
+                        levels: levels,
+                        unplayedColor: .colorTextPrimary,
+                        barWidth: 1.5,
+                        barSpacing: 1
+                    )
+                    .frame(height: 16)
+                    .frame(maxWidth: .infinity)
+                } else {
+                    Image(systemName: "waveform")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.colorTextSecondary)
+                }
 
-            if let levels = waveformLevels {
-                VoiceMemoWaveformView(
-                    levels: levels,
-                    unplayedColor: .colorTextSecondary.opacity(0.4),
-                    barWidth: 1.5,
-                    barSpacing: 1
-                )
-                .frame(width: 60, height: 16)
+                Text(durationText)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
             }
 
-            Text(durationText)
-                .font(.caption2)
-                .foregroundStyle(.colorTextSecondary)
+            if let text = transcriptText, !text.isEmpty {
+                Text(text)
+                    .font(.caption)
+                    .foregroundStyle(.colorTextPrimary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
         }
-        .padding(.horizontal, DesignConstants.Spacing.step3x)
-        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .padding(.horizontal, DesignConstants.Spacing.step4x)
+        .padding(.vertical, DesignConstants.Spacing.step3x)
+        .frame(maxWidth: 160)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(Color.colorFillMinimal)
+            RoundedRectangle(cornerRadius: 24)
+                .stroke(Color.colorBorderSubtle, lineWidth: 1)
         )
         .task {
             if let cached = attachment.waveformLevels {
