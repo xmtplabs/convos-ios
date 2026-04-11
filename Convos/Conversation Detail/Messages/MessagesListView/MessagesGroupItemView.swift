@@ -18,6 +18,7 @@ struct MessagesGroupItemView: View {
     var voiceMemoTranscript: VoiceMemoTranscriptListItem?
     var voiceMemoTranscriptIsTailed: Bool = false
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
+    var parentAudioTranscriptText: String?
     var omitTrailingPadding: Bool = false
 
     @State private var isAppearing: Bool = true
@@ -53,7 +54,8 @@ struct MessagesGroupItemView: View {
                     onTapAvatar: { onTapAvatar(.message(reply.parentMessage, .existing)) },
                     onTapInvite: onTapInvite,
                     onPhotoRevealed: onPhotoRevealed,
-                    onPhotoHidden: onPhotoHidden
+                    onPhotoHidden: onPhotoHidden,
+                    parentAudioTranscriptText: parentAudioTranscriptText
                 )
                 .padding(.leading, !message.sender.isCurrentUser && message.content.isFullBleedAttachment
                     ? DesignConstants.Spacing.step4x

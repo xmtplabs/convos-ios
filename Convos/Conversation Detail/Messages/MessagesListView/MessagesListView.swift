@@ -78,17 +78,7 @@ struct MessagesListView: View {
                                 }
 
                             case .messages(let group):
-                                MessagesGroupView(
-                                    group: group,
-                                    shouldBlurPhotos: shouldBlurPhotos,
-                                    onTapAvatar: onTapAvatar,
-                                    onTapInvite: onTapInvite,
-                                    onTapReactions: onTapReactions,
-                                    onReply: onReply,
-                                    onPhotoRevealed: onPhotoRevealed,
-                                    onPhotoHidden: onPhotoHidden,
-                                    onPhotoDimensionsLoaded: onPhotoDimensionsLoaded
-                                )
+                                messagesGroupView(for: group)
 
                             case .invite(let invite):
                                 InviteView(invite: invite)
@@ -156,6 +146,31 @@ struct MessagesListView: View {
             .defaultScrollAnchor(.bottom)
             .scrollDismissesKeyboard(.interactively)
             .scrollPosition($scrollPosition, anchor: .bottom)
+        }
+    }
+
+    private func messagesGroupView(for group: MessagesGroup) -> MessagesGroupView {
+        let transcripts = Self.collectTranscripts(from: messages)
+        return MessagesGroupView(
+            group: group,
+            shouldBlurPhotos: shouldBlurPhotos,
+            onTapAvatar: onTapAvatar,
+            onTapInvite: onTapInvite,
+            onTapReactions: onTapReactions,
+            onReply: onReply,
+            onPhotoRevealed: onPhotoRevealed,
+            onPhotoHidden: onPhotoHidden,
+            onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
+            allVoiceMemoTranscripts: transcripts
+        )
+    }
+
+    private static func collectTranscripts(
+        from items: [MessagesListItemType]
+    ) -> [String: VoiceMemoTranscriptListItem] {
+        items.reduce(into: [:]) { result, item in
+            guard case .messages(let group) = item else { return }
+            result.merge(group.voiceMemoTranscripts) { _, new in new }
         }
     }
 }

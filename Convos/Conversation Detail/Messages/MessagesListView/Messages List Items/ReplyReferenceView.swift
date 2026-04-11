@@ -13,6 +13,7 @@ struct ReplyReferenceView: View {
     var onTapInvite: ((MessageInvite) -> Void)?
     var onPhotoRevealed: ((String) -> Void)?
     var onPhotoHidden: ((String) -> Void)?
+    var parentAudioTranscriptText: String?
 
     private var previewText: String {
         switch parentMessage.content {
@@ -101,7 +102,7 @@ struct ReplyReferenceView: View {
             .padding(.trailing, isOutgoing ? DesignConstants.Spacing.step3x : 0.0)
 
             if let attachment = parentAttachment, attachment.mediaType == .audio {
-                ReplyReferenceAudioPreview(attachment: attachment)
+                ReplyReferenceAudioPreview(attachment: attachment, transcriptText: parentAudioTranscriptText)
             } else if let attachment = parentAttachment, attachment.mediaType == .file {
                 ReplyReferenceFileBubble(attachment: attachment)
             } else if let attachment = parentAttachment {
@@ -548,9 +549,14 @@ private struct ReplyReferenceAudioPreview: View {
     var transcriptText: String?
 
     @State private var waveformLevels: [Float]?
+    @State private var analyzedDuration: TimeInterval?
 
-    private var durationText: String {
-        guard let duration = attachment.duration else { return "Audio" }
+    private var effectiveDuration: TimeInterval? {
+        attachment.duration ?? analyzedDuration
+    }
+
+    private var durationText: String? {
+        guard let duration = effectiveDuration else { return nil }
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
         return String(format: "%02d:%02d", minutes, seconds)
@@ -562,7 +568,7 @@ private struct ReplyReferenceAudioPreview: View {
                 if let levels = waveformLevels {
                     VoiceMemoWaveformView(
                         levels: levels,
-                        unplayedColor: .colorTextPrimary,
+                        unplayedColor: .colorFillTertiary,
                         barWidth: 1.5,
                         barSpacing: 1
                     )
@@ -574,9 +580,11 @@ private struct ReplyReferenceAudioPreview: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
 
-                Text(durationText)
-                    .font(.caption)
-                    .foregroundStyle(.colorTextSecondary)
+                if let durationText {
+                    Text(durationText)
+                        .font(.caption)
+                        .foregroundStyle(.colorTextSecondary)
+                }
             }
 
             if let text = transcriptText, !text.isEmpty {
@@ -597,13 +605,18 @@ private struct ReplyReferenceAudioPreview: View {
         .task {
             if let cached = attachment.waveformLevels {
                 waveformLevels = cached
-                return
+                if attachment.duration != nil { return }
             }
             do {
                 let loader = RemoteAttachmentLoader()
                 let loaded = try await loader.loadAttachmentData(from: attachment.key)
-                let levels = await VoiceMemoWaveformAnalyzer.analyzeLevels(from: loaded.data, sampleCount: 30)
-                await MainActor.run { waveformLevels = levels }
+                let analysis = await VoiceMemoWaveformAnalyzer.analyze(from: loaded.data, sampleCount: 30)
+                await MainActor.run {
+                    if waveformLevels == nil { waveformLevels = analysis.levels }
+                    if effectiveDuration == nil, analysis.duration > 0 {
+                        analyzedDuration = analysis.duration
+                    }
+                }
             } catch {
                 Log.error("Failed to load reply audio waveform: \(error)")
             }

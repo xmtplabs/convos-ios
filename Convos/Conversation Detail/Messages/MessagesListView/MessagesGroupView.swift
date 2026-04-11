@@ -16,6 +16,7 @@ struct MessagesGroupView: View {
     var onRetryMessage: ((AnyMessage) -> Void)?
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
+    var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
 
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
@@ -201,6 +202,7 @@ struct MessagesGroupView: View {
                 voiceMemoTranscript: group.voiceMemoTranscripts[message.messageId],
                 voiceMemoTranscriptIsTailed: voiceMemoTranscriptIsTailed,
                 onRetryTranscript: onRetryTranscript,
+                parentAudioTranscriptText: parentAudioTranscriptText(for: message),
                 omitTrailingPadding: isFailed
             )
             .zIndex(100)
@@ -228,6 +230,13 @@ struct MessagesGroupView: View {
             }
         }
         .padding(.leading, !group.sender.isCurrentUser && !isFullWidthAttachment ? DesignConstants.Spacing.step4x : 0)
+    }
+
+    private func parentAudioTranscriptText(for message: AnyMessage) -> String? {
+        guard case .reply(let reply, _) = message,
+              reply.parentMessage.content.primaryVoiceMemoAttachment != nil
+        else { return nil }
+        return allVoiceMemoTranscripts[reply.parentMessage.id]?.text
     }
 
     @ViewBuilder
