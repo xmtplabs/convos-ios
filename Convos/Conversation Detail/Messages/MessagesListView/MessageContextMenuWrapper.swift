@@ -22,6 +22,7 @@ struct MessageGestureModifier: ViewModifier {
     let bubbleStyle: MessageBubbleType
     let onSingleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
+    var externalSwipeOffset: Binding<CGFloat>?
 
     @State private var swipeOffset: CGFloat = 0
     @State private var isPressed: Bool = false
@@ -56,6 +57,9 @@ struct MessageGestureModifier: ViewModifier {
             }
             .animation(.easeInOut(duration: 0.25), value: isPressed)
             .offset(x: swipeOffset)
+            .onChange(of: swipeOffset) { _, newValue in
+                externalSwipeOffset?.wrappedValue = newValue
+            }
             .background(alignment: .leading) {
                 if swipeOffset > 0 {
                     let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
@@ -126,13 +130,15 @@ extension View {
         message: AnyMessage,
         bubbleStyle: MessageBubbleType = .normal,
         onSingleTap: (() -> Void)? = nil,
-        onReply: @escaping (AnyMessage) -> Void
+        onReply: @escaping (AnyMessage) -> Void,
+        swipeOffset: Binding<CGFloat>? = nil
     ) -> some View {
         modifier(MessageGestureModifier(
             message: message,
             bubbleStyle: bubbleStyle,
             onSingleTap: onSingleTap,
-            onReply: onReply
+            onReply: onReply,
+            externalSwipeOffset: swipeOffset
         ))
     }
 }

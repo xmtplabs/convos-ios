@@ -307,6 +307,7 @@ private struct VideoTapAttachmentView: View {
 
     @State private var videoPlayTrigger: Bool = false
     @State private var isPlaying: Bool = false
+    @State private var swipeOffset: CGFloat = 0
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -329,11 +330,13 @@ private struct VideoTapAttachmentView: View {
             message: message,
             bubbleStyle: .normal,
             onSingleTap: singleTapAction,
-            onReply: onReply
+            onReply: onReply,
+            swipeOffset: $swipeOffset
         )
         .overlay(alignment: .topLeading) {
             if !isPlaying {
                 MediaContainerID(profile: profile, onTap: onTapAvatar)
+                    .offset(x: swipeOffset)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -343,6 +346,7 @@ private struct VideoTapAttachmentView: View {
                     isVideo: isVideo,
                     duration: attachment.duration
                 )
+                .offset(x: swipeOffset)
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -351,6 +355,7 @@ private struct VideoTapAttachmentView: View {
                     reactions: reactions,
                     onTap: onTapReactions
                 )
+                .offset(x: swipeOffset)
             }
         }
     }
@@ -738,7 +743,7 @@ private struct AttachmentPlaceholder: View {
 
 // MARK: - Media Overlay Containers
 
-struct MediaContainerID: View {
+private struct MediaContainerID: View {
     let profile: Profile
     var onTap: (() -> Void)?
 
