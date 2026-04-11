@@ -196,7 +196,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                     Image(systemName: "trash")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.colorCaution)
-                        .frame(width: DesignConstants.Spacing.step12x, height: DesignConstants.Spacing.step12x)
+                        .frame(width: DesignConstants.Spacing.step11x, height: DesignConstants.Spacing.step11x)
                 }
                 .clipShape(.circle)
                 .glassEffect(.regular.interactive(), in: .circle)

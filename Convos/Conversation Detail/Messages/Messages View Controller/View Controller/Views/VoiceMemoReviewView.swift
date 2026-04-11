@@ -16,7 +16,7 @@ struct VoiceMemoReviewView: View {
     }
 
     var body: some View {
-        HStack(spacing: DesignConstants.Spacing.step3x) {
+        HStack(spacing: 0) {
             Button {
                 togglePlayback()
             } label: {
@@ -24,22 +24,25 @@ struct VoiceMemoReviewView: View {
                     .font(.system(size: 14))
                     .foregroundStyle(.colorTextPrimary)
                     .frame(width: 32, height: 32)
-                    .background(.colorFillTertiary, in: Circle())
+                    .background(.colorFillSubtle, in: Circle())
             }
+            .frame(width: 48, height: 48)
             .accessibilityLabel(isPlaying ? "Pause" : "Play")
             .accessibilityIdentifier("voice-memo-play-button")
 
-            VoiceMemoWaveformView(
-                levels: displayLevels,
-                progress: playbackProgress
-            )
-            .frame(height: 24)
-            .animation(.linear(duration: 1.0 / 30.0), value: playbackProgress)
+            HStack(spacing: 4) {
+                VoiceMemoWaveformView(
+                    levels: displayLevels,
+                    progress: playbackProgress
+                )
+                .frame(height: 24)
+                .animation(.linear(duration: 1.0 / 30.0), value: playbackProgress)
 
-            Text(formattedDuration(duration))
-                .font(.callout.monospacedDigit())
-                .foregroundStyle(.colorTextSecondary)
-                .frame(minWidth: 44, alignment: .trailing)
+                Text(formattedDuration(duration))
+                    .font(.caption)
+                    .foregroundStyle(.colorTextSecondary)
+                    .frame(minWidth: 32, alignment: .trailing)
+            }
 
             Button {
                 stopPlayback()
@@ -51,11 +54,10 @@ struct VoiceMemoReviewView: View {
                     .frame(width: 32, height: 32)
                     .background(.colorFillPrimary, in: Circle())
             }
+            .frame(width: 48, height: 48)
             .accessibilityLabel("Send voice memo")
             .accessibilityIdentifier("voice-memo-send-button")
         }
-        .padding(.horizontal, DesignConstants.Spacing.step6x)
-        .padding(.vertical, DesignConstants.Spacing.step4x)
         .onDisappear {
             stopPlayback()
         }
@@ -116,7 +118,7 @@ struct VoiceMemoReviewView: View {
     private func formattedDuration(_ duration: TimeInterval) -> String {
         let minutes = Int(duration) / 60
         let seconds = Int(duration) % 60
-        return String(format: "%d:%02d", minutes, seconds)
+        return String(format: "%02d:%02d", minutes, seconds)
     }
 }
 
