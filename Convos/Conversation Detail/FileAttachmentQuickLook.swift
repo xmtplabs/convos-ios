@@ -11,16 +11,20 @@ struct QuickLookPreviewSheet: UIViewControllerRepresentable {
         Coordinator(fileURL: fileURL, onDismiss: onDismiss)
     }
 
-    func makeUIViewController(context: Context) -> QLPreviewController {
+    func makeUIViewController(context: Context) -> UINavigationController {
         let controller = QLPreviewController()
         controller.dataSource = context.coordinator
         controller.delegate = context.coordinator
-        return controller
+        let navigationController = UINavigationController(rootViewController: controller)
+        navigationController.modalPresentationStyle = .pageSheet
+        return navigationController
     }
 
-    func updateUIViewController(_ uiViewController: QLPreviewController, context: Context) {
+    func updateUIViewController(_ uiViewController: UINavigationController, context: Context) {
         context.coordinator.fileURL = fileURL
-        uiViewController.reloadData()
+        if let controller = uiViewController.viewControllers.first as? QLPreviewController {
+            controller.reloadData()
+        }
     }
 
     final class Coordinator: NSObject, QLPreviewControllerDataSource, @preconcurrency QLPreviewControllerDelegate {
