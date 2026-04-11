@@ -132,7 +132,7 @@ struct VoiceMemoBubbleContent: View {
             .foregroundStyle(isOutgoing ? .colorTextPrimaryInverted : .colorTextPrimary)
             .frame(width: 32, height: 32)
             .background(
-                isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.2) : .colorFillSubtle,
+                isOutgoing ? .colorFillInvertedSubtle : Color.colorTextPrimaryInverted,
                 in: Circle()
             )
             .frame(width: 48, height: 48)
@@ -220,7 +220,7 @@ struct VoiceMemoBubbleContent: View {
                         .frame(maxWidth: .infinity)
                         .frame(height: 44)
                         .background(
-                            isOutgoing ? Color.colorTextPrimaryInverted.opacity(0.2) : .colorFillSubtle,
+                            isOutgoing ? .colorFillInvertedSubtle : Color.colorTextPrimaryInverted,
                             in: .rect(cornerRadius: 24)
                         )
                 }
