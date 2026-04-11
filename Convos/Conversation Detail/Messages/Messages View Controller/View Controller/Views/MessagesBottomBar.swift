@@ -193,7 +193,7 @@ struct MessagesBottomBar<BottomBarContent: View>: View {
                         voiceMemoRecorder.cancelRecording()
                     }
                 } label: {
-                    Image(systemName: "trash")
+                    Image(systemName: "trash.fill")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundStyle(.colorCaution)
                         .frame(width: DesignConstants.Spacing.step11x, height: DesignConstants.Spacing.step11x)
