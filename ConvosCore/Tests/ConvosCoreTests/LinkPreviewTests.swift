@@ -556,6 +556,110 @@ struct OpenGraphDescriptionParsingTests {
     }
 }
 
+@Suite("Twitter oEmbed Parsing")
+struct TwitterOEmbedParsingTests {
+    let service: OpenGraphService = .init()
+
+    @Test("Extracts plain text from oEmbed HTML")
+    func extractsPlainText() async {
+        let html = """
+        <blockquote class="twitter-tweet"><p lang="en" dir="ltr">just setting up my twttr</p>\
+        &mdash; jack (@jack)</blockquote>
+        """
+        let result = await service.parseTweetText(from: html)
+        #expect(result == "just setting up my twttr")
+    }
+
+    @Test("Strips anchor tags but keeps text content")
+    func stripsAnchorsKeepsText() async {
+        let html = """
+        <blockquote class="twitter-tweet"><p lang="en" dir="ltr">Hello \
+        <a href="https://twitter.com/convos">@convos</a> world</p></blockquote>
+        """
+        let result = await service.parseTweetText(from: html)
+        #expect(result == "Hello @convos world")
+    }
+
+    @Test("Decodes HTML entities")
+    func decodesEntities() async {
+        let html = """
+        <blockquote><p lang="en" dir="ltr">It&apos;s a &quot;test&quot; &amp; more</p></blockquote>
+        """
+        let result = await service.parseTweetText(from: html)
+        #expect(result == "It's a \"test\" & more")
+    }
+
+    @Test("Strips pic.twitter.com references")
+    func stripsPicTwitter() async {
+        let html = """
+        <blockquote><p lang="en" dir="ltr">Check this out pic.twitter.com/abc123</p></blockquote>
+        """
+        let result = await service.parseTweetText(from: html)
+        #expect(result == "Check this out")
+    }
+
+    @Test("Strips trailing t.co links")
+    func stripsTcoLinks() async {
+        let html = """
+        <blockquote><p lang="en" dir="ltr">Read more \
+        <a href="https://t.co/abc">https://t.co/abc</a></p></blockquote>
+        """
+        let result = await service.parseTweetText(from: html)
+        #expect(result == "Read more")
+    }
+
+    @Test("Returns nil for empty paragraph")
+    func returnsNilForEmpty() async {
+        let html = "<blockquote><p></p></blockquote>"
+        let result = await service.parseTweetText(from: html)
+        #expect(result == nil)
+    }
+
+    @Test("Returns nil for malformed HTML")
+    func returnsNilForMalformed() async {
+        let result = await service.parseTweetText(from: "not html at all")
+        #expect(result == nil)
+    }
+
+    @Test("Handles tweet with only media references")
+    func handlesMediaOnlyTweet() async {
+        let html = """
+        <blockquote><p lang="en" dir="ltr">\
+        <a href="https://t.co/xyz">pic.twitter.com/xyz</a></p></blockquote>
+        """
+        let result = await service.parseTweetText(from: html)
+        #expect(result == nil)
+    }
+}
+
+@Suite("Static Social Platform Detection")
+struct StaticSocialPlatformDetectionTests {
+    @Test("Detects twitter from x.com URL string")
+    func detectsTwitter() {
+        #expect(LinkPreview.socialPlatform(for: "https://x.com/user/status/123") == .twitter)
+    }
+
+    @Test("Detects twitter from twitter.com URL string")
+    func detectsTwitterLegacy() {
+        #expect(LinkPreview.socialPlatform(for: "https://twitter.com/user/status/123") == .twitter)
+    }
+
+    @Test("Detects threads from URL string")
+    func detectsThreads() {
+        #expect(LinkPreview.socialPlatform(for: "https://threads.net/@user/post/abc") == .threads)
+    }
+
+    @Test("Returns nil for non-social URL string")
+    func returnsNilForNonSocial() {
+        #expect(LinkPreview.socialPlatform(for: "https://example.com") == nil)
+    }
+
+    @Test("Returns nil for invalid URL string")
+    func returnsNilForInvalid() {
+        #expect(LinkPreview.socialPlatform(for: "not a url") == nil)
+    }
+}
+
 @Suite("LinkPreview Description Codable")
 struct LinkPreviewDescriptionCodableTests {
     @Test("Decodes JSON without description field")

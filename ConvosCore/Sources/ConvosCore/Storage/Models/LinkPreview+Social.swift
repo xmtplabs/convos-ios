@@ -23,17 +23,22 @@ public enum SocialPlatform: String, Sendable {
 }
 
 extension LinkPreview {
-    private static let socialDomains: [String: SocialPlatform] = [
+    static let socialDomains: [String: SocialPlatform] = [
         "x.com": .twitter,
         "twitter.com": .twitter,
         "threads.net": .threads,
         "bsky.app": .bluesky,
     ]
 
-    public var socialPlatform: SocialPlatform? {
-        guard let host = resolvedURL?.host?.lowercased() else { return nil }
+    public static func socialPlatform(for urlString: String) -> SocialPlatform? {
+        guard let url = URL(string: urlString),
+              let host = url.host?.lowercased() else { return nil }
         let stripped = host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
-        return Self.socialDomains[stripped]
+        return socialDomains[stripped]
+    }
+
+    public var socialPlatform: SocialPlatform? {
+        Self.socialPlatform(for: url)
     }
 
     public var socialUsername: String? {

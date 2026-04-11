@@ -66,6 +66,10 @@ public actor OpenGraphService {
                 return ogResult
             }
 
+            if LinkPreview.socialPlatform(for: urlString) == .twitter {
+                return await fetchTwitterMetadata(for: url)
+            }
+
             if let provider = RichLinkMetadata.provider {
                 return await provider.fetchMetadata(for: url)
             }
@@ -175,6 +179,98 @@ public actor OpenGraphService {
         } catch {
             return nil
         }
+    }
+
+    private func fetchTwitterMetadata(for url: URL) async -> OpenGraphMetadata? {
+        async let oembedResult = fetchTwitterOEmbed(for: url)
+        async let lpResult: OpenGraphMetadata? = RichLinkMetadata.provider?.fetchMetadata(for: url)
+
+        let oembed = await oembedResult
+        let lp = await lpResult
+
+        guard oembed != nil || lp != nil else { return nil }
+
+        return OpenGraphMetadata(
+            title: lp?.title,
+            description: oembed?.tweetText ?? lp?.description,
+            imageURL: lp?.imageURL,
+            siteName: oembed?.authorName ?? lp?.siteName,
+            imageWidth: lp?.imageWidth,
+            imageHeight: lp?.imageHeight
+        )
+    }
+
+    struct OEmbedResult {
+        let tweetText: String
+        let authorName: String?
+    }
+
+    func fetchTwitterOEmbed(for url: URL) async -> OEmbedResult? {
+        guard let oembedURL = URL(
+            string: "https://publish.twitter.com/oembed?url=\(url.absoluteString)&omit_script=true"
+        ) else { return nil }
+
+        do {
+            var request = URLRequest(url: oembedURL)
+            request.timeoutInterval = 8
+            let (data, response) = try await Self.safeSession.data(for: request)
+
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200 ... 299).contains(httpResponse.statusCode) else { return nil }
+
+            guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                  let html = json["html"] as? String else { return nil }
+
+            guard let tweetText = parseTweetText(from: html), !tweetText.isEmpty else { return nil }
+
+            let authorName = json["author_name"] as? String
+            return OEmbedResult(tweetText: tweetText, authorName: authorName)
+        } catch {
+            return nil
+        }
+    }
+
+    func parseTweetText(from oembedHTML: String) -> String? {
+        let pPattern = "<p[^>]*>(.*?)</p>"
+        guard let regex = try? NSRegularExpression(pattern: pPattern, options: [.caseInsensitive, .dotMatchesLineSeparators]),
+              let match = regex.firstMatch(in: oembedHTML, range: NSRange(oembedHTML.startIndex..., in: oembedHTML)),
+              let range = Range(match.range(at: 1), in: oembedHTML) else {
+            return nil
+        }
+
+        var text = String(oembedHTML[range])
+        text = stripHTMLTags(text)
+        text = decodeHTMLEntities(text)
+        text = cleanTweetText(text)
+        return text.isEmpty ? nil : text
+    }
+
+    private func stripHTMLTags(_ html: String) -> String {
+        guard let regex = try? NSRegularExpression(pattern: "<[^>]+>") else { return html }
+        return regex.stringByReplacingMatches(
+            in: html,
+            range: NSRange(html.startIndex..., in: html),
+            withTemplate: ""
+        )
+    }
+
+    private func cleanTweetText(_ text: String) -> String {
+        var result = text
+        if let regex = try? NSRegularExpression(pattern: "\\s*pic\\.twitter\\.com/\\S+") {
+            result = regex.stringByReplacingMatches(
+                in: result,
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: ""
+            )
+        }
+        if let regex = try? NSRegularExpression(pattern: "\\s*https?://t\\.co/\\S+") {
+            result = regex.stringByReplacingMatches(
+                in: result,
+                range: NSRange(result.startIndex..., in: result),
+                withTemplate: ""
+            )
+        }
+        return result.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private static let maxHeadBytes: Int = 50_000
