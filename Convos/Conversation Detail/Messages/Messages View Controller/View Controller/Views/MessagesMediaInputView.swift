@@ -13,7 +13,7 @@ struct MessagesMediaButtonsView: View {
             } label: {
                 Image(systemName: "photo.fill")
                     .font(.system(size: 18.0, weight: .medium))
-                    .foregroundStyle(Color.colorTextSecondary)
+                    .foregroundStyle(Color.colorTextPrimary)
                     .frame(width: Constant.buttonSize, height: Constant.buttonSize)
                     .contentShape(.circle)
             }
@@ -26,7 +26,7 @@ struct MessagesMediaButtonsView: View {
             } label: {
                 Image(systemName: "camera.fill")
                     .font(.system(size: 18.0, weight: .medium))
-                    .foregroundStyle(Color.colorTextSecondary)
+                    .foregroundStyle(Color.colorTextPrimary)
                     .frame(width: Constant.buttonSize, height: Constant.buttonSize)
                     .contentShape(.circle)
             }
@@ -39,7 +39,7 @@ struct MessagesMediaButtonsView: View {
             } label: {
                 Image(systemName: "waveform")
                     .font(.system(size: 18.0, weight: .medium))
-                    .foregroundStyle(Color.colorTextSecondary)
+                    .foregroundStyle(Color.colorTextPrimary)
                     .frame(width: Constant.buttonSize, height: Constant.buttonSize)
                     .contentShape(.circle)
             }
@@ -55,7 +55,7 @@ struct MessagesMediaButtonsView: View {
                     .resizable()
                     .scaledToFit()
                     .frame(height: 18)
-                    .foregroundStyle(Color.colorTextSecondary)
+                    .foregroundStyle(Color.colorTextPrimary)
                     .frame(width: Constant.buttonSize, height: Constant.buttonSize)
                     .contentShape(.circle)
             }
