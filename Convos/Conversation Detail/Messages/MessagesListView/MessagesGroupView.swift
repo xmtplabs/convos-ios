@@ -17,7 +17,7 @@ struct MessagesGroupView: View {
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
 
-    @Environment(\.displayScale) private var displayScale
+    @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
