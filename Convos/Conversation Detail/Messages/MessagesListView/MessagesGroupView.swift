@@ -18,7 +18,7 @@ struct MessagesGroupView: View {
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
     var allVoiceMemoTranscripts: [String: VoiceMemoTranscriptListItem] = [:]
 
-    @Environment(\.displayScale) private var displayScale
+    @Environment(\.displayScale) private var displayScale: CGFloat
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
