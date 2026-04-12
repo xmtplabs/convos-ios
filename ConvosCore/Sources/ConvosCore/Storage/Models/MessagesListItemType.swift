@@ -85,6 +85,15 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
         }
     }
 
+    public var isFullBleedAttachmentGroup: Bool {
+        switch self {
+        case .messages(let group):
+            return group.isFullBleedAttachment
+        default:
+            return false
+        }
+    }
+
     public var lastMessageInGroup: AnyMessage? {
         switch self {
         case .messages(let group):

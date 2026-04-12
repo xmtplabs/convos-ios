@@ -17,6 +17,7 @@ struct MessagesGroupView: View {
     var onDeleteMessage: ((AnyMessage) -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
 
+    @Environment(\.displayScale) private var displayScale
     @State private var isAppearing: Bool = true
     @State private var hasAnimated: Bool = false
 
@@ -316,7 +317,8 @@ struct MessagesGroupView: View {
                 removal: .opacity
             )
         )
-        .padding(.vertical, DesignConstants.Spacing.step2x)
+        .padding(.top, group.adjacentToFullBleedAbove ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
+        .padding(.bottom, group.adjacentToFullBleedBelow ? (1.0 / displayScale) : DesignConstants.Spacing.step2x)
         .animation(.spring(response: 0.35, dampingFraction: 0.8), value: group)
         .onAppear {
             guard isAppearing, !hasAnimated else { return }

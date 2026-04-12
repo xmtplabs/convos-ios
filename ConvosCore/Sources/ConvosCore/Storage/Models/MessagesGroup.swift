@@ -10,6 +10,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
     public let allTypingMembers: [ConversationMember]
     public var onlyVisibleToSender: Bool = false
     public var isLastGroupBeforeOtherMembers: Bool = false
+    public var adjacentToFullBleedAbove: Bool = false
+    public var adjacentToFullBleedBelow: Bool = false
     /// Display-time transcript rows keyed by parent message id. Populated by
     /// `MessagesListProcessor` when it builds the group, so changes to the
     /// transcript state propagate through the existing diffing reload pipeline.
@@ -17,6 +19,10 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
 
     public var isMultiTyper: Bool {
         allTypingMembers.count > 1
+    }
+
+    public var isFullBleedAttachment: Bool {
+        rawMessages.count == 1 && rawMessages.first?.content.isFullBleedAttachment == true
     }
 
     public var messages: RebasedSlice<AnyMessage> {
@@ -85,6 +91,8 @@ public struct MessagesGroup: Identifiable, Equatable, Sendable {
         lhs.allTypingMembers == rhs.allTypingMembers &&
         lhs.onlyVisibleToSender == rhs.onlyVisibleToSender &&
         lhs.isLastGroupBeforeOtherMembers == rhs.isLastGroupBeforeOtherMembers &&
+        lhs.adjacentToFullBleedAbove == rhs.adjacentToFullBleedAbove &&
+        lhs.adjacentToFullBleedBelow == rhs.adjacentToFullBleedBelow &&
         lhs.voiceMemoTranscripts == rhs.voiceMemoTranscripts
     }
 }
@@ -99,6 +107,8 @@ extension MessagesGroup: Hashable {
         hasher.combine(showsTypingIndicator)
         hasher.combine(onlyVisibleToSender)
         hasher.combine(isLastGroupBeforeOtherMembers)
+        hasher.combine(adjacentToFullBleedAbove)
+        hasher.combine(adjacentToFullBleedBelow)
         hasher.combine(voiceMemoTranscripts)
     }
 }
