@@ -512,7 +512,7 @@ private struct AttachmentPlaceholder: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
-        .opacity(mediaZoomState.isActive && mediaZoomState.attachmentKey == attachment.key ? 0 : 1)
+        .opacity(mediaZoomState.attachmentKey == attachment.key ? 0 : 1)
         .accessibilityLabel(isVideo ? "Video message" : "Photo message")
         .onChange(of: videoPlayTrigger) {
             handleVideoPlayTap()

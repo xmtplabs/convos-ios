@@ -4,10 +4,12 @@ import SwiftUI
 struct MediaZoomOverlay: View {
     let state: MediaZoomState
 
-    @State private var isAnimatingBack: Bool = false
+    @State private var displayScale: CGFloat = 1.0
+    @State private var displayTranslation: CGPoint = .zero
+    @State private var displayScrimAlpha: CGFloat = 0
 
     private var shouldShow: Bool {
-        state.isActive || isAnimatingBack
+        state.attachmentKey != nil
     }
 
     var body: some View {
@@ -16,24 +18,37 @@ struct MediaZoomOverlay: View {
                 let localFrame = localSourceFrame(in: proxy)
 
                 Color.black
-                    .opacity(state.scrimAlpha)
+                    .opacity(displayScrimAlpha)
                     .ignoresSafeArea()
 
                 mediaContent
                     .frame(width: localFrame.width, height: localFrame.height)
                     .clipShape(RoundedRectangle(cornerRadius: state.cornerRadius))
-                    .scaleEffect(state.currentScale)
-                    .offset(x: state.currentTranslation.x, y: state.currentTranslation.y)
+                    .scaleEffect(displayScale)
+                    .offset(x: displayTranslation.x, y: displayTranslation.y)
                     .position(x: localFrame.midX, y: localFrame.midY)
             }
             .allowsHitTesting(false)
+            .onChange(of: state.currentScale) { _, newScale in
+                guard state.isActive else { return }
+                displayScale = newScale
+                displayScrimAlpha = state.scrimAlpha
+            }
+            .onChange(of: state.currentTranslation) { _, newTranslation in
+                guard state.isActive else { return }
+                displayTranslation = newTranslation
+            }
             .onChange(of: state.isActive) { _, active in
-                if !active {
-                    isAnimatingBack = true
+                if active {
+                    displayScale = state.currentScale
+                    displayTranslation = state.currentTranslation
+                    displayScrimAlpha = state.scrimAlpha
+                } else {
                     withAnimation(.spring(duration: 0.35, bounce: 0.2)) {
-                        state.endZoom()
+                        displayScale = 1.0
+                        displayTranslation = .zero
+                        displayScrimAlpha = 0
                     } completion: {
-                        isAnimatingBack = false
                         state.reset()
                     }
                 }
