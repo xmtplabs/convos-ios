@@ -32,6 +32,11 @@ struct MessageGestureModifier: ViewModifier {
         !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.messageId == message.messageId
     }
 
+    private var doubleTapEmoji: String {
+        let uniqueEmoji = Set(message.reactions.map(\.emoji))
+        return uniqueEmoji.count == 1 ? uniqueEmoji.first ?? "❤️" : "❤️"
+    }
+
     func body(content: Content) -> some View {
         content
             .environment(\.messagePressed, isPressed)
@@ -75,7 +80,7 @@ struct MessageGestureModifier: ViewModifier {
                         onSingleTap: { onSingleTap?() },
                         onDoubleTap: {
                             UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            contextMenuState.onToggleReaction?("❤️", message.messageId)
+                            contextMenuState.onToggleReaction?(doubleTapEmoji, message.messageId)
                         },
                         onLongPress: {
                             UIImpactFeedbackGenerator(style: .medium).impactOccurred()
