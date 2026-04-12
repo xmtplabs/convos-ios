@@ -56,6 +56,38 @@ struct ReactionIndicatorView: View {
     }
 }
 
+private enum ReactionCategory {
+    case heart
+    case face
+    case neutral
+
+    private static func isFaceEmoji(_ emoji: String) -> Bool {
+        emoji.unicodeScalars.contains { scalar in
+            let value = scalar.value
+            return (0x1F600...0x1F64F).contains(value) ||
+                (0x1F900...0x1F92F).contains(value)
+        }
+    }
+
+    init(emojis: [String]) {
+        if emojis == ["❤️"] {
+            self = .heart
+        } else if emojis.allSatisfy({ Self.isFaceEmoji($0) }), !emojis.isEmpty {
+            self = .face
+        } else {
+            self = .neutral
+        }
+    }
+
+    var selectedFillColor: Color {
+        switch self {
+        case .heart: .colorFillReaxHeart
+        case .face: .colorFillReaxFace
+        case .neutral: .colorFillMinimal
+        }
+    }
+}
+
 private struct ReactionPillView: View {
     let emojis: [String]
     let count: Int
@@ -164,7 +196,8 @@ private struct ReactionPillView: View {
     }
 
     var body: some View {
-        let bgColor: Color = isSelected ? .colorFillSubtle : .clear
+        let category = ReactionCategory(emojis: emojis)
+        let bgColor: Color = isSelected ? category.selectedFillColor : .clear
         let borderWidth: CGFloat = isSelected ? 0 : 1
         pillContent
             .background(bgColor)
