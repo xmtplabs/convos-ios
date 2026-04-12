@@ -19,7 +19,6 @@ struct SocialPostCardView: View {
             authorFooter
         }
         .frame(width: 280.0, alignment: .leading)
-        .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
     }
 
     @ViewBuilder
@@ -95,6 +94,7 @@ struct SocialPostCardView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 24.0, height: 24.0)
                 .frame(width: 40.0, height: 40.0)
+                .foregroundStyle(.colorFillPrimary)
         }
         .padding(.leading, DesignConstants.Spacing.step4x)
         .padding(.trailing, DesignConstants.Spacing.step3x)

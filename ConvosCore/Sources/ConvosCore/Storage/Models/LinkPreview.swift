@@ -8,6 +8,7 @@ public struct LinkPreview: Sendable, Hashable, Codable {
     public let siteName: String?
     public let imageWidth: Int?
     public let imageHeight: Int?
+    public let authorAvatarURL: String?
 
     public init(
         url: String,
@@ -16,7 +17,8 @@ public struct LinkPreview: Sendable, Hashable, Codable {
         imageURL: String? = nil,
         siteName: String? = nil,
         imageWidth: Int? = nil,
-        imageHeight: Int? = nil
+        imageHeight: Int? = nil,
+        authorAvatarURL: String? = nil
     ) {
         self.url = url
         self.title = title
@@ -25,6 +27,7 @@ public struct LinkPreview: Sendable, Hashable, Codable {
         self.siteName = siteName
         self.imageWidth = imageWidth
         self.imageHeight = imageHeight
+        self.authorAvatarURL = authorAvatarURL
     }
 
     public var imageAspectRatio: CGFloat? {
@@ -46,7 +49,8 @@ public struct LinkPreview: Sendable, Hashable, Codable {
         imageURL: String? = nil,
         siteName: String? = nil,
         imageWidth: Int? = nil,
-        imageHeight: Int? = nil
+        imageHeight: Int? = nil,
+        authorAvatarURL: String? = nil
     ) -> LinkPreview {
         LinkPreview(
             url: url,
@@ -55,7 +59,8 @@ public struct LinkPreview: Sendable, Hashable, Codable {
             imageURL: imageURL ?? self.imageURL,
             siteName: siteName ?? self.siteName,
             imageWidth: imageWidth ?? self.imageWidth,
-            imageHeight: imageHeight ?? self.imageHeight
+            imageHeight: imageHeight ?? self.imageHeight,
+            authorAvatarURL: authorAvatarURL ?? self.authorAvatarURL
         )
     }
 

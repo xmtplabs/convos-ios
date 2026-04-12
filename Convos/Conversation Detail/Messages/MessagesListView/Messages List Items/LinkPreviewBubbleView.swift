@@ -83,7 +83,7 @@ struct LinkPreviewCardView: View {
                     bodyText: socialBodyText,
                     image: cachedImage,
                     imageAspectRatio: imageAspectRatio,
-                    authorAvatarURL: authorAvatarURL
+                    authorAvatarURL: authorAvatarURL ?? preview.authorAvatarURL
                 )
             } else {
                 genericCardBody
@@ -189,14 +189,16 @@ struct LinkPreviewCardView: View {
         hasFetchedMetadata = true
 
         if let metadata, let messageId,
-           preview.imageWidth == nil || preview.title == nil {
+           preview.imageWidth == nil || preview.title == nil
+            || preview.description == nil || preview.authorAvatarURL == nil {
             let enriched = preview.enriched(
                 title: metadata.title,
                 description: metadata.description,
                 imageURL: metadata.imageURL,
                 siteName: metadata.siteName,
                 imageWidth: metadata.imageWidth,
-                imageHeight: metadata.imageHeight
+                imageHeight: metadata.imageHeight,
+                authorAvatarURL: metadata.authorAvatarURL
             )
             await LinkPreviewWriter.shared?.updateLinkPreview(enriched, forMessageId: messageId)
         }
