@@ -164,7 +164,7 @@ private struct ReactionPillView: View {
     }
 
     var body: some View {
-        let bgColor: Color = isSelected ? .colorFillMinimal : .clear
+        let bgColor: Color = isSelected ? .colorFillSubtle : .clear
         let borderWidth: CGFloat = isSelected ? 0 : 1
         pillContent
             .background(bgColor)
