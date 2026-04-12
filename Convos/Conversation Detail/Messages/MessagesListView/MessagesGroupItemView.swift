@@ -308,6 +308,7 @@ private struct VideoTapAttachmentView: View {
     @State private var videoPlayTrigger: Bool = false
     @State private var isPlaying: Bool = false
     @State private var swipeOffset: CGFloat = 0
+    @State private var resolvedDuration: Double? = nil
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -327,6 +328,7 @@ private struct VideoTapAttachmentView: View {
             cornerRadius: swipeCornerRadius,
             videoPlayTrigger: $videoPlayTrigger,
             isPlaying: $isPlaying,
+            resolvedDuration: $resolvedDuration,
             onDimensionsLoaded: { width, height in
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
@@ -349,7 +351,7 @@ private struct VideoTapAttachmentView: View {
                 MediaContainerInfo(
                     isBlurred: isBlurred,
                     isVideo: isVideo,
-                    duration: attachment.duration
+                    duration: resolvedDuration ?? attachment.duration
                 )
                 .offset(x: swipeOffset)
             }
@@ -367,8 +369,13 @@ private struct VideoTapAttachmentView: View {
 
     private var singleTapAction: (() -> Void)? {
         if isBlurred {
-            return { onPhotoRevealed(attachment.key) }
-        } else if attachment.mediaType == .video {
+            return {
+                onPhotoRevealed(attachment.key)
+                if isVideo {
+                    videoPlayTrigger.toggle()
+                }
+            }
+        } else if isVideo {
             return { videoPlayTrigger.toggle() }
         }
         return nil
@@ -399,6 +406,7 @@ private struct AttachmentPlaceholder: View {
     var cornerRadius: CGFloat = 0
     @Binding var videoPlayTrigger: Bool
     @Binding var isPlaying: Bool
+    @Binding var resolvedDuration: Double?
     let onDimensionsLoaded: (Int, Int) -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -453,7 +461,7 @@ private struct AttachmentPlaceholder: View {
                         }
                     }
                     .overlay {
-                        if !isPlaying, !shouldBlur, !videoLoadFailed {
+                        if !isPlaying, !videoLoadFailed {
                             videoOverlay
                         }
                     }
@@ -469,7 +477,7 @@ private struct AttachmentPlaceholder: View {
                 ZStack {
                     photoContent(image: image)
 
-                    if isVideo, !shouldBlur, !videoLoadFailed {
+                    if isVideo, !videoLoadFailed {
                         if isLoadingVideo {
                             ProgressView()
                                 .tint(.white)
@@ -606,6 +614,13 @@ private struct AttachmentPlaceholder: View {
                 let videoURL = try await resolveVideoURL(for: attachment.key)
                 if attachment.width == nil {
                     await loadVideoDimensionsIfPossible(from: videoURL)
+                }
+                if resolvedDuration == nil {
+                    let asset = AVURLAsset(url: videoURL)
+                    if let cmDuration = try? await asset.load(.duration),
+                       cmDuration.seconds.isFinite {
+                        resolvedDuration = cmDuration.seconds
+                    }
                 }
                 let player = AVPlayer(url: videoURL)
                 await player.seek(to: .zero)
