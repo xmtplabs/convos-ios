@@ -176,7 +176,14 @@ struct LinkPreviewCardView: View {
                 imageAspectRatio = CGFloat(w) / CGFloat(h)
             }
 
-            if let imageURLString = metadata.imageURL ?? preview.imageURL,
+            var resolvedImageURL = metadata.imageURL ?? preview.imageURL
+            if preview.socialPlatform == .bluesky,
+               let imageStr = resolvedImageURL, imageStr.contains("/img/avatar/") {
+                authorAvatarURL = authorAvatarURL ?? imageStr
+                resolvedImageURL = nil
+            }
+
+            if let imageURLString = resolvedImageURL,
                let imageURL = URL(string: imageURLString) {
                 ogImageURL = imageURLString
                 await loadImage(from: imageURL)
@@ -198,7 +205,7 @@ struct LinkPreviewCardView: View {
                 siteName: metadata.siteName,
                 imageWidth: metadata.imageWidth,
                 imageHeight: metadata.imageHeight,
-                authorAvatarURL: metadata.authorAvatarURL
+                authorAvatarURL: authorAvatarURL ?? metadata.authorAvatarURL
             )
             await LinkPreviewWriter.shared?.updateLinkPreview(enriched, forMessageId: messageId)
         }
