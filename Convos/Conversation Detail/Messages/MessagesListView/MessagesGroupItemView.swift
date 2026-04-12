@@ -313,13 +313,18 @@ private struct VideoTapAttachmentView: View {
         attachment.mediaType == .video
     }
 
+    private var swipeCornerRadius: CGFloat {
+        let progress = min(abs(swipeOffset) / 60.0, 1.0)
+        return progress * 20.0
+    }
+
     var body: some View {
         AttachmentPlaceholder(
             attachment: attachment,
             isOutgoing: isOutgoing,
             profile: profile,
             shouldBlurPhotos: shouldBlurPhotos,
-            cornerRadius: 0,
+            cornerRadius: swipeCornerRadius,
             videoPlayTrigger: $videoPlayTrigger,
             isPlaying: $isPlaying,
             onDimensionsLoaded: { width, height in
