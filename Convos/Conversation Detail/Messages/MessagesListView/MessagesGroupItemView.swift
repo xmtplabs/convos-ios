@@ -602,6 +602,7 @@ private struct AttachmentPlaceholder: View {
         if isVideo {
             if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
                 loadedImage = thumb
+                ImageCache.shared.cacheImage(thumb, for: cacheKey)
                 isLoading = false
                 isLoadingVideo = true
                 videoLoadFailed = false
