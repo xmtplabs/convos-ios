@@ -418,6 +418,7 @@ private struct AttachmentPlaceholder: View {
     @State private var isLoadingVideo: Bool = false
     @State private var videoLoadFailed: Bool = false
     @State private var instanceID: UUID = UUID()
+    @State private var pendingPlayAfterReveal: Bool = false
     @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
@@ -505,6 +506,9 @@ private struct AttachmentPlaceholder: View {
             if shouldBlur, isPlaying {
                 inlinePlayer?.pause()
                 isPlaying = false
+            } else if !shouldBlur, pendingPlayAfterReveal {
+                pendingPlayAfterReveal = false
+                handleVideoPlayTap()
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .AVPlayerItemDidPlayToEndTime)) { notification in
@@ -539,7 +543,11 @@ private struct AttachmentPlaceholder: View {
     }
 
     private func handleVideoPlayTap() {
-        guard isVideo, !shouldBlur else { return }
+        guard isVideo else { return }
+        if shouldBlur {
+            pendingPlayAfterReveal = true
+            return
+        }
 
         if let player = inlinePlayer {
             if isPlaying {
