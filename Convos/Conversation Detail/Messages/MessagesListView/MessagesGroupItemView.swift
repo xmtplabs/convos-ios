@@ -324,6 +324,7 @@ private struct VideoTapAttachmentView: View {
     @State private var isPlaying: Bool = false
     @State private var swipeOffset: CGFloat = 0
     @State private var resolvedDuration: Double?
+    @State private var pendingPlayAfterReveal: Bool = false
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -344,6 +345,7 @@ private struct VideoTapAttachmentView: View {
             videoPlayTrigger: $videoPlayTrigger,
             isPlaying: $isPlaying,
             resolvedDuration: $resolvedDuration,
+            pendingPlayAfterReveal: $pendingPlayAfterReveal,
             onDimensionsLoaded: { width, height in
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
@@ -387,7 +389,7 @@ private struct VideoTapAttachmentView: View {
             return {
                 onPhotoRevealed(attachment.key)
                 if isVideo {
-                    videoPlayTrigger.toggle()
+                    pendingPlayAfterReveal = true
                 }
             }
         } else if isVideo {
@@ -422,6 +424,7 @@ private struct AttachmentPlaceholder: View {
     @Binding var videoPlayTrigger: Bool
     @Binding var isPlaying: Bool
     @Binding var resolvedDuration: Double?
+    @Binding var pendingPlayAfterReveal: Bool
     let onDimensionsLoaded: (Int, Int) -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
@@ -433,7 +436,6 @@ private struct AttachmentPlaceholder: View {
     @State private var isLoadingVideo: Bool = false
     @State private var videoLoadFailed: Bool = false
     @State private var instanceID: UUID = UUID()
-    @State private var pendingPlayAfterReveal: Bool = false
     @Environment(\.messagePressed) private var isPressed: Bool
 
     private static let loader: RemoteAttachmentLoader = RemoteAttachmentLoader()
@@ -585,10 +587,10 @@ private struct AttachmentPlaceholder: View {
                         guard finished else { return }
                         DispatchQueue.main.async {
                             player?.play()
+                            isPlaying = true
+                            NotificationCenter.default.post(name: Self.videoPlaybackStarted, object: id)
                         }
                     }
-                    isPlaying = true
-                    NotificationCenter.default.post(name: Self.videoPlaybackStarted, object: id)
                 } else {
                     player.play()
                     isPlaying = true
