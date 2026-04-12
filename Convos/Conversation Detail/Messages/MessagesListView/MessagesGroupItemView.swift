@@ -332,7 +332,7 @@ private struct VideoTapAttachmentView: View {
 
     private var swipeCornerRadius: CGFloat {
         let progress = min(abs(swipeOffset) / 60.0, 1.0)
-        return progress * 20.0
+        return progress * 12.0
     }
 
     var body: some View {
