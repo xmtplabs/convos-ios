@@ -647,11 +647,21 @@ private struct AttachmentPlaceholder: View {
             if attachment.width == nil {
                 await loadVideoDimensionsIfPossible(from: videoURL)
             }
+            let asset = AVURLAsset(url: videoURL)
             if resolvedDuration == nil {
-                let asset = AVURLAsset(url: videoURL)
                 if let cmDuration = try? await asset.load(.duration),
                    cmDuration.seconds.isFinite {
                     resolvedDuration = cmDuration.seconds
+                }
+            }
+            if loadedImage == nil {
+                let thumbnailData = try? await VideoCompressionService().generateThumbnail(for: asset)
+                if let thumbnailData, let thumb = UIImage(data: thumbnailData) {
+                    loadedImage = thumb
+                    ImageCache.shared.cacheImage(thumb, for: cacheKey, storageTier: .persistent)
+                    if attachment.width == nil {
+                        onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
+                    }
                 }
             }
             let player = AVPlayer(url: videoURL)
