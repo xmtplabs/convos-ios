@@ -57,9 +57,6 @@ struct MessageGestureModifier: ViewModifier {
             }
             .animation(.easeInOut(duration: 0.25), value: isPressed)
             .offset(x: swipeOffset)
-            .onChange(of: swipeOffset) { _, newValue in
-                externalSwipeOffset?.wrappedValue = newValue
-            }
             .background(alignment: .leading) {
                 if swipeOffset > 0 {
                     let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
@@ -92,10 +89,12 @@ struct MessageGestureModifier: ViewModifier {
                         },
                         onSwipeOffsetChanged: { offset in
                             swipeOffset = offset
+                            externalSwipeOffset?.wrappedValue = offset
                         },
                         onSwipeEnded: { triggered in
                             withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
                                 swipeOffset = 0
+                                externalSwipeOffset?.wrappedValue = 0
                             }
                             if triggered { onReply(message) }
                         },
