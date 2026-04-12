@@ -94,7 +94,7 @@ struct SocialPostCardView: View {
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 24.0, height: 24.0)
                 .frame(width: 40.0, height: 40.0)
-                .foregroundStyle(.colorFillPrimary)
+                .foregroundStyle(platform == .bluesky ? Color(red: 0.0, green: 0.416, blue: 1.0) : .colorFillPrimary)
         }
         .padding(.leading, DesignConstants.Spacing.step4x)
         .padding(.trailing, DesignConstants.Spacing.step3x)
