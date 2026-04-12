@@ -850,6 +850,10 @@ private struct MediaContainerReax: View {
         reactions.count
     }
 
+    private var currentUserHasReacted: Bool {
+        reactions.contains { $0.sender.isCurrentUser }
+    }
+
     var body: some View {
         if !reactions.isEmpty {
             let tapAction = { onTap() }
@@ -876,9 +880,19 @@ private struct MediaContainerReax: View {
         }
         .padding(.horizontal, DesignConstants.Spacing.step3x)
         .padding(.vertical, DesignConstants.Spacing.step2x)
-        .background(.ultraThinMaterial)
-        .background(Color.white.opacity(0.6))
-        .clipShape(Capsule())
+        .modifier(ReaxGlassModifier(reacted: currentUserHasReacted))
+    }
+}
+
+private struct ReaxGlassModifier: ViewModifier {
+    let reacted: Bool
+
+    func body(content: Content) -> some View {
+        if reacted {
+            content.glassEffect(.regular.tint(.white.opacity(0.6)).interactive(), in: .capsule)
+        } else {
+            content.glassEffect(.clear.interactive(), in: .capsule)
+        }
     }
 }
 
