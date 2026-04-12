@@ -168,6 +168,7 @@ class MessagesListItemTypeCell: UICollectionViewCell {
             .frame(maxWidth: .infinity, alignment: item.alignment == .center ? .center : .leading)
             .id("message-cell-\(item.differenceIdentifier)")
             .environment(\.messageContextMenuState, config.contextMenuState)
+            .environment(\.mediaZoomState, config.mediaZoomState)
         }
         .margins(.horizontal, 0.0)
         .margins(.vertical, 0.0)

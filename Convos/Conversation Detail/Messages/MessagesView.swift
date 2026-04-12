@@ -75,6 +75,7 @@ struct MessagesView<BottomBarContent: View>: View {
 
     @State private var bottomBarHeight: CGFloat = 0.0
     @State private var contextMenuState: MessageContextMenuState = .init()
+    @State private var mediaZoomState: MediaZoomState = .init()
     @State private var isPhotoPickerPresented: Bool = false
     @State private var scrollToBottom: (() -> Void)?
 
@@ -94,6 +95,7 @@ struct MessagesView<BottomBarContent: View>: View {
             onTapReactions: onTapReactions,
             onReply: onReply,
             contextMenuState: contextMenuState,
+            mediaZoomState: mediaZoomState,
             onPhotoRevealed: onPhotoRevealed,
             onPhotoHidden: onPhotoHidden,
             onPhotoDimensionsLoaded: onPhotoDimensionsLoaded,
@@ -181,6 +183,9 @@ struct MessagesView<BottomBarContent: View>: View {
                 onPhotoRevealed: onPhotoRevealed,
                 onPhotoHidden: onPhotoHidden
             )
+        }
+        .overlay {
+            MediaZoomOverlay(state: mediaZoomState)
         }
         .onAppear {
             contextMenuState.onReaction = onReaction

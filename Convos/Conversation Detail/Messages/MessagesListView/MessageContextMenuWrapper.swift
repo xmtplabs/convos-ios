@@ -1,3 +1,4 @@
+import AVFoundation
 import ConvosCore
 import SwiftUI
 import UIKit
@@ -23,11 +24,17 @@ struct MessageGestureModifier: ViewModifier {
     let onSingleTap: (() -> Void)?
     let onReply: (AnyMessage) -> Void
     var externalSwipeOffset: Binding<CGFloat>?
+    var mediaImage: UIImage?
+    var mediaPlayer: AVPlayer?
+    var mediaAspectRatio: CGFloat?
+    var isMediaBlurred: Bool = false
+    var attachmentKey: String?
 
     @State private var swipeOffset: CGFloat = 0
     @State private var isPressed: Bool = false
     @State private var hasAppeared: Bool = false
     @Environment(\.messageContextMenuState) private var contextMenuState: MessageContextMenuState
+    @Environment(\.mediaZoomState) private var mediaZoomState: MediaZoomState
 
     private var isSourceBubble: Bool {
         !contextMenuState.isReplyParent && contextMenuState.presentedMessage?.messageId == message.messageId
@@ -58,51 +65,10 @@ struct MessageGestureModifier: ViewModifier {
             .animation(.easeInOut(duration: 0.25), value: isPressed)
             .offset(x: swipeOffset)
             .background(alignment: .leading) {
-                if swipeOffset > 0 {
-                    let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
-                    Image(systemName: "arrowshape.turn.up.left.fill")
-                        .foregroundStyle(.tertiary)
-                        .scaleEffect(0.4 + progress * 0.6)
-                        .opacity(Double(progress))
-                        .padding(.leading, DesignConstants.Spacing.step2x)
-                        .accessibilityHidden(true)
-                }
+                swipeIndicator
             }
             .overlay {
-                GeometryReader { geometry in
-                    GestureOverlayView(
-                        contextMenuState: contextMenuState,
-                        hasSingleTap: onSingleTap != nil,
-                        onSingleTap: { onSingleTap?() },
-                        onDoubleTap: {
-                            UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                            contextMenuState.onToggleReaction?("❤️", message.messageId)
-                        },
-                        onLongPress: {
-                            UIImpactFeedbackGenerator(style: .medium).impactOccurred()
-                            let frame = geometry.frame(in: .global)
-                            contextMenuState.present(
-                                message: message,
-                                bubbleFrame: frame,
-                                bubbleStyle: bubbleStyle
-                            )
-                        },
-                        onSwipeOffsetChanged: { offset in
-                            swipeOffset = offset
-                            externalSwipeOffset?.wrappedValue = offset
-                        },
-                        onSwipeEnded: { triggered in
-                            withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
-                                swipeOffset = 0
-                                externalSwipeOffset?.wrappedValue = 0
-                            }
-                            if triggered { onReply(message) }
-                        },
-                        onPressChanged: { pressed in
-                            isPressed = pressed
-                        }
-                    )
-                }
+                gestureOverlay
             }
             .accessibilityAction(named: "React") {
                 contextMenuState.onToggleReaction?("❤️", message.messageId)
@@ -110,6 +76,62 @@ struct MessageGestureModifier: ViewModifier {
             .accessibilityAction(named: "Reply") {
                 onReply(message)
             }
+    }
+
+    @ViewBuilder
+    private var swipeIndicator: some View {
+        if swipeOffset > 0 {
+            let progress = min(swipeOffset / Constant.swipeThreshold, 1.0)
+            Image(systemName: "arrowshape.turn.up.left.fill")
+                .foregroundStyle(.tertiary)
+                .scaleEffect(0.4 + progress * 0.6)
+                .opacity(Double(progress))
+                .padding(.leading, DesignConstants.Spacing.step2x)
+                .accessibilityHidden(true)
+        }
+    }
+
+    private var gestureOverlay: some View {
+        GeometryReader { geometry in
+            GestureOverlayView(
+                contextMenuState: contextMenuState,
+                mediaZoomState: mediaZoomState,
+                hasSingleTap: onSingleTap != nil,
+                onSingleTap: { onSingleTap?() },
+                onDoubleTap: {
+                    UIImpactFeedbackGenerator(style: .light).impactOccurred()
+                    contextMenuState.onToggleReaction?("❤️", message.messageId)
+                },
+                onLongPress: {
+                    UIImpactFeedbackGenerator(style: .medium).impactOccurred()
+                    let frame = geometry.frame(in: .global)
+                    contextMenuState.present(
+                        message: message,
+                        bubbleFrame: frame,
+                        bubbleStyle: bubbleStyle
+                    )
+                },
+                onSwipeOffsetChanged: { offset in
+                    swipeOffset = offset
+                    externalSwipeOffset?.wrappedValue = offset
+                },
+                onSwipeEnded: { triggered in
+                    withAnimation(.spring(response: 0.25, dampingFraction: 0.8)) {
+                        swipeOffset = 0
+                        externalSwipeOffset?.wrappedValue = 0
+                    }
+                    if triggered { onReply(message) }
+                },
+                onPressChanged: { pressed in
+                    isPressed = pressed
+                },
+                mediaImage: mediaImage,
+                mediaPlayer: mediaPlayer,
+                mediaAspectRatio: mediaAspectRatio ?? (4.0 / 3.0),
+                isMediaBlurred: isMediaBlurred,
+                attachmentKey: attachmentKey
+            )
+        }
     }
 
     private enum Constant {
@@ -130,14 +152,24 @@ extension View {
         bubbleStyle: MessageBubbleType = .normal,
         onSingleTap: (() -> Void)? = nil,
         onReply: @escaping (AnyMessage) -> Void,
-        swipeOffset: Binding<CGFloat>? = nil
+        swipeOffset: Binding<CGFloat>? = nil,
+        mediaImage: UIImage? = nil,
+        mediaPlayer: AVPlayer? = nil,
+        mediaAspectRatio: CGFloat? = nil,
+        isMediaBlurred: Bool = false,
+        attachmentKey: String? = nil
     ) -> some View {
         modifier(MessageGestureModifier(
             message: message,
             bubbleStyle: bubbleStyle,
             onSingleTap: onSingleTap,
             onReply: onReply,
-            externalSwipeOffset: swipeOffset
+            externalSwipeOffset: swipeOffset,
+            mediaImage: mediaImage,
+            mediaPlayer: mediaPlayer,
+            mediaAspectRatio: mediaAspectRatio,
+            isMediaBlurred: isMediaBlurred,
+            attachmentKey: attachmentKey
         ))
     }
 }
@@ -146,6 +178,7 @@ extension View {
 
 private struct GestureOverlayView: UIViewRepresentable {
     let contextMenuState: MessageContextMenuState
+    let mediaZoomState: MediaZoomState
     let hasSingleTap: Bool
     let onSingleTap: () -> Void
     let onDoubleTap: () -> Void
@@ -153,6 +186,11 @@ private struct GestureOverlayView: UIViewRepresentable {
     let onSwipeOffsetChanged: (CGFloat) -> Void
     let onSwipeEnded: (Bool) -> Void
     let onPressChanged: (Bool) -> Void
+    var mediaImage: UIImage?
+    var mediaPlayer: AVPlayer?
+    var mediaAspectRatio: CGFloat = 4.0 / 3.0
+    var isMediaBlurred: Bool = false
+    var attachmentKey: String?
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -218,11 +256,23 @@ private struct GestureOverlayView: UIViewRepresentable {
         pressTracker.delaysTouchesEnded = false
         view.addGestureRecognizer(pressTracker)
 
+        let pinch = UIPinchGestureRecognizer(
+            target: coordinator,
+            action: #selector(Coordinator.handlePinch)
+        )
+        pinch.delegate = coordinator
+        pinch.cancelsTouchesInView = false
+        pinch.delaysTouchesBegan = false
+        pinch.delaysTouchesEnded = false
+        view.addGestureRecognizer(pinch)
+        coordinator.pinchRecognizer = pinch
+
         return view
     }
 
     func updateUIView(_ uiView: GesturePassthroughView, context: Context) {
         context.coordinator.contextMenuState = contextMenuState
+        context.coordinator.mediaZoomState = mediaZoomState
         context.coordinator.onSingleTap = onSingleTap
         context.coordinator.onDoubleTap = onDoubleTap
         context.coordinator.onLongPress = onLongPress
@@ -230,6 +280,11 @@ private struct GestureOverlayView: UIViewRepresentable {
         context.coordinator.onSwipeEnded = onSwipeEnded
         context.coordinator.onPressChanged = onPressChanged
         context.coordinator.singleTapRecognizer?.isEnabled = hasSingleTap
+        context.coordinator.mediaImage = mediaImage
+        context.coordinator.mediaPlayer = mediaPlayer
+        context.coordinator.mediaAspectRatio = mediaAspectRatio
+        context.coordinator.isMediaBlurred = isMediaBlurred
+        context.coordinator.attachmentKey = attachmentKey
     }
 
     final class GesturePassthroughView: UIView {
@@ -281,7 +336,9 @@ private struct GestureOverlayView: UIViewRepresentable {
     final class Coordinator: NSObject, UIGestureRecognizerDelegate {
         weak var overlayView: GesturePassthroughView?
         weak var singleTapRecognizer: UITapGestureRecognizer?
+        weak var pinchRecognizer: UIPinchGestureRecognizer?
         weak var contextMenuState: MessageContextMenuState?
+        weak var mediaZoomState: MediaZoomState?
         var onSingleTap: (() -> Void)?
         var onDoubleTap: (() -> Void)?
         var onLongPress: (() -> Void)?
@@ -289,12 +346,21 @@ private struct GestureOverlayView: UIViewRepresentable {
         var onSwipeEnded: ((Bool) -> Void)?
         var onPressChanged: ((Bool) -> Void)?
 
+        var mediaImage: UIImage?
+        var mediaPlayer: AVPlayer?
+        var mediaAspectRatio: CGFloat = 4.0 / 3.0
+        var isMediaBlurred: Bool = false
+        var attachmentKey: String?
+
         private var isDisabled: Bool {
             contextMenuState?.isPresented ?? false
         }
 
         private var swipeTriggered: Bool = false
         private var panActive: Bool = false
+        private var pinchActive: Bool = false
+        private var accumulatedScale: CGFloat = 1.0
+        private var initialPinchMidpoint: CGPoint = .zero
         private var pressWorkItem: DispatchWorkItem?
         private var isPressActive: Bool = false
         private weak var cachedScrollView: UIScrollView?
@@ -389,6 +455,77 @@ private struct GestureOverlayView: UIViewRepresentable {
             }
         }
 
+        @objc func handlePinch(_ pinch: UIPinchGestureRecognizer) {
+            switch pinch.state {
+            case .began:
+                guard !isDisabled,
+                      !(mediaZoomState?.isActive ?? false),
+                      !isMediaBlurred,
+                      mediaImage != nil || mediaPlayer != nil,
+                      isGestureInsideOverlay(pinch) else {
+                    return
+                }
+                accumulatedScale = 1.0
+                pinchActive = false
+
+            case .changed:
+                guard !isDisabled,
+                      mediaImage != nil || mediaPlayer != nil else { return }
+
+                let newScale = accumulatedScale * pinch.scale
+                pinch.scale = 1.0
+
+                if !pinchActive {
+                    guard abs(newScale - 1.0) > 0.05 else {
+                        accumulatedScale = newScale
+                        return
+                    }
+
+                    guard let overlay = overlayView else { return }
+                    let frame = overlay.convert(overlay.bounds, to: nil)
+
+                    cancelPress()
+                    cachedScrollView = findScrollView()
+                    cachedScrollView?.panGestureRecognizer.isEnabled = false
+
+                    mediaZoomState?.beginZoom(
+                        sourceFrame: frame,
+                        image: mediaImage,
+                        player: mediaPlayer,
+                        aspectRatio: mediaAspectRatio,
+                        cornerRadius: 0,
+                        attachmentKey: attachmentKey
+                    )
+                    pinchActive = true
+                    initialPinchMidpoint = pinch.location(in: overlay)
+                }
+
+                accumulatedScale = newScale
+                mediaZoomState?.updateZoom(scale: accumulatedScale, translation: pinchTranslation(pinch))
+
+            case .ended, .cancelled, .failed:
+                if pinchActive {
+                    mediaZoomState?.isActive = false
+                    cachedScrollView?.panGestureRecognizer.isEnabled = true
+                    cachedScrollView = nil
+                }
+                pinchActive = false
+                accumulatedScale = 1.0
+
+            default:
+                break
+            }
+        }
+
+        private func pinchTranslation(_ pinch: UIPinchGestureRecognizer) -> CGPoint {
+            guard let overlay = overlayView else { return .zero }
+            let currentMidpoint = pinch.location(in: overlay)
+            return CGPoint(
+                x: currentMidpoint.x - initialPinchMidpoint.x,
+                y: currentMidpoint.y - initialPinchMidpoint.y
+            )
+        }
+
         private func cancelPress() {
             pressWorkItem?.cancel()
             pressWorkItem = nil
@@ -418,6 +555,9 @@ private struct GestureOverlayView: UIViewRepresentable {
         func gestureRecognizerShouldBegin(
             _ gestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            if gestureRecognizer is UIPinchGestureRecognizer {
+                return !isDisabled
+            }
             guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
             let velocity = pan.velocity(in: pan.view)
             return abs(velocity.x) > abs(velocity.y) * 2.0 && velocity.x > 0
@@ -427,6 +567,13 @@ private struct GestureOverlayView: UIViewRepresentable {
             _ gestureRecognizer: UIGestureRecognizer,
             shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer
         ) -> Bool {
+            if gestureRecognizer is UIPinchGestureRecognizer || otherGestureRecognizer is UIPinchGestureRecognizer {
+                if otherGestureRecognizer is UILongPressGestureRecognizer
+                    && (otherGestureRecognizer as? UILongPressGestureRecognizer)?.minimumPressDuration == 0 {
+                    return true
+                }
+                return false
+            }
             if let lp1 = gestureRecognizer as? UILongPressGestureRecognizer,
                let lp2 = otherGestureRecognizer as? UILongPressGestureRecognizer,
                lp1.minimumPressDuration > 0, lp2.minimumPressDuration > 0 {

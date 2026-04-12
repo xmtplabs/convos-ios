@@ -17,6 +17,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     let onTapReactions: (AnyMessage) -> Void
     let onReply: (AnyMessage) -> Void
     let contextMenuState: MessageContextMenuState
+    let mediaZoomState: MediaZoomState
     let onPhotoRevealed: (String) -> Void
     let onPhotoHidden: (String) -> Void
     let onPhotoDimensionsLoaded: (String, Int, Int) -> Void
@@ -48,6 +49,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
     func makeUIViewController(context: Context) -> MessagesViewController {
         let viewController = MessagesViewController()
         viewController.contextMenuState = contextMenuState
+        viewController.mediaZoomState = mediaZoomState
         context.coordinator.scrollToBottomFunction = { [weak viewController] in
             viewController?.scrollToBottomForSend()
         }
@@ -138,6 +140,7 @@ struct MessagesViewRepresentable: UIViewControllerRepresentable {
         onTapReactions: { _ in },
         onReply: { _ in },
         contextMenuState: .init(),
+        mediaZoomState: .init(),
         onPhotoRevealed: { _ in },
         onPhotoHidden: { _ in },
         onPhotoDimensionsLoaded: { _, _, _ in },

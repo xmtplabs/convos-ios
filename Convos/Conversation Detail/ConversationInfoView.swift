@@ -312,6 +312,79 @@ struct ConversationInfoView: View {
         }
     }
 
+    @ViewBuilder
+    private var debugSection: some View {
+        Section {
+            HStack {
+                Text("Fork status")
+                Spacer()
+                Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            HStack {
+                Text("Epoch")
+                Spacer()
+                Text("\(viewModel.conversation.debugInfo.epoch)")
+                    .foregroundStyle(.colorTextSecondary)
+            }
+            NavigationLink {
+                DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
+            } label: {
+                Text("Fork details")
+            }
+            NavigationLink {
+                DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
+            } label: {
+                Text("Local commit log")
+            }
+            NavigationLink {
+                DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
+            } label: {
+                Text("Remote commit log")
+            }
+            NavigationLink {
+                DebugLogsTextView(logs: metadataDebugText)
+                    .task {
+                        metadataDebugText = await viewModel.conversationMetadataDebugText()
+                    }
+            } label: {
+                Text("Metadata")
+            }
+            Button {
+                showingRestoreInviteTagAlert = true
+            } label: {
+                Text("Restore invite tag")
+            }
+            if let url = exportedLogsURL {
+                ShareLink(item: url) {
+                    HStack {
+                        Text("Share logs")
+                        Spacer()
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            } else {
+                HStack {
+                    Text("Preparing logs…")
+                    Spacer()
+                    ProgressView()
+                }
+                .foregroundStyle(.colorTextSecondary)
+            }
+        } header: {
+            Text("Debug info")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .task {
+            do {
+                exportedLogsURL = try await viewModel.exportDebugLogs()
+            } catch {
+                Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
+            }
+        }
+    }
+
     private var convoRulesSection: some View {
         Section {
             FeatureRowItem(
@@ -387,75 +460,7 @@ struct ConversationInfoView: View {
                 }
 
                 if !ConfigManager.shared.currentEnvironment.isProduction {
-                    Section {
-                        HStack {
-                            Text("Fork status")
-                            Spacer()
-                            Text(viewModel.conversation.debugInfo.commitLogForkStatus.rawValue)
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                        HStack {
-                            Text("Epoch")
-                            Spacer()
-                            Text("\(viewModel.conversation.debugInfo.epoch)")
-                                .foregroundStyle(.colorTextSecondary)
-                        }
-                        NavigationLink {
-                            DebugLogsTextView(logs: viewModel.conversation.debugInfo.forkDetails)
-                        } label: {
-                            Text("Fork details")
-                        }
-                        NavigationLink {
-                            DebugLogsTextView(logs: viewModel.conversation.debugInfo.localCommitLog)
-                        } label: {
-                            Text("Local commit log")
-                        }
-                        NavigationLink {
-                            DebugLogsTextView(logs: viewModel.conversation.debugInfo.remoteCommitLog)
-                        } label: {
-                            Text("Remote commit log")
-                        }
-                        NavigationLink {
-                            DebugLogsTextView(logs: metadataDebugText)
-                                .task {
-                                    metadataDebugText = await viewModel.conversationMetadataDebugText()
-                                }
-                        } label: {
-                            Text("Metadata")
-                        }
-                        Button {
-                            showingRestoreInviteTagAlert = true
-                        } label: {
-                            Text("Restore invite tag")
-                        }
-                        if let url = exportedLogsURL {
-                            ShareLink(item: url) {
-                                HStack {
-                                    Text("Share logs")
-                                    Spacer()
-                                    Image(systemName: "square.and.arrow.up")
-                                }
-                            }
-                        } else {
-                            HStack {
-                                Text("Preparing logs…")
-                                Spacer()
-                                ProgressView()
-                            }
-                            .foregroundStyle(.colorTextSecondary)
-                        }
-                    } header: {
-                        Text("Debug info")
-                            .font(.footnote.weight(.medium))
-                            .foregroundStyle(.colorTextSecondary)
-                    }
-                    .task {
-                        do {
-                            exportedLogsURL = try await viewModel.exportDebugLogs()
-                        } catch {
-                            Log.error("Failed to export logs for conversation: \(error.localizedDescription)")
-                        }
-                    }
+                    debugSection
                 }
             }
             .alert("Restore invite tag", isPresented: $showingRestoreInviteTagAlert) {

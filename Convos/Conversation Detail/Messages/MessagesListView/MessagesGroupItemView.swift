@@ -310,6 +310,8 @@ private struct VideoTapAttachmentView: View {
     @State private var swipeOffset: CGFloat = 0
     @State private var resolvedDuration: Double?
     @State private var pendingPlayAfterReveal: Bool = false
+    @State private var zoomableImage: UIImage?
+    @State private var zoomablePlayer: AVPlayer?
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -331,6 +333,8 @@ private struct VideoTapAttachmentView: View {
             isPlaying: $isPlaying,
             resolvedDuration: $resolvedDuration,
             pendingPlayAfterReveal: $pendingPlayAfterReveal,
+            externalImage: $zoomableImage,
+            externalPlayer: $zoomablePlayer,
             onDimensionsLoaded: { width, height in
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
@@ -340,7 +344,12 @@ private struct VideoTapAttachmentView: View {
             bubbleStyle: .normal,
             onSingleTap: singleTapAction,
             onReply: onReply,
-            swipeOffset: $swipeOffset
+            swipeOffset: $swipeOffset,
+            mediaImage: zoomableImage,
+            mediaPlayer: zoomablePlayer,
+            mediaAspectRatio: attachment.aspectRatio,
+            isMediaBlurred: isBlurred,
+            attachmentKey: attachment.key
         )
         .overlay(alignment: .topLeading) {
             if !isPlaying {
@@ -410,9 +419,12 @@ private struct AttachmentPlaceholder: View {
     @Binding var isPlaying: Bool
     @Binding var resolvedDuration: Double?
     @Binding var pendingPlayAfterReveal: Bool
+    @Binding var externalImage: UIImage?
+    @Binding var externalPlayer: AVPlayer?
     let onDimensionsLoaded: (Int, Int) -> Void
 
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass: UserInterfaceSizeClass?
+    @Environment(\.mediaZoomState) private var mediaZoomState: MediaZoomState
 
     @State private var loadedImage: UIImage?
     @State private var isLoading: Bool = true
@@ -500,6 +512,7 @@ private struct AttachmentPlaceholder: View {
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
+        .opacity(mediaZoomState.isActive && mediaZoomState.attachmentKey == attachment.key ? 0 : 1)
         .accessibilityLabel(isVideo ? "Video message" : "Photo message")
         .onChange(of: videoPlayTrigger) {
             handleVideoPlayTap()
@@ -529,6 +542,12 @@ private struct AttachmentPlaceholder: View {
         }
         .task {
             await loadAttachment()
+        }
+        .onChange(of: loadedImage) { _, newImage in
+            externalImage = newImage
+        }
+        .onChange(of: inlinePlayer) { _, newPlayer in
+            externalPlayer = newPlayer
         }
     }
 
