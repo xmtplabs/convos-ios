@@ -323,7 +323,7 @@ private struct VideoTapAttachmentView: View {
     @State private var videoPlayTrigger: Bool = false
     @State private var isPlaying: Bool = false
     @State private var swipeOffset: CGFloat = 0
-    @State private var resolvedDuration: Double? = nil
+    @State private var resolvedDuration: Double?
 
     private var isVideo: Bool {
         attachment.mediaType == .video
@@ -620,46 +620,54 @@ private struct AttachmentPlaceholder: View {
         isLoading = true
         loadError = nil
 
-        let cacheKey = attachment.key
-
         if isVideo {
-            if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
-                loadedImage = thumb
-                ImageCache.shared.cacheImage(thumb, for: cacheKey)
-                isLoading = false
-                isLoadingVideo = true
-                videoLoadFailed = false
-                if attachment.width == nil {
-                    onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
-                }
-            }
-
-            do {
-                let videoURL = try await resolveVideoURL(for: attachment.key)
-                if attachment.width == nil {
-                    await loadVideoDimensionsIfPossible(from: videoURL)
-                }
-                if resolvedDuration == nil {
-                    let asset = AVURLAsset(url: videoURL)
-                    if let cmDuration = try? await asset.load(.duration),
-                       cmDuration.seconds.isFinite {
-                        resolvedDuration = cmDuration.seconds
-                    }
-                }
-                let player = AVPlayer(url: videoURL)
-                await player.seek(to: .zero)
-                inlinePlayer = player
-                isLoading = false
-                isLoadingVideo = false
-            } catch {
-                loadError = error
-                isLoading = false
-                isLoadingVideo = false
-                videoLoadFailed = true
-                Log.error("Failed to load video: \(error)")
-            }
-            return
+            await loadVideoAttachment()
+        } else {
+            await loadPhotoAttachment()
         }
+    }
+
+    private func loadVideoAttachment() async {
+        let cacheKey = attachment.key
+        if let thumbnailData = attachment.thumbnailData, let thumb = UIImage(data: thumbnailData) {
+            loadedImage = thumb
+            ImageCache.shared.cacheImage(thumb, for: cacheKey)
+            isLoading = false
+            isLoadingVideo = true
+            videoLoadFailed = false
+            if attachment.width == nil {
+                onDimensionsLoaded(Int(thumb.size.width), Int(thumb.size.height))
+            }
+        }
+
+        do {
+            let videoURL = try await resolveVideoURL(for: attachment.key)
+            if attachment.width == nil {
+                await loadVideoDimensionsIfPossible(from: videoURL)
+            }
+            if resolvedDuration == nil {
+                let asset = AVURLAsset(url: videoURL)
+                if let cmDuration = try? await asset.load(.duration),
+                   cmDuration.seconds.isFinite {
+                    resolvedDuration = cmDuration.seconds
+                }
+            }
+            let player = AVPlayer(url: videoURL)
+            await player.seek(to: .zero)
+            inlinePlayer = player
+            isLoading = false
+            isLoadingVideo = false
+        } catch {
+            loadError = error
+            isLoading = false
+            isLoadingVideo = false
+            videoLoadFailed = true
+            Log.error("Failed to load video: \(error)")
+        }
+    }
+
+    private func loadPhotoAttachment() async {
+        let cacheKey = attachment.key
 
         if let cachedImage = await ImageCache.shared.imageAsync(for: cacheKey) {
             loadedImage = cachedImage
@@ -671,23 +679,7 @@ private struct AttachmentPlaceholder: View {
         }
 
         do {
-            let imageData: Data
-
-            if attachment.key.hasPrefix("file://") {
-                let path = String(attachment.key.dropFirst("file://".count))
-                if FileManager.default.fileExists(atPath: path) {
-                    imageData = try Data(contentsOf: URL(fileURLWithPath: path))
-                } else {
-                    imageData = try await recoverInlineAttachmentData(from: path)
-                }
-            } else if attachment.key.hasPrefix("{") {
-                imageData = try await Self.loader.loadImageData(from: attachment.key)
-            } else if let url = URL(string: attachment.key) {
-                let (data, _) = try await URLSession.shared.data(from: url)
-                imageData = data
-            } else {
-                throw NSError(domain: "AttachmentPlaceholder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid attachment data"])
-            }
+            let imageData = try await resolveImageData(for: attachment.key)
 
             if let image = UIImage(data: imageData) {
                 loadedImage = image
@@ -705,6 +697,22 @@ private struct AttachmentPlaceholder: View {
         }
 
         isLoading = false
+    }
+
+    private func resolveImageData(for key: String) async throws -> Data {
+        if key.hasPrefix("file://") {
+            let path = String(key.dropFirst("file://".count))
+            if FileManager.default.fileExists(atPath: path) {
+                return try Data(contentsOf: URL(fileURLWithPath: path))
+            }
+            return try await recoverInlineAttachmentData(from: path)
+        } else if key.hasPrefix("{") {
+            return try await Self.loader.loadImageData(from: key)
+        } else if let url = URL(string: key) {
+            let (data, _) = try await URLSession.shared.data(from: url)
+            return data
+        }
+        throw NSError(domain: "AttachmentPlaceholder", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid attachment data"])
     }
 
     /// Reads the natural video dimensions from a decrypted local video file and
