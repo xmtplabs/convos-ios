@@ -40,21 +40,31 @@ final class BackupRestoreViewModel {
             forUbiquityContainerIdentifier: environment.iCloudContainerIdentifier
         ) != nil
 
-        let ownBackupDir = resolveOwnBackupDirectory()
-        let ownMetadata: BackupBundleMetadata? = if let ownBackupDir {
-            try? BackupBundleMetadata.read(from: ownBackupDir)
-        } else {
-            nil
-        }
-
         let available = RestoreManager.findAvailableBackup(environment: environment)
+        let thisDeviceId = DeviceInfo.deviceIdentifier
 
         iCloudAvailable = cloudAvailable
-        lastBackupDate = ownMetadata?.createdAt
-        lastBackupDeviceName = ownMetadata?.deviceName
+
         if let available {
-            availableRestoreURL = available.url
-            availableRestoreMetadata = available.metadata
+            // The newest backup is always shown as "Last backup" since it came
+            // from this device or a device the user controls.
+            lastBackupDate = available.metadata.createdAt
+            lastBackupDeviceName = available.metadata.deviceName
+
+            // Only offer restore when the backup is from a different device.
+            // Restoring your own backup onto the same device is not useful.
+            if available.metadata.deviceId != thisDeviceId {
+                availableRestoreURL = available.url
+                availableRestoreMetadata = available.metadata
+            } else {
+                availableRestoreURL = nil
+                availableRestoreMetadata = nil
+            }
+        } else {
+            lastBackupDate = nil
+            lastBackupDeviceName = nil
+            availableRestoreURL = nil
+            availableRestoreMetadata = nil
         }
         isLoading = false
     }
@@ -107,22 +117,6 @@ final class BackupRestoreViewModel {
         case let .completed(inboxCount, _): return "Restored \(inboxCount) conversation\(inboxCount == 1 ? "" : "s")"
         case let .failed(message): return "Failed: \(message)"
         }
-    }
-
-    private func resolveOwnBackupDirectory() -> URL? {
-        let deviceId = DeviceInfo.deviceIdentifier
-        if let containerURL = FileManager.default.url(forUbiquityContainerIdentifier: environment.iCloudContainerIdentifier) {
-            let dir = containerURL
-                .appendingPathComponent("Documents", isDirectory: true)
-                .appendingPathComponent("backups", isDirectory: true)
-                .appendingPathComponent(deviceId, isDirectory: true)
-            if BackupBundleMetadata.exists(in: dir) { return dir }
-        }
-        let localDir = environment.defaultDatabasesDirectoryURL
-            .appendingPathComponent("backups", isDirectory: true)
-            .appendingPathComponent(deviceId, isDirectory: true)
-        if BackupBundleMetadata.exists(in: localDir) { return localDir }
-        return nil
     }
 
     private func makeBackupManager() throws -> BackupManager {
