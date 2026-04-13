@@ -92,6 +92,24 @@ struct MessageContextMenuOverlay: View {
 
     @ViewBuilder
     private func overlayContent(message: AnyMessage) -> some View {
+        overlayGeometry(message: message)
+            .ignoresSafeArea()
+            .onAppear { handleAppear() }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+                guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    keyboardHeight = frame.height
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    keyboardHeight = 0
+                }
+            }
+    }
+
+    @ViewBuilder
+    private func overlayGeometry(message: AnyMessage) -> some View {
         GeometryReader { proxy in
             let overlayOrigin = proxy.frame(in: .global).origin
             let screenSize = proxy.size
@@ -102,17 +120,17 @@ struct MessageContextMenuOverlay: View {
                 width: state.bubbleFrame.width,
                 height: state.bubbleFrame.height
             )
-            let isPhoto = photoAttachment != nil
+            let isPhoto: Bool = photoAttachment != nil
             let endBubble = endBubbleRect(
                 source: localBubble,
                 screenSize: screenSize,
                 safeTop: safeTop,
                 isPhoto: isPhoto && !state.isReplyParent
             )
-            let activeBubble = appeared ? endBubble : localBubble
+            let activeBubble: CGRect = appeared ? endBubble : localBubble
             let keyboardTop: CGFloat = keyboardHeight > 0 ? screenSize.height - keyboardHeight : screenSize.height
-            let bubbleBottom = activeBubble.maxY + C.sectionSpacing
-            let keyboardOverlap = max(bubbleBottom - keyboardTop + C.sectionSpacing, 0)
+            let bubbleBottom: CGFloat = activeBubble.maxY + C.sectionSpacing
+            let keyboardOverlap: CGFloat = max(bubbleBottom - keyboardTop + C.sectionSpacing, 0)
             let keyboardAdjustment: CGFloat = showingEmojiPicker ? keyboardOverlap : 0
 
             ZStack(alignment: .topLeading) {
@@ -140,38 +158,6 @@ struct MessageContextMenuOverlay: View {
                     keyboardAdjustment: keyboardAdjustment
                 )
                 .zIndex(3)
-            }
-        }
-        .ignoresSafeArea()
-        .onAppear {
-            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-            emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
-                appeared = true
-            }
-            let totalDelay = C.emojiAppearanceDelayStep * Double(C.defaultReactions.count)
-            DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
-                withAnimation {
-                    showMoreAppeared = true
-                }
-            }
-            for index in C.defaultReactions.indices {
-                DispatchQueue.main.asyncAfter(deadline: .now() + C.emojiAppearanceDelayStep * Double(index)) {
-                    withAnimation {
-                        emojiAppeared[index] = true
-                    }
-                }
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-            guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                keyboardHeight = frame.height
-            }
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                keyboardHeight = 0
             }
         }
     }
@@ -922,6 +908,31 @@ private struct ContextMenuRow: View {
             .padding(.horizontal, 28)
             .padding(.vertical, 11)
             .contentShape(Rectangle())
+        }
+    }
+}
+
+// MARK: - Appearance
+
+private extension MessageContextMenuOverlay {
+    func handleAppear() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+            appeared = true
+        }
+        let totalDelay = C.emojiAppearanceDelayStep * Double(C.defaultReactions.count)
+        DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
+            withAnimation {
+                showMoreAppeared = true
+            }
+        }
+        for index in C.defaultReactions.indices {
+            DispatchQueue.main.asyncAfter(deadline: .now() + C.emojiAppearanceDelayStep * Double(index)) {
+                withAnimation {
+                    emojiAppeared[index] = true
+                }
+            }
         }
     }
 }
