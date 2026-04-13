@@ -16,6 +16,7 @@ final class BackupRestoreViewModel {
     var showingAlert: Bool = false
     var showingRestoreConfirmation: Bool = false
     var isLoading: Bool = true
+    var canBackUp: Bool = false
 
     private let session: any SessionManagerProtocol
     private let databaseManager: (any DatabaseManagerProtocol)?
@@ -42,7 +43,11 @@ final class BackupRestoreViewModel {
 
         let available = RestoreManager.findAvailableBackup(environment: environment)
 
+        let vaultAvailable = session.vaultService != nil
+            && (session.vaultService as? VaultManager) != nil
+
         iCloudAvailable = cloudAvailable
+        canBackUp = vaultAvailable
 
         if let available {
             lastBackupDate = available.metadata.createdAt
@@ -283,17 +288,20 @@ struct BackupRestoreSettingsView: View {
                 Button(action: startBackup) {
                     HStack {
                         Text("Back up now")
-                            .foregroundStyle(.colorTextPrimary)
+                            .foregroundStyle(viewModel.canBackUp ? .colorTextPrimary : .colorTextSecondary)
                         Spacer()
                         Image(systemName: "icloud.and.arrow.up")
                             .foregroundStyle(.colorTextSecondary)
                     }
                 }
+                .disabled(!viewModel.canBackUp)
             }
         } header: {
             Text("Backup")
         } footer: {
-            if let date = viewModel.lastBackupDate {
+            if !viewModel.canBackUp {
+                Text("Start a conversation to enable backups")
+            } else if let date = viewModel.lastBackupDate {
                 Text("Last backup: \(date.formatted(date: .abbreviated, time: .shortened))")
             } else {
                 Text("No backup yet")
