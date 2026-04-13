@@ -461,6 +461,16 @@ actor SyncingManager: SyncingManagerProtocol {
             if discoveredCount > 0 {
                 Log.info("Discovered \(discoveredCount) new conversations after sync")
             }
+
+            // After restore, conversations are marked inactive ("Awaiting
+            // reconnection") and only reactivate on message receipt. But
+            // quiet conversations would stay inactive indefinitely because
+            // discoverNewConversations skips groups already in the DB.
+            // Pass the full set of XMTP-confirmed group IDs so the stream
+            // processor can flip any inactive conversations whose groups
+            // were successfully synced.
+            let allGroupIds = Set(groups.map(\.id))
+            await streamProcessor.reactivateRestoredConversations(knownGroupIds: allGroupIds)
         } catch {
             Log.error("Failed to discover new conversations: \(error)")
         }

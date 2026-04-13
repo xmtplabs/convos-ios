@@ -3,17 +3,17 @@ import Foundation
 @preconcurrency import XMTPiOS
 
 public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
-    private let vaultKeyStore: VaultKeyStore
     private let environment: AppEnvironment
 
     public init(vaultKeyStore: VaultKeyStore, environment: AppEnvironment) {
-        self.vaultKeyStore = vaultKeyStore
         self.environment = environment
     }
 
-    public func importVaultArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry] {
-        Log.info("[Restore] loading vault identity")
-        let vaultIdentity = try await vaultKeyStore.loadAny()
+    public func importVaultArchive(
+        from path: URL,
+        encryptionKey: Data,
+        vaultIdentity: KeychainIdentity
+    ) async throws -> [VaultKeyEntry] {
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
 
         let codecs: [any ContentCodec] = [
@@ -26,28 +26,19 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
             TextCodec(),
         ]
 
-        let existingOptions = ClientOptions(
-            api: api,
-            codecs: codecs,
-            dbEncryptionKey: vaultIdentity.keys.databaseKey,
-            deviceSyncEnabled: false
-        )
-
-        if let existingClient = try? await Client.build(
-            publicIdentity: vaultIdentity.keys.signingKey.identity,
-            options: existingOptions,
-            inboxId: vaultIdentity.inboxId
-        ) {
-            Log.info("[Restore] vault XMTP DB already exists, extracting keys from existing vault")
-            defer { try? existingClient.dropLocalDatabaseConnection() }
-            try await existingClient.conversations.sync()
-            return try await extractKeys(from: existingClient)
-        }
-
+        // Always import the archive from the backup into an isolated temp
+        // directory. Reusing an existing vault XMTP DB on disk is wrong
+        // when the keychain holds multiple vault identities (e.g. after
+        // iCloud Keychain sync) — loadAny() might return the restoring
+        // device's vault instead of the backup device's, and the existing
+        // DB would contain a different set of key messages.
         let importDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("xmtp-vault-import-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: importDir, withIntermediateDirectories: true)
-        Log.info("[Restore] no existing vault XMTP DB, importing archive into isolated directory")
+        defer {
+            try? FileManager.default.removeItem(at: importDir)
+        }
+        Log.info("[Restore] importing vault archive into isolated directory (inboxId=\(vaultIdentity.inboxId))")
 
         let importOptions = ClientOptions(
             api: api,
@@ -61,25 +52,25 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
             account: vaultIdentity.keys.signingKey,
             options: importOptions
         )
+        defer { try? client.dropLocalDatabaseConnection() }
 
-        Log.info("[Restore] importing vault archive (inboxId: \(client.inboxID))")
+        Log.info("[Restore] importing vault archive (client inboxId=\(client.inboxID))")
         try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
         Log.info("[Restore] vault archive import succeeded")
 
-        let entries = try await extractKeys(from: client)
-        try? client.dropLocalDatabaseConnection()
-        try? FileManager.default.removeItem(at: importDir)
-        return entries
+        return try await extractKeys(from: client)
     }
 
     private func extractKeys(from client: Client) async throws -> [VaultKeyEntry] {
-        try await client.conversations.sync()
+        // Read groups and messages from the local DB only — no network sync.
+        // The archive import already populated the local DB with everything
+        // we need, and syncing would fail if the vault group was deactivated
+        // on the network by a previous restore's revocation step.
         let groups = try client.conversations.listGroups()
 
         Log.info("[Restore] reading messages from \(groups.count) vault group(s)")
         var allMessages: [DecodedMessage] = []
         for group in groups {
-            try await group.sync()
             let messages = try await group.messages()
             allMessages.append(contentsOf: messages)
         }
@@ -95,7 +86,7 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         }
 
         let entries = VaultManager.extractKeyEntries(bundles: bundles, shares: shares)
-        Log.info("[Restore] extracted \(entries.count) key entries")
+        Log.info("[Restore] extracted \(entries.count) key entries from \(bundles.count) bundle(s) and \(shares.count) share(s)")
         return entries
     }
 }

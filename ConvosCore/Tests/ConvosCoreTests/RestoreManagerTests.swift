@@ -10,11 +10,12 @@ final class MockRestoreArchiveImporter: RestoreArchiveImporter, @unchecked Senda
     var importedArchives: [(inboxId: String, path: String)] = []
     var failingInboxIds: Set<String> = []
 
-    func importConversationArchive(inboxId: String, path: String, encryptionKey: Data) async throws {
+    func importConversationArchive(inboxId: String, path: String, encryptionKey: Data) async throws -> String {
         if failingInboxIds.contains(inboxId) {
             throw NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "simulated import failure"])
         }
         importedArchives.append((inboxId: inboxId, path: path))
+        return "mock-installation-\(inboxId)"
     }
 }
 
@@ -23,7 +24,7 @@ final class MockRestoreArchiveImporter: RestoreArchiveImporter, @unchecked Senda
 final class MockVaultArchiveImporter: VaultArchiveImporter, @unchecked Sendable {
     var keyEntriesToReturn: [VaultKeyEntry] = []
 
-    func importVaultArchive(from path: URL, encryptionKey: Data) async throws -> [VaultKeyEntry] {
+    func importVaultArchive(from path: URL, encryptionKey: Data, vaultIdentity: KeychainIdentity) async throws -> [VaultKeyEntry] {
         keyEntriesToReturn
     }
 }

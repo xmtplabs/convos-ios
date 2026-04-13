@@ -13,7 +13,11 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporter {
         self.environment = environment
     }
 
-    public func importConversationArchive(inboxId: String, path: String, encryptionKey: Data) async throws {
+    public func importConversationArchive(inboxId: String, path: String, encryptionKey: Data) async throws -> String {
+        // RestoreManager has already staged/wiped the local XMTP DBs for conversation
+        // inboxes before calling us, so no existing client can be reused here. Create
+        // a single fresh client and import the archive into it — any prior `Client.build`
+        // probe would register an extra installation on the network as a side effect.
         let identity = try await identityStore.identity(for: inboxId)
         let api = XMTPAPIOptionsBuilder.build(environment: environment)
         let options = ClientOptions(
@@ -23,19 +27,6 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporter {
             deviceSyncEnabled: false
         )
 
-        do {
-            let client = try await Client.build(
-                publicIdentity: identity.keys.signingKey.identity,
-                options: options,
-                inboxId: inboxId
-            )
-            try? client.dropLocalDatabaseConnection()
-            Log.info("[Restore] conversation XMTP DB already exists for \(inboxId), skipping archive import")
-            return
-        } catch {
-            Log.info("[Restore] no existing XMTP DB for \(inboxId), importing archive")
-        }
-
         let client = try await Client.create(
             account: identity.keys.signingKey,
             options: options
@@ -43,6 +34,22 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporter {
         defer { try? client.dropLocalDatabaseConnection() }
 
         try await client.importArchive(path: path, encryptionKey: encryptionKey)
-        Log.info("[Restore] conversation archive imported for \(inboxId)")
+
+        // After archive import, the XMTP SDK's consent state for restored
+        // groups may be 'unknown'. shouldProcessConversation in StreamProcessor
+        // drops messages from groups that aren't 'allowed', so the first
+        // incoming message after restore would be silently lost. Set consent
+        // to 'allowed' for all groups in this inbox's archive.
+        let groups = try client.conversations.listGroups()
+        for group in groups {
+            try await group.updateConsentState(state: .allowed)
+        }
+        if !groups.isEmpty {
+            Log.info("[Restore] set consent=allowed for \(groups.count) group(s) in \(inboxId)")
+        }
+
+        let newInstallationId = client.installationID
+        Log.info("[Restore] conversation archive imported for \(inboxId) (new installationId=\(newInstallationId))")
+        return newInstallationId
     }
 }
