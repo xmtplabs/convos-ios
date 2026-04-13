@@ -25,7 +25,7 @@ let package = Package(
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.10.0-dev.8fcbbde"
+            revision: "ios-4.9.0-dev.88ddfad"
         ),
         .package(path: "../ConvosAppData"),
     ],

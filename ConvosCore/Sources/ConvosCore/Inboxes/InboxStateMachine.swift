@@ -1116,7 +1116,9 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             ],
             dbEncryptionKey: keys.databaseKey,
             dbDirectory: environment.defaultDatabasesDirectory,
-            deviceSyncEnabled: false
+            deviceSyncEnabled: false,
+            maxDbPoolSize: 10,
+            minDbPoolSize: 3
         )
     }
 

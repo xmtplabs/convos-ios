@@ -23,7 +23,7 @@ let package = Package(
         .package(url: "https://github.com/groue/GRDB.swift.git", exact: "7.5.0"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.10.0-dev.8fcbbde"
+            revision: "ios-4.9.0-dev.88ddfad"
         ),
         .package(url: "https://github.com/tesseract-one/CSecp256k1.swift.git", from: "0.2.0"),
         .package(url: "https://github.com/firebase/firebase-ios-sdk", from: "12.1.0"),
