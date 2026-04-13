@@ -367,7 +367,7 @@ final class ConversationsViewModel {
         case (.fullStale, .healthy): event = "full_to_healthy"
         default: event = "unknown_transition"
         }
-        Log.info("[StaleDevice] state transition: \(event)")
+        Log.info("[StaleDevice] state transition: \(event) (previous=\(previous) current=\(current))")
 
         switch current {
         case .healthy:
@@ -495,20 +495,24 @@ final class ConversationsViewModel {
             .sink { [weak self] ids in
                 guard let self else { return }
                 self.staleInboxIds = ids
-                // Recompute from the unfiltered source list. Filtering
-                // `self.conversations` in-place would permanently drop
-                // conversations whose inbox later recovers from stale
-                // back to healthy — `conversationsPublisher` only emits
-                // on DB change, so it would not re-hydrate them.
                 self.recomputeVisibleConversations()
-                // Clear selection if the selected conversation belongs to a now-stale inbox.
-                // Dismissing an in-flight newConversationViewModel is handled by
-                // handleStaleStateTransition only on transition to fullStale — partial
-                // stale keeps any active compose flow so the user can finish composing
-                // in a still-healthy inbox.
+
                 if let selectedId = self._selectedConversationId,
                    !self.conversations.contains(where: { $0.id == selectedId }) {
                     self.selectedConversationId = nil
+                }
+
+                // If filtering stale inboxes left zero visible conversations
+                // but we have stale inboxes, escalate to fullStale. This
+                // handles the edge case where partialStale leaves the app
+                // unusable (e.g. the only "healthy" inbox is a draft with
+                // no real conversations).
+                if self.conversations.isEmpty, !ids.isEmpty,
+                   self.staleDeviceState == .partialStale {
+                    Log.info("[StaleDevice] no visible conversations in partial stale — escalating to fullStale")
+                    let previous = self.staleDeviceState
+                    self.staleDeviceState = .fullStale
+                    self.handleStaleStateTransition(from: previous, to: .fullStale)
                 }
             }
             .store(in: &cancellables)
