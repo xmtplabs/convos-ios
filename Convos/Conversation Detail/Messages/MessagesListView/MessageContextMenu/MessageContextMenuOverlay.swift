@@ -680,6 +680,7 @@ struct MessageContextMenuOverlay: View {
                 attachmentKey: attachment.key,
                 shouldBlur: shouldBlurPhoto,
                 cornerRadius: state.isReplyParent ? DesignConstants.CornerRadius.regular : (appeared ? C.photoCornerRadius : 0),
+                isVideo: attachment.mediaType == .video,
                 isReplyParent: state.isReplyParent
             )
         }
@@ -692,6 +693,7 @@ private struct ContextMenuPhotoPreview: View {
     let attachmentKey: String
     let shouldBlur: Bool
     let cornerRadius: CGFloat
+    let isVideo: Bool
     let isReplyParent: Bool
 
     @State private var loadedImage: UIImage?
@@ -700,11 +702,13 @@ private struct ContextMenuPhotoPreview: View {
         attachmentKey: String,
         shouldBlur: Bool,
         cornerRadius: CGFloat = DesignConstants.CornerRadius.photo,
+        isVideo: Bool = false,
         isReplyParent: Bool = false
     ) {
         self.attachmentKey = attachmentKey
         self.shouldBlur = shouldBlur
         self.cornerRadius = cornerRadius
+        self.isVideo = isVideo
         self.isReplyParent = isReplyParent
         _loadedImage = State(initialValue: ImageCache.shared.image(for: attachmentKey))
     }
@@ -718,6 +722,17 @@ private struct ContextMenuPhotoPreview: View {
                     .scaleEffect(shouldBlur ? 1.65 : 1.0)
                     .blur(radius: shouldBlur ? 96 : 0)
                     .background(shouldBlur ? Color.colorBackgroundSurfaceless : .clear)
+                    .overlay {
+                        if isVideo {
+                            Image(systemName: "play.fill")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.primary)
+                                .frame(width: 44, height: 44)
+                                .background(.ultraThinMaterial)
+                                .background(Color.white.opacity(0.85))
+                                .clipShape(Circle())
+                        }
+                    }
                     .clipped()
                     .compositingGroup()
                     .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
