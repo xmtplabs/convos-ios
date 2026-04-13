@@ -268,6 +268,29 @@ struct ConversationInfoView: View {
 
             FeatureRowItem(
                 imageName: nil,
+                symbolName: "eye",
+                title: "Read receipts",
+                subtitle: "Let others know you've read"
+            ) {
+                Toggle("", isOn: Binding(
+                    get: { viewModel.sendReadReceipts },
+                    set: { viewModel.setSendReadReceipts($0) }
+                ))
+                .labelsHidden()
+                .allowsHitTesting(false)
+            }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                viewModel.setSendReadReceipts(!viewModel.sendReadReceipts)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel("Read receipts")
+            .accessibilityValue(viewModel.sendReadReceipts ? "on" : "off")
+            .accessibilityAddTraits(.isButton)
+            .accessibilityIdentifier("convo-read-receipts-toggle")
+
+            FeatureRowItem(
+                imageName: nil,
                 symbolName: "eye.circle.fill",
                 title: "Reveal mode",
                 subtitle: "Blur incoming pics"

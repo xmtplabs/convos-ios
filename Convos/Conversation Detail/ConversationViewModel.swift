@@ -39,13 +39,14 @@ enum ExplodeDuration: CaseIterable {
     }
 }
 
+// swiftlint:disable type_body_length
 @MainActor
 @Observable
 class ConversationViewModel {
     // MARK: - Private
 
     private let session: any SessionManagerProtocol
-    private let messagingService: any MessagingServiceProtocol
+    let messagingService: any MessagingServiceProtocol
     private let conversationStateManager: any ConversationStateManagerProtocol
     private let outgoingMessageWriter: any OutgoingMessageWriterProtocol
     private let backgroundUploadManager: any BackgroundUploadManagerProtocol
@@ -76,14 +77,15 @@ class ConversationViewModel {
     private let metadataWriter: any ConversationMetadataWriterProtocol
     private let explosionWriter: any ConversationExplosionWriterProtocol
     private let reactionWriter: any ReactionWriterProtocol
+    let readReceiptWriter: any ReadReceiptWriterProtocol
     private let conversationRepository: any ConversationRepositoryProtocol
     private var messagesListRepository: any MessagesListRepositoryProtocol
     private let photoPreferencesRepository: any PhotoPreferencesRepositoryProtocol
     private let photoPreferencesWriter: any PhotoPreferencesWriterProtocol
     private let attachmentLocalStateWriter: any AttachmentLocalStateWriterProtocol
-    private let voiceMemoTranscriptionService: any VoiceMemoTranscriptionServicing
+    let voiceMemoTranscriptionService: any VoiceMemoTranscriptionServicing
     private let applyGlobalDefaultsForNewConversation: Bool
-    private let typingIndicatorManager: TypingIndicatorManager
+    let typingIndicatorManager: TypingIndicatorManager
 
     @ObservationIgnored
     private var cancellables: Set<AnyCancellable> = []
@@ -97,6 +99,12 @@ class ConversationViewModel {
     private var photoPreferencesCancellable: AnyCancellable?
     @ObservationIgnored
     private var observedPhotoPreferencesConversationId: String?
+    @ObservationIgnored
+    var lastReadReceiptSentAt: Date?
+    @ObservationIgnored
+    var pendingReadReceiptTask: Task<Void, Never>?
+    @ObservationIgnored
+    private var lastMessageCountForReadReceipt: Int = 0
 
     // MARK: - Public
 
@@ -215,14 +223,16 @@ class ConversationViewModel {
         previousMessageTextLength = 0
     }
 
-    private(set) var typingMembers: [ConversationMember] = []
+    var typingMembers: [ConversationMember] = []
 
     @ObservationIgnored
-    private var isTypingSent: Bool = false
+    var isTypingSent: Bool = false
     @ObservationIgnored
-    private var typingResetTask: Task<Void, Never>?
+    var typingResetTask: Task<Void, Never>?
     @ObservationIgnored
-    private var typingThrottleDate: Date?
+    var pendingTypingIndicatorTask: Task<Void, Never>?
+    @ObservationIgnored
+    var typingThrottleDate: Date?
 
     var selectedAttachmentImage: UIImage? {
         didSet {
@@ -318,6 +328,8 @@ class ConversationViewModel {
     private var assistantJoinTaskId: String?
 
     var autoRevealPhotos: Bool = false
+    var sendReadReceipts: Bool = true
+    var isViewingConversation: Bool = false
 
     private static let hasShownPhotosInfoSheetKey: String = "hasShownPhotosInfoSheet"
     private var hasShownPhotosInfoSheet: Bool {
@@ -398,6 +410,8 @@ class ConversationViewModel {
 
     deinit {
         voiceMemoPlaybackTask?.cancel()
+        pendingReadReceiptTask?.cancel()
+        pendingTypingIndicatorTask?.cancel()
         loadConversationImageTask?.cancel()
         explodeTask?.cancel()
         assistantJoinTask?.cancel()
@@ -471,6 +485,7 @@ class ConversationViewModel {
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
+        self.readReceiptWriter = messagingService.readReceiptWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationRepository.myProfileRepository
@@ -553,6 +568,7 @@ class ConversationViewModel {
         self.metadataWriter = conversationStateManager.conversationMetadataWriter
         self.explosionWriter = messagingService.conversationExplosionWriter()
         self.reactionWriter = messagingService.reactionWriter()
+        self.readReceiptWriter = messagingService.readReceiptWriter()
 
         let myProfileWriter = conversationStateManager.myProfileWriter
         let myProfileRepository = conversationStateManager.draftConversationRepository.myProfileRepository
@@ -597,6 +613,9 @@ class ConversationViewModel {
                 let prefs = try await photoPreferencesRepository.preferences(for: conversation.id)
                 let defaultAutoReveal: Bool = applyGlobalDefaultsForNewConversation ? GlobalConvoDefaults.shared.autoRevealPhotos : false
                 setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoReveal)
+                let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
+                sendReadReceipts = readReceiptsPref
+                messagesListRepository.sendReadReceipts = readReceiptsPref
             } catch {
                 Log.error("Error loading photo preferences: \(error)")
             }
@@ -613,8 +632,14 @@ class ConversationViewModel {
             .sink { [weak self] messages in
                 guard let self else { return }
                 self.clearTypingForNewMessages(old: self.messages, new: messages)
+                let messageCount = messages.countMessages
+                let messagesChanged = messageCount != self.lastMessageCountForReadReceipt
+                self.lastMessageCountForReadReceipt = messageCount
                 self.messages = messages
                 self.scheduleVoiceMemoTranscriptionsIfNeeded(in: messages)
+                if messagesChanged {
+                    self.sendReadReceiptIfNeeded()
+                }
             }
             .store(in: &cancellables)
 
@@ -624,11 +649,16 @@ class ConversationViewModel {
             .sink { [weak self] conversation in
                 guard let self else { return }
                 let previousId = self.conversation.id
+                let wasViewingConversation = self.isViewingConversation
                 self.conversation = conversation
                 self.loadConversationImage(for: conversation)
                 if conversation.id != previousId {
                     self.observePhotoPreferences(for: conversation.id)
                     self.loadPhotoPreferences()
+                    if wasViewingConversation {
+                        self.isViewingConversation = true
+                        self.sendReadReceiptIfNeeded()
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -659,6 +689,9 @@ class ConversationViewModel {
             .sink { [weak self] prefs in
                 guard let self else { return }
                 setAutoRevealPhotosLocally(prefs?.autoReveal ?? defaultAutoRevealForNewConversation)
+                let readReceiptsPref = prefs?.sendReadReceipts ?? GlobalConvoDefaults.shared.sendReadReceipts
+                sendReadReceipts = readReceiptsPref
+                messagesListRepository.sendReadReceipts = readReceiptsPref
             }
     }
 
@@ -674,6 +707,19 @@ class ConversationViewModel {
 
     private func setAutoRevealPhotosLocally(_ autoReveal: Bool) {
         autoRevealPhotos = autoReveal
+    }
+
+    func setSendReadReceipts(_ value: Bool) {
+        sendReadReceipts = value
+        messagesListRepository.sendReadReceipts = value
+        Task { [weak self] in
+            guard let self else { return }
+            do {
+                try await photoPreferencesWriter.setSendReadReceipts(value, for: conversation.id)
+            } catch {
+                Log.error("Error setting sendReadReceipts: \(error)")
+            }
+        }
     }
 
     private func setAutoRevealPhotosPersisted(_ autoReveal: Bool) {
@@ -1846,192 +1892,4 @@ extension ConversationViewModel {
         }
     }
 }
-
-// MARK: - Typing Indicators
-
-extension ConversationViewModel {
-    fileprivate func setupTypingIndicatorHandler() {
-        let manager = typingIndicatorManager
-        Task {
-            await messagingService.inboxStateManager.setTypingIndicatorHandler { conversationId, senderInboxId, isTyping in
-                Task { @MainActor in
-                    manager.handleTypingEvent(
-                        conversationId: conversationId,
-                        senderInboxId: senderInboxId,
-                        isTyping: isTyping
-                    )
-                }
-            }
-        }
-    }
-
-    func observeTypingIndicators(_ manager: TypingIndicatorManager) {
-        withObservationTracking {
-            _ = manager.typingMembersByConversation[conversation.id]
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.updateTypingMembers(from: manager)
-                self.observeTypingIndicators(manager)
-            }
-        }
-        updateTypingMembers(from: manager)
-    }
-
-    fileprivate func updateTypingMembers(from manager: TypingIndicatorManager) {
-        let typerInboxIds = manager.typers(for: conversation.id)
-        let members = conversation.members.filter { member in
-            typerInboxIds.contains { $0.inboxId == member.profile.inboxId }
-        }
-        typingMembers = members
-    }
-
-    fileprivate func clearTypingForNewMessages(old: [MessagesListItemType], new: [MessagesListItemType]) {
-        let oldLastId = old.lastMessageId
-        let newLastId = new.lastMessageId
-        guard oldLastId != newLastId,
-              let lastItem = new.last,
-              case .messages(let group) = lastItem,
-              !group.sender.isCurrentUser else { return }
-        typingIndicatorManager.handleMessageReceived(
-            conversationId: conversation.id,
-            senderInboxId: group.sender.profile.inboxId
-        )
-        updateTypingMembers(from: typingIndicatorManager)
-    }
-
-    fileprivate func scheduleVoiceMemoTranscriptionsIfNeeded(in items: [MessagesListItemType]) {
-        let service = voiceMemoTranscriptionService
-        // Only auto-enqueue once the user has granted speech recognition permission.
-        // Before that point, the row shows a "Tap to transcribe" affordance and the
-        // user kicks off the very first transcription manually (which is what causes
-        // iOS to surface the permission prompt).
-        guard service.hasSpeechPermission() else { return }
-        let conversationId = conversation.id
-        for item in items {
-            guard case .messages(let group) = item else { continue }
-            for message in group.messages {
-                guard !message.senderIsCurrentUser else { continue }
-                guard let attachment = message.content.primaryVoiceMemoAttachment else { continue }
-                let messageId = message.messageId
-                let attachmentKey = attachment.key
-                let mimeType = attachment.mimeType ?? "audio/m4a"
-                Task.detached(priority: .utility) {
-                    await service.enqueueIfNeeded(
-                        messageId: messageId,
-                        conversationId: conversationId,
-                        attachmentKey: attachmentKey,
-                        mimeType: mimeType
-                    )
-                }
-            }
-        }
-    }
-
-    func stopTyping() {
-        guard isTypingSent else { return }
-        isTypingSent = false
-        typingThrottleDate = nil
-        typingResetTask?.cancel()
-        typingResetTask = nil
-        let conversationId = conversation.id
-        Task { [weak self] in
-            guard let self else { return }
-            try? await self.messagingService.sendTypingIndicator(isTyping: false, for: conversationId)
-        }
-    }
-
-    fileprivate func handleTextChanged() {
-        if messageText.isEmpty {
-            stopTyping()
-            return
-        }
-
-        let now = Date()
-        if let lastSent = typingThrottleDate, now.timeIntervalSince(lastSent) < Self.typingThrottleInterval {
-            typingResetTask?.cancel()
-            typingResetTask = Task { [weak self] in
-                try? await Task.sleep(for: .seconds(Self.typingResetInterval))
-                guard !Task.isCancelled else { return }
-                await MainActor.run { [weak self] in
-                    self?.stopTyping()
-                }
-            }
-            return
-        }
-
-        typingThrottleDate = now
-        isTypingSent = true
-
-        typingResetTask?.cancel()
-        typingResetTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(Self.typingResetInterval))
-            guard !Task.isCancelled else { return }
-            await MainActor.run { [weak self] in
-                self?.stopTyping()
-            }
-        }
-
-        let conversationId = conversation.id
-        Task { [weak self] in
-            guard let self else { return }
-            try? await self.messagingService.sendTypingIndicator(isTyping: true, for: conversationId)
-        }
-    }
-
-    var messagesWithTypingIndicator: [MessagesListItemType] {
-        guard !typingMembers.isEmpty else { return messages }
-
-        if typingMembers.count == 1 {
-            return messagesWithSingleTyper(typingMembers[0])
-        }
-        return messagesWithMultipleTypers(typingMembers)
-    }
-
-    fileprivate func messagesWithSingleTyper(_ typer: ConversationMember) -> [MessagesListItemType] {
-        if let lastIndex = messages.lastIndex(where: { if case .messages = $0 { return true }; return false }),
-           case .messages(let lastGroup) = messages[lastIndex],
-           lastGroup.sender.profile.inboxId == typer.profile.inboxId {
-            var updated = messages
-            let updatedGroup = MessagesGroup(
-                id: lastGroup.id,
-                sender: lastGroup.sender,
-                messages: lastGroup.rawMessages,
-                isLastGroup: lastGroup.isLastGroup,
-                isLastGroupSentByCurrentUser: lastGroup.isLastGroupSentByCurrentUser,
-                showsTypingIndicator: true,
-                allTypingMembers: [typer],
-                onlyVisibleToSender: lastGroup.onlyVisibleToSender,
-                isLastGroupBeforeOtherMembers: lastGroup.isLastGroupBeforeOtherMembers
-            )
-            updated[lastIndex] = .messages(updatedGroup)
-            return updated
-        }
-
-        let typingGroup = MessagesGroup(
-            id: "typing-indicator",
-            sender: typer,
-            messages: [],
-            isLastGroup: false,
-            isLastGroupSentByCurrentUser: false,
-            showsTypingIndicator: true
-        )
-        return messages + [.messages(typingGroup)]
-    }
-
-    fileprivate func messagesWithMultipleTypers(_ typers: [ConversationMember]) -> [MessagesListItemType] {
-        let typingGroup = MessagesGroup(
-            id: "typing-indicator-multi",
-            sender: typers[0],
-            messages: [],
-            isLastGroup: false,
-            isLastGroupSentByCurrentUser: false,
-            showsTypingIndicator: true,
-            allTypingMembers: typers
-        )
-        return messages + [.messages(typingGroup)]
-    }
-
-    fileprivate static let typingThrottleInterval: TimeInterval = 5
-    fileprivate static let typingResetInterval: TimeInterval = 10
-}
+// swiftlint:enable type_body_length

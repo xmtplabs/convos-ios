@@ -426,6 +426,50 @@ extension SharedDatabaseMigrator {
             try db.create(index: "voiceMemoTranscript_attachmentKey", on: "voiceMemoTranscript", columns: ["attachmentKey"])
         }
 
+        migrator.registerMigration("createConversationReadReceipts") { db in
+            try db.create(table: "conversation_read_receipts") { t in
+                t.column("conversationId", .text).notNull()
+                t.column("inboxId", .text).notNull()
+                t.column("readAtNs", .integer).notNull()
+                t.primaryKey(["conversationId", "inboxId"])
+            }
+            try db.create(
+                index: "idx_read_receipts_conversation",
+                on: "conversation_read_receipts",
+                columns: ["conversationId"]
+            )
+        }
+
+        migrator.registerMigration("addSendReadReceiptsToPhotoPreferences") { db in
+            try db.alter(table: "photoPreferences") { t in
+                t.add(column: "sendReadReceipts", .boolean)
+            }
+        }
+
+        migrator.registerMigration("addReadReceiptsCascadeDelete") { db in
+            try db.create(table: "conversation_read_receipts_new") { t in
+                t.column("conversationId", .text).notNull()
+                    .references("conversation", onDelete: .cascade)
+                t.column("inboxId", .text).notNull()
+                    .references("member", onDelete: .cascade)
+                t.column("readAtNs", .integer).notNull()
+                t.primaryKey(["conversationId", "inboxId"])
+            }
+            try db.execute(sql: """
+                INSERT INTO conversation_read_receipts_new
+                SELECT r.* FROM conversation_read_receipts r
+                INNER JOIN conversation c ON r.conversationId = c.id
+                INNER JOIN member m ON r.inboxId = m.inboxId
+            """)
+            try db.drop(table: "conversation_read_receipts")
+            try db.rename(table: "conversation_read_receipts_new", to: "conversation_read_receipts")
+            try db.create(
+                index: "idx_read_receipts_conversation",
+                on: "conversation_read_receipts",
+                columns: ["conversationId"]
+            )
+        }
+
         return migrator
     }
 }

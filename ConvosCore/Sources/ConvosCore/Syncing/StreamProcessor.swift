@@ -228,6 +228,10 @@ actor StreamProcessor: StreamProcessorProtocol {
                         return
                     }
 
+                    if await processReadReceipt(message, conversationId: conversation.id, currentInboxId: params.client.inboxId) {
+                        return
+                    }
+
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
                     // Mark unread if needed
@@ -263,6 +267,46 @@ actor StreamProcessor: StreamProcessorProtocol {
     private func handleInviteJoinError(_ error: InviteJoinError, senderInboxId: String) async {
         Log.info("Received InviteJoinError (\(error.errorType.rawValue)) for inviteTag: \(error.inviteTag) from \(senderInboxId)")
         await inviteJoinErrorHandler?.handleInviteJoinError(error)
+    }
+
+    // MARK: - Read Receipts
+
+    private func processReadReceipt(_ message: DecodedMessage, conversationId: String, currentInboxId: String) async -> Bool {
+        guard message.isReadReceipt else {
+            return false
+        }
+
+        let senderInboxId = message.senderInboxId
+
+        guard senderInboxId != currentInboxId else {
+            return true
+        }
+
+        let sentAtNs = message.sentAtNs
+        Log.info("Received read receipt from \(senderInboxId) for conversation \(conversationId)")
+
+        do {
+            try await databaseWriter.write { db in
+                let existing = try DBConversationReadReceipt
+                    .filter(Column("conversationId") == conversationId && Column("inboxId") == senderInboxId)
+                    .fetchOne(db)
+                if let existing, existing.readAtNs >= sentAtNs {
+                    // Newer (or equal) read receipt already stored; ignore this one so an
+                    // out-of-order delivery can't roll the timestamp backwards.
+                    return
+                }
+                let receipt = DBConversationReadReceipt(
+                    conversationId: conversationId,
+                    inboxId: senderInboxId,
+                    readAtNs: sentAtNs
+                )
+                try receipt.save(db, onConflict: .replace)
+            }
+        } catch {
+            Log.warning("Failed to store read receipt: \(error.localizedDescription)")
+        }
+
+        return true
     }
 
     // MARK: - Profile Messages

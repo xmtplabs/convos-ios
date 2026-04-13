@@ -335,6 +335,7 @@ struct MessagesRepositoryBenchmarkTests {
                             .forKey("conversationCreator")
                             .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(required: DBConversation.localState)
                     .including(
@@ -342,6 +343,7 @@ struct MessagesRepositoryBenchmarkTests {
                             .forKey("conversationMembers")
                             .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .asRequest(of: DBConversationDetails.self)
                     .fetchOne(db)
@@ -479,6 +481,7 @@ struct MessagesRepositoryBenchmarkTests {
                             .forKey("messageSender")
                             .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(optional: DBMessage.sourceMessage)
                     .asRequest(of: MessageWithDetailsLite.self)
@@ -496,6 +499,7 @@ struct MessagesRepositoryBenchmarkTests {
                             .forKey("messageSender")
                             .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .asRequest(of: MessageSenderOnly.self)
                     .fetchAll(db)
@@ -556,6 +560,7 @@ struct MessagesRepositoryBenchmarkTests {
                             .forKey("conversationCreator")
                             .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(required: DBConversation.localState)
                     .including(
@@ -563,6 +568,7 @@ struct MessagesRepositoryBenchmarkTests {
                             .forKey("conversationMembers")
                             .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .asRequest(of: DBConversationDetails.self)
                     .fetchOne(db)
@@ -570,8 +576,12 @@ struct MessagesRepositoryBenchmarkTests {
 
                 _ = try DBConversationMember
                     .filter(DBConversationMember.Columns.conversationId == conversationId)
-                    .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
+                    .select([
+                        DBConversationMember.Columns.role,
+                        DBConversationMember.Columns.createdAt,
+                    ])
                     .including(required: DBConversationMember.memberProfile)
+                    .including(optional: DBConversationMember.inviterProfile)
                     .asRequest(of: DBConversationMemberProfileWithRole.self)
                     .fetchAll(db)
                 let t2 = CFAbsoluteTimeGetCurrent()
@@ -586,6 +596,7 @@ struct MessagesRepositoryBenchmarkTests {
                             .forKey("messageSender")
                             .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(all: DBMessage.reactions)
                     .including(optional: DBMessage.sourceMessage)
@@ -604,6 +615,7 @@ struct MessagesRepositoryBenchmarkTests {
                             .forKey("messageSender")
                             .select([DBConversationMember.Columns.role, DBConversationMember.Columns.createdAt])
                             .including(required: DBConversationMember.memberProfile)
+                            .including(optional: DBConversationMember.inviterProfile)
                     )
                     .including(optional: DBMessage.sourceMessage)
                     .asRequest(of: MessageWithDetailsLite.self)

@@ -594,7 +594,7 @@ struct MessagesListProcessorOnlyVisibleTests {
         let messages = [
             makeMessage(id: "1", sender: currentUser, text: "Talking to myself", date: now),
         ]
-        let result = MessagesListProcessor.process(messages, otherMemberCount: 0)
+        let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 0)
         let g = groups(from: result)
         #expect(g[0].onlyVisibleToSender == true)
     }
@@ -605,7 +605,7 @@ struct MessagesListProcessorOnlyVisibleTests {
         let messages = [
             makeMessage(id: "1", sender: currentUser, text: "Hello everyone", date: now),
         ]
-        let result = MessagesListProcessor.process(messages, otherMemberCount: 2)
+        let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 2)
         let g = groups(from: result)
         #expect(g[0].onlyVisibleToSender == false)
     }
@@ -616,7 +616,7 @@ struct MessagesListProcessorOnlyVisibleTests {
         let messages = [
             makeMessage(id: "1", sender: otherUser, text: "I'm here", date: now),
         ]
-        let result = MessagesListProcessor.process(messages, otherMemberCount: 0)
+        let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 0)
         let g = groups(from: result)
         #expect(g[0].onlyVisibleToSender == false)
     }
@@ -630,7 +630,7 @@ struct MessagesListProcessorOnlyVisibleTests {
             makeUpdate(id: "join", date: now.addingTimeInterval(10), addedMembers: [newMember]),
             makeMessage(id: "2", sender: currentUser, text: "Not alone", date: now.addingTimeInterval(20)),
         ]
-        let result = MessagesListProcessor.process(messages, otherMemberCount: 0)
+        let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 0)
         let g = groups(from: result)
 
         #expect(g[0].onlyVisibleToSender == true)
@@ -647,7 +647,7 @@ struct MessagesListProcessorOnlyVisibleTests {
             makeUpdate(id: "join", date: now.addingTimeInterval(10), addedMembers: [newMember]),
             makeMessage(id: "3", sender: currentUser, text: "After join", date: now.addingTimeInterval(20)),
         ]
-        let result = MessagesListProcessor.process(messages, otherMemberCount: 0)
+        let result = MessagesListProcessor.process(messages, currentOtherMemberCount: 0)
         let g = groups(from: result)
 
         let onlyVisibleGroups = g.filter { $0.onlyVisibleToSender }

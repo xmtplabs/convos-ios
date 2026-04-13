@@ -1,5 +1,5 @@
 {
-  "originHash" : "71fc4f0a471170157f392192c900a8a7ad94ed62bd37ed05387c05a3a3b85a2e",
+  "originHash" : "579cd1d748e9b32204ec97c5a2a168f00af764e485cc3f70870e0129ee45605b",
   "pins" : [
     {
       "identity" : "abseil-cpp-binary",
@@ -141,8 +141,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/xmtp/libxmtp.git",
       "state" : {
-        "branch" : "ios-4.9.0-dev.6ecd439",
-        "revision" : "297e684d07e78f87da617be80565359c315ba6f0"
+        "branch" : "ios-4.9.0-dev.88ddfad",
+        "revision" : "899650a4189207ca2df515bf46beb549da07ff46"
       }
     },
     {
@@ -195,8 +195,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-log",
       "state" : {
-        "revision" : "bc386b95f2a16ccd0150a8235e7c69eab2b866ca",
-        "version" : "1.8.0"
+        "revision" : "8c0f217f01000dd30f60d6e536569ad4e74291f9",
+        "version" : "1.11.0"
       }
     },
     {

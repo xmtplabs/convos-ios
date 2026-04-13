@@ -175,6 +175,8 @@ struct ConversationView<MessagesBottomBar: View>: View {
         }
         .animation(.easeOut, value: viewModel.explodeState)
         .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+        .onAppear { viewModel.onConversationAppeared() }
+        .onDisappear { viewModel.onConversationDisappeared() }
         .selfSizingSheet(isPresented: $viewModel.presentingConversationForked) {
             ConversationForkedInfoView {
                 viewModel.leaveConvo()

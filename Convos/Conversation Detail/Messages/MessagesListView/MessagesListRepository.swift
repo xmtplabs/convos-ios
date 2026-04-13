@@ -9,18 +9,13 @@ protocol MessagesListRepositoryProtocol {
     var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> { get }
 
     func startObserving()
-
-    /// Fetches the initial page of messages (most recent messages)
     func fetchInitial() throws -> [MessagesListItemType]
-
-    /// Fetches previous (older) messages
-    /// Results are delivered through the messagesListPublisher
     func fetchPrevious() throws
 
-    /// Indicates if there are more messages to load
     var hasMoreMessages: Bool { get }
 
     var currentOtherMemberCount: Int { get set }
+    var sendReadReceipts: Bool { get set }
 }
 
 @MainActor
@@ -29,7 +24,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     private let messagesRepository: any MessagesRepositoryProtocol
     private let transcriptRepository: any VoiceMemoTranscriptRepositoryProtocol
-    private let conversationIdSubject: CurrentValueSubject<String, Never>
+    private let conversationId: String
     /// Returns whether the user has granted on-device speech recognition permission.
     /// Used to suppress the synthetic "Tap to transcribe" affordance once the user
     /// has authorized transcription — from that point forward, voice memos with no
@@ -50,10 +45,10 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     }
 
     var conversationMessagesListPublisher: AnyPublisher<(String, [MessagesListItemType]), Never> {
-        messagesRepository.conversationMessagesPublisher
-            .map { [weak self] conversationId, messages in
-                let processedMessages = self?.processMessages(messages, conversationId: conversationId) ?? []
-                return (conversationId, processedMessages)
+        messagesRepository.conversationMessagesResultPublisher
+            .map { [weak self] result in
+                let processedMessages = self?.processMessages(result.messages, readReceipts: result.readReceipts, memberProfiles: result.memberProfiles) ?? []
+                return (result.conversationId, processedMessages)
             }
             .handleEvents(receiveOutput: { [weak self] _, processedMessages in
                 self?.messagesListSubject.send(processedMessages)
@@ -73,44 +68,47 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     ) {
         self.messagesRepository = messagesRepository
         self.transcriptRepository = transcriptRepository
-        self.conversationIdSubject = .init(conversationId)
+        self.conversationId = conversationId
         self.speechPermissionProvider = speechPermissionProvider
     }
 
     func startObserving() {
         guard !hasStartedObserving else { return }
         hasStartedObserving = true
-        messagesRepository.messagesPublisher
-            .map { [weak self] messages in
-                self?.processMessages(messages, conversationId: self?.conversationIdSubject.value) ?? []
+        messagesRepository.conversationMessagesResultPublisher
+            .map { [weak self] result in
+                self?.processMessages(result.messages, readReceipts: result.readReceipts, memberProfiles: result.memberProfiles) ?? []
             }
             .sink { [weak self] processedMessages in
                 self?.messagesListSubject.send(processedMessages)
             }
             .store(in: &cancellables)
 
-        conversationMessagesListPublisher
-            .map(\ .0)
-            .removeDuplicates()
-            .sink { [weak self] conversationId in
-                self?.handleConversationIdChanged(conversationId)
+        transcriptCancellable = transcriptRepository.transcriptsPublisher(in: conversationId)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] transcripts in
+                guard let self else { return }
+                self.storedTranscripts = transcripts
+                let reprocessed = self.processMessages(
+                    self.lastRawMessages,
+                    readReceipts: self.lastReadReceipts,
+                    memberProfiles: self.lastMemberProfiles
+                )
+                self.messagesListSubject.send(reprocessed)
             }
-            .store(in: &cancellables)
-
-        observeTranscripts(for: conversationIdSubject.value)
     }
 
     // MARK: - Public Methods
 
     func fetchInitial() throws -> [MessagesListItemType] {
-        let messages = try messagesRepository.fetchInitial()
+        let result = try messagesRepository.fetchInitialResult()
         // Seed the stored transcripts synchronously so the very first list
         // emission already carries any persisted transcripts. Otherwise the
         // transcripts publisher subscription in startObserving() lags behind
         // the initial fetch by one run loop, causing transcript rows to
         // "animate in" a moment after the conversation opens.
-        storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationIdSubject.value)) ?? [:]
-        return processMessages(messages, conversationId: conversationIdSubject.value)
+        storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationId)) ?? [:]
+        return processMessages(result.messages, readReceipts: result.readReceipts, memberProfiles: result.memberProfiles)
     }
 
     func fetchPrevious() throws {
@@ -124,14 +122,28 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
 
     // MARK: - Private Methods
 
-    private func processMessages(_ messages: [AnyMessage], conversationId: String?) -> [MessagesListItemType] {
+    private var lastReadReceipts: [ReadReceiptEntry] = []
+    private var lastMemberProfiles: [String: MemberProfileInfo] = [:]
+    private var lastOtherMemberCount: Int = 0
+    private var lastReadByProfiles: [Profile] = []
+    var sendReadReceipts: Bool = true
+
+    private func processMessages(_ messages: [AnyMessage], readReceipts: [ReadReceiptEntry] = [], memberProfiles: [String: MemberProfileInfo] = [:]) -> [MessagesListItemType] {
         lastRawMessages = messages
-        let transcripts = synthesizeTranscriptItems(messages: messages, conversationId: conversationId)
+        lastReadReceipts = readReceipts
+        lastMemberProfiles = memberProfiles
+        lastOtherMemberCount = currentOtherMemberCount
+        let transcripts = synthesizeTranscriptItems(messages: messages)
         let items = MessagesListProcessor.process(
             messages,
-            otherMemberCount: currentOtherMemberCount,
-            voiceMemoTranscripts: transcripts
+            voiceMemoTranscripts: transcripts,
+            readReceipts: readReceipts,
+            memberProfiles: memberProfiles,
+            currentOtherMemberCount: currentOtherMemberCount,
+            sendReadReceipts: sendReadReceipts,
+            previousReadByProfiles: lastReadByProfiles
         )
+        lastReadByProfiles = Self.extractReadByProfiles(from: items)
         scheduleAssistantJoinDismissIfNeeded(items)
         return items
     }
@@ -144,11 +156,9 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
     /// scheduler auto-enqueues these messages, so the row should stay hidden until
     /// the writer flips it to `.pending`.
     private func synthesizeTranscriptItems(
-        messages: [AnyMessage],
-        conversationId: String?
+        messages: [AnyMessage]
     ) -> [String: VoiceMemoTranscriptListItem] {
         let permissionGranted = speechPermissionProvider()
-        let effectiveConversationId = conversationId ?? conversationIdSubject.value
         var result: [String: VoiceMemoTranscriptListItem] = [:]
         for message in messages {
             guard let attachment = message.content.primaryVoiceMemoAttachment else { continue }
@@ -171,7 +181,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             }
             let item = VoiceMemoTranscriptListItem(
                 parentMessageId: message.messageId,
-                conversationId: effectiveConversationId,
+                conversationId: conversationId,
                 attachmentKey: attachment.key,
                 mimeType: attachment.mimeType,
                 senderDisplayName: message.sender.profile.displayName,
@@ -185,23 +195,13 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
         return result
     }
 
-    private func handleConversationIdChanged(_ conversationId: String) {
-        guard conversationIdSubject.value != conversationId else { return }
-        conversationIdSubject.send(conversationId)
-        storedTranscripts = (try? transcriptRepository.fetchAllTranscripts(in: conversationId)) ?? [:]
-        observeTranscripts(for: conversationId)
-    }
-
-    private func observeTranscripts(for conversationId: String) {
-        transcriptCancellable?.cancel()
-        transcriptCancellable = transcriptRepository.transcriptsPublisher(in: conversationId)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] transcripts in
-                guard let self else { return }
-                self.storedTranscripts = transcripts
-                let reprocessed = self.processMessages(self.lastRawMessages, conversationId: self.conversationIdSubject.value)
-                self.messagesListSubject.send(reprocessed)
+    private static func extractReadByProfiles(from items: [MessagesListItemType]) -> [Profile] {
+        for item in items.reversed() {
+            if case .messages(let group) = item, group.isLastGroupSentByCurrentUser {
+                return group.readByProfiles
             }
+        }
+        return []
     }
 
     private func scheduleAssistantJoinDismissIfNeeded(_ items: [MessagesListItemType]) {
@@ -218,7 +218,7 @@ final class MessagesListRepository: MessagesListRepositoryProtocol {
             .delay(for: .seconds(remaining), scheduler: DispatchQueue.main)
             .sink { [weak self] _ in
                 guard let self else { return }
-                let reprocessed = self.processMessages(self.lastRawMessages, conversationId: self.conversationIdSubject.value)
+                let reprocessed = self.processMessages(self.lastRawMessages, readReceipts: self.lastReadReceipts, memberProfiles: self.lastMemberProfiles)
                 self.scheduleAssistantJoinDismissIfNeeded(reprocessed)
                 self.messagesListSubject.send(reprocessed)
             }

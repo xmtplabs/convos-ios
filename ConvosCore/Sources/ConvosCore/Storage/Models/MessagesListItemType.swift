@@ -168,6 +168,15 @@ public enum MessagesListItemType: Identifiable, Equatable, Hashable, Sendable {
 }
 
 extension Array where Element == MessagesListItemType {
+    public var countMessages: Int {
+        reduce(0) { count, item in
+            if case .messages(let group) = item {
+                return count + group.messages.count
+            }
+            return count
+        }
+    }
+
     public var lastMessageId: String? {
         for item in reversed() {
             if let id = item.lastMessageId {

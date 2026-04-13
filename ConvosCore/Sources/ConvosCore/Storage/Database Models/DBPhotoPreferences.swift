@@ -9,12 +9,14 @@ struct DBPhotoPreferences: FetchableRecord, PersistableRecord, Codable, Hashable
         static let autoReveal: Column = Column(CodingKeys.autoReveal)
         static let hasRevealedFirst: Column = Column(CodingKeys.hasRevealedFirst)
         static let updatedAt: Column = Column(CodingKeys.updatedAt)
+        static let sendReadReceipts: Column = Column(CodingKeys.sendReadReceipts)
     }
 
     let conversationId: String
     var autoReveal: Bool
     var hasRevealedFirst: Bool
     var updatedAt: Date
+    var sendReadReceipts: Bool?
 
     static let conversation: BelongsToAssociation<DBPhotoPreferences, DBConversation> = belongsTo(DBConversation.self)
 }
@@ -25,7 +27,8 @@ extension DBPhotoPreferences {
             conversationId: conversationId,
             autoReveal: autoReveal,
             hasRevealedFirst: hasRevealedFirst,
-            updatedAt: Date()
+            updatedAt: Date(),
+            sendReadReceipts: sendReadReceipts
         )
     }
 
@@ -34,7 +37,18 @@ extension DBPhotoPreferences {
             conversationId: conversationId,
             autoReveal: autoReveal,
             hasRevealedFirst: hasRevealedFirst,
-            updatedAt: Date()
+            updatedAt: Date(),
+            sendReadReceipts: sendReadReceipts
+        )
+    }
+
+    func with(sendReadReceipts: Bool?) -> DBPhotoPreferences {
+        DBPhotoPreferences(
+            conversationId: conversationId,
+            autoReveal: autoReveal,
+            hasRevealedFirst: hasRevealedFirst,
+            updatedAt: Date(),
+            sendReadReceipts: sendReadReceipts
         )
     }
 
@@ -43,7 +57,8 @@ extension DBPhotoPreferences {
             conversationId: conversationId,
             autoReveal: false,
             hasRevealedFirst: false,
-            updatedAt: Date()
+            updatedAt: Date(),
+            sendReadReceipts: nil
         )
     }
 }

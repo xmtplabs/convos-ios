@@ -15,6 +15,12 @@ extension DecodedMessage {
         return contentType.authorityID == ContentTypeTypingIndicator.authorityID
             && contentType.typeID == ContentTypeTypingIndicator.typeID
     }
+
+    var isReadReceipt: Bool {
+        guard let contentType = try? encodedContent.type else { return false }
+        return contentType.authorityID == ContentTypeReadReceipt.authorityID
+            && contentType.typeID == ContentTypeReadReceipt.typeID
+    }
 }
 
 enum ConversationWriterError: Error {
@@ -268,9 +274,9 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             try await fetchAndStoreLatestMessages(for: conversation, dbConversation: dbConversation)
         }
 
-        // Store last message (skip profile messages which aren't stored as DB messages)
+        // Store last message (skip profile messages and read receipts which aren't stored as DB messages)
         let lastMessage = try await conversation.lastMessage()
-        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator {
+        if let lastMessage, !lastMessage.isProfileMessage, !lastMessage.isTypingIndicator, !lastMessage.isReadReceipt {
             let result = try await messageWriter.store(
                 message: lastMessage,
                 for: dbConversation
@@ -611,6 +617,10 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let myInboxId = dbConversation.inboxId
         for message in messages {
             guard !message.isProfileMessage, !message.isTypingIndicator else { continue }
+            if message.isReadReceipt {
+                await storeReadReceipt(message, conversationId: conversation.id)
+                continue
+            }
             Log.debug("Catching up with message sent at: \(message.sentAt.nanosecondsSince1970)")
             let result = try await messageWriter.store(message: message, for: dbConversation)
             if result.contentType.marksConversationAsUnread,
@@ -622,6 +632,31 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
 
         if marksConversationAsUnread {
             try await localStateWriter.setUnread(true, for: conversation.id)
+        }
+    }
+
+    private func storeReadReceipt(_ message: DecodedMessage, conversationId: String) async {
+        do {
+            try await databaseWriter.write { db in
+                let senderInboxId = message.senderInboxId
+                let sentAtNs = message.sentAtNs
+                let existing = try DBConversationReadReceipt
+                    .filter(Column("conversationId") == conversationId && Column("inboxId") == senderInboxId)
+                    .fetchOne(db)
+                if let existing, existing.readAtNs >= sentAtNs {
+                    // Newer (or equal) read receipt already stored; skip so an
+                    // out-of-order catch-up can't roll the timestamp backwards.
+                    return
+                }
+                let receipt = DBConversationReadReceipt(
+                    conversationId: conversationId,
+                    inboxId: senderInboxId,
+                    readAtNs: sentAtNs
+                )
+                try receipt.save(db, onConflict: .replace)
+            }
+        } catch {
+            Log.warning("Failed to store read receipt during catch-up: \(error.localizedDescription)")
         }
     }
 

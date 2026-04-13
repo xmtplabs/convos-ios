@@ -678,6 +678,7 @@ public actor ConversationStateMachine {
         let text = try invite.toURLSafeSlug()
         _ = try await dm.prepare(text: text)
         try await dm.publish()
+
         Log.info("[PERF] NewConversation.joinRequestSent")
         QAEvent.emit(.invite, "join_request_sent")
 
