@@ -77,6 +77,10 @@ public final class MockXMTPClientProvider: XMTPClientProvider, @unchecked Sendab
         true
     }
 
+    public func isInstallationActiveWithDetails() async throws -> (isActive: Bool, networkInstallationIds: [String]) {
+        (true, [installationId])
+    }
+
     public func requestDeviceSync() async throws {
         // No-op for mock
     }

@@ -144,6 +144,7 @@ public protocol XMTPClientProvider: AnyObject {
     ) async throws
     func revokeAllOtherInstallations(signingKey: SigningKey) async throws
     func isInstallationActive() async throws -> Bool
+    func isInstallationActiveWithDetails() async throws -> (isActive: Bool, networkInstallationIds: [String])
     func requestDeviceSync() async throws
     func deleteLocalDatabase() throws
     func reconnectLocalDatabase() async throws
@@ -256,6 +257,13 @@ extension XMTPiOS.Client: XMTPClientProvider {
     public func isInstallationActive() async throws -> Bool {
         let state = try await inboxState(refreshFromNetwork: true)
         return state.installations.contains { $0.id == installationID }
+    }
+
+    public func isInstallationActiveWithDetails() async throws -> (isActive: Bool, networkInstallationIds: [String]) {
+        let state = try await inboxState(refreshFromNetwork: true)
+        let ids = state.installations.map(\.id)
+        let isActive = ids.contains(installationID)
+        return (isActive, ids)
     }
 }
 

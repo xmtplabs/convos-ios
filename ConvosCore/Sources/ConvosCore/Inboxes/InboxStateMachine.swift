@@ -755,9 +755,12 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
 
         // Check whether this installation is still active (detects revocation by another device)
         let staleInboxId = result.client.inboxId
+        let staleInstallationId = result.client.installationId
         let staleIsActive: Bool?
         do {
-            staleIsActive = try await result.client.isInstallationActive()
+            let (isActive, activeIds) = try await result.client.isInstallationActiveWithDetails()
+            Log.info("[Stale] inbox \(staleInboxId): local installationId=\(staleInstallationId) network installations=\(activeIds) isActive=\(isActive)")
+            staleIsActive = isActive
         } catch {
             Log.warning("[Stale] inbox \(staleInboxId): check failed (non-fatal): \(error)")
             staleIsActive = nil
