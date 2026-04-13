@@ -145,7 +145,13 @@ struct ConversationsView: View {
     @ViewBuilder
     private var sidebarContent: some View {
         if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
-            emptyConversationsViewScrollable
+            if viewModel.isDeviceStale {
+                ScrollView {
+                    staleDeviceEmptyView
+                }
+            } else {
+                emptyConversationsViewScrollable
+            }
         } else if viewModel.isFilteredResultEmpty && viewModel.pinnedConversations.isEmpty && horizontalSizeClass == .compact {
             ScrollView {
                 filteredEmptyStateView
@@ -203,6 +209,19 @@ struct ConversationsView: View {
         ) { focusState, coordinator in
             NavigationSplitView(preferredCompactColumn: $preferredColumn) {
                 sidebarContent
+                    .safeAreaInset(edge: .top) {
+                        if viewModel.isDeviceStale {
+                            let learnMoreAction = { presentingStaleDeviceInfo = true }
+                            StaleDeviceBanner(
+                                state: viewModel.staleDeviceState,
+                                onResetDevice: viewModel.deleteAllData,
+                                onLearnMore: learnMoreAction
+                            )
+                            .padding(.top, 8)
+                            .padding(.bottom, 4)
+                            .background(.colorBackgroundSurfaceless)
+                        }
+                    }
                     .onGeometryChange(for: CGSize.self) {
                         $0.size
                     } action: { newValue in
@@ -259,6 +278,7 @@ struct ConversationsView: View {
         .focusEffectDisabled()
         .modifier(ConversationsSheetModifier(
             presentingAppSettings: $presentingAppSettings,
+            presentingStaleDeviceInfo: $presentingStaleDeviceInfo,
             viewModel: viewModel,
             quicknameViewModel: quicknameViewModel,
             conversationPendingExplosion: $conversationPendingExplosion,
@@ -285,6 +305,7 @@ struct ConversationsView: View {
 
 private struct ConversationsSheetModifier: ViewModifier {
     @Binding var presentingAppSettings: Bool
+    @Binding var presentingStaleDeviceInfo: Bool
     @Bindable var viewModel: ConversationsViewModel
     let quicknameViewModel: QuicknameSettingsViewModel
     @Binding var conversationPendingExplosion: Conversation?
@@ -321,6 +342,23 @@ private struct ConversationsSheetModifier: ViewModifier {
             }
             .selfSizingSheet(isPresented: $viewModel.presentingPinLimitInfo) {
                 PinLimitInfoView()
+            }
+            .selfSizingSheet(isPresented: $presentingStaleDeviceInfo) {
+                StaleDeviceInfoView(
+                    state: viewModel.staleDeviceState,
+                    onResetDevice: viewModel.deleteAllData
+                )
+            }
+            .fullScreenCover(isPresented: $viewModel.isPendingFullStaleAutoReset) {
+                ZStack {
+                    Color.black.opacity(0.6)
+                        .ignoresSafeArea()
+                    FullStaleAutoResetCountdown(
+                        onReset: { viewModel.confirmFullStaleAutoReset() },
+                        onCancel: { viewModel.cancelFullStaleAutoReset() }
+                    )
+                }
+                .presentationBackground(.clear)
             }
             .background {
                 Color.clear
