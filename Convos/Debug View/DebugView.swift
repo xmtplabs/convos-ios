@@ -211,11 +211,19 @@ struct DebugViewSection: View {
                 .disabled(isRenewingAssets)
             }
 
+            SeedConversationsView(session: session)
+
             Section("Sheets") {
                 Button {
                     presentingPhotosInfoSheet = true
                 } label: {
                     Text("Show Photos Info Sheet")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                NavigationLink {
+                    PairingFlowDebugView()
+                } label: {
+                    Text("Pairing Flow Stepper")
                         .foregroundStyle(.colorTextPrimary)
                 }
             }

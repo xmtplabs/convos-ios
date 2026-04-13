@@ -28,11 +28,12 @@ enum SessionManagerError: Error {
 /// use weak self and main queue dispatch.
 public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private var leftConversationObserver: Any?
+    private var vaultLifecycleTask: Task<Void, Never>?
     private var foregroundObserverTask: Task<Void, Never>?
     private var assetRenewalTask: Task<Void, Never>?
 
     private let databaseWriter: any DatabaseWriter
-    private let databaseReader: any DatabaseReader
+    public let databaseReader: any DatabaseReader
     private let environment: AppEnvironment
     private let identityStore: any KeychainIdentityStoreProtocol
     private var initializationTask: Task<Void, Never>?
@@ -44,7 +45,9 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     private let platformProviders: PlatformProviders
     private let lifecycleManager: any InboxLifecycleManagerProtocol
     private let sleepingInboxChecker: SleepingInboxMessageChecker
+    private let importSyncDrainer: VaultImportSyncDrainer
     private let apiClient: any ConvosAPIClientProtocol
+    public let vaultService: (any VaultServiceProtocol)?
 
     init(databaseWriter: any DatabaseWriter,
          databaseReader: any DatabaseReader,
@@ -52,11 +55,13 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
          identityStore: any KeychainIdentityStoreProtocol,
          lifecycleManager: (any InboxLifecycleManagerProtocol)? = nil,
          sleepingInboxChecker: SleepingInboxMessageChecker? = nil,
+         vaultService: (any VaultServiceProtocol)? = nil,
          platformProviders: PlatformProviders) {
         self.databaseWriter = databaseWriter
         self.databaseReader = databaseReader
         self.environment = environment
         self.identityStore = identityStore
+        self.vaultService = vaultService
         self.platformProviders = platformProviders
         self.deviceRegistrationManager = DeviceRegistrationManager(
             environment: environment,
@@ -75,13 +80,18 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         self.lifecycleManager = resolvedLifecycleManager
         self.notificationChangeReporter = NotificationChangeReporter(databaseWriter: databaseWriter)
 
-        // Initialize sleeping inbox checker
         let activityRepository = InboxActivityRepository(databaseReader: databaseReader)
         self.sleepingInboxChecker = sleepingInboxChecker ?? SleepingInboxMessageChecker(
             environment: environment,
             activityRepository: activityRepository,
             lifecycleManager: resolvedLifecycleManager,
             appLifecycle: platformProviders.appLifecycle
+        )
+        self.importSyncDrainer = VaultImportSyncDrainer(
+            lifecycleManager: resolvedLifecycleManager,
+            databaseReader: databaseReader,
+            databaseWriter: databaseWriter,
+            environment: environment
         )
 
         observe()
@@ -97,6 +107,28 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             // Start observing push token changes for automatic re-registration
             await self.deviceRegistrationManager.startObservingPushTokenChanges()
             guard !Task.isCancelled else { return }
+
+            // Bootstrap vault (creates identity + XMTP client if needed)
+            if let vaultManager = self.vaultService as? VaultManager {
+                await vaultManager.bootstrapVault(
+                    databaseWriter: self.databaseWriter,
+                    environment: self.environment
+                )
+                await vaultManager.setEventHandler(self)
+            }
+            guard !Task.isCancelled else { return }
+
+            // Resume any interrupted vault sync from previous launch
+            await self.importSyncDrainer.resumeFromDatabase()
+
+            // Run vault health check to detect and repair inconsistencies
+            if let vaultManager = self.vaultService as? VaultManager,
+               let healthCheck = await vaultManager.healthCheck {
+                let issues = await healthCheck.runCheckAndRepair()
+                if !issues.isEmpty {
+                    await self.importSyncDrainer.resumeFromDatabase()
+                }
+            }
 
             // Initialize inbox lifecycle manager
             await self.lifecycleManager.initializeOnAppLaunch()
@@ -130,6 +162,7 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         unusedInboxPrepTask?.cancel()
         foregroundObserverTask?.cancel()
         assetRenewalTask?.cancel()
+        vaultLifecycleTask?.cancel()
         if let leftConversationObserver {
             NotificationCenter.default.removeObserver(leftConversationObserver)
         }
@@ -138,7 +171,6 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     // MARK: - Private Methods
 
     private func observe() {
-        // Observe foreground notifications to refresh GRDB observers with changes from notification extension
         foregroundObserverTask = Task { [weak self, platformProviders] in
             let foregroundNotifications = NotificationCenter.default.notifications(
                 named: platformProviders.appLifecycle.willEnterForegroundNotification
@@ -148,6 +180,8 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
                 self.notificationChangeReporter.notifyChangesInDatabase()
             }
         }
+
+        observeVaultNotifications()
 
         // Delete inbox when a conversation is left/exploded
         leftConversationObserver = NotificationCenter.default
@@ -182,15 +216,25 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
     }
 
     public func deleteInbox(clientId: String, inboxId: String) async throws {
-        // Get or create a service for deletion (creates one if not awake, without tracking it)
+        try await deleteInboxLocally(clientId: clientId)
+        await vaultService?.broadcastConversationDeleted(inboxId: inboxId, clientId: clientId)
+    }
+
+    func deleteInboxLocally(clientId: String) async throws {
+        let inboxId: String = try await databaseReader.read { db in
+            try String.fetchOne(
+                db,
+                sql: "SELECT inboxId FROM inbox WHERE clientId = ?",
+                arguments: [clientId]
+            ) ?? ""
+        }
+
         let service = await lifecycleManager.getOrCreateService(clientId: clientId, inboxId: inboxId)
-        Log.info("Deleting inbox for clientId: \(clientId)")
+        Log.info("Deleting inbox locally: clientId=\(clientId), inboxId=\(inboxId)")
         await service.stopAndDelete()
 
-        // Force remove from tracking (also clears activeClientId if needed)
         await lifecycleManager.forceRemove(clientId: clientId)
 
-        // Always delete inbox record from database regardless of in-memory service state
         let inboxWriter = InboxWriter(dbWriter: databaseWriter)
         try await inboxWriter.delete(clientId: clientId)
     }
@@ -213,9 +257,26 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
 
                     continuation.yield(.clearingDeviceRegistration)
 
-                    // Get all inboxes from database
+                    if let vaultService = self.vaultService {
+                        do {
+                            try await vaultService.unpairSelf()
+                            Log.info("Unpaired from Vault before deleting data")
+                        } catch {
+                            Log.error("Failed to unpair from Vault: \(error)")
+                        }
+                    }
+
+                    if let vaultManager = self.vaultService as? VaultManager {
+                        do {
+                            try await vaultManager.clearVaultKeyStore()
+                            Log.info("Cleared vault key store")
+                        } catch {
+                            Log.error("Failed to clear vault key store: \(error)")
+                        }
+                    }
+
                     let inboxesRepository = InboxesRepository(databaseReader: self.databaseReader)
-                    let allInboxes = try inboxesRepository.allInboxes()
+                    let allInboxes = try inboxesRepository.nonVaultInboxes()
 
                     let totalInboxes = allInboxes.count
                     var completedInboxes = 0
@@ -457,6 +518,32 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
         await lifecycleManager.isSleeping(clientId: clientId)
     }
 
+    private func observeVaultNotifications() {
+        vaultLifecycleTask = Task { [weak self, platformProviders] in
+            await withTaskGroup(of: Void.self) { taskGroup in
+                taskGroup.addTask { [weak self] in
+                    let notifications = NotificationCenter.default.notifications(
+                        named: platformProviders.appLifecycle.willEnterForegroundNotification
+                    )
+                    for await _ in notifications {
+                        await self?.importSyncDrainer.resume()
+                    }
+                }
+
+                taskGroup.addTask { [weak self] in
+                    let notifications = NotificationCenter.default.notifications(
+                        named: platformProviders.appLifecycle.didEnterBackgroundNotification
+                    )
+                    for await _ in notifications {
+                        await self?.importSyncDrainer.pause()
+                    }
+                }
+
+                await taskGroup.waitForAll()
+            }
+        }
+    }
+
     // MARK: Debug
 
     public func pendingInviteDetails() throws -> [PendingInviteDetail] {
@@ -592,5 +679,28 @@ public final class SessionManager: SessionManagerProtocol, @unchecked Sendable {
             apiClient: apiClient,
             recoveryHandler: recoveryHandler
         )
+    }
+}
+
+// MARK: - VaultEventHandler
+
+extension SessionManager: VaultEventHandler {
+    public func vaultDidImportInbox(inboxId: String, clientId: String) async {
+        Log.info("Vault key imported for inbox \(inboxId), queuing for drainer")
+        await importSyncDrainer.startDraining(importedInboxIds: [inboxId])
+    }
+
+    public func vaultDidImportKeyBundle(inboxIds: Set<String>, count: Int) async {
+        Log.info("Vault key bundle imported (\(count) keys), starting drainer")
+        await importSyncDrainer.startDraining(importedInboxIds: inboxIds)
+    }
+
+    public func vaultDidDeleteConversation(inboxId: String, clientId: String) async {
+        do {
+            try await deleteInboxLocally(clientId: clientId)
+            Log.info("Deleted conversation from vault sync: clientId=\(clientId)")
+        } catch {
+            Log.error("Failed to delete conversation from vault sync: \(error)")
+        }
     }
 }

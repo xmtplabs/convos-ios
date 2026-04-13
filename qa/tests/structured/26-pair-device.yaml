@@ -1,0 +1,632 @@
+id: "26"
+name: "Pair Device"
+description: >
+  Verify that two devices can pair via the Vault pairing flow with pin +
+  emoji fingerprint verification, and that after pairing, conversations
+  from both devices (including CLI-populated seed conversations with varied
+  message types) are synced across both devices.
+tags: [vault, multi-device, pairing, security, seed]
+estimated_duration_s: 300
+
+multi_device: true
+devices:
+  device_a:
+    role: initiator
+    note: "The device that creates the pairing invite (QR code)"
+  device_b:
+    role: joiner
+    note: "The device that scans the pairing link"
+
+prerequisites:
+  app_installed: true
+  simulators_erased: true
+  note: "Both simulators must be erased to ensure fresh keychain state. Cloned simulators share keychain and will cause memberCannotBeSelf errors."
+
+setup:
+  # --- Device A: onboard + seed ---
+
+  - id: onboard_a
+    device: device_a
+    name: "Create initial conversation on Device A to complete onboarding"
+    actions:
+      - tap: { id: "compose-button", retries: 3 }
+      - wait: 2
+      - tap: { id: "conversation-toolbar-button" }
+      - wait: 1
+      - tap: { label: "Continue" }
+      - type_in_field: { id: "message-text-field", text: "Setup from A" }
+      - tap: { id: "send-message-button" }
+      - wait: 2
+      - tap: { label: "Close" }
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: seed_a
+    device: device_a
+    name: "Seed 5 conversations on Device A via Debug settings"
+    actions:
+      - tap: { id: "app-settings-button" }
+      - tap: { label: "Debug" }
+      - wait: 1
+      - tap: { label: "5" }
+      - tap: { label: "Seed Conversations" }
+      - wait_for_element: { label: "checkmark.circle.fill", timeout: 120 }
+    verify:
+      - element_exists: { label: "checkmark.circle.fill" }
+    criteria: seed_a_completed
+
+  - id: navigate_back_from_debug_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Back" }
+      - wait: 1
+      - tap: { label: "Cancel" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: populate_seed_a
+    device: device_a
+    name: "Read seed events and populate conversations via CLI"
+    actions:
+      - log_events: { event_filter: "qa.seed_conversation" }
+    note: >
+      For each seed conversation:
+      1. Extract invite URL from event
+      2. CLI: convos conversations join <slug> --profile-name "QA Bot"
+      3. Wait for member.joined event in app logs
+      4. CLI: convos conversation send-text <id> "Hello from QA Bot"
+      5. Get msg ID from send output
+      6. CLI: convos conversation send-reaction <id> <msg-id> add "👍"
+      7. CLI: convos conversation send-reply <id> <msg-id> "This is a reply"
+      8. CLI: convos conversation send-text <id> "Check out https://example.com/test"
+      9. curl -L -o /tmp/qa-photo.jpg https://picsum.photos/400/300
+      10. CLI: convos conversation send-attachment <id> /tmp/qa-photo.jpg
+    criteria: seed_a_populated
+
+  - id: count_convos_a
+    device: device_a
+    name: "Count conversations on Device A"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_a_count: "count of conversation-list-item elements"
+    note: "Expected: ~6 (1 manual + 5 seeded)"
+
+  # --- Device B: onboard + seed ---
+
+  - id: onboard_b
+    device: device_b
+    name: "Create initial conversation on Device B to complete onboarding"
+    actions:
+      - tap: { id: "compose-button", retries: 3 }
+      - wait: 2
+      - tap: { id: "conversation-toolbar-button" }
+      - wait: 1
+      - tap: { label: "Continue" }
+      - type_in_field: { id: "message-text-field", text: "Setup from B" }
+      - tap: { id: "send-message-button" }
+      - wait: 2
+      - tap: { label: "Close" }
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: seed_b
+    device: device_b
+    name: "Seed 3 conversations on Device B via Debug settings"
+    actions:
+      - tap: { id: "app-settings-button" }
+      - tap: { label: "Debug" }
+      - wait: 1
+      - tap: { label: "3" }
+      - tap: { label: "Seed Conversations" }
+      - wait_for_element: { label: "checkmark.circle.fill", timeout: 120 }
+    verify:
+      - element_exists: { label: "checkmark.circle.fill" }
+    criteria: seed_b_completed
+
+  - id: navigate_back_from_debug_b
+    device: device_b
+    name: "Navigate back to conversations list on Device B"
+    actions:
+      - tap: { label: "Back" }
+      - wait: 1
+      - tap: { label: "Cancel" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: populate_seed_b
+    device: device_b
+    name: "Read seed events and populate Device B conversations via CLI"
+    actions:
+      - log_events: { event_filter: "qa.seed_conversation" }
+    note: >
+      For each seed conversation:
+      1. Extract invite URL from event
+      2. CLI: convos conversations join <slug> --profile-name "QA Bot"
+      3. Wait for member.joined event
+      4. CLI: send at least 2 messages per conversation (text + reaction or reply)
+    criteria: seed_b_populated
+
+  - id: count_convos_b
+    device: device_b
+    name: "Count conversations on Device B"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_b_count: "count of conversation-list-item elements"
+    note: "Expected: ~4 (1 manual + 3 seeded)"
+
+steps:
+  # --- Phase 1: Initiate pairing on Device A ---
+
+  - id: open_devices_a
+    device: device_a
+    name: "Navigate to Devices screen on Device A"
+    actions:
+      - tap: { id: "app-settings-button", retries: 3 }
+      - tap: { id: "devices-row", retries: 3 }
+      - wait_for_element: { id: "add-device-button", timeout: 5 }
+    verify:
+      - element_exists: { label_contains: "This device" }
+    criteria: single_device_before_pairing
+
+  - id: start_pairing_a
+    device: device_a
+    name: "Open pairing sheet on Device A"
+    actions:
+      - tap: { id: "add-device-button" }
+      - wait_for_element: { id: "hold-to-reveal-button", timeout: 15 }
+    verify:
+      - element_exists: { label_contains: "Pair new device" }
+      - element_exists: { id: "pairing-qr-code" }
+    criteria: pairing_sheet_qr_code
+
+  # --- Phase 2: Extract URL and open on Device B ---
+
+  - id: extract_pairing_url
+    device: device_a
+    name: "Extract pairing URL from app logs"
+    actions:
+      - log_events: { event_filter: "vault.pairing_url_created" }
+    save:
+      pairing_url: "from event url= parameter"
+    verify:
+      - url_contains: "dev.convos.org/pair/"
+      - url_contains: "&name="
+    criteria: pairing_url_format
+
+  - id: open_url_on_b
+    device: device_b
+    name: "Open pairing URL on Device B"
+    actions:
+      - open_url: { url: "{{pairing_url}}" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Request to pair" }
+      - element_exists: { label_contains: "is requesting to pair" }
+    criteria: joiner_sheet_displayed
+
+  # --- Phase 3: Device A shows generated pin ---
+
+  - id: device_a_shows_pin
+    device: device_a
+    name: "Device A transitions to pin display"
+    actions:
+      - wait_for_element: { id: "pairing-pin-display", timeout: 10 }
+    save:
+      generated_pin: "from pairing-pin-display accessibility value"
+    verify:
+      - element_exists: { id: "pairing-pin-display" }
+      - element_exists: { label_contains: "Share this code" }
+    criteria: pin_displayed_on_a
+
+  # --- Phase 4: Device B enters pin ---
+
+  - id: enter_pin_on_b
+    device: device_b
+    name: "Enter pin on Device B and submit"
+    actions:
+      - wait_for_element: { id: "pin-entry-field", timeout: 10 }
+      - tap: { id: "pin-entry-field" }
+      - type: { text: "{{generated_pin}}" }
+      - tap: { id: "submit-pin-button" }
+    verify:
+      - element_exists: { label_contains: "Enter the code shown on" }
+    criteria: pin_entered_on_b
+
+  # --- Phase 5: Verify emoji fingerprint ---
+
+  - id: verify_emoji_b
+    device: device_b
+    name: "Device B shows emoji fingerprint"
+    actions:
+      - wait_for_element: { id: "pairing-emoji-fingerprint", timeout: 5 }
+    save:
+      emoji_b: "from pairing-emoji-fingerprint children"
+    verify:
+      - element_exists: { id: "pairing-emoji-fingerprint" }
+      - element_exists: { label_contains: "Confirm pairing" }
+      - element_exists: { label_contains: "Waiting for confirmation" }
+    criteria: emoji_shown_on_b
+
+  - id: verify_emoji_a
+    device: device_a
+    name: "Device A shows matching emoji fingerprint"
+    actions:
+      - wait_for_element: { id: "pairing-emoji-fingerprint", timeout: 5 }
+    save:
+      emoji_a: "from pairing-emoji-fingerprint children"
+    verify:
+      - element_exists: { id: "pairing-emoji-fingerprint" }
+      - element_exists: { id: "confirm-emoji-button" }
+      - element_exists: { label_contains: "Confirm pairing" }
+    criteria: emoji_shown_on_a
+
+  - id: compare_emoji
+    name: "Verify emoji match on both devices"
+    verify:
+      - values_equal: { a: "{{emoji_a}}", b: "{{emoji_b}}" }
+    criteria: emoji_match
+
+  # --- Phase 6: Confirm and complete ---
+
+  - id: confirm_pairing
+    device: device_a
+    name: "Confirm emoji on Device A to complete pairing"
+    actions:
+      - tap: { id: "confirm-emoji-button" }
+      - wait: 8
+    verify:
+      - element_exists: { label_contains: "Device added" }
+    criteria: pairing_completed
+
+  - id: dismiss_pairing_a
+    device: device_a
+    name: "Dismiss pairing sheet on Device A"
+    actions:
+      - tap: { id: "got-it-button" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "add-device-button" }
+
+  - id: verify_both_devices
+    device: device_a
+    name: "Verify both devices shown in list"
+    verify:
+      - element_count_gte: { pattern: "device-row", min: 2 }
+      - element_exists: { label_contains: "This device" }
+    criteria: devices_list_both
+
+  # --- Phase 7: Verify conversation sync ---
+
+  - id: navigate_to_convos_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { id: "BackButton" }
+      - wait: 1
+      - tap: { label: "Cancel" }
+      - wait: 10
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: wait_for_sync_a
+    device: device_a
+    name: "Wait for VaultImportSyncDrainer to process imported inboxes"
+    actions:
+      - wait: 60
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_a_post_pairing_count: "count of conversation-list-item elements"
+    note: "VaultImportSyncDrainer processes ~1 inbox per 10 seconds. Wait for all to appear."
+
+  - id: verify_sync_a
+    device: device_a
+    name: "Device A has conversations from both devices"
+    verify:
+      - element_count_gte: { pattern: "conversation-list-item", min: "{{device_a_count}}" }
+      - element_exists: { label_contains: "Seed" }
+    note: "Device A should have its own conversations plus Device B's seed conversations"
+    criteria: device_a_synced
+
+  - id: dismiss_pairing_b
+    device: device_b
+    name: "Dismiss any sheet on Device B"
+    actions:
+      - tap: { id: "got-it-button", retries: 1 }
+      - wait: 10
+    verify:
+      - element_exists: { id: "compose-button" }
+    note: "Device B may be on completed or emoji screen"
+
+  - id: wait_for_sync_b
+    device: device_b
+    name: "Wait for sync on Device B"
+    actions:
+      - wait: 60
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      device_b_post_pairing_count: "count of conversation-list-item elements"
+
+  - id: verify_sync_b
+    device: device_b
+    name: "Device B has conversations from both devices"
+    verify:
+      - element_count_gte: { pattern: "conversation-list-item", min: "{{device_b_count}}" }
+      - element_exists: { label_contains: "Seed" }
+    note: "Device B should have its own conversations plus Device A's seed conversations"
+    criteria: device_b_synced
+
+  - id: verify_counts_match
+    name: "Conversation counts match on both devices"
+    verify:
+      - values_equal: { a: "{{device_a_post_pairing_count}}", b: "{{device_b_post_pairing_count}}" }
+    criteria: convo_counts_match
+
+  # --- Phase 8: Verify synced conversation content ---
+
+  - id: verify_content_a
+    device: device_a
+    name: "Open a synced seed conversation on Device A and verify messages"
+    actions:
+      - tap: { label_contains: "Seed" }
+      - wait: 5
+    verify:
+      - element_exists: { id: "message-text-field" }
+    note: "Look for QA Bot messages — text, reactions, replies, photos, or links"
+    criteria: synced_content_on_a
+
+  - id: navigate_back_a
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  - id: verify_content_b
+    device: device_b
+    name: "Open a synced seed conversation on Device B and verify messages"
+    actions:
+      - tap: { label_contains: "Seed" }
+      - wait: 5
+    verify:
+      - element_exists: { id: "message-text-field" }
+    note: "Look for QA Bot messages from Device A's seed conversations"
+    criteria: synced_content_on_b
+
+  - id: navigate_back_b
+    device: device_b
+    name: "Navigate back to conversations list on Device B"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+
+  # --- Phase 9: Post-pairing conversation creation ---
+
+  - id: create_convo_a
+    device: device_a
+    name: "Create a new conversation on Device A"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - type_in_field: { id: "message-text-field", text: "Post-pair from A" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - log_events: { event_filter: "message.sent" }
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+    criteria: create_convo_a
+
+  - id: verify_create_a_syncs_to_b
+    device: device_b
+    name: "Verify conversation created on A appears on Device B"
+    actions:
+      - wait: 60
+      - find_elements: { pattern: "Post-pair from A" }
+    verify:
+      - element_exists: { label_contains: "Post-pair from A" }
+    criteria: create_a_syncs_to_b
+    note: "The conversation should appear within 60s via vault key sharing + drainer"
+
+  - id: open_synced_convo_on_b
+    device: device_b
+    name: "Open the synced conversation on Device B and verify content"
+    actions:
+      - tap: { label_contains: "Post-pair from A" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Post-pair from A" }
+    criteria: create_a_content_on_b
+
+  - id: navigate_back_b_2
+    device: device_b
+    name: "Navigate back to conversations list on Device B"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+
+  - id: create_convo_b
+    device: device_b
+    name: "Create a new conversation on Device B"
+    actions:
+      - tap: { id: "compose-button" }
+      - wait_for_element: { id: "message-text-field", timeout: 10 }
+      - type_in_field: { id: "message-text-field", text: "Post-pair from B" }
+      - tap: { id: "send-message-button" }
+      - wait: 3
+      - tap: { label: "Close" }
+      - wait: 1
+    verify:
+      - element_exists: { id: "compose-button" }
+    criteria: create_convo_b
+
+  - id: verify_create_b_syncs_to_a
+    device: device_a
+    name: "Verify conversation created on B appears on Device A"
+    actions:
+      - wait: 60
+      - find_elements: { pattern: "Post-pair from B" }
+    verify:
+      - element_exists: { label_contains: "Post-pair from B" }
+    criteria: create_b_syncs_to_a
+
+  - id: open_synced_convo_on_a
+    device: device_a
+    name: "Open the synced conversation on Device A and verify content"
+    actions:
+      - tap: { label_contains: "Post-pair from B" }
+      - wait: 5
+    verify:
+      - element_exists: { label_contains: "Post-pair from B" }
+    criteria: create_b_content_on_a
+
+  - id: navigate_back_a_2
+    device: device_a
+    name: "Navigate back to conversations list on Device A"
+    actions:
+      - tap: { label: "Close" }
+      - wait: 1
+
+  # --- Phase 10: Post-pairing conversation deletion ---
+
+  - id: record_count_before_delete
+    device: device_a
+    name: "Record conversation count before deletion"
+    actions:
+      - find_elements: { pattern: "conversation-list-item" }
+    save:
+      pre_delete_count: "count of conversation-list-item elements"
+
+  - id: delete_convo_on_a
+    device: device_a
+    name: "Delete the 'Post-pair from A' conversation on Device A"
+    actions:
+      - long_press: { label_contains: "Post-pair from A" }
+      - wait: 1
+      - tap: { id: "context-menu-delete" }
+      - wait: 1
+      - tap: { label: "Delete" }
+      - wait: 2
+    verify:
+      - element_not_exists: { label_contains: "Post-pair from A" }
+    criteria: delete_on_a
+
+  - id: verify_delete_a_syncs_to_b
+    device: device_b
+    name: "Verify deleted conversation disappears from Device B"
+    actions:
+      - wait: 60
+    verify:
+      - element_not_exists: { label_contains: "Post-pair from A" }
+    criteria: delete_a_syncs_to_b
+
+  - id: delete_convo_on_b
+    device: device_b
+    name: "Delete the 'Post-pair from B' conversation on Device B"
+    actions:
+      - long_press: { label_contains: "Post-pair from B" }
+      - wait: 1
+      - tap: { id: "context-menu-delete" }
+      - wait: 1
+      - tap: { label: "Delete" }
+      - wait: 2
+    verify:
+      - element_not_exists: { label_contains: "Post-pair from B" }
+    criteria: delete_on_b
+
+  - id: verify_delete_b_syncs_to_a
+    device: device_a
+    name: "Verify deleted conversation disappears from Device A"
+    actions:
+      - wait: 60
+    verify:
+      - element_not_exists: { label_contains: "Post-pair from B" }
+    criteria: delete_b_syncs_to_a
+
+  - id: verify_final_counts
+    name: "Verify final conversation counts match on both devices"
+    note: "Both devices should have the same count, equal to pre-delete count minus 2"
+    criteria: final_counts_match
+
+  - id: verify_seeds_unaffected
+    name: "Verify seed conversations are still present on both devices"
+    verify:
+      - element_exists: { label_contains: "Seed" }
+    criteria: seeds_unaffected
+
+teardown: []
+
+criteria:
+  seed_a_completed:
+    description: "5 seed conversations created on Device A (checkmark shown)"
+  seed_a_populated:
+    description: "CLI QA Bot joined Device A's seed conversations and sent varied message types (text, reaction, reply, URL, photo)"
+  seed_b_completed:
+    description: "3 seed conversations created on Device B (checkmark shown)"
+  seed_b_populated:
+    description: "CLI QA Bot joined Device B's seed conversations and sent messages"
+  single_device_before_pairing:
+    description: "Device A shows single-device state before pairing"
+  pairing_sheet_qr_code:
+    description: "Pairing sheet opens with QR code and 'Pair new device' title"
+  pairing_url_format:
+    description: "Pairing URL has correct format with name parameter"
+  joiner_sheet_displayed:
+    description: "Device B shows joiner sheet with Device A's name"
+  pin_displayed_on_a:
+    description: "Device A generates and displays a 6-digit pin"
+  pin_entered_on_b:
+    description: "Device B shows pin entry and pin is entered"
+  emoji_shown_on_b:
+    description: "Device B shows 3-emoji fingerprint with 'Waiting for confirmation'"
+  emoji_shown_on_a:
+    description: "Device A shows 3-emoji fingerprint with Confirm button"
+  emoji_match:
+    description: "Emoji fingerprint matches on both devices"
+  pairing_completed:
+    description: "Pairing completes — Device A shows 'Device added' with checkmark"
+  devices_list_both:
+    description: "Devices list shows both devices (one marked 'This device')"
+  device_a_synced:
+    description: "Device A's conversations list contains conversations from both devices including seed conversations"
+  device_b_synced:
+    description: "Device B's conversations list contains conversations from both devices including seed conversations"
+  convo_counts_match:
+    description: "Both devices have the same conversation count — no unconsumed unused conversations leaked during pairing"
+  synced_content_on_a:
+    description: "Synced conversation on Device A contains messages (from CLI QA Bot)"
+  synced_content_on_b:
+    description: "Synced conversation on Device B contains messages (from CLI QA Bot)"
+  create_convo_a:
+    description: "New conversation created on Device A after pairing"
+  create_a_syncs_to_b:
+    description: "Conversation created on Device A appears on Device B within 60 seconds"
+  create_a_content_on_b:
+    description: "Message 'Post-pair from A' is visible when opening the synced conversation on Device B"
+  create_convo_b:
+    description: "New conversation created on Device B after pairing"
+  create_b_syncs_to_a:
+    description: "Conversation created on Device B appears on Device A within 60 seconds"
+  create_b_content_on_a:
+    description: "Message 'Post-pair from B' is visible when opening the synced conversation on Device A"
+  delete_on_a:
+    description: "Deleting a conversation on Device A removes it from Device A's list"
+  delete_a_syncs_to_b:
+    description: "The deleted conversation disappears from Device B within 60 seconds"
+  delete_on_b:
+    description: "Deleting a conversation on Device B removes it from Device B's list"
+  delete_b_syncs_to_a:
+    description: "The deleted conversation disappears from Device A within 60 seconds"
+  final_counts_match:
+    description: "After both deletions, both devices have the same conversation count"
+  seeds_unaffected:
+    description: "Seed conversations are unaffected by the deletions"

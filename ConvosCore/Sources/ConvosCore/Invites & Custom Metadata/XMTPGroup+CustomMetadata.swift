@@ -130,8 +130,16 @@ extension XMTPiOS.Group {
         }
     }
 
+    /// Clears the invite tag, preventing any new join requests from being accepted.
+    public func clearInviteTag() async throws {
+        try await atomicUpdateMetadata { metadata in
+            metadata.tag = ""
+        } verify: { metadata in
+            metadata.tag.isEmpty
+        }
+    }
+
     /// Rotates the invite tag, invalidating all existing invites for this conversation.
-    /// This is used when locking a conversation to ensure no outstanding invites can be used.
     public func rotateInviteTag() async throws {
         let oldTag = try inviteTag
         let newTag = try generateSecureRandomString(length: 10)

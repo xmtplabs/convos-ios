@@ -112,6 +112,15 @@ public actor CachedPushNotificationHandler {
         let inboxId = inbox.inboxId
         Log.debug("Matched clientId \(clientId) to inboxId: \(inboxId)")
 
+        if inbox.isVault {
+            Log.debug("Processing Vault push notification (will suppress display)")
+            return try await withTimeout(seconds: timeout, timeoutError: NotificationProcessingError.timeout) {
+                let messagingService = await self.getOrCreateMessagingService(for: inboxId, clientId: clientId, overrideJWTToken: payload.apiJWT)
+                _ = try await messagingService.processPushNotification(payload: payload)
+                return .droppedMessage
+            }
+        }
+
         Log.debug("Processing for inbox: \(inboxId)")
 
         // Process with timeout

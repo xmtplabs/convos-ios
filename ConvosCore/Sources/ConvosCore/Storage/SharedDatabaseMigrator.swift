@@ -426,6 +426,39 @@ extension SharedDatabaseMigrator {
             try db.create(index: "voiceMemoTranscript_attachmentKey", on: "voiceMemoTranscript", columns: ["attachmentKey"])
         }
 
+        migrator.registerMigration("addIsVaultToInbox") { db in
+            try db.alter(table: "inbox") { t in
+                t.add(column: "isVault", .boolean).notNull().defaults(to: false)
+            }
+
+            try db.create(
+                index: "inbox_unique_vault",
+                on: "inbox",
+                columns: ["isVault"],
+                unique: true,
+                condition: Column("isVault") == true
+            )
+        }
+
+        migrator.registerMigration("addVaultDeviceTable") { db in
+            try db.create(table: "vaultDevice") { t in
+                t.primaryKey("inboxId", .text)
+                t.column("name", .text).notNull()
+                t.column("isCurrentDevice", .boolean).notNull().defaults(to: false)
+                t.column("addedAt", .datetime).notNull()
+            }
+
+            try db.alter(table: "inbox") { t in
+                t.add(column: "sharedToVault", .boolean).notNull().defaults(to: false)
+            }
+        }
+
+        migrator.registerMigration("addVaultSyncStateToInbox") { db in
+            try db.alter(table: "inbox") { t in
+                t.add(column: "vaultSyncState", .text).notNull().defaults(to: "none")
+                t.add(column: "vaultSyncAttempts", .integer).notNull().defaults(to: 0)
+            }
+        }
         return migrator
     }
 }
