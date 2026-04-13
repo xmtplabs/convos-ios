@@ -48,9 +48,10 @@ struct InviteCodeAlertModifier: ViewModifier {
         defer { isRedeeming = false }
 
         do {
-            try await session.redeemInviteCode(trimmed)
+            let inviteCode = try await session.redeemInviteCode(trimmed)
             await MainActor.run {
                 GlobalConvoDefaults.shared.assistantCodeUnlocked = true
+                GlobalConvoDefaults.shared.assistantInviteCode = inviteCode.code
                 code = ""
                 onUnlocked()
             }
@@ -63,6 +64,8 @@ struct InviteCodeAlertModifier: ViewModifier {
                     errorMessage = "Code must be 8 letters"
                 case .rateLimitExceeded:
                     errorMessage = "Too many attempts, try again later"
+                case .inviteCodeFullyRedeemed:
+                    errorMessage = "That invite code has already been fully redeemed"
                 default:
                     errorMessage = "Something went wrong, try again"
                 }

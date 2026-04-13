@@ -58,7 +58,8 @@ public protocol ConvosAPIClientProtocol: AnyObject, Sendable {
     func requestAgentJoin(slug: String, instructions: String, forceErrorCode: Int?) async throws -> ConvosAPI.AgentJoinResponse
 
     // Invite codes
-    func redeemInviteCode(_ code: String) async throws
+    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
+    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus
 }
 
 extension ConvosAPIClientProtocol {
@@ -589,7 +590,7 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
     // MARK: - Invite Codes
 
-    func redeemInviteCode(_ code: String) async throws {
+    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
         var request = try authenticatedRequest(for: "v2/invite-codes/redeem", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
 
@@ -600,9 +601,30 @@ final class ConvosAPIClient: ConvosAPIClientProtocol, Sendable {
 
         switch httpResponse.statusCode {
         case 200...299:
-            return
+            let response = try JSONDecoder().decode(ConvosAPI.RedeemInviteCodeResponse.self, from: data)
+            return response.data.inviteCode
         case 409:
-            return
+            throw APIError.inviteCodeFullyRedeemed
+        case 404:
+            throw APIError.inviteCodeNotFound
+        case 422:
+            throw APIError.inviteCodeInvalidFormat
+        case 429:
+            throw APIError.rateLimitExceeded
+        default:
+            throw APIError.serverError(parseErrorMessage(from: data))
+        }
+    }
+
+    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        let normalised = code.uppercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        let request = try authenticatedRequest(for: "v2/invite-codes/\(normalised)/status", method: "GET")
+        let (data, httpResponse) = try await performAuthenticatedRequest(request)
+
+        switch httpResponse.statusCode {
+        case 200...299:
+            let response = try JSONDecoder().decode(ConvosAPI.InviteCodeStatusResponse.self, from: data)
+            return response.data
         case 404:
             throw APIError.inviteCodeNotFound
         case 422:
@@ -648,6 +670,7 @@ public enum APIError: Error {
     case agentProvisionFailed
     case inviteCodeNotFound
     case inviteCodeInvalidFormat
+    case inviteCodeFullyRedeemed
 }
 
 extension APIError: DisplayError {
@@ -685,6 +708,8 @@ extension APIError: DisplayError {
             return "Code not found"
         case .inviteCodeInvalidFormat:
             return "Invalid code"
+        case .inviteCodeFullyRedeemed:
+            return "Code already used up"
         }
     }
 
@@ -722,6 +747,8 @@ extension APIError: DisplayError {
             return "No invite code found with that value."
         case .inviteCodeInvalidFormat:
             return "Code must be 8 letters."
+        case .inviteCodeFullyRedeemed:
+            return "That invite code has already been fully redeemed."
         }
     }
 }

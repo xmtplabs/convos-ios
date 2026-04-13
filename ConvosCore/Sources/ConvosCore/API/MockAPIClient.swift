@@ -84,6 +84,11 @@ final class MockAPIClient: ConvosAPIClientProtocol, Sendable {
         .init(success: true, joined: true)
     }
 
-    func redeemInviteCode(_ code: String) async throws {
+    func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        .init(code: "MOCKCODE", name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
+    }
+
+    func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        .init(code: code.uppercased(), name: nil, maxRedemptions: 5, redemptionCount: 1, remainingRedemptions: 4)
     }
 }

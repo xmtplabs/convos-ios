@@ -93,7 +93,12 @@ public final class MockInboxesService: SessionManagerProtocol {
         return .init(success: true, joined: true)
     }
 
-    public func redeemInviteCode(_ code: String) async throws {
+    public func redeemInviteCode(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        .init(code: "MOCKCODE", name: nil, maxRedemptions: 5, redemptionCount: 0, remainingRedemptions: 5)
+    }
+
+    public func fetchInviteCodeStatus(_ code: String) async throws -> ConvosAPI.InviteCodeStatus {
+        .init(code: code.uppercased(), name: nil, maxRedemptions: 5, redemptionCount: 1, remainingRedemptions: 4)
     }
 
     public func conversationRepository(for conversationId: String, inboxId: String, clientId: String) async throws -> any ConversationRepositoryProtocol {
