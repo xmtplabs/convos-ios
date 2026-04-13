@@ -17,14 +17,6 @@ public struct AssistantFile: Sendable, Hashable, Identifiable {
     public var formattedDate: String {
         date.formatted(.dateTime.month(.defaultDigits).day(.defaultDigits).year(.twoDigits))
     }
-
-    public var mediaType: MediaType {
-        guard let mimeType else { return .file }
-        if mimeType.hasPrefix("image/") { return .image }
-        if mimeType.hasPrefix("video/") { return .video }
-        if mimeType.hasPrefix("audio/") { return .audio }
-        return .file
-    }
 }
 
 public struct AssistantLink: Sendable, Hashable, Identifiable {
@@ -164,27 +156,5 @@ public final class AssistantFilesLinksRepository: Sendable {
         }
 
         return ParsedAttachment(filename: nil, mimeType: nil, thumbnailDataBase64: nil)
-    }
-
-    public func hasContent() async -> Bool {
-        do {
-            return try await dbReader.read { [conversationId] db in
-                let count = try Int.fetchOne(db, sql: """
-                    SELECT COUNT(*)
-                    FROM message m
-                    INNER JOIN memberProfile mp
-                        ON mp.inboxId = m.senderId AND mp.conversationId = m.conversationId
-                    WHERE m.conversationId = ?
-                        AND m.contentType IN ('attachments', 'linkPreview')
-                        AND mp.memberKind IN ('agent', 'agent:convos', 'agent:user-oauth')
-                    LIMIT 1
-                    """,
-                    arguments: [conversationId]
-                )
-                return (count ?? 0) > 0
-            }
-        } catch {
-            return false
-        }
     }
 }

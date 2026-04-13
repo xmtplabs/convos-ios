@@ -26,14 +26,14 @@ class AssistantFilesLinksViewModel {
     var filteredFiles: [AssistantFile] {
         guard !searchText.isEmpty else { return files }
         let query = searchText.lowercased()
-        return files.filter { ($0.displayName).lowercased().contains(query) }
+        return files.filter { $0.displayName.lowercased().contains(query) }
     }
 
     var filteredLinks: [AssistantLink] {
         guard !searchText.isEmpty else { return links }
         let query = searchText.lowercased()
         return links.filter {
-            ($0.displayTitle).lowercased().contains(query)
+            $0.displayTitle.lowercased().contains(query)
             || $0.url.lowercased().contains(query)
         }
     }
@@ -153,23 +153,22 @@ struct AssistantFilesLinksView: View {
     }
 
     private func fileRow(_ file: AssistantFile) -> some View {
-        Button {
+        let action = {
             Task {
                 do {
                     let url = try await FileAttachmentPreviewLoader.loadPreviewURL(
                         key: file.attachmentKey,
                         filename: file.filename
                     )
-                    await MainActor.run {
-                        guard let presenter = UIApplication.shared.topMostViewController() else { return }
-                        FileAttachmentQuickLookCoordinator.shared.present(fileURL: url, from: presenter)
-                    }
+                    guard let presenter = UIApplication.shared.topMostViewController() else { return }
+                    FileAttachmentQuickLookCoordinator.shared.present(fileURL: url, from: presenter)
                 } catch {
                     Log.error("Failed to open assistant file: \(error)")
                     viewModel.fileOpenError = "This file is no longer available on this device."
                 }
             }
-        } label: {
+        }
+        return Button(action: action) {
             HStack(spacing: DesignConstants.Spacing.step3x) {
                 fileThumbnail(file)
                     .frame(width: 56.0, height: 56.0)
@@ -232,11 +231,12 @@ struct AssistantFilesLinksView: View {
     }
 
     private func linkRow(_ link: AssistantLink) -> some View {
-        Button {
+        let action = {
             if let url = link.resolvedURL {
                 UIApplication.shared.open(url)
             }
-        } label: {
+        }
+        return Button(action: action) {
             HStack(spacing: DesignConstants.Spacing.step3x) {
                 linkThumbnail(link)
                     .frame(width: 56.0, height: 56.0)
