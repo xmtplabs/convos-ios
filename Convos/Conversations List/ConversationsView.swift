@@ -297,6 +297,7 @@ private struct ConversationsSheetModifier: ViewModifier {
                     viewModel: viewModel.appSettingsViewModel,
                     quicknameViewModel: quicknameViewModel,
                     session: viewModel.session,
+                    databaseManager: viewModel.databaseManager,
                     onDeleteAllData: viewModel.deleteAllData
                 )
                 .navigationTransition(
