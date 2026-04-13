@@ -463,14 +463,12 @@ actor SyncingManager: SyncingManagerProtocol {
             }
 
             // After restore, conversations are marked inactive ("Awaiting
-            // reconnection") and only reactivate on message receipt. But
-            // quiet conversations would stay inactive indefinitely because
-            // discoverNewConversations skips groups already in the DB.
-            // Pass the full set of XMTP-confirmed group IDs so the stream
-            // processor can flip any inactive conversations whose groups
-            // were successfully synced.
-            let allGroupIds = Set(groups.map(\.id))
-            await streamProcessor.reactivateRestoredConversations(knownGroupIds: allGroupIds)
+            // reconnection"). Reactivation happens via processConversation
+            // (when a group syncs with new activity) or processMessage
+            // (when a message arrives on the stream). We intentionally do
+            // NOT proactively reactivate here — listing a group in the
+            // XMTP SDK doesn't mean the new installation can participate
+            // yet (the old installation may still need to be replaced).
         } catch {
             Log.error("Failed to discover new conversations: \(error)")
         }

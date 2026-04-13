@@ -29,18 +29,9 @@ protocol StreamProcessorProtocol: Actor {
     func setInviteJoinErrorHandler(_ handler: (any InviteJoinErrorHandler)?)
     func setTypingIndicatorHandler(_ handler: @escaping @Sendable (String, String, Bool) -> Void)
 
-    /// Reactivate any conversations that are present in the XMTP client's
-    /// group list but still marked inactive in the local DB. Called after the
-    /// initial sync completes to handle post-restore conversations that would
-    /// otherwise stay "Awaiting reconnection" until a new message arrives.
-    func reactivateRestoredConversations(knownGroupIds: Set<String>) async
 }
 
 extension StreamProcessorProtocol {
-    func reactivateRestoredConversations(knownGroupIds: Set<String>) async {
-        // Default no-op for conformers that don't handle post-restore reactivation.
-    }
-
     func processConversation(
         _ conversation: XMTPiOS.Group,
         params: SyncClientParams
@@ -176,7 +167,10 @@ actor StreamProcessor: StreamProcessorProtocol {
         let perfElapsed = String(format: "%.0f", (CFAbsoluteTimeGetCurrent() - perfStart) * 1000)
         Log.info("[PERF] conversation.sync: \(perfElapsed)ms id=\(conversation.id)")
 
-        await reactivateIfNeeded(conversationId: dbConversation.id)
+        // Reactivation of inactive (post-restore) conversations is handled
+        // by processMessage → markReconnectionIfNeeded when an actual
+        // message arrives — not here. A conversation appearing on the
+        // stream or sync doesn't prove the new installation can participate.
 
         if creatorInboxId == params.client.inboxId {
             await sendInitialProfileSnapshot(group: conversation)
@@ -322,27 +316,6 @@ actor StreamProcessor: StreamProcessorProtocol {
     }
 
     // MARK: - Reactivation
-
-    func reactivateRestoredConversations(knownGroupIds: Set<String>) async {
-        guard !knownGroupIds.isEmpty else { return }
-        do {
-            let inactiveIds: [String] = try await databaseReader.read { db in
-                try String.fetchAll(db, sql: """
-                    SELECT conversationId FROM conversationLocalState WHERE isActive = 0
-                    """)
-            }
-            let toReactivate = inactiveIds.filter { knownGroupIds.contains($0) }
-            guard !toReactivate.isEmpty else { return }
-
-            for conversationId in toReactivate {
-                try await markRecentUpdatesAsReconnection(conversationId: conversationId)
-                try await localStateWriter.setActive(true, for: conversationId)
-            }
-            Log.info("Reactivated \(toReactivate.count) restored conversation(s) confirmed by XMTP sync")
-        } catch {
-            Log.warning("reactivateRestoredConversations failed: \(error)")
-        }
-    }
 
     private func reactivateIfNeeded(conversationId: String) async {
         do {
