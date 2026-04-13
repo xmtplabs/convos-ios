@@ -1014,22 +1014,26 @@ private struct MarkdownAttachmentPreviewSheet: View {
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    let action = { dismiss() }
+                    Button("Done", action: action)
                 }
             }
         }
         .task {
-            loadMarkdown()
+            await loadMarkdown()
         }
     }
 
-    private func loadMarkdown() {
+    private func loadMarkdown() async {
         guard let markedJS = Self.loadMarkedJS() else {
             errorMessage = "Markdown renderer is unavailable."
             return
         }
         do {
-            let markdown = try String(contentsOf: fileURL, encoding: .utf8)
+            let url = fileURL
+            let markdown = try await Task.detached {
+                try String(contentsOf: url, encoding: .utf8)
+            }.value
             let encodedMarkdown = Data(markdown.utf8).base64EncodedString()
             htmlString = """
             <!DOCTYPE html>
@@ -1102,9 +1106,8 @@ private struct MarkdownAttachmentPreviewSheet: View {
                 var div = document.createElement('div');
                 div.innerHTML = html;
                 div.querySelectorAll('script, iframe, object, embed, form, input, textarea, button, select').forEach(function(el) { el.remove(); });
-                div.querySelectorAll('[onload],[onerror],[onclick],[onmouseover],[onfocus],[onblur]').forEach(function(el) {
-                    el.removeAttribute('onload'); el.removeAttribute('onerror'); el.removeAttribute('onclick');
-                    el.removeAttribute('onmouseover'); el.removeAttribute('onfocus'); el.removeAttribute('onblur');
+                div.querySelectorAll('*').forEach(function(el) {
+                    el.getAttributeNames().filter(function(n) { return n.startsWith('on'); }).forEach(function(n) { el.removeAttribute(n); });
                 });
                 div.querySelectorAll('a[href^="javascript:"]').forEach(function(el) { el.removeAttribute('href'); });
                 document.getElementById('content').innerHTML = div.innerHTML;
@@ -1140,6 +1143,8 @@ private struct MarkdownWebView: UIViewRepresentable {
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        guard context.coordinator.loadedHTML != html else { return }
+        context.coordinator.loadedHTML = html
         webView.loadHTMLString(html, baseURL: nil)
     }
 
@@ -1148,6 +1153,8 @@ private struct MarkdownWebView: UIViewRepresentable {
     }
 
     final class Coordinator: NSObject, WKNavigationDelegate {
+        var loadedHTML: String?
+
         func webView(
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction
