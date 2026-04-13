@@ -350,17 +350,11 @@ private struct VideoTapAttachmentView: View {
                 onPhotoDimensionsLoaded(attachment.key, width, height)
             }
         )
-        .messageGesture(
-            message: message,
-            bubbleStyle: .normal,
-            onSingleTap: singleTapAction,
-            onReply: onReply,
-            swipeOffset: $swipeOffset
-        )
         .overlay(alignment: .topLeading) {
             if !isPlaying {
                 MediaContainerID(profile: profile, onTap: onTapAvatar)
                     .offset(x: swipeOffset)
+                    .allowsHitTesting(false)
             }
         }
         .overlay(alignment: .topTrailing) {
@@ -371,6 +365,7 @@ private struct VideoTapAttachmentView: View {
                     duration: resolvedDuration ?? attachment.duration
                 )
                 .offset(x: swipeOffset)
+                .allowsHitTesting(false)
             }
         }
         .overlay(alignment: .bottomLeading) {
@@ -380,8 +375,16 @@ private struct VideoTapAttachmentView: View {
                     onTap: onTapReactions
                 )
                 .offset(x: swipeOffset)
+                .allowsHitTesting(false)
             }
         }
+        .messageGesture(
+            message: message,
+            bubbleStyle: .normal,
+            onSingleTap: singleTapAction,
+            onReply: onReply,
+            swipeOffset: $swipeOffset
+        )
     }
 
     private var singleTapAction: (() -> Void)? {
