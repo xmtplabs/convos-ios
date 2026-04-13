@@ -27,6 +27,11 @@ extension ConvosClient {
             service: Constant.vaultICloudIdentityService,
             accessibility: kSecAttrAccessibleAfterFirstUnlock
         )
+        KeychainIdentityStore.migrateToSynchronizableIfNeeded(
+            accessGroup: keychainAccessGroup,
+            service: Constant.vaultICloudIdentityService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlock
+        )
 
         let identityStore = KeychainIdentityStore(accessGroup: keychainAccessGroup)
         let localVaultKeychainStore = KeychainIdentityStore(
@@ -37,7 +42,8 @@ extension ConvosClient {
         let iCloudVaultKeychainStore = KeychainIdentityStore(
             accessGroup: keychainAccessGroup,
             service: Constant.vaultICloudIdentityService,
-            accessibility: kSecAttrAccessibleAfterFirstUnlock
+            accessibility: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
         let vaultKeychainStore = ICloudIdentityStore(
             localStore: localVaultKeychainStore,

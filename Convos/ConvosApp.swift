@@ -58,7 +58,7 @@ struct ConvosApp: App {
             await agentKeyset.prefetch()
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
         }
-        self.conversationsViewModel = .init(session: convos.session)
+        self.conversationsViewModel = .init(session: convos.session, databaseManager: convos.databaseManager)
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
     }

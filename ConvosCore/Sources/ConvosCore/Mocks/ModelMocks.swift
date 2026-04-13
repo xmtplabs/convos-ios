@@ -54,7 +54,8 @@ public extension Conversation {
             expiresAt: nil,
             debugInfo: ConversationDebugInfo.empty,
             isLocked: false,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            isActive: true
         )
     }
 
@@ -99,7 +100,8 @@ public extension Conversation {
             expiresAt: .distantFuture,
             debugInfo: .empty,
             isLocked: false,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            isActive: true
         )
     }
 }
@@ -225,7 +227,8 @@ public extension ConversationUpdate {
             creator: creator ?? .mock(isCurrentUser: false, name: "Alice"),
             addedMembers: addedMembers.isEmpty ? [.mock(isCurrentUser: false, name: "Bob")] : addedMembers,
             removedMembers: removedMembers,
-            metadataChanges: []
+            metadataChanges: [],
+            isReconnection: false
         )
     }
 }
@@ -239,6 +242,9 @@ public extension ConversationUpdate {
         } else if !addedMembers.isEmpty {
             if addedMembers.count == 1, let member = addedMembers.first,
                member.isCurrentUser {
+                if isReconnection {
+                    return "Reconnected"
+                }
                 let asString = "as \(member.profile.displayName)"
                 return "You joined \(asString)"
             }

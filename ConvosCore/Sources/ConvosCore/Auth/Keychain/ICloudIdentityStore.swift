@@ -7,8 +7,10 @@ import Security
 /// - save: writes to both (iCloud failure is non-fatal)
 /// - identity(for:): reads local first, falls back to iCloud (and caches locally)
 /// - delete: removes from both
+/// - deleteLocalOnly: removes only the local copy while preserving iCloud
 ///
-/// The local copy is never deleted by this coordinator. It is the safety net.
+/// The local copy is the normal safety net. Restore flows can explicitly remove
+/// only the local copy while keeping the iCloud copy available for disaster recovery.
 /// Items written to the iCloud store with `AfterFirstUnlock` accessibility are
 /// automatically synced by iOS when iCloud Keychain is enabled at the system level.
 /// When iCloud Keychain is disabled, items remain local; when re-enabled, they sync.
@@ -87,6 +89,12 @@ public actor ICloudIdentityStore: KeychainIdentityStoreProtocol {
         } catch {
             Log.warning("Failed to delete identity from iCloud Keychain: \(inboxId): \(error)")
         }
+    }
+
+    /// Deletes only the local copy, preserving the iCloud copy.
+    /// The iCloud copy serves as the backup decryption key and must survive local data wipes.
+    public func deleteLocalOnly(inboxId: String) async throws {
+        try await localStore.delete(inboxId: inboxId)
     }
 
     public func delete(clientId: String) async throws -> KeychainIdentity {

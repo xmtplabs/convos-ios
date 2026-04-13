@@ -109,6 +109,16 @@ public enum AppEnvironment: Sendable {
         }
     }
 
+    public var iCloudContainerIdentifier: String {
+        switch self {
+        case .local(config: let config), .dev(config: let config), .production(config: let config):
+            let bundleId = config.appGroupIdentifier.replacingOccurrences(of: "group.", with: "")
+            return "iCloud.\(bundleId)"
+        case .tests:
+            return "iCloud.org.convos.ios-local"
+        }
+    }
+
     public var keychainAccessGroup: String {
         // Use the app group identifier with team prefix for keychain sharing
         // This matches $(AppIdentifierPrefix)$(APP_GROUP_IDENTIFIER) in entitlements
@@ -226,7 +236,7 @@ public extension AppEnvironment {
         return groupUrl.appendingPathComponent("logs", isDirectory: true)
     }
 
-    var defaultDatabasesDirectoryURL: URL {
+    public var defaultDatabasesDirectoryURL: URL {
         guard !isTestingEnvironment else {
             return FileManager.default.temporaryDirectory
         }

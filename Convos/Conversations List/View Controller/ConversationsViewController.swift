@@ -15,11 +15,13 @@ final class ConversationsViewController: UIViewController {
         var filterEmptyMessage: String
         var hasCreatedMoreThanOneConvo: Bool
         var horizontalSizeClass: UserInterfaceSizeClass?
+        var isDeviceStale: Bool
 
         @MainActor var shouldShowEmptyCTA: Bool {
             unpinnedConversations.count == 1 &&
             !hasCreatedMoreThanOneConvo &&
-            UIDevice.current.userInterfaceIdiom == .phone
+            UIDevice.current.userInterfaceIdiom == .phone &&
+            !isDeviceStale
         }
 
         static let empty: State = State(
@@ -29,7 +31,8 @@ final class ConversationsViewController: UIViewController {
             isFilteredResultEmpty: false,
             filterEmptyMessage: "",
             hasCreatedMoreThanOneConvo: false,
-            horizontalSizeClass: nil
+            horizontalSizeClass: nil,
+            isDeviceStale: false
         )
     }
 

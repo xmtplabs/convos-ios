@@ -329,6 +329,39 @@ struct ConversationInfoView: View {
         }
     }
 
+    @ViewBuilder
+    private var comingSoonSections: some View {
+        Section {
+            HStack {
+                Text("Vanish")
+                    .foregroundStyle(.colorTextPrimary)
+                Spacer()
+                SoonLabel()
+            }
+        } footer: {
+            Text("Choose when this convo disappears from your device")
+                .foregroundStyle(.colorTextSecondary)
+        }
+        .disabled(true)
+
+        Section {
+            NavigationLink {
+                EmptyView()
+            } label: {
+                HStack {
+                    Text("Permissions")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    SoonLabel()
+                }
+            }
+            .disabled(true)
+        } footer: {
+            Text("Choose who can manage the group")
+                .foregroundStyle(.colorTextSecondary)
+        }
+    }
+
     var body: some View {
         NavigationStack {
             List {
@@ -356,35 +389,7 @@ struct ConversationInfoView: View {
 
                 convoRulesSection
 
-                Section {
-                    HStack {
-                        Text("Vanish")
-                            .foregroundStyle(.colorTextPrimary)
-                        Spacer()
-                        SoonLabel()
-                    }
-                } footer: {
-                    Text("Choose when this convo disappears from your device")
-                        .foregroundStyle(.colorTextSecondary)
-                }
-                .disabled(true)
-
-                Section {
-                    NavigationLink {
-                        EmptyView()
-                    } label: {
-                        HStack {
-                            Text("Permissions")
-                                .foregroundStyle(.colorTextPrimary)
-                            Spacer()
-                            SoonLabel()
-                        }
-                    }
-                    .disabled(true)
-                } footer: {
-                    Text("Choose who can manage the group")
-                        .foregroundStyle(.colorTextSecondary)
-                }
+                comingSoonSections
 
                 if !ConfigManager.shared.currentEnvironment.isProduction {
                     Section {
