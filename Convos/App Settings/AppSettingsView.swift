@@ -33,6 +33,7 @@ struct AppSettingsView: View {
     @Bindable var viewModel: AppSettingsViewModel
     @Bindable var quicknameViewModel: QuicknameSettingsViewModel
     let session: any SessionManagerProtocol
+    var databaseManager: (any DatabaseManagerProtocol)?
     let onDeleteAllData: () -> Void
     @State private var showingDeleteAllDataConfirmation: Bool = false
     @Environment(\.openURL) private var openURL: OpenURLAction
@@ -147,59 +148,7 @@ struct AppSettingsView: View {
                 }
                 .listRowSeparatorTint(.colorBorderSubtle)
 
-                Section {
-                    Button {
-                        openExternalURL("https://xmtp.org")
-                    } label: {
-                        NavigationLink {
-                            EmptyView()
-                        } label: {
-                            HStack(alignment: .firstTextBaseline, spacing: 0.0) {
-                                Text("Secured by ")
-                                Image("xmtpIcon")
-                                    .renderingMode(.template)
-                                    .foregroundStyle(.colorTextPrimary)
-                                    .padding(.trailing, 1.0)
-                                Text("XMTP")
-                            }
-                            .foregroundStyle(.colorTextPrimary)
-                        }
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
-                    Button {
-                        openExternalURL("https://hq.convos.org/privacy-and-terms")
-                    } label: {
-                        NavigationLink("Privacy & Terms", destination: EmptyView())
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
-                    Button {
-                        sendFeedback()
-                    } label: {
-                        Text("Send feedback")
-                    }
-                    .foregroundStyle(.colorTextPrimary)
-
-                    if !ConfigManager.shared.currentEnvironment.isProduction {
-                        NavigationLink {
-                            DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session)
-                        } label: {
-                            Text("Debug")
-                        }
-                        .accessibilityIdentifier("debug-row")
-                        .foregroundStyle(.colorTextPrimary)
-                    }
-                } footer: {
-                    HStack {
-                        Text("Made in the open by XMTP Labs")
-                        Spacer()
-                        Text("V\(Bundle.appVersion)")
-                            .foregroundStyle(.colorTextTertiary)
-                    }
-                    .foregroundStyle(.colorTextSecondary)
-                }
-                .listRowSeparatorTint(.colorBorderSubtle)
+                aboutSection
 
                 Section {
                     Button(role: .destructive) {
@@ -241,6 +190,63 @@ struct AppSettingsView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private var aboutSection: some View {
+        Section {
+            Button {
+                openExternalURL("https://xmtp.org")
+            } label: {
+                NavigationLink {
+                    EmptyView()
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 0.0) {
+                        Text("Secured by ")
+                        Image("xmtpIcon")
+                            .renderingMode(.template)
+                            .foregroundStyle(.colorTextPrimary)
+                            .padding(.trailing, 1.0)
+                        Text("XMTP")
+                    }
+                    .foregroundStyle(.colorTextPrimary)
+                }
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            Button {
+                openExternalURL("https://hq.convos.org/privacy-and-terms")
+            } label: {
+                NavigationLink("Privacy & Terms", destination: EmptyView())
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            Button {
+                sendFeedback()
+            } label: {
+                Text("Send feedback")
+            }
+            .foregroundStyle(.colorTextPrimary)
+
+            if !ConfigManager.shared.currentEnvironment.isProduction {
+                NavigationLink {
+                    DebugExportView(environment: ConfigManager.shared.currentEnvironment, session: session, databaseManager: databaseManager)
+                } label: {
+                    Text("Debug")
+                }
+                .accessibilityIdentifier("debug-row")
+                .foregroundStyle(.colorTextPrimary)
+            }
+        } footer: {
+            HStack {
+                Text("Made in the open by XMTP Labs")
+                Spacer()
+                Text("V\(Bundle.appVersion)")
+                    .foregroundStyle(.colorTextTertiary)
+            }
+            .foregroundStyle(.colorTextSecondary)
+        }
+        .listRowSeparatorTint(.colorBorderSubtle)
     }
 
     private func sendFeedback() {

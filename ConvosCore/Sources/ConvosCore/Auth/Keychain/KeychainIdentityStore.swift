@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import LocalAuthentication
 import Security
 @preconcurrency import XMTPiOS
 
@@ -143,7 +142,7 @@ private struct KeychainQuery {
     let service: String
     let accessGroup: String
     let accessible: CFString
-    let accessControl: SecAccessControl?
+    let synchronizable: Bool
     let clientId: String?
 
     init(
@@ -151,34 +150,36 @@ private struct KeychainQuery {
         service: String,
         accessGroup: String,
         accessible: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-        accessControl: SecAccessControl? = nil,
+        synchronizable: Bool = false,
         clientId: String? = nil
     ) {
         self.account = account
         self.service = service
         self.accessGroup = accessGroup
         self.accessible = accessible
-        self.accessControl = accessControl
+        self.synchronizable = synchronizable
         self.clientId = clientId
     }
 
+    // kSecAttrAccessible is intentionally included in ALL queries (load, delete,
+    // update), not just add. This ensures we only match items with the expected
+    // accessibility — e.g. we won't accidentally find a kSecAttrAccessibleWhenUnlocked
+    // item when the caller expects kSecAttrAccessibleAfterFirstUnlock. Items stored
+    // before the current accessibility setting are migrated on every app launch via
+    // migrateToPlainAccessibilityIfNeeded / migrateToSynchronizableIfNeeded in
+    // ConvosClient+App.swift, so all items match by the time regular queries run.
     func toDictionary() -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrAccount as String: account,
             kSecAttrService as String: service,
-            kSecAttrAccessGroup as String: accessGroup
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrAccessible as String: accessible,
+            kSecAttrSynchronizable as String: synchronizable ? kCFBooleanTrue as Any : kCFBooleanFalse as Any
         ]
 
-        // Add clientId as generic attribute for direct lookup
         if let clientId = clientId, let clientIdData = clientId.data(using: .utf8) {
             query[kSecAttrGeneric as String] = clientIdData
-        }
-
-        if let accessControl = accessControl {
-            query[kSecAttrAccessControl as String] = accessControl
-        } else {
-            query[kSecAttrAccessible as String] = accessible
         }
 
         return query
@@ -196,12 +197,12 @@ private struct KeychainQuery {
 
 public protocol KeychainIdentityStoreProtocol: Actor {
     func generateKeys() throws -> KeychainIdentityKeys
-    func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) throws -> KeychainIdentity
-    func identity(for inboxId: String) throws -> KeychainIdentity
-    func loadAll() throws -> [KeychainIdentity]
-    func delete(inboxId: String) throws
-    func delete(clientId: String) throws -> KeychainIdentity
-    func deleteAll() throws
+    func save(inboxId: String, clientId: String, keys: KeychainIdentityKeys) async throws -> KeychainIdentity
+    func identity(for inboxId: String) async throws -> KeychainIdentity
+    func loadAll() async throws -> [KeychainIdentity]
+    func delete(inboxId: String) async throws
+    func delete(clientId: String) async throws -> KeychainIdentity
+    func deleteAll() async throws
 }
 
 /// Secure storage for XMTP identity keys in device keychain
@@ -213,25 +214,339 @@ public protocol KeychainIdentityStoreProtocol: Actor {
 /// - Private key for XMTP message signing
 /// - Database encryption key for local XMTP database
 ///
-/// Keys are stored in the app group keychain with AfterFirstUnlock protection,
-/// allowing access to the notification extension. Enforces clientId uniqueness
-/// to prevent duplicate identities.
+/// Keys are stored in the app group keychain with configurable protection level.
+/// Enforces clientId uniqueness to prevent duplicate identities.
 public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Properties
 
     private let keychainService: String
     private let keychainAccessGroup: String
+    private let accessibility: CFString
 
     public static let defaultService: String = "org.convos.ios.KeychainIdentityStore.v2"
+    public static let icloudService: String = "org.convos.ios.KeychainIdentityStore.v2.icloud"
+    private static let localFormatMigrationKeyPrefix: String = "KeychainIdentityStore.localFormatMigrationComplete"
+    private static let synchronizableMigrationKeyPrefix: String = "KeychainIdentityStore.synchronizableMigrationComplete"
 
     // MARK: - Initialization
 
+    private let synchronizable: Bool
+
     public init(
         accessGroup: String,
-        service: String = KeychainIdentityStore.defaultService
+        service: String = KeychainIdentityStore.defaultService,
+        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+        synchronizable: Bool = false
     ) {
         self.keychainAccessGroup = accessGroup
         self.keychainService = service
+        self.accessibility = accessibility
+        self.synchronizable = synchronizable
+    }
+
+    /// Migrates existing keychain items from `SecAccessControl` to plain `kSecAttrAccessible`.
+    ///
+    /// Call once at app launch before creating the store. Items stored with `SecAccessControl`
+    /// (empty flags) are functionally identical to plain `kSecAttrAccessible` but cannot have
+    /// their accessibility updated in-place via `SecItemUpdate`. This migration deletes and
+    /// re-adds each item with plain `kSecAttrAccessible` to enable future in-place updates.
+    ///
+    /// This is `nonisolated` and `static` so it can be called synchronously at app launch.
+    private nonisolated static let migrationLock: NSLock = .init()
+
+    private nonisolated static func migrationKey(for service: String) -> String {
+        "\(localFormatMigrationKeyPrefix).\(service)"
+    }
+
+    private nonisolated static func migrationTargetAccount(account: String, data: Data) -> String {
+        guard let identity = try? JSONDecoder().decode(KeychainIdentity.self, from: data), !identity.inboxId.isEmpty else {
+            return account
+        }
+
+        return identity.inboxId
+    }
+
+    private nonisolated static let migrationTemporarySuffix: String = ".migrated"
+
+    private nonisolated static func keychainAccountQuery(account: String, service: String, accessGroup: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrAccount as String: account
+        ]
+    }
+
+    private nonisolated static func keychainData(account: String, service: String, accessGroup: String) -> Data? {
+        var query = keychainAccountQuery(account: account, service: service, accessGroup: accessGroup)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess else {
+            return nil
+        }
+
+        return result as? Data
+    }
+
+    private nonisolated static func migrateItemToPlainAccessibility(
+        item: [String: Any],
+        service: String,
+        accessGroup: String,
+        accessibility: CFString
+    ) -> Bool {
+        guard let account = item[kSecAttrAccount as String] as? String,
+              let data = item[kSecValueData as String] as? Data else {
+            Log.warning("Keychain format migration: skipping item with missing account or data")
+            return false
+        }
+
+        let genericData = item[kSecAttrGeneric as String] as? Data
+        let targetAccount = migrationTargetAccount(account: account, data: data)
+
+        let isTemporarySource = account.hasSuffix(migrationTemporarySuffix)
+        let tempAccount = isTemporarySource ? account : "\(account)\(migrationTemporarySuffix)"
+
+        if !isTemporarySource {
+            var addQuery = keychainAccountQuery(account: tempAccount, service: service, accessGroup: accessGroup)
+            addQuery[kSecAttrAccessible as String] = accessibility
+            addQuery[kSecValueData as String] = data
+
+            if let genericData {
+                addQuery[kSecAttrGeneric as String] = genericData
+            }
+
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+                Log.error("Keychain format migration: failed to add new item \(account), status: \(addStatus)")
+                return false
+            }
+
+            let deleteStatus = SecItemDelete(
+                keychainAccountQuery(account: account, service: service, accessGroup: accessGroup) as CFDictionary
+            )
+            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+                Log.error("Keychain format migration: failed to delete old item \(account), status: \(deleteStatus)")
+                return false
+            }
+        }
+
+        guard tempAccount != targetAccount else {
+            return true
+        }
+
+        let renameStatus = SecItemUpdate(
+            keychainAccountQuery(account: tempAccount, service: service, accessGroup: accessGroup) as CFDictionary,
+            [kSecAttrAccount as String: targetAccount] as CFDictionary
+        )
+
+        if renameStatus == errSecSuccess {
+            return true
+        }
+
+        if renameStatus == errSecDuplicateItem {
+            guard let targetData = keychainData(account: targetAccount, service: service, accessGroup: accessGroup) else {
+                Log.error("Keychain format migration: duplicate target \(targetAccount) reported but not readable")
+                return false
+            }
+
+            guard targetData == data else {
+                Log.error("Keychain format migration: duplicate target \(targetAccount) has different data from \(account)")
+                return false
+            }
+
+            let cleanupStatus = SecItemDelete(
+                keychainAccountQuery(account: tempAccount, service: service, accessGroup: accessGroup) as CFDictionary
+            )
+            guard cleanupStatus == errSecSuccess || cleanupStatus == errSecItemNotFound else {
+                Log.error("Keychain format migration: failed to remove redundant migrated item \(tempAccount), status: \(cleanupStatus)")
+                return false
+            }
+
+            Log.info("Keychain format migration: removed redundant migrated item \(tempAccount)")
+            return true
+        }
+
+        if renameStatus == errSecItemNotFound,
+           let targetData = keychainData(account: targetAccount, service: service, accessGroup: accessGroup),
+           targetData == data {
+            return true
+        }
+
+        Log.error("Keychain format migration: failed to rename item \(account) to \(targetAccount), status: \(renameStatus). Keeping migrated copy for retry")
+        return false
+    }
+
+    public nonisolated static func migrateToPlainAccessibilityIfNeeded(
+        accessGroup: String,
+        service: String = defaultService,
+        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    ) {
+        migrationLock.lock()
+        defer { migrationLock.unlock() }
+
+        let migrationKey = migrationKey(for: service)
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        let loadQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnData as String: true,
+            kSecReturnAttributes as String: true
+        ]
+
+        var result: CFTypeRef?
+        let loadStatus = SecItemCopyMatching(loadQuery as CFDictionary, &result)
+
+        guard loadStatus == errSecSuccess, let items = result as? [[String: Any]] else {
+            if loadStatus == errSecItemNotFound {
+                UserDefaults.standard.set(true, forKey: migrationKey)
+                Log.info("Keychain format migration: no items to migrate")
+            } else {
+                Log.error("Keychain format migration: failed to load items, status: \(loadStatus)")
+            }
+            return
+        }
+
+        Log.info("Keychain format migration: migrating \(items.count) item(s)")
+
+        var migratedCount = 0
+        var failedCount = 0
+
+        for item in items {
+            if migrateItemToPlainAccessibility(
+                item: item,
+                service: service,
+                accessGroup: accessGroup,
+                accessibility: accessibility
+            ) {
+                migratedCount += 1
+            } else {
+                failedCount += 1
+            }
+        }
+
+        guard failedCount == 0 else {
+            Log.error("Keychain format migration: completed with failures, migrated \(migratedCount)/\(items.count) item(s). Will retry on next launch")
+            return
+        }
+
+        UserDefaults.standard.set(true, forKey: migrationKey)
+        Log.info("Keychain format migration: completed, migrated \(migratedCount)/\(items.count) item(s)")
+    }
+
+    /// Migrates existing keychain items to be synchronizable via iCloud Keychain.
+    ///
+    /// Items saved before the `synchronizable` flag was introduced default to non-synchronizable.
+    /// Queries with `synchronizable: true` will not find those items, so existing users would
+    /// lose access to their vault keys after enabling iCloud sync. This migration finds any
+    /// non-synchronizable items in the given service and re-saves them with
+    /// `kSecAttrSynchronizable: true` so they become visible to the new synchronizable store
+    /// and begin syncing to iCloud Keychain.
+    ///
+    /// Safe to call on every app launch — tracked per-service in UserDefaults.
+    public nonisolated static func migrateToSynchronizableIfNeeded(
+        accessGroup: String,
+        service: String,
+        accessibility: CFString = kSecAttrAccessibleAfterFirstUnlock
+    ) {
+        migrationLock.lock()
+        defer { migrationLock.unlock() }
+
+        let migrationKey = "\(synchronizableMigrationKeyPrefix).\(service)"
+        guard !UserDefaults.standard.bool(forKey: migrationKey) else { return }
+
+        // Query items with kSecAttrSynchronizable: false (explicit non-synchronizable)
+        // Using kSecAttrSynchronizableAny would also match already-migrated items.
+        let loadQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccessGroup as String: accessGroup,
+            kSecAttrSynchronizable as String: kCFBooleanFalse as Any,
+            kSecMatchLimit as String: kSecMatchLimitAll,
+            kSecReturnData as String: true,
+            kSecReturnAttributes as String: true
+        ]
+
+        var result: CFTypeRef?
+        let loadStatus = SecItemCopyMatching(loadQuery as CFDictionary, &result)
+
+        guard loadStatus == errSecSuccess, let items = result as? [[String: Any]] else {
+            if loadStatus == errSecItemNotFound {
+                UserDefaults.standard.set(true, forKey: migrationKey)
+                Log.info("Synchronizable migration: no items to migrate for \(service)")
+            } else {
+                Log.error("Synchronizable migration: failed to load items for \(service), status: \(loadStatus)")
+            }
+            return
+        }
+
+        Log.info("Synchronizable migration: migrating \(items.count) item(s) for \(service)")
+
+        var migratedCount = 0
+        var failedCount = 0
+
+        for item in items {
+            guard let account = item[kSecAttrAccount as String] as? String,
+                  let data = item[kSecValueData as String] as? Data else {
+                Log.warning("Synchronizable migration: skipping item with missing account or data")
+                failedCount += 1
+                continue
+            }
+            let genericData = item[kSecAttrGeneric as String] as? Data
+
+            // Add synchronizable copy first, then delete the non-synchronizable original.
+            // This ensures the data is never left unrecoverable if SecItemAdd fails.
+            var addQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrAccount as String: account,
+                kSecAttrAccessible as String: accessibility,
+                kSecAttrSynchronizable as String: kCFBooleanTrue as Any,
+                kSecValueData as String: data
+            ]
+            if let genericData {
+                addQuery[kSecAttrGeneric as String] = genericData
+            }
+
+            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            guard addStatus == errSecSuccess || addStatus == errSecDuplicateItem else {
+                Log.error("Synchronizable migration: failed to add synchronizable item \(account), status: \(addStatus). Original left untouched.")
+                failedCount += 1
+                continue
+            }
+
+            // Synchronizable copy is now in the keychain, safe to delete the original
+            let deleteQuery: [String: Any] = [
+                kSecClass as String: kSecClassGenericPassword,
+                kSecAttrService as String: service,
+                kSecAttrAccessGroup as String: accessGroup,
+                kSecAttrAccount as String: account,
+                kSecAttrSynchronizable as String: kCFBooleanFalse as Any
+            ]
+            let deleteStatus = SecItemDelete(deleteQuery as CFDictionary)
+            guard deleteStatus == errSecSuccess || deleteStatus == errSecItemNotFound else {
+                Log.error("Synchronizable migration: failed to delete non-synchronizable item \(account) after add, status: \(deleteStatus). Synchronizable copy is in place — will retry next launch.")
+                failedCount += 1
+                continue
+            }
+
+            migratedCount += 1
+        }
+
+        guard failedCount == 0 else {
+            Log.error("Synchronizable migration: completed with failures, migrated \(migratedCount)/\(items.count) item(s) for \(service). Will retry on next launch")
+            return
+        }
+
+        UserDefaults.standard.set(true, forKey: migrationKey)
+        Log.info("Synchronizable migration: completed, migrated \(migratedCount)/\(items.count) item(s) for \(service)")
     }
 
     // MARK: - Public Interface
@@ -254,7 +569,9 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         let query = KeychainQuery(
             account: inboxId,
             service: keychainService,
-            accessGroup: keychainAccessGroup
+            accessGroup: keychainAccessGroup,
+            accessible: accessibility,
+            synchronizable: synchronizable
         )
         let data = try loadData(with: query)
         return try JSONDecoder().decode(KeychainIdentity.self, from: data)
@@ -263,12 +580,11 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Private lookup by clientId
 
     private func identity(forClientId clientId: String) throws -> KeychainIdentity {
-        // Query keychain directly using clientId as generic attribute
         guard let clientIdData = clientId.data(using: .utf8) else {
             throw KeychainIdentityStoreError.identityNotFound("Invalid clientId encoding: \(clientId)")
         }
 
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccessGroup as String: keychainAccessGroup,
@@ -276,6 +592,9 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             kSecReturnData as String: true,
             kSecMatchLimit as String: kSecMatchLimitAll
         ]
+        if synchronizable {
+            query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+        }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -288,13 +607,10 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
             throw KeychainIdentityStoreError.keychainOperationFailed(status, "identity(forClientId:)")
         }
 
-        // Verify exactly one match exists
         let items: [Data]
         if let singleItem = result as? Data {
-            // Single item returned
             items = [singleItem]
         } else if let multipleItems = result as? [Data] {
-            // Multiple items returned
             items = multipleItems
         } else {
             throw KeychainIdentityStoreError.keychainOperationFailed(errSecUnknownFormat, "identity(forClientId:)")
@@ -308,13 +624,16 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func loadAll() throws -> [KeychainIdentity] {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccessGroup as String: keychainAccessGroup,
             kSecMatchLimit as String: kSecMatchLimitAll,
             kSecReturnData as String: true
         ]
+        if synchronizable {
+            query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+        }
 
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
@@ -343,27 +662,29 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         let query = KeychainQuery(
             account: inboxId,
             service: keychainService,
-            accessGroup: keychainAccessGroup
+            accessGroup: keychainAccessGroup,
+            accessible: accessibility,
+            synchronizable: synchronizable
         )
 
         try deleteData(with: query)
     }
 
     public func delete(clientId: String) throws -> KeychainIdentity {
-        // Direct lookup using clientId as a keychain attribute
         let identity = try identity(forClientId: clientId)
-
-        // Delete using the inboxId (which is the account key in keychain)
         try delete(inboxId: identity.inboxId)
         return identity
     }
 
     public func deleteAll() throws {
-        let query: [String: Any] = [
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: keychainService,
             kSecAttrAccessGroup as String: keychainAccessGroup
         ]
+        if synchronizable {
+            query[kSecAttrSynchronizable as String] = kCFBooleanTrue
+        }
 
         let status = SecItemDelete(query as CFDictionary)
         guard status == errSecSuccess || status == errSecItemNotFound else {
@@ -374,41 +695,27 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
     // MARK: - Private Methods
 
     private func save(identity: KeychainIdentity) throws {
-        // First, check if a different identity with the same clientId already exists
-        // This enforces clientId uniqueness before saving
         do {
             let existingIdentity = try self.identity(forClientId: identity.clientId)
 
-            // If we found an identity with this clientId, make sure it's the same inboxId
-            // (updating the same identity is OK, but a different identity with same clientId is not)
             if existingIdentity.inboxId != identity.inboxId {
                 throw KeychainIdentityStoreError.duplicateClientId(
                     identity.clientId,
-                    2 // At least 2: the existing one and the one we're trying to save
+                    2
                 )
             }
-            // If inboxId matches, we're updating the same identity, which is allowed
         } catch KeychainIdentityStoreError.identityNotFound {
-            // No existing identity with this clientId - good, we can proceed
+            // no existing identity with this clientId, proceed
         }
 
         let data = try JSONEncoder().encode(identity)
-
-        guard let accessControl = SecAccessControlCreateWithFlags(
-            nil,
-            kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            [],
-            nil
-        ) else {
-            throw KeychainIdentityStoreError.keychainOperationFailed(errSecNotAvailable, "create access control")
-        }
 
         let query = KeychainQuery(
             account: identity.inboxId,
             service: keychainService,
             accessGroup: keychainAccessGroup,
-            accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
-            accessControl: accessControl,
+            accessible: accessibility,
+            synchronizable: synchronizable,
             clientId: identity.clientId
         )
 
@@ -424,7 +731,6 @@ public final actor KeychainIdentityStore: KeychainIdentityStoreProtocol {
         let status = SecItemAdd(queryDict as CFDictionary, nil)
 
         if status == errSecDuplicateItem {
-            // Item exists, update it
             let updateQuery = query.toDictionary()
             let attributesToUpdate: [String: Any] = [kSecValueData as String: data]
 

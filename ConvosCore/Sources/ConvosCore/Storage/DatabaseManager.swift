@@ -2,9 +2,10 @@ import Foundation
 import GRDB
 import SQLite3
 
-public protocol DatabaseManagerProtocol {
+public protocol DatabaseManagerProtocol: Sendable {
     var dbWriter: DatabaseWriter { get }
     var dbReader: DatabaseReader { get }
+    func replaceDatabase(with backupPath: URL) throws
 }
 
 /// Manages the SQLite database for Convos
@@ -14,10 +15,10 @@ public protocol DatabaseManagerProtocol {
 /// is stored in the shared App Group container to enable multi-process access.
 /// Configures connection pooling, busy timeouts, and persistent WAL mode for
 /// read-only processes.
-public final class DatabaseManager: DatabaseManagerProtocol {
+public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable {
     let environment: AppEnvironment
 
-    public let dbPool: DatabasePool
+    public private(set) var dbPool: DatabasePool
 
     public var dbWriter: DatabaseWriter {
         dbPool as DatabaseWriter
@@ -33,6 +34,50 @@ public final class DatabaseManager: DatabaseManagerProtocol {
             dbPool = try Self.makeDatabasePool(environment: environment)
         } catch {
             fatalError("Failed to initialize database: \(error)")
+        }
+    }
+
+    /// Replaces the current database with a backup copy.
+    ///
+    /// This is a destructive operation intended for restore scenarios only.
+    /// The existing `DatabasePool` instance is preserved so any long-lived
+    /// readers and writers held elsewhere in the app remain valid after restore.
+    /// If the replacement fails, the original database contents are restored.
+    public func replaceDatabase(with backupPath: URL) throws {
+        guard FileManager.default.fileExists(atPath: backupPath.path) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+
+        Log.info("[Restore] opening backup at: \(backupPath.lastPathComponent)")
+        let backupQueue = try DatabaseQueue(path: backupPath.path)
+
+        Log.info("[Restore] creating rollback snapshot")
+        let rollbackQueue = try DatabaseQueue()
+        try dbPool.backup(to: rollbackQueue)
+
+        Log.info("[Restore] copying backup into live pool")
+        do {
+            try backupQueue.backup(to: dbPool)
+            Log.info("[Restore] running migrations")
+            try SharedDatabaseMigrator.shared.migrate(database: dbPool)
+            Log.info("[Restore] database replacement succeeded")
+        } catch {
+            Log.warning("[Restore] replacement failed (\(error)), rolling back")
+            do {
+                try rollbackQueue.backup(to: dbPool)
+                try SharedDatabaseMigrator.shared.migrate(database: dbPool)
+                Log.info("[Restore] rollback succeeded")
+            } catch let rollbackError as Error {
+                // Rollback or its post-restore migration failed. The DB is in a
+                // potentially-inconsistent state — surface a dedicated error so
+                // the caller knows it's worse than just a failed restore.
+                Log.error("[Restore] rollback failed (original error: \(error)) — \(rollbackError)")
+                throw DatabaseManagerError.rollbackFailed(
+                    original: error,
+                    rollback: rollbackError
+                )
+            }
+            throw error
         }
     }
 
@@ -80,5 +125,19 @@ public final class DatabaseManager: DatabaseManagerProtocol {
         let migrator = SharedDatabaseMigrator.shared
         try migrator.migrate(database: dbPool)
         return dbPool
+    }
+}
+
+public enum DatabaseManagerError: Error, LocalizedError {
+    /// The restore failed AND the rollback also failed. The DB is in a
+    /// potentially-inconsistent state — the caller should treat this as
+    /// recoverable only via app reinstall or a fresh restore attempt.
+    case rollbackFailed(original: any Error, rollback: any Error)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .rollbackFailed(original, rollback):
+            return "Database restore failed and rollback also failed. Original error: \(original.localizedDescription). Rollback error: \(rollback.localizedDescription)"
+        }
     }
 }

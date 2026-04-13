@@ -50,7 +50,8 @@ private func seedMessages(
                     creator: sender,
                     addedMembers: [addedMember],
                     removedMembers: [],
-                    metadataChanges: []
+                    metadataChanges: [],
+                    isReconnection: false
                 )),
                 date: date,
                 reactions: []

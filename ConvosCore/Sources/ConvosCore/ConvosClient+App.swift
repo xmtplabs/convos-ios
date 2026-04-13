@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 // App specific methods not needed in our tests target
 extension ConvosClient {
@@ -9,11 +10,49 @@ extension ConvosClient {
         let databaseManager = DatabaseManager(environment: environment)
         let databaseWriter = databaseManager.dbWriter
         let databaseReader = databaseManager.dbReader
-        let identityStore = KeychainIdentityStore(accessGroup: environment.keychainAccessGroup)
-        let vaultKeychainStore = KeychainIdentityStore(
-            accessGroup: environment.keychainAccessGroup,
-            service: "org.convos.vault-identity"
+        let keychainAccessGroup = environment.keychainAccessGroup
+
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: keychainAccessGroup,
+            service: KeychainIdentityStore.defaultService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         )
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: keychainAccessGroup,
+            service: Constant.vaultIdentityService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+        KeychainIdentityStore.migrateToPlainAccessibilityIfNeeded(
+            accessGroup: keychainAccessGroup,
+            service: Constant.vaultICloudIdentityService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlock
+        )
+        KeychainIdentityStore.migrateToSynchronizableIfNeeded(
+            accessGroup: keychainAccessGroup,
+            service: Constant.vaultICloudIdentityService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlock
+        )
+
+        let identityStore = KeychainIdentityStore(accessGroup: keychainAccessGroup)
+        let localVaultKeychainStore = KeychainIdentityStore(
+            accessGroup: keychainAccessGroup,
+            service: Constant.vaultIdentityService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+        )
+        let iCloudVaultKeychainStore = KeychainIdentityStore(
+            accessGroup: keychainAccessGroup,
+            service: Constant.vaultICloudIdentityService,
+            accessibility: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
+        )
+        let vaultKeychainStore = ICloudIdentityStore(
+            localStore: localVaultKeychainStore,
+            icloudStore: iCloudVaultKeychainStore
+        )
+        Task {
+            await vaultKeychainStore.syncLocalKeysToICloud()
+        }
+
         let vaultKeyStore = VaultKeyStore(store: vaultKeychainStore)
         let vaultManager = VaultManager(
             identityStore: identityStore,
@@ -47,5 +86,10 @@ extension ConvosClient {
             scheduledExplosionManager: scheduledExplosionManager,
             platformProviders: platformProviders
         )
+    }
+
+    private enum Constant {
+        static let vaultIdentityService: String = "org.convos.vault-identity"
+        static let vaultICloudIdentityService: String = "org.convos.vault-identity.icloud"
     }
 }

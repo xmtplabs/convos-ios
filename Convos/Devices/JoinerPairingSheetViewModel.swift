@@ -1,5 +1,6 @@
 import ConvosCore
 import CryptoKit
+@preconcurrency import Foundation
 import Observation
 import SwiftUI
 
@@ -28,9 +29,7 @@ final class JoinerPairingSheetViewModel {
     private let vaultManager: VaultManager?
     private let initiatorName: String?
     private var countdownTask: Task<Void, Never>?
-    private nonisolated(unsafe) var keyBundleObserver: (any NSObjectProtocol)?
-    private nonisolated(unsafe) var pairingErrorObserver: (any NSObjectProtocol)?
-    private nonisolated(unsafe) var pinReceivedObserver: (any NSObjectProtocol)?
+    @ObservationIgnored private var notificationObservers: [any NSObjectProtocol] = []
     private var initiatorInboxId: String?
 
     init(
@@ -52,19 +51,14 @@ final class JoinerPairingSheetViewModel {
     }
 
     deinit {
-        if let keyBundleObserver {
-            NotificationCenter.default.removeObserver(keyBundleObserver)
-        }
-        if let pairingErrorObserver {
-            NotificationCenter.default.removeObserver(pairingErrorObserver)
-        }
-        if let pinReceivedObserver {
-            NotificationCenter.default.removeObserver(pinReceivedObserver)
+        let observers = notificationObservers
+        for observer in observers {
+            NotificationCenter.default.removeObserver(observer)
         }
     }
 
     private func observeNotifications() {
-        keyBundleObserver = NotificationCenter.default.addObserver(
+        notificationObservers.append(NotificationCenter.default.addObserver(
             forName: .vaultDidReceiveKeyBundle,
             object: nil,
             queue: .main
@@ -73,9 +67,9 @@ final class JoinerPairingSheetViewModel {
             Task { @MainActor in
                 self.onPairingCompleted()
             }
-        }
+        })
 
-        pairingErrorObserver = NotificationCenter.default.addObserver(
+        notificationObservers.append(NotificationCenter.default.addObserver(
             forName: .vaultPairingError,
             object: nil,
             queue: .main
@@ -85,9 +79,9 @@ final class JoinerPairingSheetViewModel {
             Task { @MainActor in
                 self.onPairingFailed(message)
             }
-        }
+        })
 
-        pinReceivedObserver = NotificationCenter.default.addObserver(
+        notificationObservers.append(NotificationCenter.default.addObserver(
             forName: .vaultDidReceivePin,
             object: nil,
             queue: .main
@@ -99,7 +93,7 @@ final class JoinerPairingSheetViewModel {
             Task { @MainActor in
                 self.onPinReceived(pin, from: senderInboxId)
             }
-        }
+        })
     }
 
     var initiatorDeviceName: String {

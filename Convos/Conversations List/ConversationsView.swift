@@ -13,6 +13,7 @@ struct ConversationsView: View {
     @Environment(\.colorScheme) private var colorScheme: ColorScheme
     @State private var conversationPendingExplosion: Conversation?
     @State private var preferredColumn: NavigationSplitViewColumn = .sidebar
+    @State private var presentingStaleDeviceInfo: Bool = false
 
     var focusCoordinator: FocusCoordinator {
         viewModel.focusCoordinator
@@ -33,6 +34,21 @@ struct ConversationsView: View {
         )
     }
 
+    var staleDeviceEmptyView: some View {
+        VStack(spacing: DesignConstants.Spacing.step2x) {
+            Text("This device has been replaced")
+                .font(.headline)
+                .foregroundStyle(.colorTextPrimary)
+            Text("Your conversations are no longer accessible on this device.")
+                .font(.subheadline)
+                .foregroundStyle(.colorTextSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, DesignConstants.Spacing.step6x)
+        .padding(.top, DesignConstants.Spacing.step6x)
+    }
+
     var filteredEmptyStateView: some View {
         FilteredEmptyStateView(
             message: viewModel.activeFilter.emptyStateMessage,
@@ -44,13 +60,17 @@ struct ConversationsView: View {
     }
 
     var conversationsCollectionView: some View {
-        ConversationsViewRepresentable(
+        let onStartConvo: (() -> Void)? = viewModel.canStartOrJoinConversations ? { viewModel.onStartConvo() } : nil
+        let onJoinConvo: (() -> Void)? = viewModel.canStartOrJoinConversations ? { viewModel.onJoinConvo() } : nil
+
+        return ConversationsViewRepresentable(
             pinnedConversations: viewModel.pinnedConversations,
             unpinnedConversations: viewModel.unpinnedConversations,
             selectedConversationId: viewModel.selectedConversationId,
             isFilteredResultEmpty: viewModel.isFilteredResultEmpty,
             filterEmptyMessage: viewModel.activeFilter.emptyStateMessage,
             hasCreatedMoreThanOneConvo: viewModel.hasCreatedMoreThanOneConvo,
+            isDeviceStale: viewModel.isDeviceStale,
             onSelectConversation: { conversation in
                 viewModel.selectedConversationId = conversation.id
             },
@@ -69,8 +89,8 @@ struct ConversationsView: View {
             onTogglePin: { conversation in
                 viewModel.togglePin(conversation: conversation)
             },
-            onStartConvo: viewModel.onStartConvo,
-            onJoinConvo: viewModel.onJoinConvo,
+            onStartConvo: onStartConvo,
+            onJoinConvo: onJoinConvo,
             onShowAllFilter: { viewModel.activeFilter = .all }
         )
         .ignoresSafeArea(edges: [.top, .bottom])
@@ -202,12 +222,16 @@ struct ConversationsView: View {
                         onScanInviteCode: {},
                         onDeleteConversation: {},
                         messagesTopBarTrailingItem: .share,
-                        messagesTopBarTrailingItemEnabled: !conversationViewModel.conversation.isPendingInvite,
-                        messagesTextFieldEnabled: !conversationViewModel.conversation.isPendingInvite,
+                        messagesTopBarTrailingItemEnabled: !conversationViewModel.conversation.isPendingInvite && conversationViewModel.conversation.isActive,
+                        messagesTextFieldEnabled: !conversationViewModel.conversation.isPendingInvite && conversationViewModel.conversation.isActive,
                         bottomBarContent: { EmptyView() }
                     )
                 } else if horizontalSizeClass != .compact {
-                    emptyConversationsViewScrollable
+                    if viewModel.isDeviceStale {
+                        staleDeviceEmptyView
+                    } else {
+                        emptyConversationsViewScrollable
+                    }
                 } else {
                     EmptyView()
                 }

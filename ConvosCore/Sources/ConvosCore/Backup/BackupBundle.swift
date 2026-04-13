@@ -1,0 +1,187 @@
+import Foundation
+
+public enum BackupBundle {
+    enum BundleError: Error, LocalizedError {
+        case directoryCreationFailed(String)
+        case databaseCopyFailed(String)
+        case packagingFailed(String)
+        case unpackingFailed(String)
+        case missingComponent(String)
+
+        var errorDescription: String? {
+            switch self {
+            case .directoryCreationFailed(let reason):
+                return "Failed to create backup directory: \(reason)"
+            case .databaseCopyFailed(let reason):
+                return "Failed to copy database: \(reason)"
+            case .packagingFailed(let reason):
+                return "Failed to package backup bundle: \(reason)"
+            case .unpackingFailed(let reason):
+                return "Failed to unpack backup bundle: \(reason)"
+            case .missingComponent(let name):
+                return "Missing backup component: \(name)"
+            }
+        }
+    }
+
+    private enum Constant {
+        static let vaultArchiveFilename: String = "vault-archive.encrypted"
+        static let conversationsDirectory: String = "conversations"
+        static let databaseFilename: String = "database.sqlite"
+    }
+
+    static func createStagingDirectory() throws -> URL {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("convos-backup-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(
+            at: tempDir.appendingPathComponent(Constant.conversationsDirectory, isDirectory: true),
+            withIntermediateDirectories: true
+        )
+        return tempDir
+    }
+
+    static func vaultArchivePath(in directory: URL) -> URL {
+        directory.appendingPathComponent(Constant.vaultArchiveFilename)
+    }
+
+    static func conversationArchivePath(inboxId: String, in directory: URL) -> URL {
+        directory
+            .appendingPathComponent(Constant.conversationsDirectory, isDirectory: true)
+            .appendingPathComponent("\(inboxId).encrypted")
+    }
+
+    static func databasePath(in directory: URL) -> URL {
+        directory.appendingPathComponent(Constant.databaseFilename)
+    }
+
+    static func copyDatabase(from sourcePath: URL, to directory: URL) throws {
+        let destination = databasePath(in: directory)
+        do {
+            try FileManager.default.copyItem(at: sourcePath, to: destination)
+        } catch {
+            throw BundleError.databaseCopyFailed(error.localizedDescription)
+        }
+    }
+
+    static func pack(directory: URL, encryptionKey: Data) throws -> Data {
+        let tarData = try tarDirectory(directory)
+        return try BackupBundleCrypto.encrypt(data: tarData, key: encryptionKey)
+    }
+
+    static func unpack(data: Data, encryptionKey: Data, to directory: URL) throws {
+        let tarData = try BackupBundleCrypto.decrypt(data: data, key: encryptionKey)
+        try untarData(tarData, to: directory)
+    }
+
+    static func cleanup(directory: URL) {
+        try? FileManager.default.removeItem(at: directory)
+    }
+
+    // MARK: - Archive format: [4-byte path length][path UTF8][8-byte file length][file data]...
+
+    private static func resolvedPath(_ url: URL) -> String {
+        let path = url.standardizedFileURL.resolvingSymlinksInPath().path
+        return path.hasSuffix("/") ? String(path.dropLast()) : path
+    }
+
+    static func tarDirectory(_ directory: URL) throws -> Data {
+        var archive = Data()
+        let fileManager = FileManager.default
+        let resolvedDirPath = resolvedPath(directory)
+        let resolvedDirURL = URL(fileURLWithPath: resolvedDirPath, isDirectory: true)
+        guard let enumerator = fileManager.enumerator(
+            at: resolvedDirURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            throw BundleError.packagingFailed("failed to enumerate directory")
+        }
+
+        for case let fileURL as URL in enumerator {
+            let resourceValues = try fileURL.resourceValues(forKeys: [.isRegularFileKey])
+            guard resourceValues.isRegularFile == true else { continue }
+
+            let resolvedFilePath = resolvedPath(fileURL)
+            guard resolvedFilePath.hasPrefix(resolvedDirPath + "/") else {
+                throw BundleError.packagingFailed("file outside backup directory: \(fileURL.path)")
+            }
+            let relativePath = String(resolvedFilePath.dropFirst(resolvedDirPath.count + 1))
+            let pathData = Data(relativePath.utf8)
+            let fileData = try Data(contentsOf: fileURL)
+
+            var pathLength = UInt32(pathData.count).bigEndian
+            var fileLength = UInt64(fileData.count).bigEndian
+            archive.append(Data(bytes: &pathLength, count: 4))
+            archive.append(pathData)
+            archive.append(Data(bytes: &fileLength, count: 8))
+            archive.append(fileData)
+        }
+
+        return archive
+    }
+
+    static func untarData(_ data: Data, to directory: URL) throws {
+        let fileManager = FileManager.default
+        let resolvedDirPath = resolvedPath(directory)
+        var offset = 0
+
+        while offset < data.count {
+            guard offset + 4 <= data.count else {
+                throw BundleError.unpackingFailed("truncated path length")
+            }
+            let pathLength = Int(data.subdata(in: offset ..< offset + 4).withUnsafeBytes { $0.load(as: UInt32.self).bigEndian })
+            offset += 4
+
+            guard offset + pathLength <= data.count else {
+                throw BundleError.unpackingFailed("truncated path data")
+            }
+            guard let relativePath = String(data: data.subdata(in: offset ..< offset + pathLength), encoding: .utf8) else {
+                throw BundleError.unpackingFailed("invalid path encoding")
+            }
+            offset += pathLength
+
+            guard offset + 8 <= data.count else {
+                throw BundleError.unpackingFailed("truncated file length")
+            }
+            let fileLengthU64 = data.subdata(in: offset ..< offset + 8)
+                .withUnsafeBytes { $0.load(as: UInt64.self).bigEndian }
+            guard fileLengthU64 <= UInt64(Int.max) else {
+                throw BundleError.unpackingFailed("file length exceeds maximum: \(fileLengthU64)")
+            }
+            let fileLength = Int(fileLengthU64)
+            offset += 8
+
+            guard offset + fileLength <= data.count else {
+                throw BundleError.unpackingFailed("truncated file data")
+            }
+            let fileData = data.subdata(in: offset ..< offset + fileLength)
+            offset += fileLength
+
+            let resolvedFileURL = URL(fileURLWithPath: resolvedDirPath)
+                .appendingPathComponent(relativePath)
+
+            // First-pass containment check on the standardized path.
+            let standardizedPath = resolvedFileURL.standardizedFileURL.path
+            guard standardizedPath.hasPrefix(resolvedDirPath + "/") else {
+                throw BundleError.unpackingFailed("path traversal attempt: \(relativePath)")
+            }
+
+            // Create the parent directory, then re-validate using the symlink-resolved
+            // path of the parent. fileData.write(to:) follows symlinks when writing,
+            // so a pre-existing symlink under the staging dir could escape the
+            // first-pass check. Re-resolving the parent and re-checking after creation
+            // catches that case.
+            let parentDir = resolvedFileURL.deletingLastPathComponent()
+            try fileManager.createDirectory(at: parentDir, withIntermediateDirectories: true)
+
+            let resolvedParentPath = parentDir.standardizedFileURL.resolvingSymlinksInPath().path
+            guard resolvedParentPath == resolvedDirPath
+                || resolvedParentPath.hasPrefix(resolvedDirPath + "/") else {
+                throw BundleError.unpackingFailed("path traversal via symlink: \(relativePath)")
+            }
+
+            try fileData.write(to: resolvedFileURL)
+        }
+    }
+}

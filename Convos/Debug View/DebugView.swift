@@ -32,6 +32,7 @@ import UIKit
 struct DebugViewSection: View {
     let environment: AppEnvironment
     let session: any SessionManagerProtocol
+    var databaseManager: (any DatabaseManagerProtocol)?
     @State private var notificationAuthStatus: UNAuthorizationStatus = .notDetermined
     @State private var notificationAuthGranted: Bool = false
     @State private var lastDeviceToken: String = ""
@@ -145,6 +146,24 @@ struct DebugViewSection: View {
                     } else {
                         ProgressView()
                     }
+                }
+
+                NavigationLink {
+                    VaultKeySyncDebugView(environment: environment, session: session)
+                } label: {
+                    Text("Vault key sync")
+                        .foregroundStyle(.colorTextPrimary)
+                }
+                .accessibilityIdentifier("vault-key-sync-debug-row")
+
+                if let databaseManager {
+                    NavigationLink {
+                        BackupDebugView(environment: environment, session: session, databaseManager: databaseManager)
+                    } label: {
+                        Text("Backup")
+                            .foregroundStyle(.colorTextPrimary)
+                    }
+                    .accessibilityIdentifier("backup-debug-row")
                 }
             }
 
