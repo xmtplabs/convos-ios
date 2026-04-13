@@ -135,6 +135,27 @@ struct AppSettingsView: View {
 
                 Section {
                     NavigationLink {
+                        BackupRestoreSettingsView(
+                            session: session,
+                            databaseManager: databaseManager,
+                            environment: ConfigManager.shared.currentEnvironment
+                        )
+                    } label: {
+                        HStack {
+                            Image(systemName: "icloud")
+                                .foregroundStyle(.colorTextPrimary)
+
+                            Text("Backup & Restore")
+                                .foregroundStyle(.colorTextPrimary)
+                        }
+                    }
+                    .accessibilityIdentifier("backup-restore-row")
+                } footer: {
+                    Text("Back up conversations to iCloud")
+                }
+
+                Section {
+                    NavigationLink {
                         CustomizeSettingsView()
                     } label: {
                         HStack(spacing: DesignConstants.Spacing.step2x) {
