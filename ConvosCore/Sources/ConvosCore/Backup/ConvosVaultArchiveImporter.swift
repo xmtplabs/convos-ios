@@ -48,25 +48,14 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
             deviceSyncEnabled: false
         )
 
-        // Use Client.build first (no network registration). Fall back to
-        // Client.create only if the identity doesn't exist locally yet.
-        // Client.create registers a new installation on the XMTP network,
-        // which can hang if the network is slow or the vault identity is
-        // in a bad state after prepareForRestore paused everything.
-        let client: Client
-        do {
-            client = try await Client.build(
-                publicIdentity: vaultIdentity.keys.signingKey.identity,
-                options: importOptions,
-                inboxId: vaultIdentity.inboxId
-            )
-        } catch {
-            Log.info("[Restore] Client.build failed (\(error)), falling back to Client.create")
-            client = try await Client.create(
-                account: vaultIdentity.keys.signingKey,
-                options: importOptions
-            )
-        }
+        // Client.create registers an installation on the XMTP network.
+        // RestoreManager calls this BEFORE prepareForRestore so the
+        // network is still available. The import runs in an isolated
+        // temp directory and doesn't touch the app's live state.
+        let client = try await Client.create(
+            account: vaultIdentity.keys.signingKey,
+            options: importOptions
+        )
         defer { try? client.dropLocalDatabaseConnection() }
 
         Log.info("[Restore] importing vault archive (client inboxId=\(client.inboxID))")

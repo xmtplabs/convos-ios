@@ -101,13 +101,10 @@ public actor RestoreManager {
             let metadata = try BackupBundleMetadata.read(from: stagingDir)
             Log.info("[Restore] backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
 
-            if let restoreLifecycleController {
-                Log.info("[Restore] stopping sessions")
-                await restoreLifecycleController.prepareForRestore()
-                preparedForRestore = true
-                Log.info("[Restore] sessions stopped")
-            }
-
+            // Import the vault archive BEFORE stopping sessions. Client.create
+            // needs network access to register an installation, which hangs if
+            // sessions are paused. The import runs in an isolated temp directory
+            // and only reads data — it doesn't touch the app's live state.
             Log.info("[Restore] importing vault archive and extracting keys")
             let keyEntries = try await importVaultArchive(
                 encryptionKey: encryptionKey,
@@ -119,6 +116,13 @@ public actor RestoreManager {
             if keyEntries.isEmpty, metadata.inboxCount > 0 {
                 Log.error("[Restore] backup contains \(metadata.inboxCount) conversation(s) but vault yielded 0 keys — aborting before destructive operations")
                 throw RestoreError.incompleteBackup(inboxCount: metadata.inboxCount)
+            }
+
+            if let restoreLifecycleController {
+                Log.info("[Restore] stopping sessions")
+                await restoreLifecycleController.prepareForRestore()
+                preparedForRestore = true
+                Log.info("[Restore] sessions stopped")
             }
 
             Log.info("[Restore] snapshotting existing keychain identities for rollback")
