@@ -36,7 +36,8 @@ public actor ICloudIdentityStore: KeychainIdentityStoreProtocol {
         self.icloudStore = KeychainIdentityStore(
             accessGroup: accessGroup,
             service: KeychainIdentityStore.icloudService,
-            accessibility: kSecAttrAccessibleAfterFirstUnlock
+            accessibility: kSecAttrAccessibleAfterFirstUnlock,
+            synchronizable: true
         )
     }
 
@@ -98,16 +99,20 @@ public actor ICloudIdentityStore: KeychainIdentityStoreProtocol {
     }
 
     public func delete(clientId: String) async throws -> KeychainIdentity {
-        if let identity = try? await localStore.delete(clientId: clientId) {
+        // Try local first. If the key only exists in iCloud (e.g. after a
+        // local wipe), the local delete throws "not found" and we fall
+        // through to iCloud. Other errors (device locked, etc.) propagate.
+        do {
+            let identity = try await localStore.delete(clientId: clientId)
             do {
                 _ = try await icloudStore.delete(clientId: clientId)
             } catch {
                 Log.warning("Failed to delete identity from iCloud Keychain by clientId: \(clientId): \(error)")
             }
             return identity
+        } catch is KeychainIdentityStoreError {
+            return try await icloudStore.delete(clientId: clientId)
         }
-
-        return try await icloudStore.delete(clientId: clientId)
     }
 
     public func deleteAll() async throws {

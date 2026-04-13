@@ -87,7 +87,8 @@ struct InboxWriter {
                 inboxId: inboxId,
                 clientId: clientId,
                 createdAt: Date(),
-                isVault: isVault
+                isVault: isVault,
+                installationId: installationId
             )
             try inbox.insert(db)
             return inbox
