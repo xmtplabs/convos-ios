@@ -475,6 +475,7 @@ private struct ComposerSideConvoCard: View {
                     guard let data = try? await selectedPhotoItem.loadTransferable(type: Data.self),
                           let image = UIImage(data: data) else { return }
                     convoImage = image
+                    self.selectedPhotoItem = nil
                 }
             }
     }
@@ -500,7 +501,7 @@ private struct ComposerSideConvoCard: View {
         .frame(width: cardWidth, height: cardWidth)
         .clipped()
         .background(.colorFillMinimal)
-        .accessibilityLabel(resolvedEmoji.map { "Side convo emoji \($0)" } ?? (convoImage != nil ? "Side convo image" : "Side convo placeholder"))
+        .accessibilityLabel(convoImage != nil ? "Side convo image" : (resolvedEmoji.map { "Side convo emoji \($0)" } ?? "Side convo placeholder"))
         .accessibilityIdentifier("side-convo-avatar-preview")
     }
 

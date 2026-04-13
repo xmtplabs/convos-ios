@@ -302,7 +302,7 @@ extension DBMessage {
             sortId: sortId,
             status: status,
             messageType: messageType,
-            contentType: contentType,
+            contentType: invite != nil ? .invite : contentType,
             text: text,
             emoji: emoji,
             invite: invite,

@@ -64,7 +64,7 @@ extension XMTPiOS.Group {
         }
 
         let generatedEmoji = EmojiSelector.emoji(for: seed)
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "ensureConversationEmoji") { metadata in
             if !metadata.hasEmoji || metadata.emoji.isEmpty {
                 metadata.emoji = generatedEmoji
             }

@@ -1106,7 +1106,7 @@ extension ConversationViewModel {
         }
 
         if let invite = MessageInvite.from(text: inviteURL) {
-            ImageCache.shared.cacheAfterUpload(image, for: invite, url: invite.inviteSlug)
+            ImageCache.shared.cacheAfterUpload(image, for: invite, url: invite.imageURL?.absoluteString ?? invite.inviteSlug)
         }
         pendingMessageId = try? await messageWriter.insertPendingInvite(text: inviteURL)
 
