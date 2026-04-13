@@ -41,25 +41,14 @@ final class BackupRestoreViewModel {
         ) != nil
 
         let available = RestoreManager.findAvailableBackup(environment: environment)
-        let thisDeviceId = DeviceInfo.deviceIdentifier
 
         iCloudAvailable = cloudAvailable
 
         if let available {
-            // The newest backup is always shown as "Last backup" since it came
-            // from this device or a device the user controls.
             lastBackupDate = available.metadata.createdAt
             lastBackupDeviceName = available.metadata.deviceName
-
-            // Only offer restore when the backup is from a different device.
-            // Restoring your own backup onto the same device is not useful.
-            if available.metadata.deviceId != thisDeviceId {
-                availableRestoreURL = available.url
-                availableRestoreMetadata = available.metadata
-            } else {
-                availableRestoreURL = nil
-                availableRestoreMetadata = nil
-            }
+            availableRestoreURL = available.url
+            availableRestoreMetadata = available.metadata
         } else {
             lastBackupDate = nil
             lastBackupDeviceName = nil
