@@ -62,7 +62,28 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
         Log.info("[Restore] vault archive import succeeded")
 
-        return try await extractKeys(from: client)
+        let entries = try await extractKeys(from: client)
+
+        // Revoke the throwaway installation we just created. Without this,
+        // the vault client would see groups associated with this orphaned
+        // installation and repeatedly try to sync them, producing "Group
+        // is inactive" errors in the logs.
+        let throwawayId = client.installationID
+        Log.info("[Restore] revoking throwaway vault import installation \(throwawayId)")
+        do {
+            let api = XMTPAPIOptionsBuilder.build(environment: environment)
+            try await Client.revokeInstallations(
+                api: api,
+                signingKey: vaultIdentity.keys.signingKey,
+                inboxId: vaultIdentity.inboxId,
+                installationIds: [throwawayId]
+            )
+            Log.info("[Restore] throwaway installation revoked")
+        } catch {
+            Log.warning("[Restore] failed to revoke throwaway installation (non-fatal): \(error)")
+        }
+
+        return entries
     }
 
     private func extractKeys(from client: Client) async throws -> [VaultKeyEntry] {
