@@ -7,6 +7,7 @@ public protocol MyProfileWriterProtocol {
     func update(displayName: String, conversationId: String) async throws
     func update(avatar: ImageType?, conversationId: String) async throws
     func update(allowsDMs: Bool, conversationId: String) async throws
+    func seed(profile: Profile, conversationId: String) async throws
 }
 
 enum MyProfileWriterError: Error {
@@ -178,6 +179,41 @@ class MyProfileWriter: MyProfileWriterProtocol {
             Log.warning("Failed to write profile to appData (best-effort): \(error.localizedDescription)")
         }
         await sendProfileUpdate(profile: profile, group: group)
+    }
+
+    func seed(profile: Profile, conversationId: String) async throws {
+        let inboxReady = try await inboxStateManager.waitForInboxReadyResult()
+        guard let conversation = try await inboxReady.client.conversation(with: conversationId),
+              case .group(let group) = conversation else {
+            throw ConversationMetadataError.conversationNotFound(conversationId: conversationId)
+        }
+
+        let dbProfile = try await databaseWriter.write { db in
+            let member = DBMember(inboxId: profile.inboxId)
+            try member.save(db)
+            var dbProfile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: profile.inboxId)
+                ?? DBMemberProfile(conversationId: conversationId, inboxId: profile.inboxId, name: nil, avatar: nil)
+            dbProfile = dbProfile.with(name: profile.name)
+            if let avatar = profile.avatar,
+               let salt = profile.avatarSalt,
+               let nonce = profile.avatarNonce,
+               salt.count == 32,
+               nonce.count == 12 {
+                dbProfile = dbProfile.with(avatar: avatar, salt: salt, nonce: nonce, key: profile.avatarKey)
+            }
+            if let metadata = profile.metadata {
+                dbProfile = dbProfile.with(metadata: metadata)
+            }
+            try dbProfile.save(db)
+            return dbProfile
+        }
+
+        do {
+            try await group.updateProfile(dbProfile)
+        } catch {
+            Log.warning("Failed to seed profile to appData (best-effort): \(error.localizedDescription)")
+        }
+        await sendProfileUpdate(profile: dbProfile, group: group)
     }
 
     private func sendProfileUpdate(profile: DBMemberProfile, group: XMTPiOS.Group) async {

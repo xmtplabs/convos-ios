@@ -1,5 +1,7 @@
 syntax = "proto3";
 
+import "profile_messages.proto";
+
 // ConvoRequest is sent via the 1:1 back channel between two members'
 // group inbox IDs to initiate a new conversation (DM or group spinoff).
 //
@@ -22,4 +24,7 @@ message ConvoRequest {
     // If present, an invite slug for joining an existing group (spinoff).
     // If absent, the receiver creates a new 1:1 conversation (DM).
     optional string invite_slug = 4;
+
+    // Sender's profile in the origin conversation, used to seed the DM.
+    optional ProfileSnapshot sender_profile_snapshot = 5;
 }

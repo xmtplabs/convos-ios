@@ -5,6 +5,7 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
     public var updatedDisplayNames: [(name: String, conversationId: String)] = []
     public var updatedAvatars: [(image: ImageType?, conversationId: String)] = []
     public var updatedAllowsDMs: [(allowed: Bool, conversationId: String)] = []
+    public var seededProfiles: [(profile: Profile, conversationId: String)] = []
 
     public init() {}
 
@@ -18,5 +19,9 @@ public final class MockMyProfileWriter: MyProfileWriterProtocol, @unchecked Send
 
     public func update(allowsDMs: Bool, conversationId: String) async throws {
         updatedAllowsDMs.append((allowed: allowsDMs, conversationId: conversationId))
+    }
+
+    public func seed(profile: Profile, conversationId: String) async throws {
+        seededProfiles.append((profile: profile, conversationId: conversationId))
     }
 }

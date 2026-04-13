@@ -1022,6 +1022,7 @@ extension ConversationViewModel {
                 let convoTag = try await sender.sendDMRequest(
                     to: member.profile.inboxId,
                     originConversationId: conversation.id,
+                    senderProfileSnapshot: myProfileViewModel.profile.asProfileSnapshot,
                     client: inboxReady.client
                 )
 
@@ -1068,6 +1069,8 @@ extension ConversationViewModel {
                         for: conversationId, inboxId: dmInboxId, clientId: dmService.clientId
                     )
                     if let dmConvo = try? dmRepo.fetchConversation() {
+                        let myProfileWriter = dmService.conversationStateManager(for: conversationId).myProfileWriter
+                        try? await myProfileWriter.seed(profile: myProfileViewModel.profile, conversationId: conversationId)
                         let dmVM = ConversationViewModel.createSync(conversation: dmConvo, session: session)
                         await MainActor.run {
                             self.pushedDMConversation = dmVM

@@ -6,6 +6,7 @@ public protocol ConvoRequestSenderProtocol: Sendable {
     func sendDMRequest(
         to recipientInboxId: String,
         originConversationId: String,
+        senderProfileSnapshot: ProfileSnapshot?,
         client: AnyClientProvider
     ) async throws -> String
 }
@@ -16,6 +17,7 @@ public final class ConvoRequestSender: ConvoRequestSenderProtocol, @unchecked Se
     public func sendDMRequest(
         to recipientInboxId: String,
         originConversationId: String,
+        senderProfileSnapshot: ProfileSnapshot?,
         client: AnyClientProvider
     ) async throws -> String {
         let convoTag = UUID().uuidString
@@ -25,6 +27,9 @@ public final class ConvoRequestSender: ConvoRequestSenderProtocol, @unchecked Se
         request.newInboxID = newInboxId
         request.convoTag = convoTag
         request.originConversationID = originConversationId
+        if let senderProfileSnapshot {
+            request.senderProfileSnapshot = senderProfileSnapshot
+        }
 
         let dm = try await client.newConversation(with: recipientInboxId)
         let encoded = try ConvoRequestCodec().encode(content: request)

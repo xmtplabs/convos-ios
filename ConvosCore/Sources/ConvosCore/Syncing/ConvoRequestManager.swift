@@ -153,9 +153,110 @@ final class ConvoRequestManager: ConvoRequestManagerProtocol, @unchecked Sendabl
                 convoTag: request.convoTag
             )
 
+            if request.hasSenderProfileSnapshot,
+               let senderProfile = request.senderProfileSnapshot.findProfile(inboxId: senderInboxId) {
+                try await applySeededProfile(
+                    senderProfile,
+                    inboxId: senderInboxId,
+                    conversationId: conversationId,
+                    fallbackEncryptionKey: try? group.imageEncryptionKey
+                )
+            }
+
+            try await seedCurrentUserProfile(
+                from: request.originConversationID,
+                to: conversationId,
+                currentInboxId: client.inboxId,
+                group: group
+            )
+
             Log.info("DM conversation \(conversationId.prefix(8)) stored and marked as unread")
         } catch {
             Log.error("Failed to create DM conversation: \(error.localizedDescription)")
         }
+    }
+
+    private func applySeededProfile(
+        _ memberProfile: MemberProfile,
+        inboxId: String,
+        conversationId: String,
+        fallbackEncryptionKey: Data?
+    ) async throws {
+        try await databaseWriter.write { db in
+            let member = DBMember(inboxId: inboxId)
+            try member.save(db)
+
+            var profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: inboxId)
+                ?? DBMemberProfile(conversationId: conversationId, inboxId: inboxId, name: nil, avatar: nil)
+
+            profile = profile.with(name: memberProfile.hasName ? memberProfile.name : nil)
+
+            if memberProfile.hasEncryptedImage, memberProfile.encryptedImage.isValid {
+                let image = memberProfile.encryptedImage
+                profile = profile.with(
+                    avatar: image.url,
+                    salt: image.salt,
+                    nonce: image.nonce,
+                    key: profile.avatarKey ?? fallbackEncryptionKey
+                )
+            }
+
+            if !memberProfile.metadata.isEmpty {
+                profile = profile.with(metadata: memberProfile.profileMetadata)
+            }
+
+            try profile.save(db)
+        }
+    }
+
+    private func seedCurrentUserProfile(
+        from originConversationId: String,
+        to conversationId: String,
+        currentInboxId: String,
+        group: XMTPiOS.Group
+    ) async throws {
+        let originProfile = try await databaseReader.read { db in
+            try DBMemberProfile.fetchOne(db, conversationId: originConversationId, inboxId: currentInboxId)
+        }
+        guard let originProfile else { return }
+
+        let seededProfile = try await databaseWriter.write { db in
+            let member = DBMember(inboxId: currentInboxId)
+            try member.save(db)
+            var profile = try DBMemberProfile.fetchOne(db, conversationId: conversationId, inboxId: currentInboxId)
+                ?? DBMemberProfile(conversationId: conversationId, inboxId: currentInboxId, name: nil, avatar: nil)
+            profile = profile.with(name: originProfile.name)
+            if let avatar = originProfile.avatar,
+               let salt = originProfile.avatarSalt,
+               let nonce = originProfile.avatarNonce,
+               salt.count == 32,
+               nonce.count == 12 {
+                profile = profile.with(avatar: avatar, salt: salt, nonce: nonce, key: originProfile.avatarKey)
+            }
+            if let metadata = originProfile.metadata {
+                profile = profile.with(metadata: metadata)
+            }
+            try profile.save(db)
+            return profile
+        }
+
+        do {
+            try await group.updateProfile(seededProfile)
+        } catch {
+            Log.warning("Failed to seed current user profile to appData (best-effort): \(error.localizedDescription)")
+        }
+
+        var update = ProfileUpdate()
+        if let name = seededProfile.name {
+            update.name = name
+        }
+        if let encryptedRef = seededProfile.encryptedImageRef {
+            update.encryptedImage = EncryptedProfileImageRef(encryptedRef)
+        }
+        if let metadata = seededProfile.metadata, !metadata.isEmpty {
+            update.metadata = metadata.asProtoMap
+        }
+        let encoded = try ProfileUpdateCodec().encode(content: update)
+        _ = try await group.send(encodedContent: encoded)
     }
 }

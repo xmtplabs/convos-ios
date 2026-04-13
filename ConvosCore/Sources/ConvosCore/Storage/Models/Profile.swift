@@ -175,6 +175,35 @@ public struct Profile: Codable, Identifiable, Hashable, Sendable {
             avatar: "https://example.com/avatar.jpg"
         )
     }
+
+    public var asProfileSnapshotMember: MemberProfile? {
+        let encryptedImage: EncryptedProfileImageRef?
+        if let avatar,
+           let avatarSalt,
+           let avatarNonce,
+           avatarSalt.count == 32,
+           avatarNonce.count == 12 {
+            var ref = EncryptedProfileImageRef()
+            ref.url = avatar
+            ref.salt = avatarSalt
+            ref.nonce = avatarNonce
+            encryptedImage = ref
+        } else {
+            encryptedImage = nil
+        }
+
+        return MemberProfile(
+            inboxIdString: inboxId,
+            name: name,
+            encryptedImage: encryptedImage,
+            metadata: metadata
+        )
+    }
+
+    public var asProfileSnapshot: ProfileSnapshot? {
+        guard let member = asProfileSnapshotMember else { return nil }
+        return ProfileSnapshot(profiles: [member])
+    }
 }
 
 // MARK: - Array Extensions

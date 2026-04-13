@@ -54,18 +54,29 @@ public struct ConvoRequest: Sendable {
   /// Clears the value of `inviteSlug`. Subsequent reads from it will return its default value.
   public mutating func clearInviteSlug() {self._inviteSlug = nil}
 
+  /// Sender's profile in the origin conversation, used to seed the DM.
+  public var senderProfileSnapshot: ProfileSnapshot {
+    get {_senderProfileSnapshot ?? ProfileSnapshot()}
+    set {_senderProfileSnapshot = newValue}
+  }
+  /// Returns true if `senderProfileSnapshot` has been explicitly set.
+  public var hasSenderProfileSnapshot: Bool {self._senderProfileSnapshot != nil}
+  /// Clears the value of `senderProfileSnapshot`. Subsequent reads from it will return its default value.
+  public mutating func clearSenderProfileSnapshot() {self._senderProfileSnapshot = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _inviteSlug: String? = nil
+  fileprivate var _senderProfileSnapshot: ProfileSnapshot? = nil
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
 
 extension ConvoRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = "ConvoRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}new_inbox_id\0\u{3}convo_tag\0\u{3}origin_conversation_id\0\u{3}invite_slug\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}new_inbox_id\0\u{3}convo_tag\0\u{3}origin_conversation_id\0\u{3}invite_slug\0\u{3}sender_profile_snapshot\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -77,6 +88,7 @@ extension ConvoRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
       case 2: try { try decoder.decodeSingularStringField(value: &self.convoTag) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.originConversationID) }()
       case 4: try { try decoder.decodeSingularStringField(value: &self._inviteSlug) }()
+      case 5: try { try decoder.decodeSingularMessageField(value: &self._senderProfileSnapshot) }()
       default: break
       }
     }
@@ -99,6 +111,9 @@ extension ConvoRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     try { if let v = self._inviteSlug {
       try visitor.visitSingularStringField(value: v, fieldNumber: 4)
     } }()
+    try { if let v = self._senderProfileSnapshot {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 5)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -107,6 +122,7 @@ extension ConvoRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementat
     if lhs.convoTag != rhs.convoTag {return false}
     if lhs.originConversationID != rhs.originConversationID {return false}
     if lhs._inviteSlug != rhs._inviteSlug {return false}
+    if lhs._senderProfileSnapshot != rhs._senderProfileSnapshot {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

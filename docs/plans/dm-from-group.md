@@ -259,6 +259,160 @@ You won't see the "Send DM" button on their profile. You can't send them a DM fr
 **What if I'm not on their select members list?**
 You can still send the DM request. The conversation is created, but they may not see it prominently. You won't know either way.
 
+---
+
+# Architecture notes from phase 1 investigation
+
+The phase 1 implementation worked, but the work exposed a few weak points in the current architecture.
+
+## Main weak point: we don't have a first-class local relationship layer
+
+Right now we're using a mix of:
+- conversations
+- per-conversation member profiles
+- `dmLink`
+- origin conversation metadata
+
+...as stand-ins for a more important product concept: a local-only relationship between two people.
+
+That works for phase 1, but it is fragile.
+
+Examples of product questions that don't yet have a clean architectural home:
+- have I DMed this person before?
+- what group did I meet them in?
+- what is my preferred DM with this person?
+- what should I call them locally?
+- where else have I seen them?
+- do I consider them a contact now?
+
+## `dmLink` is useful, but too narrow
+
+Today `dmLink` mostly means:
+- `(originConversationId, memberInboxId) -> dmConversationId`
+
+That is enough to avoid creating duplicate DMs from the same origin convo, but it is not yet a real local social graph primitive.
+
+Missing concepts include:
+- one person known through multiple groups
+- multiple shared origins for the same person
+- a preferred DM independent of a single origin
+- local nickname / notes / trust state
+- whether someone has become a real contact
+
+## Conversation-scoped profile and person identity are mixed together
+
+The current profile system is correctly conversation-scoped. That part should stay.
+
+But we are missing a stable local layer above it for "this is a person I know locally on this device". Without that layer, we keep answering relationship questions indirectly through conversations and member profiles.
+
+A person has:
+- a stable inbox identity
+- many conversation-scoped presentations
+- potentially a local-only contact relationship on this device
+
+Those should be modeled separately.
+
+## Origin context is currently bolted on
+
+The work needed to show UI like `Tommy from Camera Club` is a sign that origin context matters as product data, not just as a display trick.
+
+That context should eventually live in a proper local relationship model rather than being reconstructed ad hoc from `dmLink` + conversation lookups.
+
+## Profile seeding showed we need a better relationship bootstrap path
+
+To seed DM profiles correctly, we had to:
+- send a `ProfileSnapshot` in the `convo_request`
+- apply the sender's seeded profile on the receiver side
+- seed the receiver's own profile into the new DM
+- seed the sender's own profile when the DM arrives locally
+
+That works, but it shows that we do not yet have a first-class "bootstrap a new private relationship" pipeline.
+
+## Recommendation: add a local-only social graph / contacts layer
+
+A good next architectural step would be introducing a dedicated local-only relationship layer.
+
+Not a large network model — just a local store for people and relationship context.
+
+A likely shape:
+
+### `localPerson`
+A stable local record keyed by inbox ID.
+
+Possible fields:
+- `inboxId`
+- `firstSeenAt`
+- `lastSeenAt`
+- `isContact`
+- `localNickname`
+- `isBlocked`
+- `notes`
+
+### `localRelationshipContext`
+Tracks where you know someone from.
+
+Possible fields:
+- `personInboxId`
+- `originConversationId`
+- `firstSeenAt`
+- `lastSeenAt`
+- maybe a cached local display snapshot of the origin convo
+
+This would support UI like:
+- `Tommy from Camera Club`
+- also seen in `Friday Dinner`
+
+### `localDirectRelationship`
+Represents the local DM/contact edge.
+
+Possible fields:
+- `personInboxId`
+- `preferredDMConversationId`
+- `createdFromConversationId`
+- `status` (`pending`, `active`, `hidden`)
+- `firstCreatedAt`
+- `lastUsedAt`
+
+This would be a better home than `dmLink` for "have I already started a private relationship with this person?"
+
+## Important constraint: XMTP `dm` type should remain back-channel only
+
+One architectural smell from phase 1 is that some code currently relies on `kind == .dm`, and phase 1 also temporarily writes created DM group conversations into local storage as `.dm` for UI behavior.
+
+That is not the intended long-term model.
+
+The intended model is:
+- XMTP `dm` conversations are only used as a back channel between group inbox identities
+- app-visible DMs are standard XMTP group conversations
+- the app should not need to reinterpret those group conversations as true XMTP `dm` conversations in order to render or route them correctly
+
+The current places where this shows up are good candidates for cleanup:
+- `ConvosCore/Sources/ConvosCore/Syncing/ConvoRequestManager.swift`
+- `ConvosCore/Sources/ConvosCore/Syncing/StreamProcessor.swift`
+- UI logic that branches on `Conversation.kind == .dm` instead of using a stronger local relationship model
+
+A better long-term direction is:
+- use XMTP `dm` only for back-channel request transport
+- model app-visible DM relationships locally as first-class relationship/contact records
+- keep the actual app-visible DM conversation as a normal XMTP group conversation
+
+## Summary
+
+The current phase 1 approach is good enough to ship and learn from, but the investigation made one thing clear:
+
+we are currently modeling a relationship feature mostly through conversation artifacts.
+
+That mismatch will keep creating friction as we add:
+- contacts
+- multiple shared origins
+- DM suggestions
+- local nicknames
+- trusted / blocked people
+- group spinoffs
+- "people you've met" surfaces
+
+A local-only social graph / contact layer would give those ideas a proper home without weakening the conversation-scoped privacy model.
+
 **Can I change my name/photo for the DM?**
 Yes. When you send a DM request, a new inbox is created. You can choose to use your quickname, or not, once the DM starts.
 
