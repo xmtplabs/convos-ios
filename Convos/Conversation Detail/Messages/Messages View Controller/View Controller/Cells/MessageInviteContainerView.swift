@@ -12,9 +12,8 @@ struct MessageInviteContainerView: View {
     @Environment(\.messagePressed) private var isPressed: Bool
 
     var body: some View {
-        MessageContainer(style: .none, isOutgoing: isOutgoing) {
+        MessageContainer(style: style, isOutgoing: isOutgoing) {
             MessageInviteView(invite: invite)
-                .clipShape(RoundedRectangle(cornerRadius: Constant.bubbleCornerRadius))
                 .opacity(isPressed ? 0.7 : 1.0)
                 .animation(.easeOut(duration: 0.15), value: isPressed)
         }
@@ -104,17 +103,21 @@ struct MessageInviteView: View {
                     }
                 }
                 .clipped()
+                .accessibilityLabel(invite.imageURL != nil ? "Invite image preview" : (invite.emoji.map { "Invite emoji \($0)" } ?? "Invite placeholder"))
+                .accessibilityIdentifier("invite-preview-avatar")
 
             HStack {
                 VStack(alignment: .leading, spacing: 2.0) {
                     Text(title)
                         .lineLimit(2)
+                        .accessibilityIdentifier("invite-preview-title")
                         .multilineTextAlignment(.leading)
                         .foregroundStyle(.colorTextPrimary)
                         .font(.callout.weight(.medium))
                         .truncationMode(.tail)
                     Text(description)
                         .font(.subheadline)
+                        .accessibilityIdentifier("invite-preview-subtitle")
                         .multilineTextAlignment(.leading)
                         .foregroundStyle(.colorTextSecondary)
                 }
@@ -131,6 +134,8 @@ struct MessageInviteView: View {
             .background(.colorFillSubtle)
         }
         .frame(maxWidth: 280.0, alignment: .leading)
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("invite-preview-card")
         .cachedImage(for: invite) { image in
             cachedImage = image
         }

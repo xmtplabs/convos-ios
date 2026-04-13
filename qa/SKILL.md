@@ -51,6 +51,7 @@ Run end-to-end QA tests for the Convos iOS app using the iOS simulator tools and
 | 31 | `qa/tests/31-convos-button-invite.md` | Convos button: create and share invite link from media bar |
 | 32 | `qa/tests/32-voice-memo-transcription.md` | Voice memo transcription: receive voice memo, on-device transcript appears, expand/collapse, persistence across relaunch, retry on failure |
 | 33 | `qa/tests/33-read-receipts.md` | Read receipts: send on view, display avatars, opt-out setting |
+| 34 | `qa/tests/34-side-convo-stable-emoji.md` | Side convo flow: create linked convo invite, verify invite metadata, and confirm stable conversation emoji across two devices |
 
 ## Running Tests
 
@@ -84,7 +85,8 @@ Recommended order:
 19. **28-receive-file-attachments** — tests receiving file attachments from CLI, file bubble UI, QuickLook
 19. **19-profile-photo** — tests profile and group photos
 20. **15-performance** — performance baselines (run last, non-destructive)
-21. **18-delete-all-data** — wipes all data (run very last, destructive)
+21. **33-side-convo-stable-emoji** — verifies side convo invite metadata and stable emoji across two devices
+22. **18-delete-all-data** — wipes all data (run very last, destructive)
 
 ### Reporting
 

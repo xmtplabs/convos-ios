@@ -170,11 +170,18 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
     }
 
     func finalizeInvite(clientMessageId: String, finalText: String) async throws {
-        try await databaseWriter.write { db in
-            guard var message = try DBMessage.fetchOne(db, key: clientMessageId) else { return }
+        let didUpdateMessage = try await databaseWriter.write { db in
+            guard var message = try DBMessage.fetchOne(db, key: clientMessageId) else {
+                return false
+            }
             let invite = MessageInvite.from(text: finalText)
             message = message.with(text: finalText, invite: invite)
             try message.update(db)
+            return true
+        }
+        guard didUpdateMessage else {
+            Log.warning("Skipping finalizeInvite queueing for missing message: \(clientMessageId)")
+            return
         }
         let queued = QueuedTextMessage(
             clientMessageId: clientMessageId,

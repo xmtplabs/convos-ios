@@ -229,7 +229,7 @@ struct MessagesInputView: View {
             .scaleEffect(isPoofingInvite ? 1.3 : 1.0)
             .blur(radius: isPoofingInvite ? 12.0 : 0.0)
             .opacity(isPoofingInvite ? 0.0 : 1.0)
-            .accessibilityLabel("Invite attachment preview")
+            .accessibilityElement(children: .contain)
             .accessibilityIdentifier("invite-attachment-preview")
 
             Button {
@@ -458,6 +458,7 @@ private struct ComposerSideConvoCard: View {
         }
         .frame(width: cardWidth)
         .background(.colorFillSubtle)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("side-convo-card")
     }
 
@@ -499,6 +500,8 @@ private struct ComposerSideConvoCard: View {
         .frame(width: cardWidth, height: cardWidth)
         .clipped()
         .background(.colorFillMinimal)
+        .accessibilityLabel(resolvedEmoji.map { "Side convo emoji \($0)" } ?? (convoImage != nil ? "Side convo image" : "Side convo placeholder"))
+        .accessibilityIdentifier("side-convo-avatar-preview")
     }
 
     @ViewBuilder

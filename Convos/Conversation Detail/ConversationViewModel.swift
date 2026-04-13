@@ -1116,6 +1116,10 @@ extension ConversationViewModel {
             let stateManager = messagingService.conversationStateManager(for: linkedId)
             if let convo = try stateManager.draftConversationRepository.fetchConversation() {
                 try await metadataWriter.updateImage(image, for: convo)
+                try await metadataWriter.updateIncludeInfoInPublicPreview(true, for: linkedId)
+                if !name.isEmpty {
+                    try await metadataWriter.updateName(name, for: linkedId)
+                }
                 if let updatedInvite = try await metadataWriter.refreshInvite(for: linkedId),
                    let pendingMessageId {
                     try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: updatedInvite.inviteURLString)
