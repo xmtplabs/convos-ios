@@ -65,7 +65,7 @@ enum ExplodeDuration: CaseIterable {
 // swiftlint:disable type_body_length
 @MainActor
 @Observable
-class ConversationViewModel {
+class ConversationViewModel { // swiftlint:disable:this type_body_length
     // MARK: - Private
 
     private let session: any SessionManagerProtocol
@@ -1065,6 +1065,7 @@ extension ConversationViewModel {
         }
     }
 
+    // swiftlint:disable:next function_parameter_count
     private func finalizeSideConvo(
         inviteURL: String?,
         name: String,
