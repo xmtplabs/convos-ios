@@ -102,16 +102,13 @@ public actor RestoreManager {
             Log.info("[Restore] backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
 
             // Import the vault archive BEFORE stopping sessions. Client.create
-            // needs network access to register an installation, which hangs if
-            // sessions are paused. The import runs in an isolated temp directory
-            // and only reads data — it doesn't touch the app's live state.
-            Log.info("[Restore] importing vault archive and extracting keys")
-            let keyEntries = try await importVaultArchive(
+            Log.info("[Restore] extracting keys from vault")
+            let keyEntries = try await extractVaultKeys(
                 encryptionKey: encryptionKey,
                 vaultIdentity: vaultIdentity,
                 in: stagingDir
             )
-            Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault archive")
+            Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault")
 
             if keyEntries.isEmpty, metadata.inboxCount > 0 {
                 Log.error("[Restore] backup contains \(metadata.inboxCount) conversation(s) but vault yielded 0 keys — aborting before destructive operations")
@@ -368,17 +365,40 @@ public actor RestoreManager {
 
     // MARK: - Vault archive import
 
-    private func importVaultArchive(
+    /// Extract vault keys, preferring the live vault client when its inboxId
+    /// matches the backup. Falls back to archive import for cross-device restore.
+    ///
+    /// Using the live vault avoids creating a second XMTP client for the same
+    /// inboxId, which causes importArchive to hang due to MLS state conflicts
+    /// between the two clients.
+    private func extractVaultKeys(
         encryptionKey: Data,
         vaultIdentity: KeychainIdentity,
         in directory: URL
     ) async throws -> [VaultKeyEntry] {
         state = .importingVault
+
+        // Try the live vault client first — if it's connected and matches
+        // the backup's vault identity, we can read keys directly without
+        // importing the archive.
+        if let vaultManager,
+           let liveInboxId = await vaultManager.vaultInboxId,
+           liveInboxId == vaultIdentity.inboxId {
+            Log.info("[Restore] live vault matches backup identity, extracting keys directly")
+            do {
+                let entries = try await vaultManager.extractKeys()
+                if !entries.isEmpty {
+                    Log.info("[Restore] extracted \(entries.count) key(s) from live vault")
+                    return entries
+                }
+                Log.warning("[Restore] live vault returned 0 keys, falling back to archive import")
+            } catch {
+                Log.warning("[Restore] live vault key extraction failed (\(error)), falling back to archive import")
+            }
+        }
+
         let vaultArchivePath = BackupBundle.vaultArchivePath(in: directory)
 
-        // Without a vault archive, we have no conversation keys to restore. Continuing
-        // would wipe local state and replace the database with nothing to decrypt the
-        // resulting conversations — silent data loss. Bail before any destructive op.
         guard FileManager.default.fileExists(atPath: vaultArchivePath.path) else {
             Log.error("[Restore] vault archive missing from bundle — aborting before destructive operations")
             throw RestoreError.missingVaultArchive

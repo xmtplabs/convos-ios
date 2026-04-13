@@ -12,7 +12,7 @@ extension VaultManager {
         return try await extractKeys()
     }
 
-    func extractKeys() async throws -> [VaultKeyEntry] {
+    public func extractKeys() async throws -> [VaultKeyEntry] {
         let messages = try await vaultClient.vaultGroupMessages()
 
         var bundles: [DeviceKeyBundleContent] = []
