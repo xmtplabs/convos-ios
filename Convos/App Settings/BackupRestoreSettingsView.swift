@@ -158,6 +158,11 @@ final class BackupRestoreViewModel {
             restoreLifecycleController: session as? any RestoreLifecycleControlling,
             vaultManager: vaultManager,
             installationRevoker: revoker,
+            backupCreator: { @MainActor [weak self] in
+                guard let self else { throw BackupRestoreError.vaultUnavailable }
+                let manager = try self.makeBackupManager()
+                return try await manager.createBackup()
+            },
             environment: environment
         )
     }

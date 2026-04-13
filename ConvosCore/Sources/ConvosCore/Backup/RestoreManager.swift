@@ -48,6 +48,7 @@ public actor RestoreManager {
     private let vaultManager: VaultManager?
     private let environment: AppEnvironment
     private let installationRevoker: RestoreInstallationRevoker?
+    private let backupCreator: (@Sendable () async throws -> URL)?
 
     public private(set) var state: RestoreState = .idle
 
@@ -60,6 +61,7 @@ public actor RestoreManager {
         restoreLifecycleController: (any RestoreLifecycleControlling)? = nil,
         vaultManager: VaultManager? = nil,
         installationRevoker: RestoreInstallationRevoker? = nil,
+        backupCreator: (@Sendable () async throws -> URL)? = nil,
         environment: AppEnvironment
     ) {
         self.vaultKeyStore = vaultKeyStore
@@ -72,6 +74,7 @@ public actor RestoreManager {
         self.restoreLifecycleController = restoreLifecycleController
         self.vaultManager = vaultManager
         self.installationRevoker = installationRevoker
+        self.backupCreator = backupCreator
         self.environment = environment
     }
 
@@ -183,6 +186,11 @@ public actor RestoreManager {
                 await restoreLifecycleController?.finishRestore()
                 Log.info("[Restore] sessions resumed")
             }
+
+            // The vault was re-created with a new key, so the old backup
+            // can no longer be decrypted. Create a fresh backup immediately
+            // so the user always has a valid one encrypted with the new key.
+            await createPostRestoreBackup()
 
             let restoredCount = try countRestoredInboxes()
             state = .completed(inboxCount: restoredCount, failedKeyCount: failedKeyCount)
@@ -540,6 +548,19 @@ public actor RestoreManager {
     }
 
     // MARK: - Helpers
+
+    private func createPostRestoreBackup() async {
+        guard let backupCreator else {
+            Log.info("[Restore] no backup creator provided, skipping post-restore backup")
+            return
+        }
+        do {
+            let url = try await backupCreator()
+            Log.info("[Restore] post-restore backup created at \(url.lastPathComponent)")
+        } catch {
+            Log.warning("[Restore] post-restore backup failed (non-fatal): \(error)")
+        }
+    }
 
     private func countRestoredInboxes() throws -> Int {
         let repo = InboxesRepository(databaseReader: databaseManager.dbReader)

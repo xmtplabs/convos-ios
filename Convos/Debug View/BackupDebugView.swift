@@ -334,6 +334,10 @@ struct BackupDebugView: View {
             restoreLifecycleController: session as? any RestoreLifecycleControlling,
             vaultManager: vaultManager,
             installationRevoker: revoker,
+            backupCreator: { @MainActor [self] in
+                let manager = try self.makeBackupManager()
+                return try await manager.createBackup()
+            },
             environment: environment
         )
     }
