@@ -224,6 +224,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     let dbConversation: DBConversation
+                    var conversationSyncFailed: Bool = false
                     do {
                         dbConversation = try await conversationWriter.store(
                             conversation: conversation,
@@ -239,6 +240,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                             throw error
                         }
                         dbConversation = existing
+                        conversationSyncFailed = true
                     }
 
                     // Handle ExplodeSettings - skip storing message if this is an explode message
@@ -263,10 +265,17 @@ actor StreamProcessor: StreamProcessorProtocol {
 
                     let result = try await messageWriter.store(message: message, for: dbConversation)
 
-                    await markReconnectionIfNeeded(
-                        messageId: message.id,
-                        conversationId: conversation.id
-                    )
+                    // Only reactivate if the conversation sync succeeded.
+                    // A sync failure ("Group is inactive") means the
+                    // installation can't actually participate yet — the
+                    // message arrived on the stream but the MLS group
+                    // state is stale.
+                    if !conversationSyncFailed {
+                        await markReconnectionIfNeeded(
+                            messageId: message.id,
+                            conversationId: conversation.id
+                        )
+                    }
 
                     // Mark unread if needed
                     if result.contentType.marksConversationAsUnread,
