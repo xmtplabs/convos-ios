@@ -349,17 +349,6 @@ private struct ConversationsSheetModifier: ViewModifier {
                     onResetDevice: viewModel.deleteAllData
                 )
             }
-            .fullScreenCover(isPresented: $viewModel.isPendingFullStaleAutoReset) {
-                ZStack {
-                    Color.black.opacity(0.6)
-                        .ignoresSafeArea()
-                    FullStaleAutoResetCountdown(
-                        onReset: { viewModel.confirmFullStaleAutoReset() },
-                        onCancel: { viewModel.cancelFullStaleAutoReset() }
-                    )
-                }
-                .presentationBackground(.clear)
-            }
             .background {
                 Color.clear
                     .fullScreenCover(item: $conversationPendingExplosion) { conversation in

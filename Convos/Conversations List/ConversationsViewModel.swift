@@ -379,9 +379,6 @@ final class ConversationsViewModel {
         case .fullStale:
             newConversationViewModel = nil
             selectedConversation = nil
-            // Trigger the auto-reset countdown. The view binds to
-            // `isPendingFullStaleAutoReset` to render a cancellable countdown.
-            isPendingFullStaleAutoReset = true
         }
     }
 
