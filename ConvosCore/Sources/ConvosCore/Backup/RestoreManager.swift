@@ -64,7 +64,6 @@ public actor RestoreManager {
     ) {
         self.vaultKeyStore = vaultKeyStore
         self.vaultArchiveImporter = vaultArchiveImporter ?? ConvosVaultArchiveImporter(
-            vaultKeyStore: vaultKeyStore,
             environment: environment
         )
         self.identityStore = identityStore
@@ -86,6 +85,7 @@ public actor RestoreManager {
         // before commit, we use these to restore the pre-restore state of the device.
         var xmtpStashDir: URL?
         var preRestoreIdentities: [KeychainIdentity] = []
+        var destructiveOpsStarted = false
         var committed = false
 
         do {
@@ -125,6 +125,7 @@ public actor RestoreManager {
             preRestoreIdentities = (try? await identityStore.loadAll()) ?? []
             Log.info("[Restore] snapshotted \(preRestoreIdentities.count) identity/identities")
 
+            destructiveOpsStarted = true
             Log.info("[Restore] staging local XMTP files aside")
             xmtpStashDir = try stageXMTPFiles()
             Log.info("[Restore] XMTP files staged")
@@ -188,7 +189,7 @@ public actor RestoreManager {
 
             BackupBundle.cleanup(directory: stagingDir)
         } catch {
-            if !committed {
+            if !committed, destructiveOpsStarted {
                 Log.warning("[Restore] rolling back keychain and XMTP state after failure: \(error)")
                 await rollbackKeychain(to: preRestoreIdentities)
                 if let stash = xmtpStashDir {

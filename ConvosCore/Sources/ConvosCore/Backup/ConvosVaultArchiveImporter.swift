@@ -5,7 +5,7 @@ import Foundation
 public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
     private let environment: AppEnvironment
 
-    public init(vaultKeyStore: VaultKeyStore, environment: AppEnvironment) {
+    public init(environment: AppEnvironment) {
         self.environment = environment
     }
 
