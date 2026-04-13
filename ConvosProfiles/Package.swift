@@ -19,7 +19,7 @@ let package = Package(
         .package(path: "../ConvosAppData"),
         .package(
             url: "https://github.com/xmtp/libxmtp.git",
-            revision: "ios-4.9.0-dev.6ecd439"
+            revision: "ios-4.10.0-dev.8fcbbde"
         ),
     ],
     targets: [
