@@ -86,87 +86,92 @@ struct MessageContextMenuOverlay: View {
 
     var body: some View {
         if let message = state.presentedMessage {
-            GeometryReader { proxy in
-                let overlayOrigin = proxy.frame(in: .global).origin
-                let screenSize = proxy.size
-                let safeTop = max(proxy.safeAreaInsets.top, windowSafeTop)
-                let localBubble = CGRect(
-                    x: state.bubbleFrame.origin.x - overlayOrigin.x,
-                    y: state.bubbleFrame.origin.y - overlayOrigin.y,
-                    width: state.bubbleFrame.width,
-                    height: state.bubbleFrame.height
+            overlayContent(message: message)
+        }
+    }
+
+    @ViewBuilder
+    private func overlayContent(message: AnyMessage) -> some View {
+        GeometryReader { proxy in
+            let overlayOrigin = proxy.frame(in: .global).origin
+            let screenSize = proxy.size
+            let safeTop = max(proxy.safeAreaInsets.top, windowSafeTop)
+            let localBubble = CGRect(
+                x: state.bubbleFrame.origin.x - overlayOrigin.x,
+                y: state.bubbleFrame.origin.y - overlayOrigin.y,
+                width: state.bubbleFrame.width,
+                height: state.bubbleFrame.height
+            )
+            let isPhoto = photoAttachment != nil
+            let endBubble = endBubbleRect(
+                source: localBubble,
+                screenSize: screenSize,
+                safeTop: safeTop,
+                isPhoto: isPhoto && !state.isReplyParent
+            )
+            let activeBubble = appeared ? endBubble : localBubble
+            let keyboardTop: CGFloat = keyboardHeight > 0 ? screenSize.height - keyboardHeight : screenSize.height
+            let bubbleBottom = activeBubble.maxY + C.sectionSpacing
+            let keyboardOverlap = max(bubbleBottom - keyboardTop + C.sectionSpacing, 0)
+            let keyboardAdjustment: CGFloat = showingEmojiPicker ? keyboardOverlap : 0
+
+            ZStack(alignment: .topLeading) {
+                backgroundDimming
+
+                reactionsBar(
+                    messageId: message.messageId,
+                    bubbleRect: activeBubble,
+                    sourceBubble: localBubble,
+                    keyboardAdjustment: keyboardAdjustment,
+                    minBarY: safeTop
                 )
-                let isPhoto = photoAttachment != nil
-                let endBubble = endBubbleRect(
-                    source: localBubble,
-                    screenSize: screenSize,
-                    safeTop: safeTop,
-                    isPhoto: isPhoto && !state.isReplyParent
+                .zIndex(1)
+
+                actionMenu(
+                    message: message,
+                    bubbleRect: activeBubble
                 )
-                let activeBubble = appeared ? endBubble : localBubble
-                let keyboardTop = keyboardHeight > 0 ? screenSize.height - keyboardHeight : screenSize.height
-                let bubbleBottom = activeBubble.maxY + C.sectionSpacing
-                let keyboardOverlap = max(bubbleBottom - keyboardTop + C.sectionSpacing, 0)
-                let keyboardAdjustment = showingEmojiPicker ? keyboardOverlap : 0
+                .zIndex(2)
 
-                ZStack(alignment: .topLeading) {
-                    backgroundDimming
-
-                    reactionsBar(
-                        messageId: message.messageId,
-                        bubbleRect: activeBubble,
-                        sourceBubble: localBubble,
-                        keyboardAdjustment: keyboardAdjustment,
-                        minBarY: safeTop
-                    )
-                    .zIndex(1)
-
-                    actionMenu(
-                        message: message,
-                        bubbleRect: activeBubble
-                    )
-                    .zIndex(2)
-
-                    bubblePreview(
-                        message: message,
-                        sourceBubble: localBubble,
-                        endBubble: endBubble,
-                        keyboardAdjustment: keyboardAdjustment
-                    )
-                    .zIndex(3)
+                bubblePreview(
+                    message: message,
+                    sourceBubble: localBubble,
+                    endBubble: endBubble,
+                    keyboardAdjustment: keyboardAdjustment
+                )
+                .zIndex(3)
+            }
+        }
+        .ignoresSafeArea()
+        .onAppear {
+            UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+            emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
+            withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
+                appeared = true
+            }
+            let totalDelay = C.emojiAppearanceDelayStep * Double(C.defaultReactions.count)
+            DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
+                withAnimation {
+                    showMoreAppeared = true
                 }
             }
-            .ignoresSafeArea()
-            .onAppear {
-                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
-                emojiAppeared = Array(repeating: false, count: C.defaultReactions.count)
-                withAnimation(.spring(response: 0.28, dampingFraction: 0.78)) {
-                    appeared = true
-                }
-                let totalDelay = C.emojiAppearanceDelayStep * Double(C.defaultReactions.count)
-                DispatchQueue.main.asyncAfter(deadline: .now() + totalDelay) {
+            for index in C.defaultReactions.indices {
+                DispatchQueue.main.asyncAfter(deadline: .now() + C.emojiAppearanceDelayStep * Double(index)) {
                     withAnimation {
-                        showMoreAppeared = true
-                    }
-                }
-                for index in C.defaultReactions.indices {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + C.emojiAppearanceDelayStep * Double(index)) {
-                        withAnimation {
-                            emojiAppeared[index] = true
-                        }
+                        emojiAppeared[index] = true
                     }
                 }
             }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
-                guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    keyboardHeight = frame.height
-                }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { notification in
+            guard let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                keyboardHeight = frame.height
             }
-            .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    keyboardHeight = 0
-                }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                keyboardHeight = 0
             }
         }
     }

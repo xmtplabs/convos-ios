@@ -353,6 +353,10 @@ struct ConversationInfoView: View {
     }
 
     var body: some View {
+        infoContent
+    }
+
+    private var infoContent: some View {
         NavigationStack {
             List {
                 headerSection
