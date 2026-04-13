@@ -441,6 +441,7 @@ final class ConversationsViewModel {
                 Task { @MainActor [weak self] in
                     guard let self else { return }
                     Log.info("Left conversation notification received for conversation: \(conversationId)")
+                    unfilteredConversations.removeAll { $0.id == conversationId }
                     conversations.removeAll { $0.id == conversationId }
                     if _selectedConversationId == conversationId {
                         _selectedConversationId = nil
