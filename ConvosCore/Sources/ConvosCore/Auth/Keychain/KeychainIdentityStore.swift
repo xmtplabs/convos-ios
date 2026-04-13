@@ -161,6 +161,13 @@ private struct KeychainQuery {
         self.clientId = clientId
     }
 
+    // kSecAttrAccessible is intentionally included in ALL queries (load, delete,
+    // update), not just add. This ensures we only match items with the expected
+    // accessibility — e.g. we won't accidentally find a kSecAttrAccessibleWhenUnlocked
+    // item when the caller expects kSecAttrAccessibleAfterFirstUnlock. Items stored
+    // before the current accessibility setting are migrated on every app launch via
+    // migrateToPlainAccessibilityIfNeeded / migrateToSynchronizableIfNeeded in
+    // ConvosClient+App.swift, so all items match by the time regular queries run.
     func toDictionary() -> [String: Any] {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
