@@ -414,19 +414,19 @@ final class ConversationsViewModel {
     }
 
     func leave(conversation: Conversation) {
-        if let index = conversations.firstIndex(of: conversation) {
-            conversations.remove(at: index)
-        }
-
+        hiddenConversationIds.insert(conversation.id)
         if selectedConversation == conversation {
             selectedConversation = nil
         }
+        recomputeVisibleConversations()
 
         Task { [weak self] in
             guard let self else { return }
             do {
                 try await session.deleteInbox(clientId: conversation.clientId, inboxId: conversation.inboxId)
             } catch {
+                self.hiddenConversationIds.remove(conversation.id)
+                self.recomputeVisibleConversations()
                 Log.error("Error leaving convo: \(error.localizedDescription)")
             }
         }

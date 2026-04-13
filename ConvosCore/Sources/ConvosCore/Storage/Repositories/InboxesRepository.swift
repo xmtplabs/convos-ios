@@ -94,6 +94,7 @@ public struct InboxesRepository {
             .tracking { db in
                 let ids = try DBInbox
                     .filter(DBInbox.Columns.isStale == true)
+                    .filter(DBInbox.Columns.isVault == false)
                     .select(DBInbox.Columns.inboxId, as: String.self)
                     .fetchAll(db)
                 return Set(ids)

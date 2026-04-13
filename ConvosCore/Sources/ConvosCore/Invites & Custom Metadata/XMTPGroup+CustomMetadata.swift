@@ -132,7 +132,7 @@ extension XMTPiOS.Group {
 
     /// Clears the invite tag, preventing any new join requests from being accepted.
     public func clearInviteTag() async throws {
-        try await atomicUpdateMetadata { metadata in
+        try await atomicUpdateMetadata(operation: "clearInviteTag") { metadata in
             metadata.tag = ""
         } verify: { metadata in
             metadata.tag.isEmpty

@@ -50,6 +50,10 @@ public struct InboxReadyResult: @unchecked Sendable {
 
 typealias AnySyncingManager = (any SyncingManagerProtocol)
 typealias AnyInviteJoinRequestsManager = (any InviteJoinRequestsManagerProtocol)
+typealias RevokeInstallationsHandler = (
+    _ client: any XMTPClientProvider,
+    _ signingKey: any SigningKey
+) async throws -> Void
 
 // swiftlint:disable type_body_length
 
@@ -107,6 +111,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
     private let apiClient: any ConvosAPIClientProtocol
     private let networkMonitor: any NetworkMonitorProtocol
     private let appLifecycle: any AppLifecycleProviding
+    private let revokeInstallationsHandler: RevokeInstallationsHandler
     private var requestDeviceSyncAfterAuthorize: Bool = false
 
     private var currentTask: Task<Void, Never>?
@@ -276,7 +281,10 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         overrideJWTToken: String? = nil,
         environment: AppEnvironment,
         appLifecycle: any AppLifecycleProviding,
-        apiClient: (any ConvosAPIClientProtocol)? = nil
+        apiClient: (any ConvosAPIClientProtocol)? = nil,
+        revokeInstallationsHandler: @escaping RevokeInstallationsHandler = { client, signingKey in
+            try await client.revokeAllOtherInstallations(signingKey: signingKey)
+        }
     ) {
         let initialState: State = .idle(clientId: clientId)
         self.initialClientId = clientId
@@ -290,6 +298,7 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         self.overrideJWTToken = overrideJWTToken ?? environment.defaultOverrideJWTToken
         self.environment = environment
         self.appLifecycle = appLifecycle
+        self.revokeInstallationsHandler = revokeInstallationsHandler
 
         // Use provided API client or create a new one
         if let apiClient {
