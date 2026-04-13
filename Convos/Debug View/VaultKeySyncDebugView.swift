@@ -139,6 +139,7 @@ struct VaultKeySyncDebugView: View {
                                         .font(.caption)
                                 }
                             }
+                            .buttonStyle(.borderless)
                             .disabled(isPerformingAction)
                         }
                         .padding(.vertical, 2)
