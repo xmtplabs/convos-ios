@@ -146,9 +146,7 @@ struct ConversationsView: View {
     private var sidebarContent: some View {
         if viewModel.unpinnedConversations.isEmpty && viewModel.pinnedConversations.isEmpty && viewModel.activeFilter == .all && horizontalSizeClass == .compact {
             if viewModel.isDeviceStale {
-                ScrollView {
-                    staleDeviceEmptyView
-                }
+                Color.clear
             } else {
                 emptyConversationsViewScrollable
             }
