@@ -172,7 +172,9 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
 
     func finalizeInvite(clientMessageId: String, finalText: String) async throws {
         let didUpdateMessage = try await databaseWriter.write { db in
-            guard var message = try DBMessage.fetchOne(db, key: clientMessageId) else {
+            guard var message = try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == clientMessageId)
+                .fetchOne(db) else {
                 return false
             }
             let invite = MessageInvite.from(text: finalText)
@@ -948,8 +950,10 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             }
 
             if queued.isExistingLocalMessage {
-                let updatedMessage = message.with(id: xmtpMessageId).with(status: .unpublished)
-                try updatedMessage.save(db)
+                try db.execute(
+                    sql: "UPDATE message SET id = ?, status = ? WHERE id = ?",
+                    arguments: [xmtpMessageId, MessageStatus.unpublished.rawValue, message.id]
+                )
                 try db.execute(
                     sql: "UPDATE message SET sourceMessageId = ? WHERE sourceMessageId = ?",
                     arguments: [xmtpMessageId, queued.clientMessageId]

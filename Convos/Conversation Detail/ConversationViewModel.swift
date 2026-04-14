@@ -1128,7 +1128,12 @@ extension ConversationViewModel {
         } catch {
             Log.error("Failed to upload side convo image: \(error)")
             if let pendingMessageId {
-                try? await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: inviteURL)
+                do {
+                    try await messageWriter.finalizeInvite(clientMessageId: pendingMessageId, finalText: inviteURL)
+                } catch {
+                    Log.error("Failed to finalize side convo invite fallback: \(error)")
+                    return (inviteURL, nil)
+                }
             }
         }
 
