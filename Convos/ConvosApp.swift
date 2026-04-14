@@ -58,9 +58,19 @@ struct ConvosApp: App {
             await agentKeyset.prefetch()
             try? await AgentVerificationWriter.reverifyUnverifiedAgents(in: dbWriter)
         }
-        self.conversationsViewModel = .init(session: convos.session, databaseManager: convos.databaseManager)
+        self.conversationsViewModel = .init(
+            session: convos.session,
+            databaseManager: convos.databaseManager,
+            environment: environment
+        )
         appDelegate.session = convos.session
         appDelegate.pushNotificationRegistrar = convos.platformProviders.pushNotificationRegistrar
+
+        let sessionForBackup = convos.session
+        BackupScheduler.shared.register { @MainActor in
+            BackupManagerFactory.make(session: sessionForBackup, environment: environment)
+        }
+        BackupScheduler.shared.scheduleNextBackup()
     }
 
     var body: some Scene {

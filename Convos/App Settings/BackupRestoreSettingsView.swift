@@ -69,8 +69,7 @@ final class BackupRestoreViewModel {
         defer { isBackingUp = false }
 
         do {
-            let manager = try makeBackupManager()
-            _ = try await manager.createBackup()
+            _ = try await BackupScheduler.shared.runManualBackup()
             await refresh()
         } catch {
             alertMessage = error.localizedDescription
@@ -91,6 +90,7 @@ final class BackupRestoreViewModel {
             try await manager.restoreFromBackup(bundleURL: bundleURL)
             restoreState = await manager.state
             isRestoring = false
+            BackupScheduler.shared.scheduleNextBackup()
             onRestoreComplete?()
         } catch {
             isRestoring = false
@@ -113,34 +113,13 @@ final class BackupRestoreViewModel {
         }
     }
 
-    private func makeBackupManager() throws -> BackupManager {
-        guard let vaultManager = session.vaultService as? VaultManager else {
-            throw BackupRestoreError.vaultUnavailable
-        }
-        let accessGroup = environment.keychainAccessGroup
-        let identityStore = KeychainIdentityStore(accessGroup: accessGroup)
-        let vaultKeyStore = makeVaultKeyStore()
-        let archiveProvider = ConvosBackupArchiveProvider(
-            vaultService: vaultManager,
-            identityStore: identityStore,
-            environment: environment
-        )
-        return BackupManager(
-            vaultKeyStore: vaultKeyStore,
-            archiveProvider: archiveProvider,
-            identityStore: identityStore,
-            databaseReader: session.databaseReader,
-            environment: environment
-        )
-    }
-
     private func makeRestoreManager() throws -> RestoreManager {
         guard let databaseManager else {
             throw BackupRestoreError.databaseUnavailable
         }
         let accessGroup = environment.keychainAccessGroup
         let identityStore = KeychainIdentityStore(accessGroup: accessGroup)
-        let vaultKeyStore = makeVaultKeyStore()
+        let vaultKeyStore = BackupManagerFactory.makeVaultKeyStore(environment: environment)
         let archiveImporter = ConvosRestoreArchiveImporter(
             identityStore: identityStore,
             environment: environment
@@ -163,30 +142,14 @@ final class BackupRestoreViewModel {
             restoreLifecycleController: session as? any RestoreLifecycleControlling,
             vaultManager: vaultManager,
             installationRevoker: revoker,
-            backupCreator: { @MainActor [weak self] in
-                guard let self else { throw BackupRestoreError.vaultUnavailable }
-                let manager = try self.makeBackupManager()
-                return try await manager.createBackup()
+            backupCreator: { @MainActor in
+                guard let url = try await BackupScheduler.shared.runManualBackup() else {
+                    throw BackupRestoreError.vaultUnavailable
+                }
+                return url
             },
             environment: environment
         )
-    }
-
-    private func makeVaultKeyStore() -> VaultKeyStore {
-        let accessGroup = environment.keychainAccessGroup
-        let localStore = KeychainIdentityStore(
-            accessGroup: accessGroup,
-            service: "org.convos.vault-identity",
-            accessibility: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        )
-        let iCloudStore = KeychainIdentityStore(
-            accessGroup: accessGroup,
-            service: "org.convos.vault-identity.icloud",
-            accessibility: kSecAttrAccessibleAfterFirstUnlock,
-            synchronizable: true
-        )
-        let dualStore = ICloudIdentityStore(localStore: localStore, icloudStore: iCloudStore)
-        return VaultKeyStore(store: dualStore)
     }
 
     private enum BackupRestoreError: LocalizedError {
@@ -251,6 +214,10 @@ struct BackupRestoreSettingsView: View {
             }
 
             statusSection
+
+            #if DEBUG
+            debugSection
+            #endif
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
@@ -346,6 +313,30 @@ struct BackupRestoreSettingsView: View {
             }
         }
     }
+
+    #if DEBUG
+    @ViewBuilder
+    private var debugSection: some View {
+        Section {
+            let runAction: () -> Void = {
+                Task { await BackupScheduler.shared.simulateBackgroundRunForDebug() }
+            }
+            Button(action: runAction) {
+                HStack {
+                    Text("Run background backup now")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    Image(systemName: "ladybug")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
+        } header: {
+            Text("Debug")
+        } footer: {
+            Text("Triggers the BGTask handler path locally. Reschedules after.")
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var statusSection: some View {

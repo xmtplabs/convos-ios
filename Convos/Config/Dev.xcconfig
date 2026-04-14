@@ -39,6 +39,10 @@ APNS_ENVIRONMENT = production
 // App Icon Configuration
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Dev
 
+// Background tasks (daily backup scheduler)
+INFOPLIST_KEY_UIBackgroundModes = processing
+INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = org.convos.backup.daily
+
 // Release-level build settings for App Store compliance (TestFlight)
 // NOTE: Optimization is disabled to allow debugging. Re-enable for actual TestFlight builds.
 // For debuggable Dev builds:

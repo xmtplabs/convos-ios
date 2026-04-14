@@ -29,6 +29,10 @@ APNS_ENVIRONMENT = production
 // App Icon Configuration
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Prod
 
+// Background tasks (daily backup scheduler)
+INFOPLIST_KEY_UIBackgroundModes = processing
+INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = org.convos.backup.daily
+
 // Release-level build settings for App Store compliance
 // These ensure builds are fully optimized
 SWIFT_OPTIMIZATION_LEVEL = -O

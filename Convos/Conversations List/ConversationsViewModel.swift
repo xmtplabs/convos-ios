@@ -142,8 +142,13 @@ final class ConversationsViewModel {
             if conversationsCount > 1 {
                 hasCreatedMoreThanOneConvo = true
             }
+            if oldValue == 0 && conversationsCount > 0 {
+                BackupScheduler.shared.scheduleNextBackup(earliestIn: Self.firstConversationBackupDelay)
+            }
         }
     }
+
+    private static let firstConversationBackupDelay: TimeInterval = 15 * 60
 
     enum ConversationFilter {
         case all
@@ -212,12 +217,24 @@ final class ConversationsViewModel {
 
     static func resetUserDefaults() {
         UserDefaults.standard.removeObject(forKey: hasCreatedMoreThanOneConvoKey)
+        UserDefaults.standard.removeObject(forKey: skippedRestoreBackupDateKey)
     }
+
+    // MARK: - Restore prompt
+
+    /// When non-nil, the empty conversations screen renders a "Welcome back"
+    /// card offering to restore from this backup.
+    var availableRestorePrompt: BackupBundleMetadata?
+
+    /// Set when the restore card's Restore button is tapped, so the view can
+    /// present `BackupRestoreSettingsView` as a sheet.
+    var presentingRestoreSheet: Bool = false
 
     // MARK: - Private
 
     let session: any SessionManagerProtocol
     let databaseManager: (any DatabaseManagerProtocol)?
+    let environment: AppEnvironment
     private let conversationsRepository: any ConversationsRepositoryProtocol
     private let conversationsCountRepository: any ConversationsCountRepositoryProtocol
     @ObservationIgnored
@@ -232,10 +249,12 @@ final class ConversationsViewModel {
     init(
         session: any SessionManagerProtocol,
         databaseManager: (any DatabaseManagerProtocol)? = nil,
+        environment: AppEnvironment = ConfigManager.shared.currentEnvironment,
         horizontalSizeClass: UserInterfaceSizeClass? = nil
     ) {
         self.session = session
         self.databaseManager = databaseManager
+        self.environment = environment
         self.horizontalSizeClass = horizontalSizeClass
         let coordinator = FocusCoordinator(horizontalSizeClass: horizontalSizeClass)
         self.focusCoordinator = coordinator
@@ -545,6 +564,7 @@ final class ConversationsViewModel {
                 } else if let conversation = self.newConversationViewModel?.conversationViewModel?.conversation {
                     self.markConversationAsRead(conversation)
                 }
+                self.checkForAvailableBackup()
             }
             .store(in: &cancellables)
     }

@@ -22,6 +22,15 @@ struct ConversationsView: View {
     var emptyConversationsViewScrollable: some View {
         ScrollView {
             LazyVStack(spacing: 0.0) {
+                if let metadata = viewModel.availableRestorePrompt {
+                    RestorePromptCard(
+                        metadata: metadata,
+                        onRestore: { viewModel.onRestorePromptTapped() },
+                        onSkip: { viewModel.skipRestorePrompt() }
+                    )
+                    .padding(.horizontal, DesignConstants.Spacing.step4x)
+                    .padding(.top, DesignConstants.Spacing.step4x)
+                }
                 emptyConversationsView
             }
         }
@@ -257,6 +266,7 @@ struct ConversationsView: View {
                 if viewModel.selectedConversationViewModel != nil {
                     preferredColumn = .detail
                 }
+                viewModel.checkForAvailableBackup()
             }
             .onChange(of: viewModel.selectedConversationViewModel == nil) { _, isNil in
                 preferredColumn = isNil ? .sidebar : .detail
@@ -298,6 +308,16 @@ struct ConversationsView: View {
                     .padding(.top, DesignConstants.Spacing.step5x)
             }
         })
+        .sheet(isPresented: $viewModel.presentingRestoreSheet) {
+            NavigationStack {
+                BackupRestoreSettingsView(
+                    session: viewModel.session,
+                    databaseManager: viewModel.databaseManager,
+                    environment: viewModel.environment,
+                    onRestoreComplete: { viewModel.clearRestorePromptAfterRestore() }
+                )
+            }
+        }
     }
 }
 
