@@ -165,9 +165,12 @@ struct AssistantFilesLinksView: View {
                     }
                 } catch {
                     Log.error("Failed to open assistant file: \(error)")
-                    viewModel.fileOpenError = "This file is no longer available on this device."
+                    await MainActor.run {
+                        viewModel.fileOpenError = "This file is no longer available on this device."
+                    }
                 }
             }
+            return
         }
         return Button(action: action) {
             HStack(spacing: DesignConstants.Spacing.step3x) {

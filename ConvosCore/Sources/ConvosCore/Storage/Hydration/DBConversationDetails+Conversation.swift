@@ -67,7 +67,8 @@ extension DBConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: assistantJoinStatus
+            assistantJoinStatus: assistantJoinStatus,
+            hasHadVerifiedAssistant: conversation.hasHadVerifiedAssistant
         )
     }
 }

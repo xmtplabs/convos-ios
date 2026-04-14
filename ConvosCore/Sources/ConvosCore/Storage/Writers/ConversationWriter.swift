@@ -163,7 +163,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: false
+                isUnused: false,
+                hasHadVerifiedAssistant: false
             )
             try conversation.save(db)
             let memberProfile = DBMemberProfile(
@@ -303,6 +304,7 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
         let expiresAt: Date?
         let debugInfo: ConversationDebugInfo
         let isLocked: Bool
+        let hasHadVerifiedAssistant: Bool
     }
 
     private func extractConversationMetadata(from conversation: XMTPiOS.Group) async throws -> ConversationMetadata {
@@ -323,7 +325,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageEncryptionKey: imageEncryptionKey,
             expiresAt: try conversation.expiresAt,
             debugInfo: debugInfo,
-            isLocked: isLocked
+            isLocked: isLocked,
+            hasHadVerifiedAssistant: false
         )
     }
 
@@ -364,7 +367,8 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             imageNonce: metadata.imageNonce,
             imageEncryptionKey: metadata.imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: false
+            isUnused: false,
+            hasHadVerifiedAssistant: metadata.hasHadVerifiedAssistant
         )
     }
 
@@ -470,6 +474,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             preservedInviteTag = existingConversation.inviteTag
         } else {
             preservedInviteTag = nil
+        }
+
+        if let existingConversation {
+            conversationToSave = conversationToSave.with(
+                hasHadVerifiedAssistant: existingConversation.hasHadVerifiedAssistant || conversationToSave.hasHadVerifiedAssistant
+            )
         }
 
         let existingConversationByTag: DBConversation?
@@ -769,6 +779,12 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             }
         }
         try profile.save(db)
+
+        if profile.agentVerification.isConvosAssistant,
+           let conversation = try DBConversation.fetchOne(db, id: conversationId),
+           !conversation.hasHadVerifiedAssistant {
+            try conversation.with(hasHadVerifiedAssistant: true).save(db)
+        }
     }
 
     private func getLastMessageTimestamp(for conversationId: String) async throws -> Int64? {

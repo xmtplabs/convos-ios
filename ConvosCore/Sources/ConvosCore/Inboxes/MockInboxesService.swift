@@ -134,8 +134,7 @@ public final class MockInboxesService: SessionManagerProtocol {
         MockAttachmentLocalStateWriter()
     }
 
-    // swiftlint:disable:next force_try
-    private static let mockDatabase: DatabaseQueue = try! DatabaseQueue()
+    private static let mockDatabase: DatabaseQueue = MockDatabaseManager.shared.dbPool
 
     public func assistantFilesLinksRepository(for conversationId: String) -> AssistantFilesLinksRepository {
         AssistantFilesLinksRepository(dbReader: Self.mockDatabase, conversationId: conversationId)

@@ -58,11 +58,15 @@ public final class AssistantFilesLinksRepository: Sendable {
             let rows = try Row.fetchAll(db, sql: """
                 SELECT m.id, m.date, m.attachmentUrls
                 FROM message m
-                INNER JOIN memberProfile mp
-                    ON mp.inboxId = m.senderId AND mp.conversationId = m.conversationId
                 WHERE m.conversationId = ?
                     AND m.contentType = 'attachments'
-                    AND mp.memberKind IN ('agent', 'agent:convos', 'agent:user-oauth')
+                    AND EXISTS (
+                        SELECT 1
+                        FROM memberProfile mp
+                        WHERE mp.conversationId = m.conversationId
+                            AND mp.inboxId = m.senderId
+                            AND mp.memberKind IN ('agent:convos', 'agent:user-oauth')
+                    )
                 ORDER BY m.date DESC
                 """,
                 arguments: [conversationId]
@@ -94,11 +98,15 @@ public final class AssistantFilesLinksRepository: Sendable {
             let rows = try Row.fetchAll(db, sql: """
                 SELECT m.id, m.date, m.linkPreview
                 FROM message m
-                INNER JOIN memberProfile mp
-                    ON mp.inboxId = m.senderId AND mp.conversationId = m.conversationId
                 WHERE m.conversationId = ?
                     AND m.contentType = 'linkPreview'
-                    AND mp.memberKind IN ('agent', 'agent:convos', 'agent:user-oauth')
+                    AND EXISTS (
+                        SELECT 1
+                        FROM memberProfile mp
+                        WHERE mp.conversationId = m.conversationId
+                            AND mp.inboxId = m.senderId
+                            AND mp.memberKind IN ('agent:convos', 'agent:user-oauth')
+                    )
                 ORDER BY m.date DESC
                 """,
                 arguments: [conversationId]
@@ -141,9 +149,10 @@ public final class AssistantFilesLinksRepository: Sendable {
         if key.hasPrefix("file://") {
             let url = URL(string: key) ?? URL(fileURLWithPath: String(key.dropFirst(7)))
             let name = url.lastPathComponent
-            var filename: String
+            let filename: String
             if let underscoreIndex = name.firstIndex(of: "_") {
-                filename = String(name[name.index(after: underscoreIndex)...])
+                let candidate = String(name[name.index(after: underscoreIndex)...])
+                filename = candidate.isEmpty ? name : candidate
             } else {
                 filename = name
             }

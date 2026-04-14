@@ -730,7 +730,14 @@ extension MessagingService {
                 }
 
                 profile = profile.with(memberKind: update.memberKind.dbMemberKind)
+
+                if profile.isAgent {
+                    let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
+                    profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                }
+
                 try profile.save(db)
+                try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("NSE: Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -785,13 +792,31 @@ extension MessagingService {
                     }
 
                     profile = profile.with(memberKind: memberProfile.memberKind.dbMemberKind)
+
+                    if profile.isAgent {
+                        let verification = profile.hydrateProfile().verifyCachedAgentAttestation()
+                        profile = profile.with(memberKind: DBMemberKind.from(agentVerification: verification))
+                    }
+
                     try profile.save(db)
+                    try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("NSE: Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
         } catch {
             Log.warning("NSE: Failed to process ProfileSnapshot: \(error.localizedDescription)")
         }
+    }
+
+    private static func markConversationHasVerifiedAssistantIfNeeded(
+        profile: DBMemberProfile,
+        conversationId: String,
+        db: Database
+    ) throws {
+        guard profile.agentVerification.isConvosAssistant,
+              let conversation = try DBConversation.fetchOne(db, id: conversationId),
+              !conversation.hasHadVerifiedAssistant else { return }
+        try conversation.with(hasHadVerifiedAssistant: true).save(db)
     }
 
     // MARK: - Conversation Storage

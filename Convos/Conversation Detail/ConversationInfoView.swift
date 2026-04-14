@@ -95,7 +95,7 @@ struct ConversationInfoView: View {
 
     @ViewBuilder
     private var assistantSection: some View {
-        if viewModel.conversation.hasVerifiedAssistant {
+        if viewModel.conversation.hasEverHadVerifiedAssistant {
             Section {
                 filesAndLinksRow
             }
@@ -125,9 +125,7 @@ struct ConversationInfoView: View {
                 iconBackgroundColor: .colorFillMinimal,
                 iconForegroundColor: .colorTextPrimary
             ) {
-                Image(systemName: "chevron.right")
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.colorTextSecondary)
+                EmptyView()
             }
         }
         .buttonStyle(.plain)
