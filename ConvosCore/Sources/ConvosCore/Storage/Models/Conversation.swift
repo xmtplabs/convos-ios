@@ -86,12 +86,12 @@ public extension Conversation {
         if imageURL != nil {
             return .customImage
         }
-        if let conversationEmoji, !conversationEmoji.isEmpty {
-            return .emoji(conversationEmoji)
-        }
         let otherMembers = membersWithoutCurrent
         if otherMembers.count == 1, let member = otherMembers.first {
             return .profile(member.profile, member.agentVerification)
+        }
+        if let conversationEmoji, !conversationEmoji.isEmpty {
+            return .emoji(conversationEmoji)
         }
         let otherProfiles = otherMembers.map(\.profile)
         if otherProfiles.isEmpty || !otherProfiles.hasAnyAvatar {
