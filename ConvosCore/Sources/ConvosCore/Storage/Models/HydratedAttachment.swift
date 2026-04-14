@@ -60,7 +60,8 @@ public struct HydratedAttachment: Hashable, Codable, Sendable {
             return true
         }
         guard let mimeType else { return false }
-        return mimeType == "text/markdown" || mimeType == "text/x-markdown"
+        let normalizedMimeType = mimeType.lowercased()
+        return normalizedMimeType == "text/markdown" || normalizedMimeType == "text/x-markdown"
     }
 
     public var mediaType: MediaType {

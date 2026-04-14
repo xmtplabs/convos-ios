@@ -33,6 +33,14 @@ struct HydratedAttachmentIsMarkdownFileTests {
         #expect(attachment.isMarkdownFile)
     }
 
+    @Test("detects markdown mime types case-insensitively")
+    func markdownMimeCaseInsensitive() {
+        let markdown = HydratedAttachment(key: "test", mimeType: "Text/Markdown", filename: "file")
+        let xMarkdown = HydratedAttachment(key: "test", mimeType: "TEXT/X-MARKDOWN", filename: "file")
+        #expect(markdown.isMarkdownFile)
+        #expect(xMarkdown.isMarkdownFile)
+    }
+
     @Test("returns false for non-markdown files")
     func nonMarkdown() {
         let pdf = HydratedAttachment(key: "test", filename: "document.pdf")

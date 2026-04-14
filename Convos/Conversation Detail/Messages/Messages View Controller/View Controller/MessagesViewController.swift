@@ -1109,7 +1109,21 @@ private struct MarkdownAttachmentPreviewSheet: View {
                 div.querySelectorAll('*').forEach(function(el) {
                     el.getAttributeNames().filter(function(n) { return n.startsWith('on'); }).forEach(function(n) { el.removeAttribute(n); });
                 });
-                div.querySelectorAll('a[href^="javascript:"]').forEach(function(el) { el.removeAttribute('href'); });
+                div.querySelectorAll('a').forEach(function(el) {
+                    var href = el.getAttribute('href');
+                    if (!href) {
+                        return;
+                    }
+                    try {
+                        var parsed = new URL(href, 'https://example.invalid');
+                        var scheme = parsed.protocol.toLowerCase();
+                        if (scheme !== 'http:' && scheme !== 'https:' && scheme !== 'mailto:') {
+                            el.removeAttribute('href');
+                        }
+                    } catch (e) {
+                        el.removeAttribute('href');
+                    }
+                });
                 document.getElementById('content').innerHTML = div.innerHTML;
             </script>
             </body>
@@ -1159,11 +1173,18 @@ private struct MarkdownWebView: UIViewRepresentable {
             _ webView: WKWebView,
             decidePolicyFor navigationAction: WKNavigationAction
         ) async -> WKNavigationActionPolicy {
-            if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
-                await UIApplication.shared.open(url)
+            guard navigationAction.navigationType == .linkActivated,
+                  let url = navigationAction.request.url else {
+                return .allow
+            }
+
+            guard let scheme = url.scheme?.lowercased(),
+                  ["http", "https", "mailto"].contains(scheme) else {
                 return .cancel
             }
-            return .allow
+
+            await UIApplication.shared.open(url)
+            return .cancel
         }
     }
 }
