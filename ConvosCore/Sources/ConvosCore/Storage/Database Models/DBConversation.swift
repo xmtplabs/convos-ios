@@ -755,6 +755,7 @@ extension DBConversation {
             imageSalt: imageSalt,
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
+            conversationEmoji: conversationEmoji,
             imageLastRenewed: imageLastRenewed,
             isUnused: isUnused,
             hasHadVerifiedAssistant: hasHadVerifiedAssistant

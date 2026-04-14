@@ -65,6 +65,7 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         let text: String
         let dependsOnPhotoKey: String?
         let replyContext: ReplyContext?
+        let isExistingLocalMessage: Bool
     }
 
     private struct QueuedPhotoMessage {
@@ -187,7 +188,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             clientMessageId: clientMessageId,
             text: finalText,
             dependsOnPhotoKey: nil,
-            replyContext: nil
+            replyContext: nil,
+            isExistingLocalMessage: true
         )
         messageQueue.append(.text(queued))
         startProcessingIfNeeded()
@@ -201,7 +203,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
             clientMessageId: clientMessageId,
             text: text,
             dependsOnPhotoKey: trackingKey,
-            replyContext: replyContext
+            replyContext: replyContext,
+            isExistingLocalMessage: false
         )
 
         // If this text depends on a photo that hasn't been published yet, defer it
@@ -936,8 +939,26 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
         }
         Log.debug("Text prepare() returned xmtpMessageId=\(xmtpMessageId), clientMessageId=\(queued.clientMessageId), same=\(xmtpMessageId == queued.clientMessageId)")
 
-        if xmtpMessageId != queued.clientMessageId {
-            try await databaseWriter.write { db in
+        try await databaseWriter.write { db in
+            guard let message = try DBMessage
+                .filter(DBMessage.Columns.clientMessageId == queued.clientMessageId)
+                .fetchOne(db) else {
+                Log.warning("publishText: message not found for clientMessageId \(queued.clientMessageId)")
+                return
+            }
+
+            if queued.isExistingLocalMessage {
+                let updatedMessage = message.with(id: xmtpMessageId).with(status: .unpublished)
+                try updatedMessage.save(db)
+                try db.execute(
+                    sql: "UPDATE message SET sourceMessageId = ? WHERE sourceMessageId = ?",
+                    arguments: [xmtpMessageId, queued.clientMessageId]
+                )
+                Log.debug("Updated existing local text message id from \(queued.clientMessageId) to \(xmtpMessageId)")
+                return
+            }
+
+            if xmtpMessageId != queued.clientMessageId {
                 // Atomic primary key update - avoids the DELETE/INSERT pattern that causes message flash
                 try db.execute(
                     sql: "UPDATE message SET id = ? WHERE id = ?",
@@ -1367,7 +1388,8 @@ actor OutgoingMessageWriter: OutgoingMessageWriterProtocol {
                 clientMessageId: message.clientMessageId,
                 text: text,
                 dependsOnPhotoKey: nil,
-                replyContext: replyContext
+                replyContext: replyContext,
+                isExistingLocalMessage: false
             )
             messageQueue.append(.text(queued))
             startProcessingIfNeeded()
