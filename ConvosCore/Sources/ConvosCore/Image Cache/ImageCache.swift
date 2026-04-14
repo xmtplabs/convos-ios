@@ -273,7 +273,7 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
                     return image
                 }
                 // Fetch failed — fall back to stale cached image rather than blank avatar
-                return cache.object(forKey: identifier as NSString)
+                return await loadImageFromCache(identifier: identifier, source: "loadImage (encrypted fallback)")
             }
 
             // URL unchanged - normal cache lookup

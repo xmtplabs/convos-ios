@@ -725,6 +725,40 @@ struct EncryptedImageColdStartTests {
         // Cleanup
         cache2.removeImage(for: identifier)
     }
+
+    @Test("Encrypted image falls back to stale disk cache when inline fetch fails after URL change")
+    func encryptedImageFallsBackToStaleDiskCacheWhenInlineFetchFails() async throws {
+        let cache = ImageCache()
+        let identifier = "encrypted-fallback-\(UUID().uuidString)"
+        let staleURL = URL(string: "https://example.com/encrypted-avatar-v1.jpg")!
+        let newURL = URL(string: "https://example.com/encrypted-avatar-v2.jpg")!
+        let staleImage = createTestImage(color: .purple)
+
+        cache.cacheAfterUpload(staleImage, for: identifier, url: staleURL.absoluteString)
+        try await Task.sleep(nanoseconds: 500_000_000)
+
+        let cache2 = ImageCache()
+
+        struct EncryptedCacheable: ImageCacheable {
+            let imageCacheIdentifier: String
+            let imageCacheURL: URL?
+            let isEncryptedImage: Bool = true
+            let encryptionKey: Data? = nil
+            let encryptionSalt: Data? = nil
+            let encryptionNonce: Data? = nil
+        }
+
+        let encryptedCacheable = EncryptedCacheable(
+            imageCacheIdentifier: identifier,
+            imageCacheURL: newURL
+        )
+
+        let loadedImage = await cache2.loadImage(for: encryptedCacheable)
+
+        #expect(loadedImage != nil, "Should fall back to stale disk-cached image when inline fetch fails")
+
+        cache2.removeImage(for: identifier)
+    }
 }
 
 // MARK: - URL Tracking Behavior Tests
