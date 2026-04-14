@@ -267,9 +267,13 @@ public final class ImageCache: ImageCacheProtocol, @unchecked Sendable {
             // The prefetcher will update the tracker when it caches the decrypted image
             let peek = await urlTracker.peek(url, for: identifier)
 
-            if peek.changed, let cachedImage = cache.object(forKey: identifier as NSString) {
-                // URL changed - return cached image (if any), prefetcher will handle decryption
-                return cachedImage
+            if peek.changed {
+                // URL changed — fetch and decrypt the new image inline
+                if let image = await fetchEncryptedImageInline(for: object, url: url, identifier: identifier) {
+                    return image
+                }
+                // Fetch failed — fall back to stale cached image rather than blank avatar
+                return cache.object(forKey: identifier as NSString)
             }
 
             // URL unchanged - normal cache lookup
