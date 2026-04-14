@@ -882,12 +882,13 @@ extension MessagesViewController {
     private func openFileAttachment(_ attachment: HydratedAttachment) {
         Task {
             do {
-                let fileURL = try await FileAttachmentPreviewLoader.loadPreviewURL(
-                    key: attachment.key,
-                    filename: attachment.filename
-                )
+                let fileURL = try await loadFileForPreview(attachment)
                 await MainActor.run {
-                    QuickLookSheetPresenter.present(fileURL: fileURL, from: self)
+                    if attachment.isMarkdownFile {
+                        presentMarkdownPreview(fileURL: fileURL, filename: attachment.filename ?? "Markdown")
+                    } else {
+                        FileAttachmentQuickLookCoordinator.shared.present(fileURL: fileURL, from: self)
+                    }
                 }
             } catch {
                 Log.error("Failed to open file attachment: \(error)")
