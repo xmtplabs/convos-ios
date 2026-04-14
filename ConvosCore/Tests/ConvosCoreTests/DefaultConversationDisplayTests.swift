@@ -294,6 +294,53 @@ struct DefaultConversationDisplayTests {
         #expect(conversation.avatarType == .customImage)
     }
 
+    @Test("avatarType returns profile for DM even when conversation emoji exists")
+    func avatarTypeProfileForDMWithConversationEmoji() {
+        let members = [
+            ConversationMember.mock(isCurrentUser: true, name: "You"),
+            ConversationMember.mock(isCurrentUser: false, name: "Alice")
+        ]
+        let conversation = Conversation(
+            id: "test",
+            clientConversationId: "client-test",
+            inboxId: "inbox",
+            clientId: "client",
+            creator: .mock(isCurrentUser: true),
+            createdAt: Date(),
+            consent: .allowed,
+            kind: .dm,
+            name: nil,
+            description: nil,
+            members: members,
+            otherMember: members.first(where: { !$0.isCurrentUser }),
+            messages: [],
+            isPinned: false,
+            isUnread: false,
+            isMuted: false,
+            pinnedOrder: nil,
+            lastMessage: nil,
+            imageURL: nil,
+            imageSalt: nil,
+            imageNonce: nil,
+            imageEncryptionKey: nil,
+            conversationEmoji: "🦊",
+            includeInfoInPublicPreview: false,
+            isDraft: false,
+            invite: nil,
+            expiresAt: nil,
+            debugInfo: .empty,
+            isLocked: false,
+            assistantJoinStatus: nil,
+            hasHadVerifiedAssistant: false
+        )
+
+        if case .profile(let profile, _) = conversation.avatarType {
+            #expect(profile.inboxId == "mock-inbox-id-other")
+        } else {
+            #expect(Bool(false), "Expected DM avatar to use other member profile before conversation emoji")
+        }
+    }
+
     @Test("avatarType returns emoji for fully anonymous group")
     func avatarTypeEmojiForAnonymous() {
         let members = [
