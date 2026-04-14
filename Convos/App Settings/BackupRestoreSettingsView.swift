@@ -108,7 +108,7 @@ final class BackupRestoreViewModel {
         case let .savingKeys(completed, total): return "Restoring keys (\(completed)/\(total))…"
         case .replacingDatabase: return "Replacing database…"
         case let .importingConversations(completed, total): return "Importing conversations (\(completed)/\(total))…"
-        case let .completed(inboxCount, _): return "Restored \(inboxCount) conversation\(inboxCount == 1 ? "" : "s")"
+        case let .completed(inboxCount, _): return "Restored \(inboxCount) convo\(inboxCount == 1 ? "" : "s")"
         case let .failed(message): return "Failed: \(message)"
         }
     }
@@ -310,7 +310,7 @@ struct BackupRestoreSettingsView: View {
             Text("Restore")
         } footer: {
             if let metadata = viewModel.availableRestoreMetadata {
-                Text("From \(metadata.deviceName) · \(metadata.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(metadata.inboxCount) conversation\(metadata.inboxCount == 1 ? "" : "s")")
+                Text("From \(metadata.deviceName) · \(metadata.createdAt.formatted(date: .abbreviated, time: .shortened)) · \(metadata.inboxCount) convo\(metadata.inboxCount == 1 ? "" : "s")")
             }
         }
     }

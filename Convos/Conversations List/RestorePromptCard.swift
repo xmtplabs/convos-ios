@@ -38,12 +38,32 @@ struct RestorePromptCard: View {
                 Button(action: restoreAction) {
                     Text("Restore")
                 }
-                .convosButtonStyle(.rounded(fullWidth: true))
+                .buttonStyle(FilledRoundedRectButtonStyle(fullWidth: true))
                 .accessibilityIdentifier("restore-prompt-restore-button")
             }
         }
         .padding(DesignConstants.Spacing.step4x)
         .background(Color.colorFillMinimal, in: RoundedRectangle(cornerRadius: 16))
+    }
+}
+
+private struct FilledRoundedRectButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled: Bool
+
+    let fullWidth: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(maxWidth: fullWidth ? .infinity : nil)
+            .font(.subheadline)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.vertical, DesignConstants.Spacing.step4x)
+            .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .opacity(configuration.isPressed ? 0.6 : 1.0)
+            .background(Color.colorFillPrimary)
+            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
+            .foregroundColor(isEnabled ? .colorTextPrimaryInverted : .colorTextTertiary)
     }
 }
 
