@@ -32,13 +32,13 @@ struct RestorePromptCard: View {
                 Button(action: skipAction) {
                     Text("Skip")
                 }
-                .convosButtonStyle(.outline(fullWidth: true))
+                .buttonStyle(CapsuleOutlineButtonStyle(fullWidth: true))
                 .accessibilityIdentifier("restore-prompt-skip-button")
 
                 Button(action: restoreAction) {
                     Text("Restore")
                 }
-                .buttonStyle(FilledRoundedRectButtonStyle(fullWidth: true))
+                .convosButtonStyle(.rounded(fullWidth: true))
                 .accessibilityIdentifier("restore-prompt-restore-button")
             }
         }
@@ -47,7 +47,7 @@ struct RestorePromptCard: View {
     }
 }
 
-private struct FilledRoundedRectButtonStyle: ButtonStyle {
+private struct CapsuleOutlineButtonStyle: ButtonStyle {
     @Environment(\.isEnabled) private var isEnabled: Bool
 
     let fullWidth: Bool
@@ -60,10 +60,11 @@ private struct FilledRoundedRectButtonStyle: ButtonStyle {
             .truncationMode(.middle)
             .padding(.vertical, DesignConstants.Spacing.step4x)
             .padding(.horizontal, DesignConstants.Spacing.step4x)
+            .background(Color.clear)
+            .clipShape(Capsule())
+            .overlay(Capsule().stroke(.colorBorderSubtle2, lineWidth: 1.0))
+            .foregroundColor(isEnabled ? .colorTextPrimary : .colorTextTertiary)
             .opacity(configuration.isPressed ? 0.6 : 1.0)
-            .background(Color.colorFillPrimary)
-            .clipShape(RoundedRectangle(cornerRadius: DesignConstants.CornerRadius.medium))
-            .foregroundColor(isEnabled ? .colorTextPrimaryInverted : .colorTextTertiary)
     }
 }
 
