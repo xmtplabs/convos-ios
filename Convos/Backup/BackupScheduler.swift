@@ -20,6 +20,7 @@ final class BackupScheduler {
     typealias BackupManagerFactory = @MainActor () -> BackupManager?
 
     private var factory: BackupManagerFactory?
+    private var isRegistered: Bool = false
     private(set) var isBackupInProgress: Bool = false
 
     private init() {}
@@ -38,13 +39,19 @@ final class BackupScheduler {
                 await BackupScheduler.shared.handleBackgroundTask(task)
             }
         }
+        isRegistered = true
         Log.info("[BackupScheduler] registered task \(Self.taskIdentifier)")
     }
 
     /// Submits a `BGProcessingTaskRequest` to run no earlier than `delay`
     /// seconds from now. Idempotent — submit replaces any existing request
-    /// with the same identifier.
+    /// with the same identifier. No-op if `register()` hasn't been called
+    /// yet (iOS asserts otherwise).
     func scheduleNextBackup(earliestIn delay: TimeInterval = BackupScheduler.dailyDelay) {
+        guard isRegistered else {
+            Log.warning("[BackupScheduler] scheduleNextBackup called before register — ignoring")
+            return
+        }
         let request = BGProcessingTaskRequest(identifier: Self.taskIdentifier)
         request.earliestBeginDate = Date(timeIntervalSinceNow: delay)
         request.requiresNetworkConnectivity = true

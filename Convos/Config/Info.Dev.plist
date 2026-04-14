@@ -13,5 +13,13 @@
 	</array>
 	<key>NSPhotoLibraryAddUsageDescription</key>
 	<string>Convos needs access to your Photo Library to save photos from conversations.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>org.convos.backup.daily</string>
+	</array>
 </dict>
 </plist>

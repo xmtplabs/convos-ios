@@ -37,9 +37,5 @@ APNS_ENVIRONMENT = development
 // App Icon Configuration
 ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon-Local
 
-// Background tasks (daily backup scheduler)
-INFOPLIST_KEY_UIBackgroundModes = processing
-INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = org.convos.backup.daily
-
 // Debug information format for local development (faster builds)
 DEBUG_INFORMATION_FORMAT = dwarf

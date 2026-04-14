@@ -215,9 +215,9 @@ struct BackupRestoreSettingsView: View {
 
             statusSection
 
-            #if DEBUG
-            debugSection
-            #endif
+            if !ConfigManager.shared.currentEnvironment.isProduction {
+                debugSection
+            }
         }
         .scrollContentBackground(.hidden)
         .background(.colorBackgroundRaisedSecondary)
@@ -314,7 +314,6 @@ struct BackupRestoreSettingsView: View {
         }
     }
 
-    #if DEBUG
     @ViewBuilder
     private var debugSection: some View {
         Section {
@@ -336,7 +335,6 @@ struct BackupRestoreSettingsView: View {
             Text("Triggers the BGTask handler path locally. Reschedules after.")
         }
     }
-    #endif
 
     @ViewBuilder
     private var statusSection: some View {
