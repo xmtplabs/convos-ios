@@ -62,7 +62,6 @@ enum ExplodeDuration: CaseIterable {
     }
 }
 
-// swiftlint:disable type_body_length
 @MainActor
 @Observable
 class ConversationViewModel { // swiftlint:disable:this type_body_length
@@ -2022,4 +2021,3 @@ extension ConversationViewModel {
         }
     }
 }
-// swiftlint:enable type_body_length

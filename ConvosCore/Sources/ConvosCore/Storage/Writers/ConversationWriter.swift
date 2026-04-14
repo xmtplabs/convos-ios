@@ -67,16 +67,7 @@ extension ConversationWriterProtocol {
     }
 }
 
-/// Writer for persisting conversations and their members to the database
-///
-/// ConversationWriter handles converting XMTP conversations to database representations
-/// and managing all related data including members, profiles, invites, and messages.
-/// Handles both initial storage and updates, with special logic for matching
-/// placeholder conversations created during invite flows.
-///
-/// Marked @unchecked Sendable because GRDB's DatabaseWriter provides its own
-/// concurrency safety via write{}/read{} closures - all database access is
-/// externally synchronized by GRDB's serialized database queue.
+// swiftlint:disable type_body_length
 class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
     private let databaseWriter: any DatabaseWriter
     private let inviteWriter: any InviteWriterProtocol
@@ -488,15 +479,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             )
         }
 
-        let existingConversationByTag: DBConversation?
-        if !dbConversation.inviteTag.isEmpty {
-            existingConversationByTag = try DBConversation
-                .filter(DBConversation.Columns.inviteTag == dbConversation.inviteTag)
-                .filter(DBConversation.Columns.id != dbConversation.id)
-                .fetchOne(db)
-        } else {
-            existingConversationByTag = nil
-        }
+        let existingConversationByTag = try existingConversationMatchingInviteTag(
+            inviteTag: dbConversation.inviteTag,
+            excludingConversationId: dbConversation.id,
+            in: db
+        )
 
         let conversationSaveLog: String = "Conversation save attempt. " +
             "incomingId=\(dbConversation.id) " +
@@ -550,11 +537,11 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             if let existingExpiresAt = existingConversation.expiresAt, updatedConversation.expiresAt == nil {
                 updatedConversation = updatedConversation.with(expiresAt: existingExpiresAt)
             }
-            if !updatedConversation.inviteTag.isEmpty,
-               let conflictingConversation = try DBConversation
-                .filter(DBConversation.Columns.inviteTag == updatedConversation.inviteTag)
-                .filter(DBConversation.Columns.id != updatedConversation.id)
-                .fetchOne(db) {
+            if let conflictingConversation = try existingConversationMatchingInviteTag(
+                inviteTag: updatedConversation.inviteTag,
+                excludingConversationId: updatedConversation.id,
+                in: db
+            ) {
                 Log.error(
                     "Invite tag collision before save. " +
                         "incomingId=\(updatedConversation.id) " +
@@ -585,6 +572,18 @@ class ConversationWriter: ConversationWriterProtocol, @unchecked Sendable {
             oldImageURL: oldImageURL,
             preservedInviteTag: preservedInviteTag
         )
+    }
+
+    private func existingConversationMatchingInviteTag(
+        inviteTag: String,
+        excludingConversationId: String,
+        in db: Database
+    ) throws -> DBConversation? {
+        guard !inviteTag.isEmpty else { return nil }
+        return try DBConversation
+            .filter(DBConversation.Columns.inviteTag == inviteTag)
+            .filter(DBConversation.Columns.id != excludingConversationId)
+            .fetchOne(db)
     }
 
     private func saveMembers(_ dbMembers: [DBConversationMember], in db: Database) throws {
@@ -921,6 +920,7 @@ extension XMTPiOS.Conversation {
         }
     }
 }
+// swiftlint:enable type_body_length
 
 fileprivate extension XMTPiOS.ConsentState {
     var memberConsent: Consent {

@@ -486,7 +486,6 @@ extension SharedDatabaseMigrator {
             }
         }
 
-
         return migrator
     }
 }
