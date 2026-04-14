@@ -27,9 +27,9 @@ Two things are needed:
 
 1. **Background Modes capability** — enable "Background processing" in the Xcode target capabilities. This adds `processing` to `UIBackgroundModes` in the generated Info.plist. Without this, `BGTaskScheduler.submit` throws at runtime.
 
-2. **Task identifier registration** — since the project uses `GENERATE_INFOPLIST_FILE = YES` (no checked-in Info.plist), add the identifier via build settings:
+2. **Task identifier registration** — since the project uses `GENERATE_INFOPLIST_FILE = YES` (no checked-in Info.plist), add the identifier via build settings. The plist key is an array, so use indexed syntax:
    ```
-   INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers = org.convos.backup.daily
+   INFOPLIST_KEY_BGTaskSchedulerPermittedIdentifiers[0] = org.convos.backup.daily
    ```
    This must be added to all xcconfig files (Dev, Local, Prod) since we build different apps from the same codebase.
 
@@ -86,7 +86,7 @@ Add a debug-only "Run background backup now" button in `BackupRestoreSettingsVie
 
 On first launch (or after delete-all-data), before the user creates their first conversation:
 
-1. No existing non-vault inboxes in GRDB (fresh state)
+1. No non-vault **used** inboxes in GRDB (fresh state) — use the same `isUnused` filter as elsewhere to avoid precreated/draft inboxes suppressing the prompt
 2. `RestoreManager.findAvailableBackup()` returns a backup (vault key in iCloud Keychain + backup file in iCloud container)
 
 If both conditions are true, show a restore prompt.
@@ -121,7 +121,7 @@ Value: ISO8601 string of the skipped backup's metadata.createdAt
 
 On next check: if `findAvailableBackup()` returns a backup with `createdAt` newer than the skipped date, show the prompt again. This way, skipping today's backup doesn't hide tomorrow's.
 
-`UserDefaults` is wiped on app reinstall or delete-all-data, which is the correct behavior — a reinstalled app should always check for available backups.
+`UserDefaults` is wiped on app reinstall. On delete-all-data, the app only clears selected keys — so the `skippedRestoreBackupDate` key must be explicitly included in the delete-all-data reset flow to ensure the prompt reappears after a data wipe.
 
 ### Implementation
 
@@ -155,7 +155,7 @@ Daily is hardcoded. Weekly means up to 7 days of lost messages on restore. Hourl
 
 ### Concurrency guard
 
-`BackupManager` is an actor, so backup calls serialize naturally. The concrete risk is the BGTask handler firing while the user is mid-manual-backup. The scheduler holds an `isBackupInProgress` flag to short-circuit the background handler in that case — mark complete immediately and reschedule.
+`BackupManager` is an actor, but manual and background paths may create separate instances — actor isolation only serializes within a single instance. The scheduler holds a **process-global** `isBackupInProgress` flag (e.g. a static `AtomicBool` or a shared singleton) that both the manual "Back up now" path and the BGTask handler check before starting. If a backup is already in progress, the second caller short-circuits — the BGTask handler marks complete and reschedules.
 
 ### First-conversation trigger timing
 
