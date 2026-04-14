@@ -1015,7 +1015,8 @@ extension UnusedConversationCache {
                 imageNonce: nil,
                 imageEncryptionKey: nil,
                 imageLastRenewed: nil,
-                isUnused: true
+                isUnused: true,
+                hasHadVerifiedAssistant: false
             )
             try dbConversation.save(db)
 
@@ -1075,6 +1076,7 @@ extension UnusedConversationCache {
                     imageEncryptionKey: nil,
                     imageLastRenewed: nil,
                     isUnused: true,
+                    hasHadVerifiedAssistant: false
                 )
                 try dbConversation.save(db)
             }

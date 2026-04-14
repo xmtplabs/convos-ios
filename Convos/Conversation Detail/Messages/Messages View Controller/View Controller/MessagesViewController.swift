@@ -195,7 +195,7 @@ final class MessagesViewController: UIViewController {
     var onConvoCode: (() -> Void)?
     var onInviteAssistant: (() -> Void)?
     var onRetryTranscript: ((VoiceMemoTranscriptListItem) -> Void)?
-    private var filePreviewURL: URL?
+
     var hasAssistant: Bool = false {
         didSet { dataSource.hasAssistant = hasAssistant }
     }
@@ -878,20 +878,17 @@ extension MessagesViewController: KeyboardListenerDelegate {
 
 // MARK: - File Attachment QuickLook
 
-extension MessagesViewController: QLPreviewControllerDataSource {
+extension MessagesViewController {
     private func openFileAttachment(_ attachment: HydratedAttachment) {
         Task {
             do {
-                let fileURL = try await loadFileForPreview(attachment)
-                if attachment.isMarkdownFile {
-                    presentMarkdownPreview(fileURL: fileURL, filename: attachment.filename ?? "Markdown")
-                    return
+                let fileURL = try await FileAttachmentPreviewLoader.loadPreviewURL(
+                    key: attachment.key,
+                    filename: attachment.filename
+                )
+                await MainActor.run {
+                    QuickLookSheetPresenter.present(fileURL: fileURL, from: self)
                 }
-                let previewController = QLPreviewController()
-                filePreviewURL = fileURL
-                previewController.dataSource = self
-                previewController.delegate = self
-                present(previewController, animated: true)
             } catch {
                 Log.error("Failed to open file attachment: \(error)")
                 let alert = UIAlertController(
@@ -913,7 +910,6 @@ extension MessagesViewController: QLPreviewControllerDataSource {
         )
         let controller = UIHostingController(rootView: preview)
         controller.modalPresentationStyle = .pageSheet
-        controller.presentationController?.delegate = self
         if let sheet = controller.sheetPresentationController {
             sheet.detents = [.medium(), .large()]
             sheet.prefersGrabberVisible = false
@@ -958,29 +954,189 @@ extension MessagesViewController: QLPreviewControllerDataSource {
         guard !messageId.isEmpty else { return nil }
         return messageId
     }
+}
 
-    func numberOfPreviewItems(in controller: QLPreviewController) -> Int {
-        filePreviewURL != nil ? 1 : 0
+private struct MarkdownAttachmentPreviewSheet: View {
+    let fileURL: URL
+    let filename: String
+    @Environment(\.dismiss) private var dismiss: DismissAction
+
+    @State private var htmlString: String?
+    @State private var errorMessage: String?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if let htmlString {
+                    MarkdownWebView(html: htmlString)
+                        .ignoresSafeArea(edges: .bottom)
+                } else if let errorMessage {
+                    ContentUnavailableView("Preview Unavailable", systemImage: "doc.text", description: Text(errorMessage))
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationTitle(filename)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    ShareLink(item: fileURL) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+                ToolbarItem(placement: .topBarTrailing) {
+                    let action = { dismiss() }
+                    Button("Done", action: action)
+                }
+            }
+        }
+        .task {
+            await loadMarkdown()
+        }
     }
 
-    func previewController(_ controller: QLPreviewController, previewItemAt index: Int) -> any QLPreviewItem {
-        (filePreviewURL ?? URL(fileURLWithPath: "")) as NSURL
+    private func loadMarkdown() async {
+        guard let markedJS = Self.loadMarkedJS() else {
+            errorMessage = "Markdown renderer is unavailable."
+            return
+        }
+        do {
+            let url = fileURL
+            let markdown = try await Task.detached {
+                try String(contentsOf: url, encoding: .utf8)
+            }.value
+            let encodedMarkdown = Data(markdown.utf8).base64EncodedString()
+            htmlString = """
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+            <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:;" />
+            <style>
+                :root { color-scheme: light dark; }
+                body {
+                    font: -apple-system-body;
+                    font-family: -apple-system, system-ui, sans-serif;
+                    padding: 16px;
+                    line-height: 1.6;
+                    word-wrap: break-word;
+                    overflow-wrap: break-word;
+                }
+                h1 { font-size: 1.6em; margin-top: 0; }
+                h2 { font-size: 1.4em; }
+                h3 { font-size: 1.2em; }
+                code {
+                    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+                    font-size: 0.9em;
+                    background: rgba(128, 128, 128, 0.15);
+                    padding: 2px 5px;
+                    border-radius: 4px;
+                }
+                pre {
+                    background: rgba(128, 128, 128, 0.1);
+                    padding: 12px;
+                    border-radius: 8px;
+                    overflow-x: auto;
+                }
+                pre code {
+                    background: none;
+                    padding: 0;
+                }
+                blockquote {
+                    border-left: 3px solid rgba(128, 128, 128, 0.4);
+                    margin-left: 0;
+                    padding-left: 16px;
+                    color: rgba(128, 128, 128, 0.8);
+                }
+                img { max-width: 100%; height: auto; }
+                table {
+                    border-collapse: collapse;
+                    width: 100%;
+                }
+                th, td {
+                    border: 1px solid rgba(128, 128, 128, 0.3);
+                    padding: 8px;
+                    text-align: left;
+                }
+                a { color: #007AFF; }
+                @media (prefers-color-scheme: dark) {
+                    a { color: #0A84FF; }
+                }
+            </style>
+            <script>\(markedJS)</script>
+            </head>
+            <body data-markdown="\(encodedMarkdown)">
+            <div id="content"></div>
+            <script>
+                var encoded = document.body.getAttribute('data-markdown');
+                var decoded = atob(encoded);
+                var text = new TextDecoder().decode(Uint8Array.from(decoded, function(c) { return c.charCodeAt(0); }));
+                var renderer = { html: function(token) { return ''; } };
+                marked.use({ renderer: renderer });
+                var html = marked.parse(text);
+                var div = document.createElement('div');
+                div.innerHTML = html;
+                div.querySelectorAll('script, iframe, object, embed, form, input, textarea, button, select').forEach(function(el) { el.remove(); });
+                div.querySelectorAll('*').forEach(function(el) {
+                    el.getAttributeNames().filter(function(n) { return n.startsWith('on'); }).forEach(function(n) { el.removeAttribute(n); });
+                });
+                div.querySelectorAll('a[href^="javascript:"]').forEach(function(el) { el.removeAttribute('href'); });
+                document.getElementById('content').innerHTML = div.innerHTML;
+            </script>
+            </body>
+            </html>
+            """
+        } catch {
+            errorMessage = "This markdown file could not be loaded."
+        }
+    }
+
+    private static func loadMarkedJS() -> String? {
+        guard let url = Bundle.main.url(forResource: "marked.min", withExtension: "js"),
+              let js = try? String(contentsOf: url, encoding: .utf8) else {
+            return nil
+        }
+        return js
     }
 }
 
-extension MessagesViewController: @preconcurrency QLPreviewControllerDelegate {
-    func previewControllerDidDismiss(_ controller: QLPreviewController) {
-        cleanupPresentedFilePreview()
-    }
-}
+private struct MarkdownWebView: UIViewRepresentable {
+    let html: String
 
-extension MessagesViewController: UIAdaptivePresentationControllerDelegate {
-    func presentationControllerDidDismiss(_ presentationController: UIPresentationController) {
-        cleanupPresentedFilePreview()
+    func makeUIView(context: Context) -> WKWebView {
+        let config = WKWebViewConfiguration()
+        let webView = WKWebView(frame: .zero, configuration: config)
+        webView.isOpaque = false
+        webView.backgroundColor = .clear
+        webView.scrollView.backgroundColor = .clear
+        webView.navigationDelegate = context.coordinator
+        return webView
     }
 
-    private func cleanupPresentedFilePreview() {
-        filePreviewURL = nil
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        guard context.coordinator.loadedHTML != html else { return }
+        context.coordinator.loadedHTML = html
+        webView.loadHTMLString(html, baseURL: nil)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator: NSObject, WKNavigationDelegate {
+        var loadedHTML: String?
+
+        func webView(
+            _ webView: WKWebView,
+            decidePolicyFor navigationAction: WKNavigationAction
+        ) async -> WKNavigationActionPolicy {
+            if navigationAction.navigationType == .linkActivated, let url = navigationAction.request.url {
+                await UIApplication.shared.open(url)
+                return .cancel
+            }
+            return .allow
+        }
     }
 }
 

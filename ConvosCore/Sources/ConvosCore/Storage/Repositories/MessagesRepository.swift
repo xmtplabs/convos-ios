@@ -768,7 +768,8 @@ private extension LightweightConversationDetails {
             expiresAt: conversation.expiresAt,
             debugInfo: conversation.debugInfo,
             isLocked: conversation.isLocked,
-            assistantJoinStatus: nil
+            assistantJoinStatus: nil,
+            hasHadVerifiedAssistant: conversation.hasHadVerifiedAssistant
         )
     }
 }

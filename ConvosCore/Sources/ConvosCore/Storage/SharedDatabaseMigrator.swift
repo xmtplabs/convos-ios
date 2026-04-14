@@ -351,6 +351,12 @@ extension SharedDatabaseMigrator {
             }
         }
 
+        migrator.registerMigration("addHasHadVerifiedAssistantToConversation") { db in
+            try db.alter(table: "conversation") { t in
+                t.add(column: "hasHadVerifiedAssistant", .boolean).notNull().defaults(to: false)
+            }
+        }
+
         migrator.registerMigration("addAssetRenewalColumns") { db in
             try db.alter(table: "memberProfile") { t in
                 t.add(column: "avatarLastRenewed", .datetime)

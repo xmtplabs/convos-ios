@@ -21,6 +21,12 @@ public enum AgentVerificationWriter {
             try await dbWriter.write { db in
                 let updated = profile.with(memberKind: updatedKind)
                 try updated.save(db)
+
+                if updated.agentVerification.isConvosAssistant,
+                   let conversation = try DBConversation.fetchOne(db, id: updated.conversationId),
+                   !conversation.hasHadVerifiedAssistant {
+                    try conversation.with(hasHadVerifiedAssistant: true).save(db)
+                }
             }
             updatedCount += 1
         }

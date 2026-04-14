@@ -405,6 +405,7 @@ actor StreamProcessor: StreamProcessorProtocol {
                 }
 
                 try profile.save(db)
+                try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
             }
             Log.debug("Processed ProfileUpdate from \(senderInboxId) in \(conversationId)")
         } catch {
@@ -468,12 +469,24 @@ actor StreamProcessor: StreamProcessorProtocol {
                     }
 
                     try profile.save(db)
+                    try Self.markConversationHasVerifiedAssistantIfNeeded(profile: profile, conversationId: conversationId, db: db)
                 }
             }
             Log.debug("Processed ProfileSnapshot with \(snapshot.profiles.count) profiles in \(conversationId)")
         } catch {
             Log.error("Failed to process ProfileSnapshot: \(error.localizedDescription)")
         }
+    }
+
+    private static func markConversationHasVerifiedAssistantIfNeeded(
+        profile: DBMemberProfile,
+        conversationId: String,
+        db: Database
+    ) throws {
+        guard profile.agentVerification.isConvosAssistant,
+              let conversation = try DBConversation.fetchOne(db, id: conversationId),
+              !conversation.hasHadVerifiedAssistant else { return }
+        try conversation.with(hasHadVerifiedAssistant: true).save(db)
     }
 
     private func sendInitialProfileSnapshot(group: XMTPiOS.Group) async {

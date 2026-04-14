@@ -32,6 +32,7 @@ public struct Conversation: Codable, Hashable, Identifiable, Sendable {
     public let debugInfo: ConversationDebugInfo
     public let isLocked: Bool
     public let assistantJoinStatus: AssistantJoinStatus?
+    public let hasHadVerifiedAssistant: Bool
 }
 
 public extension Conversation {
@@ -120,6 +121,10 @@ public extension Conversation {
 
     var hasVerifiedAssistant: Bool {
         members.contains(where: \.agentVerification.isConvosAssistant)
+    }
+
+    var hasEverHadVerifiedAssistant: Bool {
+        hasHadVerifiedAssistant
     }
 
     var hasVerifiedAgent: Bool {

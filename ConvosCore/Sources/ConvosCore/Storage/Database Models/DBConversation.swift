@@ -50,6 +50,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
         static let imageEncryptionKey: Column = Column(CodingKeys.imageEncryptionKey)
         static let imageLastRenewed: Column = Column(CodingKeys.imageLastRenewed)
         static let isUnused: Column = Column(CodingKeys.isUnused)
+        static let hasHadVerifiedAssistant: Column = Column(CodingKeys.hasHadVerifiedAssistant)
     }
 
     let id: String
@@ -74,6 +75,7 @@ struct DBConversation: Codable, FetchableRecord, PersistableRecord, Identifiable
     let imageEncryptionKey: Data?
     let imageLastRenewed: Date?
     let isUnused: Bool
+    let hasHadVerifiedAssistant: Bool
 
     static let creatorForeignKey: ForeignKey = ForeignKey(
         [Columns.creatorId, Columns.id],
@@ -257,7 +259,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -284,7 +287,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -311,7 +315,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -338,7 +343,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -365,7 +371,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -394,7 +401,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -421,7 +429,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -448,7 +457,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -475,7 +485,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -502,7 +513,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -529,7 +541,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -556,7 +569,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -583,7 +597,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -610,7 +625,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -637,7 +653,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -664,7 +681,8 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
@@ -691,7 +709,36 @@ extension DBConversation {
             imageNonce: imageNonce,
             imageEncryptionKey: imageEncryptionKey,
             imageLastRenewed: imageLastRenewed,
-            isUnused: isUnused
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
+        )
+    }
+
+    func with(hasHadVerifiedAssistant: Bool) -> Self {
+        .init(
+            id: id,
+            inboxId: inboxId,
+            clientId: clientId,
+            clientConversationId: clientConversationId,
+            inviteTag: inviteTag,
+            creatorId: creatorId,
+            kind: kind,
+            consent: consent,
+            createdAt: createdAt,
+            name: name,
+            description: description,
+            imageURLString: imageURLString,
+            publicImageURLString: publicImageURLString,
+            includeInfoInPublicPreview: includeInfoInPublicPreview,
+            expiresAt: expiresAt,
+            debugInfo: debugInfo,
+            isLocked: isLocked,
+            imageSalt: imageSalt,
+            imageNonce: imageNonce,
+            imageEncryptionKey: imageEncryptionKey,
+            imageLastRenewed: imageLastRenewed,
+            isUnused: isUnused,
+            hasHadVerifiedAssistant: hasHadVerifiedAssistant
         )
     }
 
