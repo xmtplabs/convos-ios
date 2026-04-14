@@ -45,11 +45,11 @@ public struct ConvosRestoreArchiveImporter: RestoreArchiveImporter {
             try await group.updateConsentState(state: .allowed)
         }
         if !groups.isEmpty {
-            Log.info("[Restore] set consent=allowed for \(groups.count) group(s) in \(inboxId)")
+            Log.info("set consent=allowed for \(groups.count) group(s) in \(inboxId)")
         }
 
         let newInstallationId = client.installationID
-        Log.info("[Restore] conversation archive imported for \(inboxId) (new installationId=\(newInstallationId))")
+        Log.info("conversation archive imported for \(inboxId) (new installationId=\(newInstallationId))")
         return newInstallationId
     }
 }

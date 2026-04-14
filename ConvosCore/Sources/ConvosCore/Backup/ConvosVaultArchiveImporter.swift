@@ -38,7 +38,7 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         defer {
             try? FileManager.default.removeItem(at: importDir)
         }
-        Log.info("[Restore] importing vault archive into isolated directory (inboxId=\(vaultIdentity.inboxId))")
+        Log.info("importing vault archive into isolated directory (inboxId=\(vaultIdentity.inboxId))")
 
         let importOptions = ClientOptions(
             api: api,
@@ -58,9 +58,9 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         )
         defer { try? client.dropLocalDatabaseConnection() }
 
-        Log.info("[Restore] importing vault archive (client inboxId=\(client.inboxID))")
+        Log.info("importing vault archive (client inboxId=\(client.inboxID))")
         try await client.importArchive(path: path.path, encryptionKey: encryptionKey)
-        Log.info("[Restore] vault archive import succeeded")
+        Log.info("vault archive import succeeded")
 
         let entries = try await extractKeys(from: client)
 
@@ -69,7 +69,7 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         // installation and repeatedly try to sync them, producing "Group
         // is inactive" errors in the logs.
         let throwawayId = client.installationID
-        Log.info("[Restore] revoking throwaway vault import installation \(throwawayId)")
+        Log.info("revoking throwaway vault import installation \(throwawayId)")
         do {
             let api = XMTPAPIOptionsBuilder.build(environment: environment)
             try await Client.revokeInstallations(
@@ -78,9 +78,9 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
                 inboxId: vaultIdentity.inboxId,
                 installationIds: [throwawayId]
             )
-            Log.info("[Restore] throwaway installation revoked")
+            Log.info("throwaway installation revoked")
         } catch {
-            Log.warning("[Restore] failed to revoke throwaway installation (non-fatal): \(error)")
+            Log.warning("failed to revoke throwaway installation (non-fatal): \(error)")
         }
 
         return entries
@@ -93,7 +93,7 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         // on the network by a previous restore's revocation step.
         let groups = try client.conversations.listGroups()
 
-        Log.info("[Restore] reading messages from \(groups.count) vault group(s)")
+        Log.info("reading messages from \(groups.count) vault group(s)")
         var allMessages: [DecodedMessage] = []
         for group in groups {
             let messages = try await group.messages()
@@ -111,7 +111,7 @@ public struct ConvosVaultArchiveImporter: VaultArchiveImporter {
         }
 
         let entries = VaultManager.extractKeyEntries(bundles: bundles, shares: shares)
-        Log.info("[Restore] extracted \(entries.count) key entries from \(bundles.count) bundle(s) and \(shares.count) share(s)")
+        Log.info("extracted \(entries.count) key entries from \(bundles.count) bundle(s) and \(shares.count) share(s)")
         return entries
     }
 }

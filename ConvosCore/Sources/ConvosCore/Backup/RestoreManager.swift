@@ -92,58 +92,58 @@ public actor RestoreManager {
         var committed = false
 
         do {
-            Log.info("[Restore] reading bundle (\(bundleURL.lastPathComponent))")
+            Log.info("reading bundle (\(bundleURL.lastPathComponent))")
             let bundleData = try Data(contentsOf: bundleURL)
 
             let (encryptionKey, vaultIdentity) = try await decryptBundle(
                 bundleData: bundleData,
                 to: stagingDir
             )
-            Log.info("[Restore] decrypted with vault identity inboxId=\(vaultIdentity.inboxId)")
+            Log.info("decrypted with vault identity inboxId=\(vaultIdentity.inboxId)")
 
             let metadata = try BackupBundleMetadata.read(from: stagingDir)
-            Log.info("[Restore] backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
+            Log.info("backup v\(metadata.version) from \(metadata.deviceName) (\(metadata.createdAt))")
 
             // Import the vault archive BEFORE stopping sessions. Client.create
-            Log.info("[Restore] extracting keys from vault")
+            Log.info("extracting keys from vault")
             let keyEntries = try await extractVaultKeys(
                 encryptionKey: encryptionKey,
                 vaultIdentity: vaultIdentity,
                 in: stagingDir
             )
-            Log.info("[Restore] extracted \(keyEntries.count) key(s) from vault")
+            Log.info("extracted \(keyEntries.count) key(s) from vault")
 
             if keyEntries.isEmpty, metadata.inboxCount > 0 {
-                Log.error("[Restore] backup contains \(metadata.inboxCount) conversation(s) but vault yielded 0 keys — aborting before destructive operations")
+                Log.error("backup contains \(metadata.inboxCount) conversation(s) but vault yielded 0 keys — aborting before destructive operations")
                 throw RestoreError.incompleteBackup(inboxCount: metadata.inboxCount)
             }
 
             if let restoreLifecycleController {
-                Log.info("[Restore] stopping sessions")
+                Log.info("stopping sessions")
                 await restoreLifecycleController.prepareForRestore()
                 preparedForRestore = true
-                Log.info("[Restore] sessions stopped")
+                Log.info("sessions stopped")
             }
 
-            Log.info("[Restore] snapshotting existing keychain identities for rollback")
+            Log.info("snapshotting existing keychain identities for rollback")
             preRestoreIdentities = (try? await identityStore.loadAll()) ?? []
-            Log.info("[Restore] snapshotted \(preRestoreIdentities.count) identity/identities")
+            Log.info("snapshotted \(preRestoreIdentities.count) identity/identities")
 
             destructiveOpsStarted = true
-            Log.info("[Restore] staging local XMTP files aside")
+            Log.info("staging local XMTP files aside")
             xmtpStashDir = try stageXMTPFiles()
-            Log.info("[Restore] XMTP files staged")
+            Log.info("XMTP files staged")
 
-            Log.info("[Restore] clearing keychain identities")
+            Log.info("clearing keychain identities")
             do {
                 try await identityStore.deleteAll()
             } catch {
-                Log.warning("[Restore] failed to clear conversation keychain identities: \(error)")
+                Log.warning("failed to clear conversation keychain identities: \(error)")
             }
 
-            Log.info("[Restore] saving keys to keychain")
+            Log.info("saving keys to keychain")
             let failedKeyCount = await saveKeysToKeychain(entries: keyEntries)
-            Log.info("[Restore] keys saved (\(failedKeyCount) failed)")
+            Log.info("keys saved (\(failedKeyCount) failed)")
             if !keyEntries.isEmpty, failedKeyCount == keyEntries.count {
                 // Every single key failed to save — keychain is empty and DB replace
                 // would leave the device unable to decrypt any restored conversation.
@@ -151,9 +151,9 @@ public actor RestoreManager {
                 throw RestoreError.keychainRestoreFailed
             }
 
-            Log.info("[Restore] replacing database")
+            Log.info("replacing database")
             try replaceDatabase(from: stagingDir)
-            Log.info("[Restore] database replaced")
+            Log.info("database replaced")
 
             // Commit point: DB + keychain are consistent with the restored state.
             // The staged XMTP files are stale and can be discarded; past this point
@@ -164,27 +164,27 @@ public actor RestoreManager {
                 xmtpStashDir = nil
             }
 
-            Log.info("[Restore] importing conversation archives")
+            Log.info("importing conversation archives")
             let importedInboxes = await importConversationArchives(in: stagingDir)
-            Log.info("[Restore] conversation archives imported (\(importedInboxes.count) inbox(es))")
+            Log.info("conversation archives imported (\(importedInboxes.count) inbox(es))")
 
             await revokeStaleInstallationsForRestoredInboxes(importedInboxes)
 
-            Log.info("[Restore] marking all conversations inactive")
+            Log.info("marking all conversations inactive")
             let localStateWriter = ConversationLocalStateWriter(databaseWriter: databaseManager.dbWriter)
             do {
                 try await localStateWriter.markAllConversationsInactive()
-                Log.info("[Restore] conversations marked inactive")
+                Log.info("conversations marked inactive")
             } catch {
-                Log.error("[Restore] failed to mark conversations inactive: \(error)")
+                Log.error("failed to mark conversations inactive: \(error)")
             }
 
             await reCreateVault()
 
             if preparedForRestore {
-                Log.info("[Restore] resuming sessions")
+                Log.info("resuming sessions")
                 await restoreLifecycleController?.finishRestore()
-                Log.info("[Restore] sessions resumed")
+                Log.info("sessions resumed")
             }
 
             // The vault was re-created with a new key, so the old backup
@@ -194,12 +194,12 @@ public actor RestoreManager {
 
             let restoredCount = try countRestoredInboxes()
             state = .completed(inboxCount: restoredCount, failedKeyCount: failedKeyCount)
-            Log.info("[Restore] completed: \(restoredCount) inbox(es), \(keyEntries.count) key(s), \(failedKeyCount) key failure(s)")
+            Log.info("completed: \(restoredCount) inbox(es), \(keyEntries.count) key(s), \(failedKeyCount) key failure(s)")
 
             BackupBundle.cleanup(directory: stagingDir)
         } catch {
             if !committed, destructiveOpsStarted {
-                Log.warning("[Restore] rolling back keychain and XMTP state after failure: \(error)")
+                Log.warning("rolling back keychain and XMTP state after failure: \(error)")
                 await rollbackKeychain(to: preRestoreIdentities)
                 if let stash = xmtpStashDir {
                     restoreStagedXMTPFiles(from: stash)
@@ -239,10 +239,10 @@ public actor RestoreManager {
                 try fileManager.moveItem(at: file, to: destination)
                 moved += 1
             } catch {
-                Log.warning("[Restore] failed to stage XMTP file \(file.lastPathComponent): \(error)")
+                Log.warning("failed to stage XMTP file \(file.lastPathComponent): \(error)")
             }
         }
-        Log.info("[Restore] staged \(moved) XMTP file(s) to \(stashDir.lastPathComponent)")
+        Log.info("staged \(moved) XMTP file(s) to \(stashDir.lastPathComponent)")
         return stashDir
     }
 
@@ -264,11 +264,11 @@ public actor RestoreManager {
             do {
                 try fileManager.moveItem(at: file, to: destination)
             } catch {
-                Log.warning("[Restore] failed to restore staged XMTP file \(file.lastPathComponent): \(error)")
+                Log.warning("failed to restore staged XMTP file \(file.lastPathComponent): \(error)")
             }
         }
         try? fileManager.removeItem(at: stashDir)
-        Log.info("[Restore] restored staged XMTP files")
+        Log.info("restored staged XMTP files")
     }
 
     private func deleteStagedXMTPFiles(at stashDir: URL) {
@@ -279,7 +279,7 @@ public actor RestoreManager {
         do {
             try await identityStore.deleteAll()
         } catch {
-            Log.warning("[Restore] rollback: failed to clear keychain before restoring snapshot: \(error)")
+            Log.warning("rollback: failed to clear keychain before restoring snapshot: \(error)")
         }
         for identity in snapshot {
             do {
@@ -289,7 +289,7 @@ public actor RestoreManager {
                     keys: identity.keys
                 )
             } catch {
-                Log.warning("[Restore] rollback: failed to restore identity \(identity.inboxId): \(error)")
+                Log.warning("rollback: failed to restore identity \(identity.inboxId): \(error)")
             }
         }
     }
@@ -297,43 +297,43 @@ public actor RestoreManager {
     // MARK: - Vault re-creation
 
     private func reCreateVault() async {
-        Log.info("[Restore.reCreateVault] === START ===")
+        Log.info("=== START ===")
 
         guard let vaultManager else {
-            Log.warning("[Restore.reCreateVault] no VaultManager provided, skipping vault re-creation")
+            Log.warning("no VaultManager provided, skipping vault re-creation")
             return
         }
 
         let vaultInboxBefore = await vaultManager.vaultInboxId ?? "nil"
-        Log.info("[Restore.reCreateVault] vault inboxId before re-create: \(vaultInboxBefore)")
+        Log.info("vault inboxId before re-create: \(vaultInboxBefore)")
 
-        Log.info("[Restore.reCreateVault] calling VaultManager.reCreate")
+        Log.info("calling VaultManager.reCreate")
         do {
             try await vaultManager.reCreate(
                 databaseWriter: databaseManager.dbWriter,
                 environment: environment
             )
             let vaultInboxAfter = await vaultManager.vaultInboxId ?? "nil"
-            Log.info("[Restore.reCreateVault] vault re-created successfully, new inboxId=\(vaultInboxAfter)")
+            Log.info("vault re-created successfully, new inboxId=\(vaultInboxAfter)")
 
             let keyCount = (try? await databaseManager.dbReader.read { db in
                 try Int.fetchOne(db, sql: """
                     SELECT COUNT(*) FROM inbox WHERE isVault = 0
                     """) ?? 0
             }) ?? 0
-            Log.info("[Restore.reCreateVault] broadcasting restored conversation keys to new vault (\(keyCount) conversation inbox(es))")
+            Log.info("broadcasting restored conversation keys to new vault (\(keyCount) conversation inbox(es))")
 
             do {
                 try await vaultManager.shareAllKeys()
-                Log.info("[Restore.reCreateVault] broadcast complete")
+                Log.info("broadcast complete")
             } catch {
-                Log.warning("[Restore.reCreateVault] broadcast failed (non-fatal): \(error)")
+                Log.warning("broadcast failed (non-fatal): \(error)")
             }
         } catch {
-            Log.error("[Restore.reCreateVault] vault re-creation failed: \(error)")
+            Log.error("vault re-creation failed: \(error)")
         }
 
-        Log.info("[Restore.reCreateVault] === DONE ===")
+        Log.info("=== DONE ===")
     }
 
     // MARK: - Bundle decryption
@@ -350,12 +350,12 @@ public actor RestoreManager {
         for identity in identities {
             let key = identity.keys.databaseKey
             do {
-                Log.info("[Restore] trying vault key (inboxId=\(identity.inboxId))")
+                Log.info("trying vault key (inboxId=\(identity.inboxId))")
                 try BackupBundle.unpack(data: bundleData, encryptionKey: key, to: stagingDir)
-                Log.info("[Restore] decryption succeeded with vault key (inboxId=\(identity.inboxId))")
+                Log.info("decryption succeeded with vault key (inboxId=\(identity.inboxId))")
                 return (key, identity)
             } catch {
-                Log.info("[Restore] vault key (inboxId=\(identity.inboxId)) failed: \(error)")
+                Log.info("vault key (inboxId=\(identity.inboxId)) failed: \(error)")
                 // Reset staging dir for the next attempt. If reset fails (e.g. disk full),
                 // log and continue — let the loop try the next key, then surface
                 // RestoreError.decryptionFailed at the end.
@@ -363,7 +363,7 @@ public actor RestoreManager {
                     BackupBundle.cleanup(directory: stagingDir)
                     try FileManager.default.createDirectory(at: stagingDir, withIntermediateDirectories: true)
                 } catch {
-                    Log.warning("[Restore] failed to reset staging directory between key attempts: \(error)")
+                    Log.warning("failed to reset staging directory between key attempts: \(error)")
                 }
             }
         }
@@ -392,23 +392,23 @@ public actor RestoreManager {
         if let vaultManager,
            let liveInboxId = await vaultManager.vaultInboxId,
            liveInboxId == vaultIdentity.inboxId {
-            Log.info("[Restore] live vault matches backup identity, extracting keys directly")
+            Log.info("live vault matches backup identity, extracting keys directly")
             do {
                 let entries = try await vaultManager.extractKeys()
                 if !entries.isEmpty {
-                    Log.info("[Restore] extracted \(entries.count) key(s) from live vault")
+                    Log.info("extracted \(entries.count) key(s) from live vault")
                     return entries
                 }
-                Log.warning("[Restore] live vault returned 0 keys, falling back to archive import")
+                Log.warning("live vault returned 0 keys, falling back to archive import")
             } catch {
-                Log.warning("[Restore] live vault key extraction failed (\(error)), falling back to archive import")
+                Log.warning("live vault key extraction failed (\(error)), falling back to archive import")
             }
         }
 
         let vaultArchivePath = BackupBundle.vaultArchivePath(in: directory)
 
         guard FileManager.default.fileExists(atPath: vaultArchivePath.path) else {
-            Log.error("[Restore] vault archive missing from bundle — aborting before destructive operations")
+            Log.error("vault archive missing from bundle — aborting before destructive operations")
             throw RestoreError.missingVaultArchive
         }
 
@@ -520,18 +520,18 @@ public actor RestoreManager {
         _ imported: [(inboxId: String, newInstallationId: String)]
     ) async {
         guard let installationRevoker else {
-            Log.info("[Restore] installationRevoker not configured, skipping post-import revocation")
+            Log.info("installationRevoker not configured, skipping post-import revocation")
             return
         }
         guard !imported.isEmpty else { return }
 
-        Log.info("[Restore] revoking stale installations for \(imported.count) restored inbox(es)")
+        Log.info("revoking stale installations for \(imported.count) restored inbox(es)")
         for entry in imported {
             let identity: KeychainIdentity
             do {
                 identity = try await identityStore.identity(for: entry.inboxId)
             } catch {
-                Log.warning("[Restore] cannot load identity for \(entry.inboxId), skipping revocation: \(error)")
+                Log.warning("cannot load identity for \(entry.inboxId), skipping revocation: \(error)")
                 continue
             }
             do {
@@ -540,9 +540,9 @@ public actor RestoreManager {
                     identity.keys.signingKey,
                     entry.newInstallationId
                 )
-                Log.info("[Restore] revoked \(revoked) stale installation(s) for \(entry.inboxId)")
+                Log.info("revoked \(revoked) stale installation(s) for \(entry.inboxId)")
             } catch {
-                Log.warning("[Restore] revocation failed for \(entry.inboxId) (non-fatal): \(error)")
+                Log.warning("revocation failed for \(entry.inboxId) (non-fatal): \(error)")
             }
         }
     }
@@ -551,14 +551,14 @@ public actor RestoreManager {
 
     private func createPostRestoreBackup() async {
         guard let backupCreator else {
-            Log.info("[Restore] no backup creator provided, skipping post-restore backup")
+            Log.info("no backup creator provided, skipping post-restore backup")
             return
         }
         do {
             let url = try await backupCreator()
-            Log.info("[Restore] post-restore backup created at \(url.lastPathComponent)")
+            Log.info("post-restore backup created at \(url.lastPathComponent)")
         } catch {
-            Log.warning("[Restore] post-restore backup failed (non-fatal): \(error)")
+            Log.warning("post-restore backup failed (non-fatal): \(error)")
         }
     }
 

@@ -709,32 +709,32 @@ extension SessionManager: VaultEventHandler {
 
 extension SessionManager: RestoreLifecycleControlling {
     public func prepareForRestore() async {
-        Log.info("[Restore] prepareForRestore: pausing import drainer")
+        Log.info("prepareForRestore: pausing import drainer")
         await importSyncDrainer.pause()
-        Log.info("[Restore] prepareForRestore: stopping sleeping inbox checker")
+        Log.info("prepareForRestore: stopping sleeping inbox checker")
         await sleepingInboxChecker.stopPeriodicChecks()
-        Log.info("[Restore] prepareForRestore: stopping all inboxes")
+        Log.info("prepareForRestore: stopping all inboxes")
         await lifecycleManager.stopAll()
-        Log.info("[Restore] prepareForRestore: pausing vault")
+        Log.info("prepareForRestore: pausing vault")
         await vaultService?.pauseVault()
         unusedInboxPrepTask?.cancel()
         unusedInboxPrepTask = nil
-        Log.info("[Restore] prepareForRestore: done")
+        Log.info("prepareForRestore: done")
     }
 
     public func finishRestore() async {
-        Log.info("[Restore] finishRestore: resuming vault")
+        Log.info("finishRestore: resuming vault")
         await vaultService?.resumeVault()
-        Log.info("[Restore] finishRestore: resuming import drainer")
+        Log.info("finishRestore: resuming import drainer")
         await importSyncDrainer.resume()
-        Log.info("[Restore] finishRestore: starting sleeping inbox checker")
+        Log.info("finishRestore: starting sleeping inbox checker")
         await sleepingInboxChecker.startPeriodicChecks()
-        Log.info("[Restore] finishRestore: scheduling unused inbox prep")
+        Log.info("finishRestore: scheduling unused inbox prep")
         unusedInboxPrepTask = Task(priority: .background) { [weak self] in
             guard let self, !Task.isCancelled else { return }
             await self.lifecycleManager.prepareUnusedConversationIfNeeded()
         }
         notificationChangeReporter.notifyChangesInDatabase()
-        Log.info("[Restore] finishRestore: done")
+        Log.info("finishRestore: done")
     }
 }

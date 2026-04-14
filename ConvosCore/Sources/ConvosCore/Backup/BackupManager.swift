@@ -58,7 +58,7 @@ public actor BackupManager {
             )
 
             let outputURL = try writeToICloudOrLocal(bundleData: bundleData, metadata: metadata)
-            Log.info("[Backup] saved to \(outputURL.path)")
+            Log.info("saved to \(outputURL.path)")
             BackupBundle.cleanup(directory: stagingDir)
             return outputURL
         } catch {
@@ -71,36 +71,36 @@ public actor BackupManager {
         encryptionKey: Data,
         stagingDir: URL
     ) async throws -> (Data, BackupBundleMetadata) {
-        Log.info("[Backup] broadcasting all conversation keys to vault")
+        Log.info("broadcasting all conversation keys to vault")
         do {
             try await archiveProvider.broadcastKeysToVault()
-            Log.info("[Backup] keys broadcast to vault")
+            Log.info("keys broadcast to vault")
         } catch {
             // Fail loud: if we can't broadcast keys to the vault, the archive may not
             // contain every inbox's key. That would produce a backup that silently
             // cannot be fully restored. Better to surface the failure now than create
             // an incomplete bundle the user trusts.
-            Log.error("[Backup] failed to broadcast keys to vault: \(error)")
+            Log.error("failed to broadcast keys to vault: \(error)")
             throw BackupError.broadcastKeysFailed(error)
         }
-        Log.info("[Backup] creating vault archive")
+        Log.info("creating vault archive")
         try await createVaultArchive(encryptionKey: encryptionKey, in: stagingDir)
-        Log.info("[Backup] vault archive created")
+        Log.info("vault archive created")
 
-        Log.info("[Backup] creating conversation archives")
+        Log.info("creating conversation archives")
         let conversationResults = await createConversationArchives(in: stagingDir)
         let successCount = conversationResults.filter(\.success).count
         let failedResults = conversationResults.filter { !$0.success }
-        Log.info("[Backup] conversation archives: \(successCount)/\(conversationResults.count) succeeded")
+        Log.info("conversation archives: \(successCount)/\(conversationResults.count) succeeded")
         if !failedResults.isEmpty {
             for result in failedResults {
-                Log.warning("[Backup] conversation archive failed for \(result.inboxId): \(result.error?.localizedDescription ?? "unknown error")")
+                Log.warning("conversation archive failed for \(result.inboxId): \(result.error?.localizedDescription ?? "unknown error")")
             }
         }
 
-        Log.info("[Backup] copying database snapshot")
+        Log.info("copying database snapshot")
         try copyDatabase(to: stagingDir)
-        Log.info("[Backup] database snapshot copied")
+        Log.info("database snapshot copied")
 
         let metadata = BackupBundleMetadata(
             deviceId: DeviceInfo.deviceIdentifier,
@@ -112,7 +112,7 @@ public actor BackupManager {
 
         let bundleData = try BackupBundle.pack(directory: stagingDir, encryptionKey: encryptionKey)
         let bundleSizeKB = bundleData.count / 1024
-        Log.info("[Backup] bundle packed: \(bundleSizeKB)KB, \(successCount) conversation(s), vault=true, db=true")
+        Log.info("bundle packed: \(bundleSizeKB)KB, \(successCount) conversation(s), vault=true, db=true")
         return (bundleData, metadata)
     }
 
@@ -127,7 +127,7 @@ public actor BackupManager {
             let repo = InboxesRepository(databaseReader: databaseReader)
             inboxes = try repo.nonVaultUsedInboxes()
         } catch {
-            Log.warning("[Backup] failed to load inboxes: \(error)")
+            Log.warning("failed to load inboxes: \(error)")
             return []
         }
 
@@ -137,7 +137,7 @@ public actor BackupManager {
             do {
                 identity = try await identityStore.identity(for: inbox.inboxId)
             } catch {
-                Log.warning("[Backup] no identity for inbox \(inbox.inboxId), skipping archive")
+                Log.warning("no identity for inbox \(inbox.inboxId), skipping archive")
                 results.append(.init(inboxId: inbox.inboxId, success: false, error: error))
                 continue
             }
@@ -151,7 +151,7 @@ public actor BackupManager {
                 )
                 results.append(.init(inboxId: inbox.inboxId, success: true, error: nil))
             } catch {
-                Log.warning("[Backup] failed to archive conversation \(inbox.inboxId): \(error)")
+                Log.warning("failed to archive conversation \(inbox.inboxId): \(error)")
                 results.append(.init(inboxId: inbox.inboxId, success: false, error: error))
             }
         }
@@ -198,7 +198,7 @@ public actor BackupManager {
             .appendingPathComponent("backups", isDirectory: true)
             .appendingPathComponent(deviceId, isDirectory: true)
         try FileManager.default.createDirectory(at: localDir, withIntermediateDirectories: true)
-        Log.warning("[Backup] iCloud container unavailable, saved locally")
+        Log.warning("iCloud container unavailable, saved locally")
         return localDir
     }
 }

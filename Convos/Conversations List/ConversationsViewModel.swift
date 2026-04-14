@@ -367,7 +367,7 @@ final class ConversationsViewModel {
         case (.fullStale, .healthy): event = "full_to_healthy"
         default: event = "unknown_transition"
         }
-        Log.info("[StaleDevice] state transition: \(event) (previous=\(previous) current=\(current))")
+        Log.info("state transition: \(event) (previous=\(previous) current=\(current))")
 
         switch current {
         case .healthy:
@@ -401,11 +401,11 @@ final class ConversationsViewModel {
 
     func cancelFullStaleAutoReset() {
         isPendingFullStaleAutoReset = false
-        Log.info("[StaleDevice] auto-reset cancelled by user")
+        Log.info("auto-reset cancelled by user")
     }
 
     func confirmFullStaleAutoReset() {
-        Log.info("[StaleDevice] auto-reset confirmed")
+        Log.info("auto-reset confirmed")
         isPendingFullStaleAutoReset = false
         deleteAllData()
     }
@@ -506,7 +506,7 @@ final class ConversationsViewModel {
                 // no real conversations).
                 if self.conversations.isEmpty, !ids.isEmpty,
                    self.staleDeviceState == .partialStale {
-                    Log.info("[StaleDevice] no visible conversations in partial stale — escalating to fullStale")
+                    Log.info("no visible conversations in partial stale — escalating to fullStale")
                     let previous = self.staleDeviceState
                     self.staleDeviceState = .fullStale
                     self.handleStaleStateTransition(from: previous, to: .fullStale)

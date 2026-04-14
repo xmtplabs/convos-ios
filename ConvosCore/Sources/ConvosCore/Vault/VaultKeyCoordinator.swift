@@ -56,7 +56,7 @@ actor VaultKeyCoordinator {
                     Task { await self.shareUnsharedInboxes(unsharedRows) }
                 }
             )
-        Log.info("Vault: started observing inboxes for key sharing")
+        Log.info("started observing inboxes for key sharing")
     }
 
     func stopObserving() {
@@ -76,7 +76,7 @@ actor VaultKeyCoordinator {
             inboxesBeingShared.insert(row.inboxId)
         }
 
-        Log.info("Vault: found \(newRows.count) unshared inbox(es) with conversations")
+        Log.info("found \(newRows.count) unshared inbox(es) with conversations")
 
         for row in newRows {
             await shareKeyForInbox(row.inboxId, clientId: row.clientId)
@@ -92,9 +92,9 @@ actor VaultKeyCoordinator {
     }
 
     func shareAllKeys(pendingPeerDeviceNames: [String: String]) async throws {
-        Log.info("[VaultKeyCoordinator.shareAllKeys] === START ===")
+        Log.info("=== START ===")
         guard let installationId = await vaultClient.installationId else {
-            Log.error("[VaultKeyCoordinator.shareAllKeys] vault client not connected, aborting")
+            Log.error("vault client not connected, aborting")
             throw VaultClientError.notConnected
         }
 
@@ -115,14 +115,14 @@ actor VaultKeyCoordinator {
                 )
             }
         }
-        Log.info("[VaultKeyCoordinator.shareAllKeys] found \(inboxRows.count) (inbox, conversation) row(s) to share")
+        Log.info("found \(inboxRows.count) (inbox, conversation) row(s) to share")
 
         var keys: [DeviceKeyEntry] = []
         var missingIdentityCount = 0
         for item in inboxRows {
             guard let identity = try? await identityStore.identity(for: item.inboxId) else {
                 missingIdentityCount += 1
-                Log.warning("[VaultKeyCoordinator.shareAllKeys] missing keychain identity for inboxId=\(item.inboxId), skipping")
+                Log.warning("missing keychain identity for inboxId=\(item.inboxId), skipping")
                 continue
             }
             keys.append(DeviceKeyEntry(
@@ -133,7 +133,7 @@ actor VaultKeyCoordinator {
                 databaseKey: identity.keys.databaseKey
             ))
         }
-        Log.info("[VaultKeyCoordinator.shareAllKeys] packaged \(keys.count) key(s) into bundle (skipped \(missingIdentityCount) due to missing identity)")
+        Log.info("packaged \(keys.count) key(s) into bundle (skipped \(missingIdentityCount) due to missing identity)")
 
         let peerNames = pendingPeerDeviceNames.isEmpty ? nil : pendingPeerDeviceNames
         let bundle = DeviceKeyBundleContent(
@@ -143,9 +143,9 @@ actor VaultKeyCoordinator {
             peerDeviceNames: peerNames
         )
 
-        Log.info("[VaultKeyCoordinator.shareAllKeys] sending DeviceKeyBundle to vault group (installationId=\(installationId) deviceName=\(deviceName))")
+        Log.info("sending DeviceKeyBundle to vault group (installationId=\(installationId) deviceName=\(deviceName))")
         try await vaultClient.send(bundle, codec: DeviceKeyBundleCodec())
-        Log.info("[VaultKeyCoordinator.shareAllKeys] DeviceKeyBundle sent successfully")
+        Log.info("DeviceKeyBundle sent successfully")
         // Only mark inboxes whose keys were actually packaged into the bundle.
         // Inboxes skipped due to missing keychain identity must NOT be marked
         // shared, otherwise they will never be re-attempted on future syncs.
@@ -159,9 +159,9 @@ actor VaultKeyCoordinator {
                     )
                 }
             }
-            Log.info("[VaultKeyCoordinator.shareAllKeys] marked \(sharedInboxIds.count) inbox(es) as sharedToVault=1")
+            Log.info("marked \(sharedInboxIds.count) inbox(es) as sharedToVault=1")
         }
-        Log.info("[VaultKeyCoordinator.shareAllKeys] === DONE ===")
+        Log.info("=== DONE ===")
     }
 
     func checkUnsharedInboxes() async {
@@ -195,7 +195,7 @@ actor VaultKeyCoordinator {
 
             await eventHandler?.vaultDidImportInbox(inboxId: identity.inboxId, clientId: identity.clientId)
         } catch {
-            Log.error("Vault: failed to import key share for \(share.inboxId): \(error)")
+            Log.error("failed to import key share for \(share.inboxId): \(error)")
         }
     }
 
@@ -222,13 +222,13 @@ actor VaultKeyCoordinator {
 
                 importedEntries.append((inboxId: identity.inboxId, clientId: identity.clientId))
             } catch {
-                Log.error("Vault: failed to import key bundle entry for \(key.inboxId): \(error)")
+                Log.error("failed to import key bundle entry for \(key.inboxId): \(error)")
             }
         }
 
         if !importedEntries.isEmpty {
             let importedInboxIds = Set(importedEntries.map { $0.inboxId })
-            Log.info("Vault: imported \(importedEntries.count) key(s) from bundle")
+            Log.info("imported \(importedEntries.count) key(s) from bundle")
             await eventHandler?.vaultDidImportKeyBundle(inboxIds: importedInboxIds, count: importedEntries.count)
         }
 
@@ -241,7 +241,7 @@ actor VaultKeyCoordinator {
 
     private func shareKeyForInbox(_ inboxId: String, clientId: String) async {
         guard let identity = try? await identityStore.identity(for: inboxId) else {
-            Log.warning("Vault: no keychain identity for inbox \(inboxId)")
+            Log.warning("no keychain identity for inbox \(inboxId)")
             return
         }
 
@@ -261,7 +261,7 @@ actor VaultKeyCoordinator {
             privateKeyData: Data(identity.keys.privateKey.secp256K1.bytes),
             databaseKey: identity.keys.databaseKey
         )
-        Log.info("Vault: sharing key for inbox \(inboxId)")
+        Log.info("sharing key for inbox \(inboxId)")
         await sendKeyShare(keyInfo)
     }
 
@@ -280,7 +280,7 @@ actor VaultKeyCoordinator {
         do {
             try await vaultClient.send(share, codec: DeviceKeyShareCodec())
         } catch {
-            Log.error("Vault: failed to share key for \(keyInfo.inboxId): \(error)")
+            Log.error("failed to share key for \(keyInfo.inboxId): \(error)")
         }
     }
 

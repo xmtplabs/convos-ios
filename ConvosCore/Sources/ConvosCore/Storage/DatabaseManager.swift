@@ -48,30 +48,30 @@ public final class DatabaseManager: DatabaseManagerProtocol, @unchecked Sendable
             throw CocoaError(.fileNoSuchFile)
         }
 
-        Log.info("[Restore] opening backup at: \(backupPath.lastPathComponent)")
+        Log.info("opening backup at: \(backupPath.lastPathComponent)")
         let backupQueue = try DatabaseQueue(path: backupPath.path)
 
-        Log.info("[Restore] creating rollback snapshot")
+        Log.info("creating rollback snapshot")
         let rollbackQueue = try DatabaseQueue()
         try dbPool.backup(to: rollbackQueue)
 
-        Log.info("[Restore] copying backup into live pool")
+        Log.info("copying backup into live pool")
         do {
             try backupQueue.backup(to: dbPool)
-            Log.info("[Restore] running migrations")
+            Log.info("running migrations")
             try SharedDatabaseMigrator.shared.migrate(database: dbPool)
-            Log.info("[Restore] database replacement succeeded")
+            Log.info("database replacement succeeded")
         } catch {
-            Log.warning("[Restore] replacement failed (\(error)), rolling back")
+            Log.warning("replacement failed (\(error)), rolling back")
             do {
                 try rollbackQueue.backup(to: dbPool)
                 try SharedDatabaseMigrator.shared.migrate(database: dbPool)
-                Log.info("[Restore] rollback succeeded")
+                Log.info("rollback succeeded")
             } catch let rollbackError as Error {
                 // Rollback or its post-restore migration failed. The DB is in a
                 // potentially-inconsistent state — surface a dedicated error so
                 // the caller knows it's worse than just a failed restore.
-                Log.error("[Restore] rollback failed (original error: \(error)) — \(rollbackError)")
+                Log.error("rollback failed (original error: \(error)) — \(rollbackError)")
                 throw DatabaseManagerError.rollbackFailed(
                     original: error,
                     rollback: rollbackError

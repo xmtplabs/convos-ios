@@ -723,23 +723,23 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
             storedInstallationId = nil
         }
 
-        Log.info("[Revoke] inbox \(result.client.inboxId): storedInstallationId=\(storedInstallationId ?? "nil") newInstallationId=\(result.client.installationId)")
+        Log.info("inbox \(result.client.inboxId): storedInstallationId=\(storedInstallationId ?? "nil") newInstallationId=\(result.client.installationId)")
 
         if let storedInstallationId {
             if storedInstallationId != result.client.installationId {
-                Log.info("[Revoke] inbox \(result.client.inboxId): installationId changed, revoking all other installations")
+                Log.info("inbox \(result.client.inboxId): installationId changed, revoking all other installations")
                 do {
                     let identity = try await identityStore.identity(for: result.client.inboxId)
                     try await revokeInstallationsHandler(result.client, identity.keys.signingKey)
-                    Log.info("[Revoke] inbox \(result.client.inboxId): revoked all other installations ✓")
+                    Log.info("inbox \(result.client.inboxId): revoked all other installations")
                 } catch {
-                    Log.warning("[Revoke] inbox \(result.client.inboxId): revocation failed (non-fatal): \(error)")
+                    Log.warning("inbox \(result.client.inboxId): revocation failed (non-fatal): \(error)")
                 }
             } else {
-                Log.info("[Revoke] inbox \(result.client.inboxId): installationId unchanged, skipping")
+                Log.info("inbox \(result.client.inboxId): installationId unchanged, skipping")
             }
         } else {
-            Log.info("[Revoke] inbox \(result.client.inboxId): no stored installationId, skipping (first-time auth)")
+            Log.info("inbox \(result.client.inboxId): no stored installationId, skipping (first-time auth)")
         }
 
         do {
@@ -759,19 +759,19 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         let staleIsActive: Bool?
         do {
             let (isActive, activeIds) = try await result.client.isInstallationActiveWithDetails()
-            Log.info("[Stale] inbox \(staleInboxId): local installationId=\(staleInstallationId) network installations=\(activeIds) isActive=\(isActive)")
+            Log.info("inbox \(staleInboxId): local installationId=\(staleInstallationId) network installations=\(activeIds) isActive=\(isActive)")
             staleIsActive = isActive
         } catch {
-            Log.warning("[Stale] inbox \(staleInboxId): check failed (non-fatal): \(error)")
+            Log.warning("inbox \(staleInboxId): check failed (non-fatal): \(error)")
             staleIsActive = nil
         }
         if let staleIsActive {
             if staleIsActive {
-                Log.info("[Stale] inbox \(staleInboxId): installation is active ✓")
+                Log.info("inbox \(staleInboxId): installation is active")
                 let writer = InboxWriter(dbWriter: databaseWriter)
                 try? await writer.markStale(inboxId: staleInboxId, false)
             } else {
-                Log.warning("[Stale] inbox \(staleInboxId): installation NOT in active list — marking stale")
+                Log.warning("inbox \(staleInboxId): installation NOT in active list — marking stale")
                 let writer = InboxWriter(dbWriter: databaseWriter)
                 try? await writer.markStale(inboxId: staleInboxId, true)
                 QAEvent.emit(.inbox, "stale_detected", ["inboxId": staleInboxId])
@@ -976,16 +976,16 @@ public actor InboxStateMachine: InboxStateManagerProtocol {
         do {
             foregroundIsActive = try await result.client.isInstallationActive()
         } catch {
-            Log.warning("[Stale] inbox \(foregroundInboxId): foreground check failed (non-fatal): \(error)")
+            Log.warning("inbox \(foregroundInboxId): foreground check failed (non-fatal): \(error)")
             foregroundIsActive = nil
         }
         if let foregroundIsActive {
             let writer = InboxWriter(dbWriter: databaseWriter)
             if foregroundIsActive {
-                Log.info("[Stale] inbox \(foregroundInboxId): foreground check — installation is active ✓")
+                Log.info("inbox \(foregroundInboxId): foreground check — installation is active")
                 try? await writer.markStale(inboxId: foregroundInboxId, false)
             } else {
-                Log.warning("[Stale] inbox \(foregroundInboxId): foreground check — installation NOT in active list, marking stale")
+                Log.warning("inbox \(foregroundInboxId): foreground check — installation NOT in active list, marking stale")
                 try? await writer.markStale(inboxId: foregroundInboxId, true)
                 QAEvent.emit(.inbox, "stale_detected", ["inboxId": foregroundInboxId, "trigger": "foreground"])
             }
