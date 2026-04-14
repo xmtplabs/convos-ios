@@ -54,7 +54,7 @@ Every background task handler must:
 ### Behavior when no vault key exists
 
 If the vault hasn't been bootstrapped yet (no conversations, fresh install), the backup will fail at `vaultKeyStore.loadAny()`. The scheduler should:
-- Log the skip reason at info level
+- Log the skip reason via `Log.info` and emit `QAEvent.emit(.backup, "skipped_no_vault")` so QA can verify during test runs
 - Call `task.setTaskCompleted(success: true)` (not a real failure, just nothing to back up)
 - Reschedule — the next run will succeed after the user creates their first conversation
 
@@ -143,10 +143,27 @@ On next check: if `findAvailableBackup()` returns a backup with `createdAt` newe
 | `Convos/Conversations List/ConversationsViewModel.swift` | Add `availableRestorePrompt` + foreground re-check |
 | `Convos/Conversations List/ConversationsView.swift` | Render restore prompt card on empty state |
 
+## Design decisions
+
+### No backup toggle
+
+Backups are always on. The backup is tiny (~384KB), runs once a day in the background, and uses negligible battery/data. A toggle lets users disable their own safety net — they won't know until they lose their phone and have nothing to restore. If there's user demand later, a toggle can be added without architectural changes.
+
+### No frequency picker
+
+Daily is hardcoded. Weekly means up to 7 days of lost messages on restore. Hourly is wasteful for text-only conversations that change slowly. Daily covers the common case without a knob to confuse users.
+
+### Concurrency guard
+
+`BackupManager` is an actor, so backup calls serialize naturally. The concrete risk is the BGTask handler firing while the user is mid-manual-backup. The scheduler holds an `isBackupInProgress` flag to short-circuit the background handler in that case — mark complete immediately and reschedule.
+
+### First-conversation trigger timing
+
+15 minutes `earliestBeginDate` (not 5). `BGProcessingTask` often requires network + idle/power, so very short windows on fresh installs without charge may be ignored by iOS. 15 minutes gives the system more flexibility.
+
 ## Out of scope
 
-- Backup on/off toggle (always on for v1)
-- Frequency picker (daily, hardcoded)
 - Quickname data is stored in UserDefaults and is not included in the backup bundle; out of scope for this PR
 - Incremental/delta backups (full backup each time)
 - Backup size compression (not needed at current sizes)
+- Conversation count in `BackupBundleMetadata` — trivial follow-up to replace inboxCount in card copy
