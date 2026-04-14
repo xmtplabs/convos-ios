@@ -4,6 +4,26 @@ import Foundation
 extension ConversationsViewModel {
     static let skippedRestoreBackupDateKey: String = "skippedRestoreBackupDate"
 
+    /// Debug-only notification. Posted from settings to force the restore
+    /// card to appear, even when `findAvailableBackup` returns nil. The
+    /// card still only renders when the conversations list is empty.
+    static let debugShowRestorePromptNotification: Notification.Name = Notification.Name("debugShowRestorePrompt")
+
+    /// Called by the view when it subscribes to `debugShowRestorePromptNotification`.
+    func handleDebugShowRestorePrompt() {
+        if let real = RestoreManager.findAvailableBackup(environment: environment) {
+            availableRestorePrompt = real.metadata
+            return
+        }
+        availableRestorePrompt = BackupBundleMetadata(
+            createdAt: Date(),
+            deviceId: "debug-device",
+            deviceName: "Debug iPhone",
+            osString: "iOS 26.0",
+            inboxCount: 3
+        )
+    }
+
     /// Probes for a restorable backup. Called from `.onAppear` and on
     /// `didBecomeActive` (to handle iCloud Keychain sync lag on fresh
     /// install). Populates `availableRestorePrompt` on the main actor;

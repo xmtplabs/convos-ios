@@ -189,6 +189,7 @@ private struct RestoreConfirmationModifier: ViewModifier {
 }
 
 struct BackupRestoreSettingsView: View {
+    @Environment(\.dismiss) private var dismiss: DismissAction
     @State private var viewModel: BackupRestoreViewModel
 
     init(
@@ -329,10 +330,25 @@ struct BackupRestoreSettingsView: View {
                         .foregroundStyle(.colorTextSecondary)
                 }
             }
+
+            let showPromptAction: () -> Void = {
+                UserDefaults.standard.removeObject(forKey: ConversationsViewModel.skippedRestoreBackupDateKey)
+                NotificationCenter.default.post(name: ConversationsViewModel.debugShowRestorePromptNotification, object: nil)
+                dismiss()
+            }
+            Button(action: showPromptAction) {
+                HStack {
+                    Text("Show fresh-install restore prompt")
+                        .foregroundStyle(.colorTextPrimary)
+                    Spacer()
+                    Image(systemName: "arrow.counterclockwise.icloud")
+                        .foregroundStyle(.colorTextSecondary)
+                }
+            }
         } header: {
             Text("Debug")
         } footer: {
-            Text("Triggers the BGTask handler path locally. Reschedules after.")
+            Text("Run BGTask handler path locally. Show prompt only renders on the empty conversations screen — delete all data first if you have conversations.")
         }
     }
 

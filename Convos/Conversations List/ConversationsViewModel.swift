@@ -567,6 +567,14 @@ final class ConversationsViewModel {
                 self.checkForAvailableBackup()
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default
+            .publisher(for: Self.debugShowRestorePromptNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.handleDebugShowRestorePrompt()
+            }
+            .store(in: &cancellables)
     }
 
     private func handleConversationNotificationTap(_ notification: Notification) {
